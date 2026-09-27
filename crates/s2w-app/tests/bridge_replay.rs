@@ -190,18 +190,33 @@ fn bridge_replays_the_in_memory_log() -> TestResult {
     replay_and_check(log)
 }
 
+/// A fresh directory under the system temp dir, removed on drop (even when a test panics).
+struct TestDirectory(std::path::PathBuf);
+
+impl TestDirectory {
+    fn new(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("s2w-app-{name}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&path)?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for TestDirectory {
+    fn drop(&mut self) {
+        let _ignored = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn bridge_replays_the_sqlite_log() -> TestResult {
-    let directory = std::env::temp_dir().join(format!("s2w-bridge-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&directory);
-    std::fs::create_dir_all(&directory)?;
-    let result = (|| {
-        let mut log = SqliteEventLog::open(&directory)?;
-        log.append_batch(fixture_events()?)?;
-        replay_and_check(log)
-    })();
-    let _ = std::fs::remove_dir_all(&directory);
-    result
+    let directory = TestDirectory::new("bridge")?;
+    let mut log = SqliteEventLog::open(&directory.0)?;
+    log.append_batch(fixture_events()?)?;
+    replay_and_check(log)
 }
 
 #[test]
@@ -244,6 +259,10 @@ impl Engine for Panics {
 fn a_panicking_engine_is_an_abstention_and_the_next_engine_still_runs() -> TestResult {
     let mut log = InMemoryEventLog::new();
     log.append(event("stdin", 0, MERGE.as_bytes())?)?;
+    let stored = log
+        .read_after(None)?
+        .next()
+        .ok_or("the event was stored")??;
     let mut registry = EngineRegistry::new();
     registry.register(Route::Exact("stdin"), Box::new(Panics));
     registry.register(
@@ -256,13 +275,7 @@ fn a_panicking_engine_is_an_abstention_and_the_next_engine_still_runs() -> TestR
     assert_eq!(report.stats.proposed_claims, 1);
     assert_eq!(report.stats.abstained.not_mine, 0);
 
-    let records = s2w_app::bridge::evaluate_stored(
-        &StoredEvent {
-            position: first_position()?,
-            event: event("stdin", 0, MERGE.as_bytes())?,
-        },
-        &[&Panics],
-    );
+    let records = s2w_app::bridge::evaluate_stored(&stored, &[&Panics]);
     assert_eq!(
         records[0].verdict,
         Verdict::Abstain {
@@ -270,14 +283,6 @@ fn a_panicking_engine_is_an_abstention_and_the_next_engine_still_runs() -> TestR
         }
     );
     Ok(())
-}
-
-fn first_position() -> Result<LogPosition, Box<dyn std::error::Error>> {
-    let mut log = InMemoryEventLog::new();
-    match log.append(event("x", 0, b"{}")?)? {
-        s2w_log::AppendOutcome::Inserted(position)
-        | s2w_log::AppendOutcome::Duplicate(position) => Ok(position),
-    }
 }
 
 /// Yields one event, then a log error, once; afterwards reads normally.

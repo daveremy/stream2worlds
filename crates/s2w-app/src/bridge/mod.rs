@@ -17,7 +17,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::Duration;
 
 use s2w_log::{LogError, LogPosition, LogReader, StoredEvent};
-use s2w_model::{SourceId, Timestamp};
+use s2w_model::SourceId;
 use s2w_system1::{AbstainReason, Engine, Verdict};
 use tokio::sync::watch;
 
@@ -72,10 +72,8 @@ pub struct BridgeStats {
     /// Consumed events no engine is routed for.
     pub unrouted: u64,
     /// Engine calls that panicked; the bridge recorded them as `Abstain(Panicked)`.
+    /// (Backwards receipt times are clamped and counted by the timeline, `TimeRange::clamped`.)
     pub engine_panics: u64,
-    /// Claims appended with a receipt time earlier than the previous claim's; the timeline
-    /// clamps them.
-    pub clamped_timestamps: u64,
 }
 
 impl BridgeStats {
@@ -88,7 +86,6 @@ impl BridgeStats {
         self.abstained.insufficient += other.abstained.insufficient;
         self.unrouted += other.unrouted;
         self.engine_panics += other.engine_panics;
-        self.clamped_timestamps += other.clamped_timestamps;
     }
 }
 
@@ -120,7 +117,8 @@ pub struct VerdictRecord {
 ///
 /// Engines are infallible by signature; a panic anyway is caught and recorded as
 /// [`AbstainReason::Panicked`], so one bad payload cannot stop the bridge. This relies on the
-/// workspace's default `panic = "unwind"`.
+/// workspace's default `panic = "unwind"`. `AssertUnwindSafe` is sound because engines are pure
+/// functions of the payload (the `s2w-system1` invariant): a panic leaves no torn state behind.
 #[must_use]
 pub fn evaluate_stored(stored: &StoredEvent, engines: &[&dyn Engine]) -> Vec<VerdictRecord> {
     engines
@@ -176,7 +174,6 @@ pub struct Bridge<R: LogReader> {
     state: QueryState,
     config: BridgeConfig,
     last: Option<LogPosition>,
-    last_at: Option<Timestamp>,
     warned_unrouted: BTreeSet<SourceId>,
     stats: BridgeStats,
 }
@@ -197,13 +194,19 @@ impl<R: LogReader> Bridge<R> {
         if head != 0 {
             return Err(BridgeError::TimelineNotEmpty { head });
         }
+        // A zero batch would never advance, and a zero delay would spin.
+        let poll = config.poll.max(Duration::from_millis(1));
+        let config = BridgeConfig {
+            poll,
+            max_backoff: config.max_backoff.max(poll),
+            batch: config.batch.max(1),
+        };
         Ok(Self {
             reader,
             registry,
             state,
             config,
             last: None,
-            last_at: None,
             warned_unrouted: BTreeSet::new(),
             stats: BridgeStats::default(),
         })
@@ -222,7 +225,8 @@ impl<R: LogReader> Bridge<R> {
     /// the bridge keeps its position and the next poll retries.
     ///
     /// # Errors
-    /// [`BridgeError::Query`] if the timeline is unavailable. That is fatal.
+    /// [`BridgeError::Query`] if the timeline is unavailable. That is fatal: the lock is
+    /// poisoned for good, and the event in progress may be partly appended.
     pub fn poll_once(&mut self) -> Result<PollReport, BridgeError> {
         let mut report = PollReport::default();
         let events = match self.reader.read_after(self.last) {
@@ -232,7 +236,7 @@ impl<R: LogReader> Bridge<R> {
                 return Ok(report);
             }
         };
-        for item in events.take(self.config.batch.max(1)) {
+        for item in events.take(self.config.batch) {
             let stored = match item {
                 Ok(stored) => stored,
                 Err(error) => {
@@ -259,11 +263,6 @@ impl<R: LogReader> Bridge<R> {
                             report.stats.proposed_empty += 1;
                         }
                         for claim in claims {
-                            if self.last_at.is_some_and(|last| at < last) {
-                                report.stats.clamped_timestamps += 1;
-                            } else {
-                                self.last_at = Some(at);
-                            }
                             self.state.append(at, claim)?;
                             report.stats.proposed_claims += 1;
                         }
@@ -322,8 +321,7 @@ impl<R: LogReader + Send + 'static> Bridge<R> {
             .map_err(|error| BridgeError::Task(error.to_string()))?;
             self = bridge;
             let report = report?;
-            let full = usize::try_from(report.stats.consumed)
-                .is_ok_and(|consumed| consumed >= self.config.batch);
+            let full = report.stats.consumed >= self.config.batch as u64;
             let sleep_for = if report.stats.consumed == 0 {
                 let current = delay;
                 delay = delay.saturating_mul(2).min(self.config.max_backoff);

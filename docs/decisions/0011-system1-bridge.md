@@ -40,8 +40,8 @@ logged once per bridge, never an error. Defaults: `wikipedia.*` → `wikimedia.p
   (0005: an offset is not a log position). The position is in memory only, so a new bridge
   replays the whole log, and `Bridge::new` refuses a timeline that already has events.
 - **Time is receipt time.** Each claim is appended at the raw event's `received_at`, matching
-  the timeline's existing semantics; a backwards timestamp is clamped by the timeline and
-  counted by the bridge.
+  the timeline's existing semantics; a backwards timestamp is clamped and counted by the
+  timeline (`/time`'s `clamped`).
 - **The loop is total.** A panicking engine becomes `Abstain(Panicked)` via `catch_unwind`
   (this needs the default `panic = "unwind"`). A log error ends that poll; the next poll
   resumes after the last consumed event. Only an unavailable query state (a poisoned lock)
