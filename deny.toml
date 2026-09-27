@@ -4,11 +4,20 @@ ignore = []
 
 [licenses]
 # Licenses not listed here are denied by default, including crates with no detectable license.
-allow = ["MIT", "Apache-2.0"]
-
-# unicode-ident is required by the proc-macro toolchain and its expression includes Unicode-3.0.
-# Scope the additional license to that crate rather than allowing it for every dependency.
 #
+# ISC, BSD-3-Clause, and Unicode-3.0 were added here (stream2worlds#6) once s2w-sources'
+# reqwest dependency (rustls + its default aws-lc-rs crypto provider) and its transitive IDNA
+# stack (url -> idna -> idna_adapter -> the icu_* / zerovec / yoke / litemap / tinystr /
+# writeable / zerofrom / zerotrie family) pulled in more than 20 crates under these licenses —
+# rustls-webpki and untrusted (ISC), subtle and one of aws-lc-rs's bundled sub-licenses
+# (BSD-3-Clause), and the whole ICU4X data-crate family (Unicode-3.0). All three are
+# OSI-approved, permissive, copyleft-free licenses in routine use across the Rust ecosystem
+# (rustls itself ships under a similar set) — allowing them globally, the same as MIT/
+# Apache-2.0, is more maintainable than re-scoping an exception per crate every time a new
+# dependency in the same standard TLS/Unicode stack shows up. Unicode-3.0 was previously
+# scoped to just `unicode-ident`; that per-crate exception is now redundant and removed.
+allow = ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause", "Unicode-3.0"]
+
 # foldhash is pulled in only through rusqlite's wasm32-target vfs shim
 # (rusqlite -> sqlite-wasm-rs -> rsqlite-vfs -> foldhash), which is never compiled for any
 # target this workspace actually builds for (see rusqlite's own
@@ -16,9 +25,14 @@ allow = ["MIT", "Apache-2.0"]
 # walks the full Cargo.lock graph regardless of target, so it still surfaces here. Zlib is
 # OSI-approved and FSF-free; scope the exception to this one crate rather than widening the
 # workspace-wide allow list for a dependency edge that never compiles.
+#
+# webpki-root-certs (pulled in by rustls-platform-verifier, itself pulled in by reqwest's
+# rustls feature) ships Mozilla's CA bundle under CDLA-Permissive-2.0 — a data license, not a
+# code license, and specific to this one CA-bundle crate rather than the general TLS/Unicode
+# stack above, so it stays a narrow per-crate exception rather than a global allow entry.
 exceptions = [
-    { allow = ["Unicode-3.0"], crate = "unicode-ident" },
     { allow = ["Zlib"], crate = "foldhash" },
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
 ]
 
 [bans]

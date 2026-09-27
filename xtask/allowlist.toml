@@ -13,7 +13,7 @@ normal = ["s2w-model"]
 normal = ["s2w-model", "rusqlite"]
 
 [crates.s2w-sources]
-normal = ["s2w-model"]
+normal = ["s2w-model", "reqwest", "tokio", "serde_json", "tokio-stream", "thiserror"]
 
 [crates.s2w-system1]
 normal = ["s2w-model"]
@@ -42,6 +42,15 @@ readme_row = "Serialization and errors"
 
 [external.thiserror]
 readme_row = "Serialization and errors"
+
+[external.reqwest]
+readme_row = "Sources"
+
+[external.tokio]
+readme_row = "Sources"
+
+[external.tokio-stream]
+readme_row = "Sources"
 
 [external.rusqlite]
 readme_row = "Event log"

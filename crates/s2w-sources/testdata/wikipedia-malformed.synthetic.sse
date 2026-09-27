@@ -1,0 +1,16 @@
+: synthetic edge cases for the Wikipedia source tests; not captured traffic
+event: message
+id: not-json
+data: {"database":"enwiki","meta":{"domain":"en.wikipedia.org"}}
+
+event: message
+id: [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"offset":9001}]
+data: {"database":"enwiki","meta":{"domain":"canary"}}
+
+event: message
+id: [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"offset":9002}]
+data: {"wiki_id":"examplewiki","meta":{"domain":"example.invalid"}}
+
+event: message
+id: [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"offset":9003}]
+data: {"database":"enwiki","meta":{"domain":"en.wikipedia.org"}
