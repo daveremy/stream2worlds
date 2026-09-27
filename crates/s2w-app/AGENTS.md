@@ -16,3 +16,5 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
+- `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no
+  I/O; the HTTP half only parses parameters and calls it. One SSE message per offset; stable error codes.
