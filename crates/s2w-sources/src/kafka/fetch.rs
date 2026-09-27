@@ -191,10 +191,16 @@ async fn resolve_start(
                     message: format!("timestamp {millis} ms is out of range"),
                 }
             })?;
-            // ListOffsets answers -1 when no record is at or after the time; the next record
-            // produced is then the first one at or after it, which is the high watermark.
+            // Capture the high watermark BEFORE the timestamp lookup, not after. ListOffsets
+            // answers -1 when no record at or after `at` exists yet; if we fetched the
+            // watermark only in that branch, a record satisfying `at` produced between the two
+            // requests would fall below the second (later) watermark and be skipped forever.
+            // A watermark taken first is always a safe start: if the later timestamp lookup
+            // still says -1, no qualifying record exists as of that lookup either, so nothing
+            // at or after `earlier` can have been missed.
+            let earlier = lookup(OffsetAt::Latest).await?;
             match lookup(OffsetAt::Timestamp(at)).await? {
-                -1 => lookup(OffsetAt::Latest).await,
+                -1 => Ok(earlier),
                 offset => Ok(offset),
             }
         }

@@ -7,7 +7,7 @@
 
 use s2w_model::Cursor;
 
-use crate::sse::SseDialect;
+use crate::sse::{SseDialect, header_safe};
 
 /// The EventStreams endpoint the `wikipedia` preset reads.
 pub(crate) const ENDPOINT: &str = "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1";
@@ -146,17 +146,21 @@ pub(crate) struct Wikimedia;
 
 impl SseDialect for Wikimedia {
     fn cursor(&self, id: Option<&str>) -> Result<String, String> {
-        LastEventId::parse(id.unwrap_or_default())
+        let value = LastEventId::parse(id.unwrap_or_default())
             .map(|cursor| cursor.as_header_value().to_owned())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        header_safe(&value)?;
+        Ok(value)
     }
 
     fn validate_stored(&self, cursor: &Cursor) -> Result<String, String> {
         let text = std::str::from_utf8(cursor.as_bytes())
             .map_err(|error| format!("not valid UTF-8: {error}"))?;
-        LastEventId::parse(text)
+        let value = LastEventId::parse(text)
             .map(|cursor| cursor.as_header_value().to_owned())
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        header_safe(&value)?;
+        Ok(value)
     }
 
     fn apply_since(&self, url: &mut reqwest::Url, since: &str) -> Result<(), String> {
@@ -199,6 +203,18 @@ mod tests {
         };
         assert_eq!(parsed.positions()[0].at(), PositionAt::Offset(9));
         assert_eq!(parsed.positions()[1].at(), PositionAt::Timestamp(8));
+    }
+
+    #[test]
+    fn a_stored_cursor_with_embedded_whitespace_is_a_loud_error_not_an_infinite_retry() {
+        // Valid JSON allows a literal newline as whitespace between tokens; that byte survives
+        // verbatim into `raw` (the exact `Last-Event-ID` value sent on reconnect) but is
+        // refused as an HTTP header value. Accepting it here would only surface as a connect
+        // failure the read loop treats as transient and retries forever.
+        let cursor = Cursor::new(b"[{\"topic\":\"a\",\n\"partition\":1,\"offset\":9}]".to_vec())
+            .expect("valid cursor bytes");
+        let outcome = Wikimedia.validate_stored(&cursor);
+        assert!(outcome.is_err(), "expected a loud error, got {outcome:?}");
     }
 
     #[test]

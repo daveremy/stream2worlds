@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn kafka_since_with_a_stored_partition_cursor_is_a_usage_error() {
         let directory = TestDirectory::new("kafka-since-and-cursor");
-        seed(directory.path(), "kafka.orders.p0", b"41");
+        seed(directory.path(), "kafka.127.0.0.1_1.orders.p0", b"41");
         let outcome = watch(WatchArgs {
             uri: "kafka://127.0.0.1:1/orders".to_owned(),
             since: Some("2026-09-27T00:00:00Z".to_owned()),

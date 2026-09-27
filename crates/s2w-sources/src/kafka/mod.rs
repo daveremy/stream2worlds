@@ -214,7 +214,9 @@ impl KafkaSourceError {
 const NAME: &str = "kafka";
 
 /// The `kafka://` adapter: every partition of one topic by explicit assignment, one log source
-/// per partition (`kafka.<topic>.p<partition>`), each resumed after its stored offset.
+/// per partition (`kafka.<cluster>.<topic>.p<partition>`), each resumed after its stored
+/// offset. The cluster component is derived from the broker list so two distinct clusters that
+/// happen to share a topic name never share cursors.
 ///
 /// Invariant: this adapter never yields [`SourceError::Skipped`]. Payloads are the
 /// byte-deterministic envelope with no decode step, and a failed fetch is
@@ -241,9 +243,33 @@ impl KafkaAdapter {
     }
 }
 
-/// The log source id of one partition: `kafka.<topic>.p<partition>`.
-fn partition_source(topic: &str, partition: i32) -> Result<SourceId, SourceError> {
-    Ok(SourceId::new(format!("kafka.{topic}.p{partition}"))?)
+/// A collision-resistant identity for one Kafka cluster: its brokers, order-independent and
+/// sanitized to [`SourceId`]'s allowed alphabet. Two targets naming the same brokers in a
+/// different order collapse to the same id; two distinct broker sets do not.
+fn cluster_id(brokers: &[String]) -> String {
+    let mut sorted: Vec<&str> = brokers.iter().map(String::as_str).collect();
+    sorted.sort_unstable();
+    sorted
+        .join(",")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// The log source id of one partition: `kafka.<cluster>.<topic>.p<partition>`. The cluster
+/// component keeps two clusters that happen to share a topic name from sharing cursors.
+fn partition_source(target: &KafkaTarget, partition: i32) -> Result<SourceId, SourceError> {
+    Ok(SourceId::new(format!(
+        "kafka.{}.{}.p{partition}",
+        cluster_id(&target.brokers),
+        target.topic
+    ))?)
 }
 
 /// Decodes a stored partition cursor: the decimal offset of the last stored record.
@@ -261,7 +287,7 @@ fn stored_offset(source: &SourceId, cursor: &Cursor) -> Result<i64, SourceError>
 
 /// Maps a Kafka error onto the seam: a fetch retries, a cursor that cannot resume is
 /// [`SourceError::CursorUnresumable`], anything else stops the source.
-fn seam_error(topic: &str, error: KafkaSourceError) -> SourceError {
+fn seam_error(target: &KafkaTarget, error: KafkaSourceError) -> SourceError {
     match &error {
         KafkaSourceError::Fetch { .. } => SourceError::Retrying {
             name: NAME,
@@ -269,7 +295,11 @@ fn seam_error(topic: &str, error: KafkaSourceError) -> SourceError {
         },
         KafkaSourceError::CursorPruned { partition, .. }
         | KafkaSourceError::CursorAhead { partition, .. } => SourceError::CursorUnresumable {
-            source_id: format!("kafka.{topic}.p{partition}"),
+            source_id: format!(
+                "kafka.{}.{}.p{partition}",
+                cluster_id(&target.brokers),
+                target.topic
+            ),
             reason: error.to_string(),
         },
         KafkaSourceError::InvalidSince { value, .. } => SourceError::InvalidSince {
@@ -295,11 +325,12 @@ impl Source for KafkaAdapter {
         cursors: &'a dyn CursorLookup,
     ) -> StartFuture<'a> {
         Box::pin(async move {
-            let topic = self.target.topic().to_owned();
-            let error = |error| seam_error(&topic, error);
+            let target = self.target.clone();
+            let topic = target.topic().to_owned();
+            let error = |error| seam_error(&target, error);
             let since_millis = since.map(parse_since).transpose().map_err(error)?;
             // Every topic has partition 0, so this refuses the common case before connecting.
-            refuse_since_with_stored(since, cursors, &[partition_source(&topic, 0)?])?;
+            refuse_since_with_stored(since, cursors, &[partition_source(&target, 0)?])?;
 
             let connection = KafkaConnection::open(&self.target).await.map_err(error)?;
             let mut sources = BTreeMap::new();
@@ -307,7 +338,7 @@ impl Source for KafkaAdapter {
             let mut fresh = Vec::new();
             let mut stored = Vec::new();
             for &partition in connection.partitions() {
-                let source = partition_source(&topic, partition)?;
+                let source = partition_source(&target, partition)?;
                 let start = match cursors.cursor(&source)? {
                     Some(cursor) => {
                         stored.push(source.clone());
@@ -337,7 +368,7 @@ impl Source for KafkaAdapter {
             }
             let stream = running.map(move |item| match item {
                 Ok(event) => raw(&sources, event),
-                Err(error) => Err(seam_error(&topic, error)),
+                Err(error) => Err(seam_error(&target, error)),
             });
             Ok(Started {
                 stream: Box::pin(stream),
@@ -406,7 +437,7 @@ mod tests {
     fn since_with_a_stored_partition_cursor_is_refused_before_connecting() {
         let outcome = start(
             Some("2026-09-27T00:00:00Z"),
-            &OneCursor("kafka.orders.p0", b"41"),
+            &OneCursor("kafka.127.0.0.1_1.orders.p0", b"41"),
         );
         assert!(
             matches!(&outcome, Err(error @ SourceError::SinceWithStoredCursor { .. })
@@ -467,8 +498,9 @@ mod tests {
             KafkaSourceError::Connect(String::new()),
             KafkaSourceError::UnknownTopic("t".to_owned()),
         ];
+        let target = KafkaTarget::parse("kafka://b:1/t").expect("valid target");
         for error in errors {
-            let mapped = seam_error("t", error);
+            let mapped = seam_error(&target, error);
             assert!(
                 !matches!(mapped, SourceError::Skipped { .. }),
                 "kafka must never skip: {mapped:?}"
@@ -476,15 +508,32 @@ mod tests {
         }
         assert!(matches!(
             seam_error(
-                "t",
+                &target,
                 KafkaSourceError::CursorPruned {
                     partition: 2,
                     next: 1,
                     earliest: 5
                 }
             ),
-            SourceError::CursorUnresumable { source_id, .. } if source_id == "kafka.t.p2"
+            SourceError::CursorUnresumable { source_id, .. } if source_id == "kafka.b_1.t.p2"
         ));
+    }
+
+    #[test]
+    fn cluster_id_is_order_independent_and_distinguishes_clusters() {
+        let a = KafkaTarget::parse("kafka://a:9092,b:9093/t").expect("valid target");
+        let b = KafkaTarget::parse("kafka://b:9093,a:9092/t").expect("valid target");
+        let c = KafkaTarget::parse("kafka://c:9094/t").expect("valid target");
+        assert_eq!(
+            super::partition_source(&a, 0).unwrap(),
+            super::partition_source(&b, 0).unwrap(),
+            "same brokers in a different order must share a source id"
+        );
+        assert_ne!(
+            super::partition_source(&a, 0).unwrap(),
+            super::partition_source(&c, 0).unwrap(),
+            "distinct clusters sharing a topic name must not share a source id"
+        );
     }
 
     #[test]

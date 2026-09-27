@@ -58,6 +58,18 @@ fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std
     type Contents = (Vec<(String, String)>, Vec<String>);
 
     let broker = std::env::var("S2W_KAFKA_BROKER")?;
+    // Mirrors s2w_sources::kafka's private `cluster_id` sanitization: the source id includes
+    // the broker(s) so two clusters sharing a topic name never share cursors (#7 code review).
+    let cluster: String = broker
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     run(async {
         let base = 1_790_000_000_000_i64;
         let topic = format!("s2w-app-it-{}", std::process::id());
@@ -112,7 +124,7 @@ fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std
             }
             let mut cursors = Vec::new();
             for partition in 0..2 {
-                let source = SourceId::new(format!("kafka.{topic}.p{partition}"))?;
+                let source = SourceId::new(format!("kafka.{cluster}.{topic}.p{partition}"))?;
                 let cursor = log.cursor(&source)?.ok_or("missing cursor")?;
                 cursors.push(String::from_utf8(cursor.as_bytes().to_vec())?);
             }
@@ -123,8 +135,12 @@ fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std
             let mut all: Vec<(String, String)> = (0..2)
                 .flat_map(|partition| {
                     let topic = topic.clone();
+                    let cluster = cluster.clone();
                     offsets.clone().map(move |offset| {
-                        (format!("kafka.{topic}.p{partition}"), offset.to_string())
+                        (
+                            format!("kafka.{cluster}.{topic}.p{partition}"),
+                            offset.to_string(),
+                        )
                     })
                 })
                 .collect();

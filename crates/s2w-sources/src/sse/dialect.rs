@@ -2,6 +2,19 @@
 
 use s2w_model::Cursor;
 
+/// Whether `value` can be sent verbatim as an HTTP header value (what every cursor here
+/// eventually becomes, as `Last-Event-ID`). A cursor that fails this must never be accepted as
+/// valid: `connect.rs::build_request` would fail to build the request, and the read loop
+/// treats every connect failure as transient and retries forever (decision 0008) — the one
+/// permanent failure that loop cannot distinguish from a network blip. Catching it here, at
+/// cursor-acceptance time, turns it into the loud, immediate error `SourceError::StoredCursor`
+/// or a malformed-id reconnect instead of a silent infinite retry.
+pub(crate) fn header_safe(value: &str) -> Result<(), String> {
+    reqwest::header::HeaderValue::from_str(value)
+        .map(|_| ())
+        .map_err(|error| format!("not usable as an HTTP header value: {error}"))
+}
+
 /// The stream-specific half of an SSE source: how an `id:` becomes a cursor, how to ask for a
 /// start time, and which frames to keep. The transport carries no knowledge of any one stream.
 ///
@@ -49,15 +62,20 @@ pub(crate) struct Opaque;
 impl SseDialect for Opaque {
     fn cursor(&self, id: Option<&str>) -> Result<String, String> {
         match id {
-            Some(id) if !id.is_empty() => Ok(id.to_owned()),
+            Some(id) if !id.is_empty() => {
+                header_safe(id)?;
+                Ok(id.to_owned())
+            }
             _ => Err("frame has no id, so it has no cursor to resume from".to_owned()),
         }
     }
 
     fn validate_stored(&self, cursor: &Cursor) -> Result<String, String> {
-        std::str::from_utf8(cursor.as_bytes())
+        let value = std::str::from_utf8(cursor.as_bytes())
             .map(str::to_owned)
-            .map_err(|error| format!("not valid UTF-8: {error}"))
+            .map_err(|error| format!("not valid UTF-8: {error}"))?;
+        header_safe(&value)?;
+        Ok(value)
     }
 
     fn apply_since(&self, _url: &mut reqwest::Url, _since: &str) -> Result<(), String> {
@@ -66,5 +84,26 @@ impl SseDialect for Opaque {
 
     fn accept(&self, _data: &str) -> Result<bool, String> {
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use s2w_model::Cursor;
+
+    use super::{Opaque, SseDialect};
+
+    #[test]
+    fn an_id_with_a_control_character_is_a_malformed_cursor() {
+        // A frame id containing e.g. a CR/LF cannot be sent back as `Last-Event-ID` — accepting
+        // it as a cursor would only surface later, as a connect failure the read loop retries
+        // forever (it cannot tell "permanently broken" from "network blip").
+        assert!(Opaque.cursor(Some("line1\r\nline2")).is_err());
+    }
+
+    #[test]
+    fn a_stored_cursor_with_a_control_character_is_a_loud_error() {
+        let cursor = Cursor::new(b"line1\r\nline2".to_vec()).expect("valid cursor bytes");
+        assert!(Opaque.validate_stored(&cursor).is_err());
     }
 }

@@ -24,7 +24,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
-pub(crate) use dialect::{Opaque, SseDialect};
+pub(crate) use dialect::{Opaque, SseDialect, header_safe};
 use frame::{FrameParser, RawFrame};
 
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
