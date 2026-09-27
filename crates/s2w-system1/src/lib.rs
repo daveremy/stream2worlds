@@ -1,1 +1,29 @@
-//! System 1: per-event engines (rules, local embeddings) behind one verdict / confidence / abstain contract. Every verdict is logged.
+//! Deterministic per-event engines proposing claims without seeing the folded world.
+
+mod engines;
+mod verdict;
+
+pub use engines::{JsonClaimsEngine, WikimediaPageChangeEngine};
+pub use verdict::{AbstainReason, Confidence, ConfidenceError, Verdict};
+
+use s2w_model::RawEvent;
+
+/// A payload-only mapping. Without persisted verdicts, engines must be deterministic.
+pub trait Engine: Send + Sync {
+    /// Stable identifier persisted with each verdict in the future verdict log.
+    fn name(&self) -> &'static str;
+    /// Mapping version; bump whenever the payload-to-verdict mapping changes.
+    fn version(&self) -> u32;
+    /// Total: unsupported or malformed inputs abstain, never panic or error.
+    fn evaluate(&self, event: &RawEvent) -> Verdict;
+}
+
+#[cfg(test)]
+fn raw(payload: &[u8]) -> Result<RawEvent, s2w_model::ModelError> {
+    Ok(RawEvent {
+        source: s2w_model::SourceId::new("test")?,
+        cursor: s2w_model::Cursor::new(vec![1])?,
+        received_at: s2w_model::Timestamp::from_millis(0),
+        payload: payload.to_vec(),
+    })
+}

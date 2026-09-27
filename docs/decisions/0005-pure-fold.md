@@ -107,3 +107,15 @@ aggregate at every `lod` is query work (#10, #36).
 
 None of research 0003's open items (the `rskafka` timestamp lookup, the `rmcp` major-version
 churn, DBSP's licence, Parquet) concern the fold, so this decision settles none of them.
+
+### Amendment, 2026-09-27: WorldEvent, NaturalKey, AttrValue move to s2w-model
+
+System 1 now constructs claims and the core folds them, so these three types have two
+consumers and move to `s2w-model`. Their serde shapes and no-float rule are unchanged.
+`s2w-core` re-exports them to preserve existing import paths.
+`EntityId` stays in the core: only the fold may call its crate-private constructor.
+`World`, relationships, the fold, its version and hub cap also stay in the core.
+Engines address entities by natural key and never see a world.
+See [0011: System 1 bridge](0011-system1-bridge.md) for the engine contract.
+
+verify: `cargo xtask check` check 6 passes with the golden fixtures untouched.

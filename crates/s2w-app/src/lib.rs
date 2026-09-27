@@ -1,5 +1,6 @@
 //! Runtime wiring: composes sources, the log, the core and the engines, and serves the read-only MCP server and the local web view.
 
+pub mod bridge;
 mod group_commit;
 pub mod mcp;
 pub mod query;

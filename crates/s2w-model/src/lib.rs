@@ -4,6 +4,9 @@
 //! Types arrive here when a second crate needs them, not before.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+mod event;
+pub use event::{AttrValue, NaturalKey, WorldEvent};
+
 use serde::{Deserialize, Serialize};
 
 /// A point in time, in milliseconds since the Unix epoch.

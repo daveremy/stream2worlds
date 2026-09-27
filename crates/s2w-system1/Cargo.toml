@@ -13,3 +13,6 @@ workspace = true
 
 [dependencies]
 s2w-model = { path = "../s2w-model" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -13,6 +13,10 @@ use std::time::Duration;
 use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior, params};
 use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
 
+mod reader;
+
+pub use reader::LogReader;
+
 const DATABASE_FILE: &str = "events.sqlite3";
 const LOCK_FILE: &str = "LOCK";
 const SCHEMA_VERSION: i64 = 2;
