@@ -18,8 +18,16 @@ s2w-log = { path = "../s2w-log" }
 s2w-sources = { path = "../s2w-sources" }
 s2w-system1 = { path = "../s2w-system1" }
 s2w-system2 = { path = "../s2w-system2" }
-# `rt` for the runtime this crate builds, `net` and `time` for the I/O and timer drivers
-# reqwest's async client needs underneath it (`enable_all` enables exactly those two).
-tokio = { version = "1", features = ["rt", "net", "time"] }
-tokio-stream = "0.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+# `rt` for the runtime this crate builds, `net` and `time` for the I/O and timer drivers
+# reqwest's async client needs underneath it (`enable_all` enables exactly those two);
+# `macros` and `sync` for the query API's SSE broadcast.
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
+tokio-stream = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tower = { version = "0.5", features = ["util"] }
