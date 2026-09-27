@@ -20,4 +20,4 @@ jobs:
       - name: test
         run: cargo test --workspace
       - name: fitness functions
-        run: cargo xtask check
+        run: cargo run --quiet --package xtask -- check  # not the alias: a .cargo/config would hide it
