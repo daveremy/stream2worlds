@@ -36,9 +36,10 @@ Errors are `{"error": <code>, "message": <text>}` with stable codes: `offset_bey
 - **Merges resolve at read time.** Link endpoints are re-resolved through current merges and
   weights summed. A merge moves no attributes: a survivor's node shows its own state (0005).
 - **Hubs are aggregates at every `lod`** (research 0006). An entity whose in-degree exceeds the
-  cap is a `hub` node carrying `in_degree`, `by_kind` and `last_seen_offset`. At `lod=entity` no
-  link into a hub is emitted; sources, hubs included, list it in `hub_refs`. At `lod=type` each group gets one
-  aggregate link into the hub, weighted by distinct sources. Hubs are never counted in a type
+  cap is a `hub` node carrying `in_degree`, `by_kind`, `last_seen_offset` and, since #42, its own
+  `hub_refs` into other hubs. At `lod=entity` no link into a hub is emitted; sources, hubs
+  included, list it in `hub_refs`. At `lod=type` each group gets one aggregate link into the hub,
+  weighted by distinct sources. Hubs are never counted in a type
   and never expanded by a `focus` walk.
 - **`lod=cluster` is reserved** (`501 lod_not_yet`). Connected components collapse into one
   component on a live stream and their ids are unstable across offsets; the definition waits for

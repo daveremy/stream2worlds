@@ -13,6 +13,33 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 59 — the world becomes queryable (2026-09-27, 11:00–13:00)
+
+Five merges in two hours. The sprint opened with a stored log and a source, and closed with a command that runs for hours, a fold that replays byte-for-byte, and an HTTP surface over the folded world.
+
+**Shipped**
+- **`s2w watch wikipedia` is a real command** ([#29](https://github.com/daveremy/stream2worlds/issues/29), [#25](https://github.com/daveremy/stream2worlds/issues/25)). It resumes from the stored cursor, replays history with `--since` into a fresh log, and the log collapses redelivered events. The live proof: 47,282 real edits over 38.5 minutes, 0 duplicates, 0 gaps across a restart, and exactly 300 forced redeliveries collapsed.
+- **The pure fold, with golden replay** ([#9](https://github.com/daveremy/stream2worlds/issues/9), [decision 0005](docs/decisions/0005-pure-fold.md)). Events in, world out, no I/O, clock or randomness. An entity id is never reused: a merge aliases, a revoke splits. Relationships into an entity past an in-degree of 10^4 become an attribute plus counters, so one hub page cannot swamp the world. `cargo xtask check` folds the golden log twice and from every prefix save/reload and requires byte-identical output.
+- **A world query API in `s2w-app`** ([#36](https://github.com/daveremy/stream2worlds/issues/36), [decision 0006](docs/decisions/0006-world-query-api.md)). `/world?at=&branch=&lod=&focus=&hops=` returns the world at a fold offset in the d3 shape; SSE deltas arrive one per offset so `Last-Event-ID` resume is unambiguous; `/branches`, `/diff`, `/entity/:id/history` and `/time` complete the contract. Only the actual world is served: another `branch` is `501 branch_not_yet`, `lod=cluster` is `501 lod_not_yet`. A hub's own relationship into another hub shows at `lod=entity` too ([#42](https://github.com/daveremy/stream2worlds/issues/42)).
+- **The slice-1 scale envelope, decided** ([#37](https://github.com/daveremy/stream2worlds/issues/37), [decision 0004](docs/decisions/0004-scale-envelope.md), Dave approved). One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 forks in under 100 ms. `synchronous=FULL` everywhere; throughput comes from group commit, not from a weaker durability setting. Not a distributed system.
+- **Research 0005 (3D exploration) and 0006 (scaling)** ([research](research/)), both with every design implication dispositioned. 0006 found where `s2w` breaks first as a stream grows and the cheapest step past each wall; the envelope above and the hub cap are its first adopted implications.
+- **The README now calls this a research project**, pre-alpha, with the gates as pre-registered questions that can fail. A hosted direction is filed for later: a dedicated machine per user, log and snapshots in object storage ([#35](https://github.com/daveremy/stream2worlds/issues/35)).
+- **Cold builds about 9% faster** with `[profile.dev] debug = 1` ([#41](https://github.com/daveremy/stream2worlds/issues/41)): line tables stay, variable and type debuginfo goes.
+
+**Learned**
+- **Codex ran out by 11:15 on both accounts.** Four legs were implemented on Claude Opus instead. The two-independent-reviewers rule held; what changed was who wrote the code.
+- **Two plan reviews hit the two-round cap.** Both times the right move was to apply the small fixes the reviewers had converged on and proceed, not to run a third round.
+- **`s2w-app` is Wikipedia-shaped.** Wiring the first source straight into the app was fast, but the wiring knows it is Wikipedia. The second source exposes that as a layering finding, not a style nit.
+
+**Changed course**
+- **Every source goes behind one `Source` trait and `s2w watch <source-uri>`** ([#7](https://github.com/daveremy/stream2worlds/issues/7), in progress). The group-commit batch append API from research 0006 is already built for it; leg C moves Wikipedia, Kafka and stdin behind the same seam.
+- **Fitness functions move into the crates** ([#44](https://github.com/daveremy/stream2worlds/issues/44)): small modules, small functions, visible public APIs, tests that bite, checked next to the code they judge rather than only from `xtask`.
+
+**Next**
+- #7 leg C (Kafka and stdin behind the `Source` trait), #44 (in-crate fitness functions), and the evidence view ([#10](https://github.com/daveremy/stream2worlds/issues/10)), now unblocked by the query API.
+
+---
+
 ## Sprint 58 — first live stream (2026-09-27, 09:00–11:00)
 
 The first sprint in the main loop, with Stream2Worlds as its full focus. It ended with live Wikipedia edits landing in a durable log: the first time `s2w` code touched a real stream.

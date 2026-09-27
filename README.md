@@ -15,17 +15,17 @@
 <p align="center"><b>Point <code>s2w</code> at an event stream you have never seen and watch a model of the world behind it form. Every forecast it makes is graded against what the stream shows next. The LLM never touches an event.</b></p>
 
 > [!NOTE]
-> **A research project, pre-alpha. Nothing runs yet.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. The binary answers `--version` and `--help` and nothing else. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions, the append-only event log and a live Wikipedia source; the second source, the fold and the view are being built. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
+> **A research project, pre-alpha.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. One command runs today: `s2w watch wikipedia` streams live edits into a durable log and resumes across restarts. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions, the append-only event log, a live Wikipedia source, the pure fold with golden replay and a world query API; the second source, the evidence view and MCP are being built. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
 
 ## Latest
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **Live Wikipedia edits land in a durable log.** The first code that touches a real stream: in a 30-second run, 561 live edits streamed from Wikimedia EventStreams into the SQLite event log, and after a restart the log still held them and kept growing. [#6](https://github.com/daveremy/stream2worlds/issues/6) · [#8](https://github.com/daveremy/stream2worlds/issues/8)
-- **Stored events cannot be changed.** Each append saves the event and advances its source cursor in one transaction; database triggers refuse UPDATE, DELETE and INSERT OR REPLACE, and a crash test kills the writer mid-batch to prove nothing is half-written. [Decision 0002](docs/decisions/0002-event-log-storage.md)
-- **The stream survives Wikimedia's disconnects.** Wikimedia drops every connection within 15 minutes; the source reconnects with the exact `Last-Event-ID` it last saw and filters test wikis before they reach you. [Decision 0003](docs/decisions/0003-wikipedia-sse-client.md)
-- **The evaluation contract is signed** (gate 1). How we will know whether `s2w` works was fixed before any code: one forecast question on live Wikipedia, its baselines and its pass thresholds. [Contract](docs/evaluation-contract.md)
-- **In progress:** `s2w watch wikipedia` ([#29](https://github.com/daveremy/stream2worlds/issues/29)), deduplication on resume ([#25](https://github.com/daveremy/stream2worlds/issues/25)), and the fold with golden replay ([#9](https://github.com/daveremy/stream2worlds/issues/9)).
+- **`s2w watch wikipedia` runs for real, and restarts lose nothing.** A 38.5-minute live run stored 47,282 English Wikipedia edits with 0 duplicates and 0 gaps across a restart, resuming from the stored cursor; 300 forced redeliveries were collapsed by the log. [#29](https://github.com/daveremy/stream2worlds/issues/29) · [#25](https://github.com/daveremy/stream2worlds/issues/25)
+- **The world can be asked at any offset.** `s2w-app` serves `/world?at=<offset>&lod=type|entity&focus=&hops=`, one SSE delta per offset, `/branches`, `/diff`, `/entity/:id/history` and `/time` over the folded world; entities past the in-degree cap come back as one hub node. Main branch only for now. [Decision 0006](docs/decisions/0006-world-query-api.md)
+- **The fold is pure and its replay is checked in CI.** An entity id is assigned once and never reused; a merge aliases and a revoke splits. `cargo xtask check` folds the golden log twice and from every saved prefix, and fails on a single differing byte. [Decision 0005](docs/decisions/0005-pure-fold.md)
+- **The first slice has a stated scale envelope.** One process, 1,000 events/s, 10^6 live entities in 1 GB, 20 forks under 100 ms; `synchronous=FULL` everywhere, throughput from group commit. Not a distributed system, by decision. [Decision 0004](docs/decisions/0004-scale-envelope.md)
+- **In progress:** Kafka and stdin behind one `Source` trait ([#7](https://github.com/daveremy/stream2worlds/issues/7)), in-crate fitness functions ([#44](https://github.com/daveremy/stream2worlds/issues/44)), and the evidence view ([#10](https://github.com/daveremy/stream2worlds/issues/10)).
 
 ---
 
@@ -129,7 +129,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
-- [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, append-only event log and Wikipedia source are built; the remaining components are still to build. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
+- [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, append-only event log, Wikipedia source, `s2w watch wikipedia`, the pure fold with golden replay and the world query API (actual world only) are built; the second source, the evidence view and MCP are still to build. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
@@ -162,8 +162,8 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Sources | Wikipedia EventStreams (SSE) via `reqwest`, `tokio`, and `tokio-stream` (built); Kafka by partition assignment (never a consumer group, never commits); stdin NDJSON | building (gate 2) | Two real sources plus a free third, so the source seam is not designed from one case. |
 | Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms | target (gate 2) | Targets until the scale fitness function measures them. Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
-| World computation | Pure fold over the log; each forecast world recomputed from a snapshot | building (gate 2) | Simplest thing that replays deterministically. |
-| World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/world` at any offset and level of detail, `/events`, `/branches`, `/diff`, `/entity/:id/history`, `/time` ([decision 0006](docs/decisions/0006-world-query-api.md)) | building (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual world only until branches exist. |
+| World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |
+| World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/world` at any offset and level of detail, `/events`, `/branches`, `/diff`, `/entity/:id/history`, `/time` ([decision 0006](docs/decisions/0006-world-query-api.md)) | built (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual world only until branches exist (`branch=` other than actual and `lod=cluster` answer 501); no CLI command exposes it until the evidence view ([#10](https://github.com/daveremy/stream2worlds/issues/10)). |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
 | System 1 engines | Rules; local embeddings (can abstain) | building (gate 2–3) | Two engines behind one verdict/confidence/abstain trait. |
 | System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it joins through the bake-off, p50/p99 and accuracy per engine. |
@@ -178,7 +178,7 @@ This table is checked, not just maintained: `cargo xtask check` fails when a wor
 
 ## Building
 
-There is nothing to run, but the gates that CI runs on every pull request already pass:
+Build with `cargo build --release` and run `target/release/s2w watch wikipedia`. The gates that CI runs on every pull request:
 
 ```bash
 cargo fmt --all --check
