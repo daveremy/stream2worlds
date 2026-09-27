@@ -687,7 +687,7 @@ mod tests {
                 }
             }
             assert_eq!(actual, expected);
-            observer.assert_no_mismatches();
+            observer.assert_no_mismatches().await;
         }
     );
 
@@ -714,7 +714,7 @@ mod tests {
             let event = next_ok(&mut source).await;
             assert_eq!(event.payload, NORMAL_DATA);
             assert_eq!(event.cursor.as_header_value(), FIRST_ID);
-            observer.assert_no_mismatches();
+            observer.assert_no_mismatches().await;
         }
     });
 
@@ -737,7 +737,7 @@ mod tests {
             Backoff::fixed(Duration::from_millis(0)),
         );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
-        observer.assert_no_mismatches();
+        observer.assert_no_mismatches().await;
     });
 
     async_test!(partial_frame_is_discarded_and_does_not_advance_cursor, {
@@ -759,7 +759,7 @@ mod tests {
         let second = next_ok(&mut source).await;
         assert_eq!(first.cursor.as_header_value(), FIRST_ID);
         assert_eq!(second.cursor.as_header_value(), SECOND_ID);
-        observer.assert_no_mismatches();
+        observer.assert_no_mismatches().await;
     });
 
     async_test!(
@@ -792,8 +792,7 @@ mod tests {
                     Some(Err(WikipediaSourceError::InvalidLastEventId { .. }))
                 ));
             }
-            observer.wait_until_all_actions_started().await;
-            observer.assert_no_mismatches();
+            observer.assert_no_mismatches().await;
         }
     );
 
@@ -818,7 +817,7 @@ mod tests {
         let (mut source, _task) =
             WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
-        observer.assert_no_mismatches();
+        observer.assert_no_mismatches().await;
     });
 
     async_test!(bare_cr_at_disconnect_dispatches_a_complete_frame, {
@@ -831,7 +830,7 @@ mod tests {
         let (mut source, _task) =
             WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
-        observer.assert_no_mismatches();
+        observer.assert_no_mismatches().await;
     });
 
     async_test!(status_and_transport_errors_both_retry, {
@@ -852,7 +851,7 @@ mod tests {
             Backoff::fixed(Duration::from_millis(0)),
         );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
-        observer.assert_no_mismatches();
+        observer.assert_no_mismatches().await;
     });
 
     #[test]
@@ -1038,10 +1037,20 @@ mod tests {
             }
         }
 
-        /// Call from the test's own thread (never from inside the spawned
-        /// background task) after the test has consumed enough events that
-        /// every relevant `connect()` call has happened.
-        fn assert_no_mismatches(&self) {
+        /// Waits until every configured [`Action`] has been dequeued by a
+        /// `connect()` call, then asserts none of them saw an unexpected
+        /// since/last_event_id. Folding the wait in here is deliberate
+        /// (opus review round 2, s2w#6): a test that only awaited its own
+        /// events and then checked mismatches immediately would race the
+        /// background task's LAST reconnect — that reconnect's `connect()`
+        /// call, and the mismatch check it can produce, might not have
+        /// happened yet. Every FakeConnect-based test's final action is a
+        /// `pending_connect`/`idle_stream`-style action that the source only
+        /// reaches after consuming the test's own expected events, so
+        /// waiting for the queue to empty is what actually proves the final
+        /// reconnect's parameters were checked, not just the earlier ones.
+        async fn assert_no_mismatches(&self) {
+            self.wait_until_all_actions_started().await;
             let mismatches = match self.mismatches.lock() {
                 Ok(mismatches) => mismatches.clone(),
                 Err(error) => panic!("fake mismatch lock poisoned: {error}"),

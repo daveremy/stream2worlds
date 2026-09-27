@@ -60,9 +60,10 @@ Resolved: preserve a byte-for-byte live capture, including IDs, with its UTC tim
 Two fixtures live under `crates/s2w-sources/testdata/`: `wikipedia-page-change.raw.sse` (the
 live capture, 4.6MB / 1615 frames, no canary/`examplewiki` frames) and
 `wikipedia-malformed.synthetic.sse` (hand-written: canary, `examplewiki`, partial, and
-malformed-ID frames). A frame with a malformed `Last-Event-ID` is tolerated up to
-`MALFORMED_ID_LIMIT = 3` consecutive occurrences before the source surfaces
-`WikipediaSourceError::InvalidLastEventId` and forces a fresh connection.
+malformed-ID frames). Every frame with a malformed `Last-Event-ID` immediately surfaces
+`WikipediaSourceError::InvalidLastEventId`; after `MALFORMED_ID_LIMIT = 3` such frames in a row,
+the source also forces a fresh connection from the last good cursor rather than continuing to
+read from a stream that keeps producing bad IDs.
 
 ## Redelivery/dedup on `--since` resume is deferred to the log, not this source
 
