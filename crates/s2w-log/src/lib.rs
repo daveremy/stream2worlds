@@ -15,9 +15,11 @@ use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
 
 const DATABASE_FILE: &str = "events.sqlite3";
 const LOCK_FILE: &str = "LOCK";
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const REPLAY_PAGE_SIZE: i64 = 256;
+const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x100_0000_01b3;
 
 /// Rejects a payload before any write is attempted, shared by every [`EventLog`] impl.
 fn check_payload_size(len: usize) -> Result<(), LogError> {
@@ -25,6 +27,22 @@ fn check_payload_size(len: usize) -> Result<(), LogError> {
         return Err(LogError::TooLarge);
     }
     Ok(())
+}
+
+/// A deterministic, dependency-free hash of a payload's bytes, used to key append dedupe.
+///
+/// FNV-1a over the payload, reinterpreted as a signed integer for SQLite storage. Deliberately
+/// not `DefaultHasher`, whose per-process random seed would break dedupe across restarts. The
+/// value is persisted, so the algorithm is pinned by a known-answer test: changing it silently
+/// would change dedupe for every existing log. A 64-bit hash can collide, so the append paths
+/// compare payload bytes on a hit and fail loudly instead of dropping a distinct event.
+fn content_hash(payload: &[u8]) -> i64 {
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in payload {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    i64::from_ne_bytes(hash.to_ne_bytes())
 }
 
 /// A monotonically increasing position assigned by one event log.
@@ -50,6 +68,16 @@ pub struct StoredEvent {
     pub position: LogPosition,
     /// The source event stored at that position.
     pub event: RawEvent,
+}
+
+/// What one [`EventLog::append`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppendOutcome {
+    /// The event was new and is now stored at this position.
+    Inserted(LogPosition),
+    /// This source had already stored byte-identical payload bytes at this position, so nothing
+    /// was written and the source's cursor did not move.
+    Duplicate(LogPosition),
 }
 
 /// Storage-neutral failures from an event log.
@@ -92,9 +120,13 @@ impl Error for LogError {
 pub trait EventLog {
     /// Appends one event and atomically advances its source cursor.
     ///
+    /// Dedupe is keyed on the event's identity — the source plus the payload's content hash —
+    /// never on the cursor alone, since two real events can share a cursor value. A redelivery
+    /// of an already-stored event returns [`AppendOutcome::Duplicate`] and changes nothing.
+    ///
     /// # Errors
     /// Returns a storage error without partially storing the event or advancing the cursor.
-    fn append(&mut self, event: RawEvent) -> Result<LogPosition, LogError>;
+    fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError>;
 
     /// Reads the most recently committed cursor for `source`.
     ///
@@ -118,6 +150,7 @@ pub trait EventLog {
 pub struct InMemoryEventLog {
     events: Vec<StoredEvent>,
     cursors: HashMap<SourceId, (Cursor, LogPosition)>,
+    seen: HashMap<(SourceId, i64), LogPosition>,
 }
 
 impl InMemoryEventLog {
@@ -126,11 +159,35 @@ impl InMemoryEventLog {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// The stored payload at `position`, if it is still held.
+    fn stored_payload(&self, position: LogPosition) -> Option<&[u8]> {
+        let index = usize::try_from(position.as_u64().checked_sub(1)?).ok()?;
+        self.events
+            .get(index)
+            .map(|stored| stored.event.payload.as_slice())
+    }
 }
 
 impl EventLog for InMemoryEventLog {
-    fn append(&mut self, event: RawEvent) -> Result<LogPosition, LogError> {
+    fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
         check_payload_size(event.payload.len())?;
+        let key = (event.source.clone(), content_hash(&event.payload));
+        if let Some(&position) = self.seen.get(&key) {
+            // A hash hit is a duplicate only when the payload bytes match, mirroring the
+            // SQLite path: a genuine hash collision is loud, never a silent drop.
+            let stored = self.stored_payload(position).ok_or_else(|| {
+                LogError::Corrupt(format!(
+                    "content hash points at missing position {}",
+                    position.as_u64()
+                ))
+            })?;
+            if stored != event.payload.as_slice() {
+                return Err(collision(event.source.as_str(), key.1, position));
+            }
+            // Duplicate: the cursor is untouched, so a redelivery cannot move it backwards.
+            return Ok(AppendOutcome::Duplicate(position));
+        }
         let next = u64::try_from(self.events.len())
             .map_err(|error| LogError::Io(error.to_string()))?
             .checked_add(1)
@@ -139,7 +196,8 @@ impl EventLog for InMemoryEventLog {
         self.cursors
             .insert(event.source.clone(), (event.cursor.clone(), position));
         self.events.push(StoredEvent { position, event });
-        Ok(position)
+        self.seen.insert(key, position);
+        Ok(AppendOutcome::Inserted(position))
     }
 
     fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, LogError> {
@@ -222,7 +280,7 @@ impl SqliteEventLog {
             .map_err(map_sqlite)?;
         if version != 0 && version != SCHEMA_VERSION {
             return Err(LogError::Corrupt(format!(
-                "unsupported schema version {version}; expected {SCHEMA_VERSION}"
+                "unsupported schema version {version}; expected {SCHEMA_VERSION}. An older s2w wrote this log; open a fresh log directory"
             )));
         }
         if version == 0 {
@@ -237,24 +295,30 @@ impl SqliteEventLog {
 }
 
 impl EventLog for SqliteEventLog {
-    fn append(&mut self, event: RawEvent) -> Result<LogPosition, LogError> {
+    fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
         check_payload_size(event.payload.len())?;
+        let hash = content_hash(&event.payload);
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_sqlite)?;
-        transaction
+        let inserted = transaction
             .execute(
-                "INSERT INTO events (source, cursor, received_at, payload)
-                 VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO events (source, cursor, received_at, payload, content_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(source, content_hash) DO NOTHING",
                 params![
                     event.source.as_str(),
                     event.cursor.as_bytes(),
                     event.received_at.as_millis(),
-                    event.payload
+                    event.payload,
+                    hash
                 ],
             )
             .map_err(map_sqlite)?;
+        if inserted == 0 {
+            return resolve_duplicate(&transaction, event.source.as_str(), hash, &event.payload);
+        }
         let row_id = transaction.last_insert_rowid();
         transaction
             .execute(
@@ -270,7 +334,7 @@ impl EventLog for SqliteEventLog {
         let position = u64::try_from(row_id)
             .map(LogPosition)
             .map_err(|error| LogError::Corrupt(error.to_string()))?;
-        Ok(position)
+        Ok(AppendOutcome::Inserted(position))
     }
 
     fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, LogError> {
@@ -303,6 +367,46 @@ impl EventLog for SqliteEventLog {
         replay.refill()?;
         Ok(Box::new(replay))
     }
+}
+
+/// The loud error for a 64-bit content-hash collision between two distinct payloads.
+///
+/// Names the source, hash and stored position so a human can inspect the two events: the same
+/// event is redelivered on every restart, so this error repeats until someone acts on it.
+fn collision(source: &str, hash: i64, position: LogPosition) -> LogError {
+    LogError::Corrupt(format!(
+        "content-hash collision between distinct payloads: source {source}, hash {hash}, stored at position {}",
+        position.as_u64()
+    ))
+}
+
+/// Classifies an insert that changed no rows: a byte-identical redelivery, or a hash collision.
+///
+/// The stored payload bytes are compared against the new event's, because `UNIQUE(source,
+/// content_hash)` alone would silently drop a real event on a 64-bit hash collision between two
+/// distinct payloads. Nothing was inserted, and the transaction is dropped uncommitted: the
+/// cursor upsert is skipped entirely, since `last_insert_rowid()` still reports the previous
+/// successful insert's row here and would corrupt `cursors.last_position`.
+fn resolve_duplicate(
+    transaction: &rusqlite::Transaction<'_>,
+    source: &str,
+    hash: i64,
+    payload: &[u8],
+) -> Result<AppendOutcome, LogError> {
+    let (position, stored_payload): (i64, Vec<u8>) = transaction
+        .query_row(
+            "SELECT position, payload FROM events WHERE source = ?1 AND content_hash = ?2",
+            params![source, hash],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(map_sqlite)?;
+    let position = u64::try_from(position)
+        .map(LogPosition)
+        .map_err(|error| LogError::Corrupt(error.to_string()))?;
+    if stored_payload != payload {
+        return Err(collision(source, hash, position));
+    }
+    Ok(AppendOutcome::Duplicate(position))
 }
 
 struct Replay<'connection> {
@@ -361,11 +465,13 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
     transaction
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS events (
-                position    INTEGER PRIMARY KEY AUTOINCREMENT,
-                source      TEXT    NOT NULL,
-                cursor      BLOB    NOT NULL,
-                received_at INTEGER NOT NULL,
-                payload     BLOB    NOT NULL
+                position     INTEGER PRIMARY KEY AUTOINCREMENT,
+                source       TEXT    NOT NULL,
+                cursor       BLOB    NOT NULL,
+                received_at  INTEGER NOT NULL,
+                payload      BLOB    NOT NULL,
+                content_hash INTEGER NOT NULL,
+                UNIQUE(source, content_hash)
             );
             CREATE TABLE IF NOT EXISTS cursors (
                 source        TEXT PRIMARY KEY,
@@ -380,7 +486,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
             BEFORE DELETE ON events BEGIN
                 SELECT RAISE(ABORT, 'events are append-only: delete refused');
             END;
-            PRAGMA user_version = 1;",
+            PRAGMA user_version = 2;",
         )
         .map_err(map_sqlite)?;
     transaction.commit().map_err(map_sqlite)
@@ -490,20 +596,46 @@ mod tests {
         })
     }
 
+    fn event_with(
+        source_id: SourceId,
+        event_cursor: Cursor,
+        payload: Vec<u8>,
+        received_at: i64,
+    ) -> RawEvent {
+        RawEvent {
+            source: source_id,
+            cursor: event_cursor,
+            received_at: Timestamp::from_millis(received_at),
+            payload,
+        }
+    }
+
+    /// Unwraps an expected [`AppendOutcome::Inserted`]; every conformance payload is unique, so
+    /// a duplicate there is a bug to fix, not a test to loosen.
+    fn inserted(outcome: AppendOutcome) -> Result<LogPosition, String> {
+        match outcome {
+            AppendOutcome::Inserted(position) => Ok(position),
+            AppendOutcome::Duplicate(position) => Err(format!(
+                "expected an insert, saw a duplicate at {}",
+                position.as_u64()
+            )),
+        }
+    }
+
     fn run_conformance_suite<L: EventLog>(mut log: L) -> TestResult {
         let source_a = source("source-a")?;
         assert_eq!(log.cursor(&source_a)?, None);
 
         let event_a = event(1)?;
-        let position_a = log.append(event_a.clone())?;
+        let position_a = inserted(log.append(event_a.clone())?)?;
         assert_eq!(log.cursor(&source_a)?, Some(event_a.cursor.clone()));
 
         let event_b = event(2)?;
-        let position_b = log.append(event_b.clone())?;
+        let position_b = inserted(log.append(event_b.clone())?)?;
         assert!(position_b > position_a);
 
         let event_c = event(3)?;
-        let position_c = log.append(event_c.clone())?;
+        let position_c = inserted(log.append(event_c.clone())?)?;
         assert!(position_c > position_b);
         assert_eq!(log.cursor(&source_a)?, Some(event_c.cursor.clone()));
 
@@ -554,6 +686,195 @@ mod tests {
     fn sqlite_conforms_to_event_log_seam() -> TestResult {
         let directory = TestDirectory::new("conformance")?;
         run_conformance_suite(SqliteEventLog::open(directory.path())?)
+    }
+
+    #[test]
+    fn content_hash_is_pinned_fnv1a_64() {
+        // The hash is persisted on disk, so these published FNV-1a vectors pin the algorithm:
+        // a silent change would silently change dedupe for every existing database.
+        let as_i64 = |bits: u64| i64::from_ne_bytes(bits.to_ne_bytes());
+        assert_eq!(content_hash(b""), as_i64(0xcbf29ce484222325));
+        assert_eq!(content_hash(b"a"), as_i64(0xaf63dc4c8601ec8c));
+        assert_eq!(content_hash(b"foobar"), as_i64(0x85944171f73967e8));
+        assert_ne!(content_hash(b"payload-1"), content_hash(b"payload-2"));
+    }
+
+    /// Dedupe on event identity, shared by both impls (s2w#25).
+    fn run_dedupe_suite<L: EventLog>(mut log: L) -> TestResult {
+        let source_a = source("source-a")?;
+        let source_b = source("source-b")?;
+
+        // The same (source, payload) appends once; the redelivery reports the original
+        // position and leaves exactly one row behind.
+        let first = event_with(source_a.clone(), cursor(1)?, b"payload-one".to_vec(), 1_000);
+        let position_first = inserted(log.append(first.clone())?)?;
+        assert_eq!(
+            log.append(first.clone())?,
+            AppendOutcome::Duplicate(position_first)
+        );
+        assert_eq!(log.replay(None)?.count(), 1);
+
+        // A later event from the same source advances the cursor; a redelivery of the first
+        // event after that must not regress it (the same-millisecond sibling case).
+        let second = event_with(source_a.clone(), cursor(2)?, b"payload-two".to_vec(), 2_000);
+        inserted(log.append(second.clone())?)?;
+        assert_eq!(log.cursor(&source_a)?, Some(second.cursor.clone()));
+        assert_eq!(
+            log.append(first.clone())?,
+            AppendOutcome::Duplicate(position_first)
+        );
+        assert_eq!(log.cursor(&source_a)?, Some(second.cursor.clone()));
+        assert_eq!(log.replay(None)?.count(), 2);
+
+        // Identical payload bytes from a different legitimate source identity are two events.
+        let other_source = event_with(source_b.clone(), cursor(1)?, b"payload-one".to_vec(), 3_000);
+        let position_other = inserted(log.append(other_source)?)?;
+        assert_ne!(position_other, position_first);
+        assert_eq!(log.replay(None)?.count(), 3);
+
+        // Two different payloads that share cursor bytes are two events: dedupe is keyed on
+        // payload identity, never on the cursor alone.
+        let sibling_a = event_with(
+            source_a.clone(),
+            cursor(9)?,
+            b"payload-three".to_vec(),
+            4_000,
+        );
+        let sibling_b = event_with(
+            source_a.clone(),
+            cursor(9)?,
+            b"payload-four".to_vec(),
+            4_000,
+        );
+        assert!(matches!(
+            log.append(sibling_a.clone())?,
+            AppendOutcome::Inserted(_)
+        ));
+        assert!(matches!(
+            log.append(sibling_b.clone())?,
+            AppendOutcome::Inserted(_)
+        ));
+        assert_eq!(log.replay(None)?.count(), 5);
+        assert_eq!(log.cursor(&source_a)?, Some(cursor(9)?));
+
+        // The resume-boundary case (s2w#25): an inclusive timestamp seek redelivers the first
+        // sibling after the second was stored. It collapses, and nothing moves.
+        assert!(matches!(
+            log.append(sibling_a)?,
+            AppendOutcome::Duplicate(_)
+        ));
+        assert_eq!(log.replay(None)?.count(), 5);
+        assert_eq!(log.cursor(&source_a)?, Some(cursor(9)?));
+        Ok(())
+    }
+
+    #[test]
+    fn in_memory_dedupes_on_source_and_payload_identity() -> TestResult {
+        run_dedupe_suite(InMemoryEventLog::new())
+    }
+
+    #[test]
+    fn sqlite_dedupes_on_source_and_payload_identity() -> TestResult {
+        let directory = TestDirectory::new("dedupe")?;
+        run_dedupe_suite(SqliteEventLog::open(directory.path())?)
+    }
+
+    #[test]
+    fn sqlite_duplicate_leaves_the_stored_cursor_row_untouched() -> TestResult {
+        let directory = TestDirectory::new("duplicate-cursor")?;
+        let first = event(1)?;
+        let second = event(3)?;
+        let mut log = SqliteEventLog::open(directory.path())?;
+        let position_first = inserted(log.append(first.clone())?)?;
+        inserted(log.append(second.clone())?)?;
+
+        let read_cursor_row = |log: &SqliteEventLog| -> Result<(Vec<u8>, i64), rusqlite::Error> {
+            log.connection.query_row(
+                "SELECT cursor, last_position FROM cursors WHERE source = ?1",
+                [first.source.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+        };
+        let before = read_cursor_row(&log)?;
+        assert_eq!(
+            log.append(first.clone())?,
+            AppendOutcome::Duplicate(position_first)
+        );
+        assert_eq!(read_cursor_row(&log)?, before);
+        assert_eq!(log.cursor(&first.source)?, Some(second.cursor.clone()));
+        Ok(())
+    }
+
+    #[test]
+    fn in_memory_hash_collision_is_loud_and_stores_nothing() -> TestResult {
+        let mut log = InMemoryEventLog::new();
+        let stored = event(1)?;
+        inserted(log.append(stored.clone())?)?;
+        // Force a collision: keep the stored hash key but change the stored bytes, so the next
+        // append of the original payload hits the key with different bytes behind it.
+        match log.events.first_mut() {
+            Some(first) => first.event.payload = b"different bytes".to_vec(),
+            None => panic!("the log should hold the event just appended"),
+        }
+        match log.append(stored) {
+            Err(LogError::Corrupt(message)) => assert!(message.contains("collision")),
+            other => panic!("a hash collision must be Corrupt, got {other:?}"),
+        }
+        assert_eq!(log.replay(None)?.count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn sqlite_hash_collision_is_loud_and_stores_nothing() -> TestResult {
+        let directory = TestDirectory::new("collision")?;
+        let incoming = event(1)?;
+        let mut log = SqliteEventLog::open(directory.path())?;
+        // A row whose hash is the incoming payload's but whose bytes differ: a collision.
+        log.connection.execute(
+            "INSERT INTO events (source, cursor, received_at, payload, content_hash)
+             VALUES (?1, X'01', 1, X'01', ?2)",
+            params![incoming.source.as_str(), content_hash(&incoming.payload)],
+        )?;
+        match log.append(incoming.clone()) {
+            Err(LogError::Corrupt(message)) => assert!(message.contains("collision")),
+            other => panic!("a hash collision must be Corrupt, got {other:?}"),
+        }
+        assert_eq!(log.replay(None)?.count(), 1);
+        assert_eq!(log.cursor(&incoming.source)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn sqlite_rejects_a_version_1_database_as_corrupt() -> TestResult {
+        let directory = TestDirectory::new("version-1")?;
+        let connection = Connection::open(directory.path().join(DATABASE_FILE))?;
+        // The complete schema exactly as version 1 defined it, without `content_hash`: the only
+        // shape a database written by the previous release can have. It must be refused loudly
+        // rather than opened and then misbehaving on the first append.
+        connection.execute_batch(
+            "CREATE TABLE events (
+                position    INTEGER PRIMARY KEY AUTOINCREMENT,
+                source      TEXT    NOT NULL,
+                cursor      BLOB    NOT NULL,
+                received_at INTEGER NOT NULL,
+                payload     BLOB    NOT NULL
+            );
+             CREATE TABLE cursors (
+                source        TEXT PRIMARY KEY,
+                cursor        BLOB    NOT NULL,
+                last_position INTEGER NOT NULL REFERENCES events(position)
+            );
+             PRAGMA user_version = 1;",
+        )?;
+        drop(connection);
+        match SqliteEventLog::open(directory.path()) {
+            Err(LogError::Corrupt(message)) => {
+                assert!(message.contains("unsupported schema version 1"));
+            }
+            Err(other) => panic!("a version-1 database should be Corrupt, got {other:?}"),
+            Ok(_) => panic!("a version-1 database must not open as if it were current"),
+        }
+        Ok(())
     }
 
     #[test]
@@ -618,9 +939,9 @@ mod tests {
             connection
                 .execute(
                     "INSERT OR REPLACE INTO events
-                     (position, source, cursor, received_at, payload)
-                     VALUES (1, 'replacement', X'09', 9, X'09')",
-                    [],
+                     (position, source, cursor, received_at, payload, content_hash)
+                     VALUES (1, 'replacement', X'09', 9, X'09', ?1)",
+                    params![content_hash(&original.payload)],
                 )
                 .is_err()
         );

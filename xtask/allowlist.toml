@@ -23,7 +23,7 @@ normal = ["s2w-model"]
 normal = ["s2w-model"]
 
 [crates.s2w-app]
-normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2"]
+normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2", "tokio", "tokio-stream", "thiserror"]
 
 [crates.s2w]
 normal = ["s2w-app"]

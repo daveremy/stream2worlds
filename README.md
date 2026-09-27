@@ -71,9 +71,21 @@ flowchart LR
 | **If this, then that, across worlds** | One small language for queries, subscriptions and rules that read the world or a forecast and act through plugins. |
 | **Agents are first-class clients** | A read-only MCP server exposes the world, forecasts, evidence and a ranked attention feed. The dashboard is where people see what agents saw and did. |
 
+## Running today
+
+```bash
+# stream Wikipedia page changes into a local SQLite event log (default ./s2w-data)
+s2w watch wikipedia --log-dir ./s2w-data
+
+# replay history first; only for a log that has no stored cursor yet
+s2w watch wikipedia --since 2026-09-27T00:00:00Z --log-dir ./fresh-dir
+```
+
+Stop it with Ctrl-C. Run it again on the same `--log-dir` and it resumes from the stored cursor (`Last-Event-ID`), not from now. Events redelivered on resume are collapsed by the log, which dedupes on source plus payload content, so two distinct events sharing a millisecond are both kept. Passing `--since` to a log that already has a cursor is a usage error.
+
 ## Planned interface
 
-This is the target shape. None of these commands run today.
+This is the target shape. Only `s2w watch wikipedia` above runs today.
 
 ```bash
 # a public stream, no key needed

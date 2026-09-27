@@ -180,7 +180,27 @@ impl WikipediaSource {
     /// Panics (via [`tokio::spawn`], through [`Self::spawn`]) if called outside a Tokio runtime.
     pub fn new(since: Option<String>) -> Result<Self, WikipediaSourceError> {
         let connector = ReqwestConnect::new()?;
-        let (source, task) = Self::spawn(connector, since, Backoff::production());
+        let (source, task) = Self::spawn(connector, since, None, Backoff::production());
+        drop(task);
+        Ok(source)
+    }
+
+    /// Resumes the production source from an already-known cursor, such as one read back from
+    /// the event log.
+    ///
+    /// The cursor is sent as `Last-Event-ID` on the very first connection; `since` is never
+    /// sent, because the cursor already locates the resume point.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WikipediaSourceError::Initialization`] if reqwest cannot construct its client.
+    ///
+    /// # Panics
+    ///
+    /// Panics (via [`tokio::spawn`], through [`Self::spawn`]) if called outside a Tokio runtime.
+    pub fn resume(cursor: LastEventId) -> Result<Self, WikipediaSourceError> {
+        let connector = ReqwestConnect::new()?;
+        let (source, task) = Self::spawn(connector, None, Some(cursor), Backoff::production());
         drop(task);
         Ok(source)
     }
@@ -191,10 +211,11 @@ impl WikipediaSource {
     fn spawn<C: Connect>(
         connector: C,
         since: Option<String>,
+        initial_cursor: Option<LastEventId>,
         backoff: Backoff,
     ) -> (Self, JoinHandle<()>) {
         let (sender, receiver) = mpsc::channel(CHANNEL_CAPACITY);
-        let task = tokio::spawn(run(connector, since, sender, backoff));
+        let task = tokio::spawn(run(connector, since, initial_cursor, sender, backoff));
         let source = Self {
             receiver: ReceiverStream::new(receiver),
             task: task.abort_handle(),
@@ -358,10 +379,13 @@ impl Backoff {
 async fn run<C: Connect>(
     connector: C,
     since: Option<String>,
+    initial_cursor: Option<LastEventId>,
     sender: mpsc::Sender<Result<SourceEvent, WikipediaSourceError>>,
     mut backoff: Backoff,
 ) {
-    let mut cursor: Option<LastEventId> = None;
+    // A resumed source starts from the cursor it was handed (read back from the event log)
+    // instead of `None`; from the first frame on, the last parsed cursor is authoritative.
+    let mut cursor = initial_cursor;
     loop {
         let requested_since = cursor.is_none().then_some(since.as_deref()).flatten();
         let requested_cursor = cursor.as_ref().map(LastEventId::as_header_value);
@@ -672,8 +696,12 @@ mod tests {
                 Action::pending_connect(None, expected.last().map(|frame| frame.0.clone())),
             ]);
             let observer = connector.clone();
-            let (mut source, _task) =
-                WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
+            let (mut source, _task) = WikipediaSource::spawn(
+                connector,
+                None,
+                None,
+                Backoff::fixed(Duration::from_millis(0)),
+            );
 
             let mut actual = Vec::with_capacity(expected.len());
             while actual.len() < expected.len() {
@@ -710,8 +738,12 @@ mod tests {
                 Action::pending_connect(None, Some(FIRST_ID.to_owned())),
             ]);
             let observer = connector.clone();
-            let (mut source, _task) =
-                WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
+            let (mut source, _task) = WikipediaSource::spawn(
+                connector,
+                None,
+                None,
+                Backoff::fixed(Duration::from_millis(0)),
+            );
             let event = next_ok(&mut source).await;
             assert_eq!(event.payload, NORMAL_DATA);
             assert_eq!(event.cursor.as_header_value(), FIRST_ID);
@@ -735,6 +767,31 @@ mod tests {
         let (mut source, _task) = WikipediaSource::spawn(
             connector,
             Some(since.to_owned()),
+            None,
+            Backoff::fixed(Duration::from_millis(0)),
+        );
+        assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+        observer.assert_no_mismatches().await;
+    });
+
+    async_test!(resume_cursor_is_sent_first_and_since_is_never_sent, {
+        let resume = match LastEventId::parse(SECOND_ID) {
+            Ok(resume) => resume,
+            Err(error) => panic!("resume cursor should parse: {error}"),
+        };
+        let connector = FakeConnect::new(vec![
+            Action::stream(
+                None,
+                Some(SECOND_ID.to_owned()),
+                vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()],
+            ),
+            Action::pending_connect(None, Some(FIRST_ID.to_owned())),
+        ]);
+        let observer = connector.clone();
+        let (mut source, _task) = WikipediaSource::spawn(
+            connector,
+            None,
+            Some(resume),
             Backoff::fixed(Duration::from_millis(0)),
         );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
@@ -754,8 +811,12 @@ mod tests {
             Action::pending_connect(None, Some(SECOND_ID.to_owned())),
         ]);
         let observer = connector.clone();
-        let (mut source, _task) =
-            WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
+        let (mut source, _task) = WikipediaSource::spawn(
+            connector,
+            None,
+            None,
+            Backoff::fixed(Duration::from_millis(0)),
+        );
         let first = next_ok(&mut source).await;
         let second = next_ok(&mut source).await;
         assert_eq!(first.cursor.as_header_value(), FIRST_ID);
@@ -780,8 +841,12 @@ mod tests {
                 Action::pending_connect(None, Some(FIRST_ID.to_owned())),
             ]);
             let observer = connector.clone();
-            let (mut source, _task) =
-                WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
+            let (mut source, _task) = WikipediaSource::spawn(
+                connector,
+                None,
+                None,
+                Backoff::fixed(Duration::from_millis(0)),
+            );
             assert_eq!(
                 next_ok(&mut source).await.cursor.as_header_value(),
                 FIRST_ID
@@ -815,8 +880,12 @@ mod tests {
             Action::pending_connect(None, Some(FIRST_ID.to_owned())),
         ]);
         let observer = connector.clone();
-        let (mut source, _task) =
-            WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
+        let (mut source, _task) = WikipediaSource::spawn(
+            connector,
+            None,
+            None,
+            Backoff::fixed(Duration::from_millis(0)),
+        );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
         observer.assert_no_mismatches().await;
     });
@@ -828,8 +897,12 @@ mod tests {
             Action::pending_connect(None, Some(FIRST_ID.to_owned())),
         ]);
         let observer = connector.clone();
-        let (mut source, _task) =
-            WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
+        let (mut source, _task) = WikipediaSource::spawn(
+            connector,
+            None,
+            None,
+            Backoff::fixed(Duration::from_millis(0)),
+        );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
         observer.assert_no_mismatches().await;
     });
@@ -849,6 +922,7 @@ mod tests {
         let (mut source, _task) = WikipediaSource::spawn(
             connector,
             Some("123".to_owned()),
+            None,
             Backoff::fixed(Duration::from_millis(0)),
         );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
@@ -894,8 +968,12 @@ mod tests {
 
     async_test!(dropping_source_aborts_idle_read, {
         let connector = FakeConnect::new(vec![Action::idle_stream(None, None)]);
-        let (source, task) =
-            WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_secs(60)));
+        let (source, task) = WikipediaSource::spawn(
+            connector,
+            None,
+            None,
+            Backoff::fixed(Duration::from_secs(60)),
+        );
         tokio::task::yield_now().await;
         drop(source);
         assert_task_aborted(task).await;
@@ -903,8 +981,12 @@ mod tests {
 
     async_test!(dropping_source_aborts_backoff_sleep, {
         let connector = FakeConnect::new(vec![Action::error(None, None, FakeError::Transport)]);
-        let (source, task) =
-            WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_secs(60)));
+        let (source, task) = WikipediaSource::spawn(
+            connector,
+            None,
+            None,
+            Backoff::fixed(Duration::from_secs(60)),
+        );
         tokio::task::yield_now().await;
         drop(source);
         assert_task_aborted(task).await;
