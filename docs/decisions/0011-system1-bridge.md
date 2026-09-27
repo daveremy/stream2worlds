@@ -75,7 +75,7 @@ The shape is locked now so persistence is a table, not a redesign: `Verdict` ser
 stable names (golden file `crates/s2w-system1/testdata/page-change-sample.verdict.json`), every
 engine carries a name and version, and every verdict is produced by one function,
 `bridge::evaluate_stored`, returning `VerdictRecord { position, engine, version, verdict }`.
-Persisting is one write at that site. Follow-up A tracks it.
+Persisting is one write at that site. [#63](https://github.com/daveremy/stream2worlds/issues/63) tracks it.
 
 ## The second engine
 
@@ -88,7 +88,7 @@ graded confidence. Two reasons:
 2. Two real implementations are what make the trait reviewable, and `json_claims` exercises
    the graded half of `Confidence` before embeddings exist.
 
-Local embeddings are follow-up B, after follow-up A. The README row reads "Rules; JSON claims;
+Local embeddings are [#64](https://github.com/daveremy/stream2worlds/issues/64), after #63. The README row reads "Rules; JSON claims;
 local embeddings (next)" (Dave, 2026-09-27).
 
 ## Consequences

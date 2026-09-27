@@ -17,7 +17,7 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
     persisted verdict only because both shipped engines are pure functions of the payload (no
     clock, RNG, or model file). An engine whose output depends on an input the log does not
     capture (a model file, as in local embeddings or Jev) must not ship without the persisted
-    verdict log, and neither may a persisted world (#33). Bumping an existing engine's
+    verdict log (#63), and neither may a persisted world (#33). Bumping an existing engine's
     `version()` also changes what a restart serves, silently, until that log exists.
 - Two engines ship in the first slice: Wikimedia page-change rules and JSON claims. Local
   embeddings are next, after persisted verdicts; Jev joins behind the same trait.
