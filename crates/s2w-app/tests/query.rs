@@ -525,3 +525,88 @@ mod golden {
         assert_eq!(range["last_ts"], 23_000);
     }
 }
+
+/// A hub relating to another hub (#42): not in the golden log, so a small in-test world.
+#[cfg(test)]
+mod hub_to_hub {
+    use s2w_app::query::{Lod, ViewParams, world_view};
+    use s2w_core::{NaturalKey, World, WorldEvent, fold};
+    use serde_json::Value;
+
+    fn relate(from: &str, to: &str) -> WorldEvent {
+        WorldEvent::RelationshipObserved {
+            from: NaturalKey::new(from),
+            to: NaturalKey::new(to),
+            kind: "on".to_owned(),
+        }
+    }
+
+    /// Cap 1: `a` and `b` each get two distinct sources and trip, then hub `a` relates to hub `b`.
+    fn world() -> World {
+        fold(
+            World::with_hub_cap(1),
+            &[
+                relate("p1", "a"),
+                relate("p2", "a"),
+                relate("p1", "b"),
+                relate("p2", "b"),
+                relate("a", "b"),
+            ],
+        )
+    }
+
+    fn e(world: &World, key: &str) -> String {
+        format!("e:{}", world.id_of(&NaturalKey::new(key)).unwrap().get())
+    }
+
+    fn view(world: &World, lod: Lod) -> Value {
+        let params = ViewParams {
+            lod,
+            ..ViewParams::default()
+        };
+        serde_json::to_value(world_view(world, &params).unwrap()).unwrap()
+    }
+
+    fn node<'a>(view: &'a Value, id: &str) -> &'a Value {
+        view["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == id)
+            .unwrap()
+    }
+
+    #[test]
+    fn entity_lod_serves_a_hubs_own_hub_ref() {
+        let world = world();
+        let (a, b) = (e(&world, "a"), e(&world, "b"));
+        let view = view(&world, Lod::Entity);
+        let hub_a = node(&view, &a);
+        assert_eq!(hub_a["kind"], "hub");
+        assert_eq!(node(&view, &b)["kind"], "hub");
+        assert_eq!(
+            hub_a["hub_refs"],
+            serde_json::json!([{ "kind": "on", "hub": b }])
+        );
+        // Still no link into a hub at lod=entity: the edge is carried by hub_refs alone.
+        for link in view["links"].as_array().unwrap() {
+            assert_ne!(link["target"], b.as_str());
+        }
+    }
+
+    #[test]
+    fn type_lod_shows_the_same_edge_as_a_link() {
+        let world = world();
+        let (a, b) = (e(&world, "a"), e(&world, "b"));
+        let view = view(&world, Lod::Type);
+        let hub_to_hub: Vec<&Value> = view["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|l| l["source"] == a.as_str() && l["target"] == b.as_str())
+            .collect();
+        assert_eq!(hub_to_hub.len(), 1);
+        assert_eq!(hub_to_hub[0]["kind"], "on");
+        assert_eq!(hub_to_hub[0]["weight"], 1);
+    }
+}

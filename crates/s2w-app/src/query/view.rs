@@ -93,6 +93,9 @@ pub enum Node {
         by_kind: BTreeMap<String, u64>,
         /// The world offset of the latest relationship observed pointing here.
         last_seen_offset: u64,
+        /// The hub's own relationships into other hubs, as on [`Node::Entity`]: no link into a
+        /// hub is emitted at `lod=entity`, so without this a hub-to-hub edge would vanish there.
+        hub_refs: Vec<HubRef>,
     },
     /// Every non-hub entity of one type.
     Type {
@@ -315,6 +318,7 @@ impl<'w> Graph<'w> {
                 in_degree: u64::try_from(agg.sources.len()).unwrap_or(u64::MAX),
                 by_kind: agg.by_kind.clone(),
                 last_seen_offset: agg.last_seen_offset,
+                hub_refs: self.hub_refs.get(&id).cloned().unwrap_or_default(),
             },
             None => Node::Entity {
                 id: node_id(id),
