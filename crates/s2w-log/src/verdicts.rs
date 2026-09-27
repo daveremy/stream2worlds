@@ -15,13 +15,12 @@
 
 use std::collections::HashSet;
 use std::fmt;
-use std::fs::{self, File, OpenOptions};
+use std::fs::File;
 use std::path::Path;
-use std::time::Duration;
 
 use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior, params};
 
-use crate::{LogError, LogPosition, map_fs_error, map_sqlite};
+use crate::{LogError, LogPosition, map_sqlite, open_sqlite_store};
 
 const DATABASE_FILE: &str = "verdicts.sqlite3";
 const LOCK_FILE: &str = "VERDICTS_LOCK";
@@ -57,8 +56,8 @@ pub trait VerdictStore {
 
     /// Verdicts for positions in `(after, through]`, ordered by position and then write order.
     ///
-    /// Within one position the first row for an engine is the one first written, which is the
-    /// replay selection rule's "lowest seq".
+    /// Within one position the first row for an engine is the one first written — the row the
+    /// replay selection rule serves.
     ///
     /// # Errors
     /// Returns an error if the store cannot be read or a row is malformed.
@@ -112,6 +111,9 @@ pub struct InMemoryVerdictStore {
     /// Rows in write order; the index is the seq.
     rows: Vec<StoredVerdict>,
     cursor: Option<LogPosition>,
+    /// `(position, engine, version)` keys already stored, kept incrementally so `commit_batch`
+    /// never re-scans `rows` (mirrors `InMemoryEventLog::seen`).
+    keys: HashSet<(LogPosition, String, u32)>,
 }
 
 impl InMemoryVerdictStore {
@@ -149,17 +151,16 @@ impl VerdictStore for InMemoryVerdictStore {
         through: LogPosition,
     ) -> Result<(), LogError> {
         check_rows_through(rows, through)?;
-        // Validate everything before mutating anything: all or nothing.
-        let mut keys: HashSet<(LogPosition, &str, u32)> = self
-            .rows
-            .iter()
-            .map(|row| (row.position, row.engine.as_str(), row.version))
-            .collect();
+        // Validate everything before mutating anything: all or nothing. `new_keys` catches a
+        // duplicate WITHIN this batch; `self.keys` catches one against rows already committed.
+        let mut new_keys: HashSet<(LogPosition, String, u32)> = HashSet::with_capacity(rows.len());
         for row in rows {
-            if !keys.insert((row.position, row.engine.as_str(), row.version)) {
+            let key = (row.position, row.engine.clone(), row.version);
+            if self.keys.contains(&key) || !new_keys.insert(key) {
                 return Err(duplicate_key(row));
             }
         }
+        self.keys.extend(new_keys);
         self.rows.extend_from_slice(rows);
         self.cursor = self.cursor.max(Some(through));
         Ok(())
@@ -190,47 +191,20 @@ impl SqliteVerdictStore {
     /// Returns [`LogError::Locked`] when another handle owns the verdict lock, and
     /// [`LogError::Corrupt`] for an unknown schema version.
     pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
-        let directory = directory.as_ref();
-        fs::create_dir_all(directory).map_err(map_fs_error)?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(directory.join(LOCK_FILE))
-            .map_err(map_fs_error)?;
-        lock.try_lock().map_err(|_| LogError::Locked)?;
-
-        let mut connection = Connection::open(directory.join(DATABASE_FILE)).map_err(map_sqlite)?;
-        connection
-            .busy_timeout(Duration::from_secs(3))
-            .map_err(map_sqlite)?;
-        let journal_mode: String = connection
-            .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
-            .map_err(map_sqlite)?;
-        if !journal_mode.eq_ignore_ascii_case("wal") {
-            return Err(LogError::Io(format!(
-                "SQLite refused WAL mode for the verdict store and selected {journal_mode:?}"
-            )));
-        }
-        connection
-            .execute_batch(
-                "PRAGMA synchronous = FULL;
-                 PRAGMA recursive_triggers = ON;",
-            )
-            .map_err(map_sqlite)?;
-
-        let version: i64 = connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .map_err(map_sqlite)?;
-        if version != 0 && version != SCHEMA_VERSION {
-            return Err(LogError::Corrupt(format!(
-                "unsupported verdict store schema version {version}; expected {SCHEMA_VERSION}"
-            )));
-        }
-        if version == 0 {
-            initialize_schema(&mut connection)?;
-        }
+        let (connection, lock) = open_sqlite_store(
+            directory.as_ref(),
+            DATABASE_FILE,
+            LOCK_FILE,
+            "PRAGMA synchronous = FULL;
+             PRAGMA recursive_triggers = ON;",
+            SCHEMA_VERSION,
+            |version| {
+                format!(
+                    "unsupported verdict store schema version {version}; expected {SCHEMA_VERSION}"
+                )
+            },
+            initialize_schema,
+        )?;
         Ok(Self {
             connection,
             _lock: lock,
@@ -258,7 +232,7 @@ impl SqliteVerdictStore {
                 "INSERT INTO verdicts (position, engine, version, event_hash, verdict, provenance)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
-                    to_sql_position(row.position)?,
+                    row.position.to_sql()?,
                     row.engine,
                     row.version,
                     row.event_hash,
@@ -278,7 +252,7 @@ impl SqliteVerdictStore {
             .execute(
                 "INSERT INTO bridge_cursor (id, position) VALUES (1, ?1)
                  ON CONFLICT(id) DO UPDATE SET position = max(position, excluded.position)",
-                [to_sql_position(through)?],
+                [through.to_sql()?],
             )
             .map_err(map_sqlite)?;
         before_commit()?;
@@ -298,7 +272,7 @@ impl VerdictStore for SqliteVerdictStore {
             )
             .optional()
             .map_err(map_sqlite)?;
-        position.map(from_sql_position).transpose()
+        position.map(LogPosition::from_sql).transpose()
     }
 
     fn read_range(
@@ -306,7 +280,7 @@ impl VerdictStore for SqliteVerdictStore {
         after: Option<LogPosition>,
         through: LogPosition,
     ) -> Result<Vec<StoredVerdict>, LogError> {
-        let after = after.map_or(Ok(0), to_sql_position)?;
+        let after = after.map_or(Ok(0), LogPosition::to_sql)?;
         let mut statement = self
             .connection
             .prepare(
@@ -317,13 +291,13 @@ impl VerdictStore for SqliteVerdictStore {
             )
             .map_err(map_sqlite)?;
         let mut rows = statement
-            .query(params![after, to_sql_position(through)?])
+            .query(params![after, through.to_sql()?])
             .map_err(map_sqlite)?;
         let mut verdicts = Vec::new();
         while let Some(row) = rows.next().map_err(map_sqlite)? {
             let version: i64 = row.get(3).map_err(map_sqlite)?;
             verdicts.push(StoredVerdict {
-                position: from_sql_position(row.get(0).map_err(map_sqlite)?)?,
+                position: LogPosition::from_sql(row.get(0).map_err(map_sqlite)?)?,
                 event_hash: row.get(1).map_err(map_sqlite)?,
                 engine: row.get(2).map_err(map_sqlite)?,
                 version: u32::try_from(version)
@@ -342,16 +316,6 @@ impl VerdictStore for SqliteVerdictStore {
     ) -> Result<(), LogError> {
         self.commit_batch_with(rows, through, || Ok(()))
     }
-}
-
-fn to_sql_position(position: LogPosition) -> Result<i64, LogError> {
-    i64::try_from(position.as_u64()).map_err(|error| LogError::Corrupt(error.to_string()))
-}
-
-fn from_sql_position(position: i64) -> Result<LogPosition, LogError> {
-    u64::try_from(position)
-        .map(LogPosition)
-        .map_err(|error| LogError::Corrupt(error.to_string()))
 }
 
 fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {

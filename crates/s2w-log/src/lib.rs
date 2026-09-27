@@ -28,6 +28,65 @@ const REPLAY_PAGE_SIZE: i64 = 256;
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
 const FNV_PRIME: u64 = 0x100_0000_01b3;
 
+/// Opens (creating if needed) a SQLite-backed store in `directory`: acquires an exclusive file
+/// lock, opens the database, forces WAL mode and `extra_pragmas`, then checks the stored
+/// `user_version` against `schema_version` and runs `initialize_schema` on a fresh database.
+///
+/// Shared by [`SqliteEventLog::open`] and [`SqliteVerdictStore::open`], which differ only in
+/// their filenames, extra pragmas, schema version, and how a fresh schema is created.
+///
+/// # Errors
+/// [`LogError::Locked`] when another handle owns `lock_file`; a storage or corruption error
+/// when the directory or database cannot be initialized safely.
+fn open_sqlite_store(
+    directory: &Path,
+    database_file: &str,
+    lock_file: &str,
+    extra_pragmas: &str,
+    schema_version: i64,
+    schema_mismatch: impl FnOnce(i64) -> String,
+    initialize_schema: impl FnOnce(&mut Connection) -> Result<(), LogError>,
+) -> Result<(Connection, File), LogError> {
+    fs::create_dir_all(directory).map_err(map_fs_error)?;
+    let lock = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(directory.join(lock_file))
+        .map_err(map_fs_error)?;
+    lock.try_lock().map_err(|_| LogError::Locked)?;
+
+    let mut connection = Connection::open(directory.join(database_file)).map_err(map_sqlite)?;
+    connection
+        .busy_timeout(Duration::from_secs(3))
+        .map_err(map_sqlite)?;
+
+    let journal_mode: String = connection
+        .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
+        .map_err(map_sqlite)?;
+    if !journal_mode.eq_ignore_ascii_case("wal") {
+        return Err(LogError::Io(format!(
+            "SQLite refused WAL mode and selected {journal_mode:?}"
+        )));
+    }
+    connection
+        .execute_batch(extra_pragmas)
+        .map_err(map_sqlite)?;
+
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(map_sqlite)?;
+    if version != 0 && version != schema_version {
+        return Err(LogError::Corrupt(schema_mismatch(version)));
+    }
+    if version == 0 {
+        initialize_schema(&mut connection)?;
+    }
+
+    Ok((connection, lock))
+}
+
 /// Rejects a payload before any write is attempted, shared by every [`EventLog`] impl.
 fn check_payload_size(len: usize) -> Result<(), LogError> {
     if len > MAX_PAYLOAD_BYTES {
@@ -65,6 +124,29 @@ impl LogPosition {
     #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
+    }
+
+    /// Converts to the `i64` SQLite stores a position as. Every SQLite-backed store in this
+    /// crate binds the same `INTEGER` column type, so this is the one place that conversion is
+    /// written.
+    ///
+    /// # Errors
+    /// [`LogError::Corrupt`] if the position does not fit in an `i64` (practically unreachable:
+    /// it would require appending past `i64::MAX` positions first).
+    pub(crate) fn to_sql(self) -> Result<i64, LogError> {
+        i64::try_from(self.0).map_err(|error| LogError::Corrupt(error.to_string()))
+    }
+
+    /// The inverse of [`LogPosition::to_sql`]: reconstructs a position read back from SQLite.
+    ///
+    /// # Errors
+    /// [`LogError::Corrupt`] if the stored value is negative — a position column should never
+    /// hold one, so a negative value means the row was written by something other than this
+    /// crate's own inserts.
+    pub(crate) fn from_sql(position: i64) -> Result<Self, LogError> {
+        u64::try_from(position)
+            .map(Self)
+            .map_err(|error| LogError::Corrupt(error.to_string()))
     }
 }
 
@@ -294,50 +376,21 @@ impl SqliteEventLog {
     /// Returns [`LogError::Locked`] when another handle owns the directory lock, and a storage
     /// or corruption error when the directory or database cannot be initialized safely.
     pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
-        let directory = directory.as_ref();
-        fs::create_dir_all(directory).map_err(map_fs_error)?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .truncate(false)
-            .open(directory.join(LOCK_FILE))
-            .map_err(map_fs_error)?;
-        lock.try_lock().map_err(|_| LogError::Locked)?;
-
-        let mut connection = Connection::open(directory.join(DATABASE_FILE)).map_err(map_sqlite)?;
-        connection
-            .busy_timeout(Duration::from_secs(3))
-            .map_err(map_sqlite)?;
-
-        let journal_mode: String = connection
-            .query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))
-            .map_err(map_sqlite)?;
-        if !journal_mode.eq_ignore_ascii_case("wal") {
-            return Err(LogError::Io(format!(
-                "SQLite refused WAL mode and selected {journal_mode:?}"
-            )));
-        }
-        connection
-            .execute_batch(
-                "PRAGMA synchronous = FULL;
-                 PRAGMA foreign_keys = ON;
-                 PRAGMA recursive_triggers = ON;",
-            )
-            .map_err(map_sqlite)?;
-
-        let version: i64 = connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .map_err(map_sqlite)?;
-        if version != 0 && version != SCHEMA_VERSION {
-            return Err(LogError::Corrupt(format!(
-                "unsupported schema version {version}; expected {SCHEMA_VERSION}. An older s2w wrote this log; open a fresh log directory"
-            )));
-        }
-        if version == 0 {
-            initialize_schema(&mut connection)?;
-        }
-
+        let (connection, lock) = open_sqlite_store(
+            directory.as_ref(),
+            DATABASE_FILE,
+            LOCK_FILE,
+            "PRAGMA synchronous = FULL;
+             PRAGMA foreign_keys = ON;
+             PRAGMA recursive_triggers = ON;",
+            SCHEMA_VERSION,
+            |version| {
+                format!(
+                    "unsupported schema version {version}; expected {SCHEMA_VERSION}. An older s2w wrote this log; open a fresh log directory"
+                )
+            },
+            initialize_schema,
+        )?;
         Ok(Self {
             connection,
             _lock: lock,
@@ -443,9 +496,7 @@ fn insert_in(
             params![event.source.as_str(), event.cursor.as_bytes(), row_id],
         )
         .map_err(map_sqlite)?;
-    u64::try_from(row_id)
-        .map(|position| AppendOutcome::Inserted(LogPosition(position)))
-        .map_err(|error| LogError::Corrupt(error.to_string()))
+    LogPosition::from_sql(row_id).map(AppendOutcome::Inserted)
 }
 
 /// The loud error for a 64-bit content-hash collision between two distinct payloads.
@@ -480,9 +531,7 @@ fn resolve_duplicate(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(map_sqlite)?;
-    let position = u64::try_from(position)
-        .map(LogPosition)
-        .map_err(|error| LogError::Corrupt(error.to_string()))?;
+    let position = LogPosition::from_sql(position)?;
     if stored_payload != payload {
         return Err(collision(source, hash, position));
     }
@@ -580,9 +629,7 @@ fn decode_stored_event(row: &rusqlite::Row<'_>) -> Result<StoredEvent, LogError>
     let payload: Vec<u8> = row.get(4).map_err(map_sqlite)?;
     let content_hash: i64 = row.get(5).map_err(map_sqlite)?;
 
-    let position = u64::try_from(position)
-        .map(LogPosition)
-        .map_err(|error| LogError::Corrupt(error.to_string()))?;
+    let position = LogPosition::from_sql(position)?;
     let source = SourceId::new(source).map_err(|error| LogError::Corrupt(error.to_string()))?;
     let cursor = Cursor::new(cursor).map_err(LogError::InvalidCursor)?;
 
