@@ -28,9 +28,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 # `rt` for the runtime this crate builds, `net` and `time` for the I/O and timer drivers
 # reqwest's async client needs underneath it (`enable_all` enables exactly those two);
-# `macros` and `sync` for the query API's SSE broadcast; `io-std` and `io-util` for
-# `s2w watch -` reading stdin.
-tokio = { version = "1", features = ["io-std", "io-util", "macros", "net", "rt", "sync", "time"] }
+# `macros` and `sync` for the query API's SSE broadcast.
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tokio-stream = "0.1"
 
 [dev-dependencies]

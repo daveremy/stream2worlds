@@ -4,7 +4,6 @@ mod group_commit;
 mod kafka;
 pub mod mcp;
 pub mod query;
-mod stdin;
 
 /// The hub in-degree cap a served timeline starts under, re-exported so the CLI can build the
 /// MCP server's empty world without depending on the core itself.
@@ -14,11 +13,12 @@ use std::path::PathBuf;
 
 use s2w_log::{AppendOutcome, EventLog, SqliteEventLog};
 use s2w_model::{Cursor, RawEvent, SourceId};
+use s2w_sources::registry::resolve;
+use s2w_sources::source::{CursorLookup, Ending, SourceError};
 use s2w_sources::wikipedia::{LastEventId, WikipediaSource, WikipediaSourceError};
 use tokio_stream::StreamExt;
 
 pub use kafka::{WatchKafkaArgs, watch_kafka};
-pub use stdin::{WatchStdinArgs, watch_stdin};
 
 /// The source id under which `s2w watch wikipedia` files its events.
 const WIKIPEDIA_SOURCE: &str = "wikipedia.page_change";
@@ -41,7 +41,10 @@ pub enum AppError {
     Log(#[from] s2w_log::LogError),
     /// The Wikipedia source could not be started, or its cursor could not be decoded.
     #[error("wikipedia source: {0}")]
-    Source(#[from] WikipediaSourceError),
+    Wikipedia(#[from] WikipediaSourceError),
+    /// A source could not start, or stopped.
+    #[error("{0}")]
+    Source(#[from] SourceError),
     /// A model value was rejected.
     #[error("model: {0}")]
     Model(#[from] s2w_model::ModelError),
@@ -59,9 +62,6 @@ pub enum AppError {
     /// The Kafka source could not start, or stopped.
     #[error("kafka source: {0}")]
     Kafka(#[from] s2w_sources::kafka::KafkaSourceError),
-    /// Reading stdin failed.
-    #[error("stdin: {0}")]
-    Ndjson(#[from] s2w_sources::ndjson::NdjsonSourceError),
     /// A stored Kafka cursor is not the decimal offset the source stores.
     #[error("stored cursor {cursor:?} for {source_id} is not a Kafka offset")]
     StoredCursorOffset {
@@ -82,6 +82,64 @@ pub enum AppError {
     /// its usage exit code.
     #[error("{0}")]
     Usage(String),
+}
+
+/// Arguments for `s2w watch <source-uri>`.
+#[derive(Debug, Clone)]
+pub struct WatchArgs {
+    /// The source URI: a preset name, `-`, or `<scheme>://…` (see `s2w_sources::registry`).
+    pub uri: String,
+    /// Where a source with no stored cursor starts, in the source's own form.
+    pub since: Option<String>,
+    /// The directory holding (or creating) the SQLite event log.
+    pub log_dir: PathBuf,
+}
+
+/// Runs `s2w watch <source-uri>` until the source ends or the process is stopped.
+///
+/// # Errors
+///
+/// [`AppError::Usage`] for an unknown URI, or `--since` the source cannot honour (a stored
+/// cursor wins over it); otherwise the first failure that should stop the watch. A skipped
+/// frame or line is reported on stderr and does not stop it.
+pub fn watch(args: WatchArgs) -> Result<(), AppError> {
+    current_thread_runtime()?.block_on(run_watch(args))
+}
+
+/// The log's stored cursors, as the read-only view sources consult before starting.
+struct LogCursors<'a, L>(&'a L);
+
+impl<L: EventLog> CursorLookup for LogCursors<'_, L> {
+    fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, SourceError> {
+        self.0
+            .cursor(source)
+            .map_err(|error| SourceError::Lookup(error.to_string()))
+    }
+}
+
+/// Resolves the URI, starts the source against the log's cursors, and pumps it into the log.
+async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
+    let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
+    let mut log = SqliteEventLog::open(&args.log_dir)?;
+    let name = source.name();
+    let started = source
+        .start(args.since.as_deref(), &LogCursors(&log))
+        .await
+        .map_err(|error| {
+            if error.is_usage() {
+                AppError::Usage(format!("--log-dir {}: {error}", args.log_dir.display()))
+            } else {
+                AppError::Source(error)
+            }
+        })?;
+    for note in &started.notes {
+        eprintln!("s2w: {name}: {note}");
+    }
+    group_commit::pump_events(&mut log, started.stream).await?;
+    match started.ends {
+        Ending::AtEndOfInput => Ok(()),
+        Ending::Never => Err(AppError::StreamEnded(name)),
+    }
 }
 
 /// Runs `s2w watch wikipedia` until the process is stopped.
@@ -273,7 +331,7 @@ mod tests {
             log_dir: directory.path().to_path_buf(),
         });
         assert!(
-            matches!(outcome, Err(AppError::Source(_))),
+            matches!(outcome, Err(AppError::Wikipedia(_))),
             "an unparseable cursor must never fall back to a fresh start, got {outcome:?}"
         );
     }

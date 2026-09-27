@@ -2,6 +2,9 @@
 
 pub mod kafka;
 pub mod ndjson;
+pub mod registry;
+pub mod source;
+pub mod stdin;
 pub mod wikipedia;
 
 use s2w_model::Timestamp;

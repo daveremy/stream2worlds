@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use s2w_log::{AppendOutcome, EventLog};
 use s2w_model::RawEvent;
+use s2w_sources::source::{EventStream, SourceError};
 use tokio::time::Instant;
 use tokio_stream::{Stream, StreamExt};
 
@@ -76,6 +77,29 @@ where
             deadline = None;
         }
     }
+}
+
+/// Consumes a started source's stream into `log` with group commit until it ends.
+///
+/// A [`SourceError::Skipped`] item is reported on stderr and the stream continues; any other
+/// error stops the pump after the buffer is flushed.
+///
+/// # Errors
+///
+/// Returns the first error from the log or the first fatal source error.
+pub(crate) async fn pump_events<L: EventLog>(
+    log: &mut L,
+    stream: EventStream,
+) -> Result<(), AppError> {
+    pump(log, stream, Ok, |error: SourceError| {
+        if error.is_fatal() {
+            Err(AppError::Source(error))
+        } else {
+            eprintln!("s2w: {error}");
+            Ok(())
+        }
+    })
+    .await
 }
 
 /// Writes the buffer as one batch and reports collapsed redeliveries on stderr.

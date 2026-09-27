@@ -4,9 +4,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use s2w_app::query::{QueryState, Timeline};
-use s2w_app::{
-    AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchKafkaArgs, WatchStdinArgs, WatchWikipediaArgs,
-};
+use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchKafkaArgs, WatchWikipediaArgs};
 
 /// Where `s2w watch` keeps its event log when `--log-dir` is absent, relative to the working
 /// directory.
@@ -141,7 +139,11 @@ fn run_watch(args: WatchArgs) -> ExitCode {
             since,
             log_dir,
         }),
-        Stream::Stdin => s2w_app::watch_stdin(WatchStdinArgs { log_dir }),
+        Stream::Stdin => s2w_app::watch(s2w_app::WatchArgs {
+            uri: "-".to_owned(),
+            since,
+            log_dir,
+        }),
     };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
