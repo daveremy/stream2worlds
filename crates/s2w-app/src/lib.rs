@@ -1,6 +1,11 @@
 //! Runtime wiring: composes sources, the log, the core and the engines, and serves the read-only MCP server and the local web view.
 
+pub mod mcp;
 pub mod query;
+
+/// The hub in-degree cap a served timeline starts under, re-exported so the CLI can build the
+/// MCP server's empty world without depending on the core itself.
+pub use s2w_core::DEFAULT_HUB_IN_DEGREE_CAP;
 
 use std::path::PathBuf;
 
@@ -37,6 +42,11 @@ pub enum AppError {
     /// The async runtime could not be built.
     #[error("could not build the async runtime: {0}")]
     Runtime(#[source] std::io::Error),
+    /// The MCP server could not serve: its initialize handshake failed (rmcp's
+    /// `ServerInitializeError`) or its serving task failed (`tokio`'s `JoinError`). Boxed:
+    /// rmcp's error is large and would bloat every `Result<_, AppError>` in the crate.
+    #[error("mcp server: {0}")]
+    Mcp(#[source] Box<dyn std::error::Error + Send + Sync>),
     /// A stored cursor could not be decoded as the UTF-8 `Last-Event-ID` the source stores.
     #[error("stored wikipedia cursor is not valid UTF-8: {0}")]
     StoredCursorUtf8(#[from] std::str::Utf8Error),

@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use s2w_app::{AppError, WatchWikipediaArgs};
+use s2w_app::query::{QueryState, Timeline};
+use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchWikipediaArgs};
 
 /// Where `s2w watch` keeps its event log when `--log-dir` is absent, relative to the working
 /// directory.
@@ -18,11 +19,12 @@ fn main() -> ExitCode {
         }
         Some("--help" | "-h") | None => {
             println!(
-                "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch wikipedia [--since <ISO-8601>] [--log-dir <path>]\n      Stream Wikipedia page changes into the event log (default ./s2w-data).\n      Restarts resume from the log's stored cursor; --since replays history\n      into a log that has no cursor yet.\n  s2w --version"
+                "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch wikipedia [--since <ISO-8601>] [--log-dir <path>]\n      Stream Wikipedia page changes into the event log (default ./s2w-data).\n      Restarts resume from the log's stored cursor; --since replays history\n      into a log that has no cursor yet.\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world until the live\n      event-log bridge lands.\n  s2w --version"
             );
             ExitCode::SUCCESS
         }
         Some("watch") => watch(&args[1..]),
+        Some("mcp") => run_mcp(),
         Some(other) => {
             eprintln!("s2w: unknown argument '{other}'. Try: s2w --help");
             ExitCode::from(2)
@@ -105,6 +107,21 @@ fn run_watch(args: WatchArgs) -> ExitCode {
         log_dir: args.log_dir,
     };
     match s2w_app::watch_wikipedia(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("s2w: {error}");
+            match error {
+                AppError::Usage(_) => ExitCode::from(2),
+                _ => ExitCode::FAILURE,
+            }
+        }
+    }
+}
+
+/// Serves the read-only query tools over stdio until the MCP client disconnects.
+fn run_mcp() -> ExitCode {
+    let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP));
+    match s2w_app::mcp::run_mcp(state) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("s2w: {error}");

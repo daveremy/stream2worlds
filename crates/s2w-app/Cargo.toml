@@ -19,6 +19,10 @@ s2w-sources = { path = "../s2w-sources" }
 s2w-system1 = { path = "../s2w-system1" }
 s2w-system2 = { path = "../s2w-system2" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+# The read-only MCP server (decision 0009), stdio only: `server` pulls the tool system,
+# schemars and uuid; `transport-io` the stdio transport (rmcp enables tokio's `io-std` on its
+# own dependency, so s2w-app's tokio feature list is unchanged).
+rmcp = { version = "=3.4.1", default-features = false, features = ["server", "macros", "transport-io"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -29,5 +33,8 @@ tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
 tokio-stream = "0.1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+# `client` turns rmcp into an in-process MCP client for the stdio round-trip test.
+rmcp = { version = "=3.4.1", default-features = false, features = ["client"] }
+# `io-util` for the `tokio::io::duplex` pipe that test runs the server over.
+tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "time"] }
 tower = { version = "0.5", features = ["util"] }
