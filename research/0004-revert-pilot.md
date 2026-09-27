@@ -28,7 +28,7 @@ approximated by `meta.dt`; revert ranges are compared by `rev_id` rather than
 | Reverted before the 15-second cutoff (ineligible) | 10 |
 | Eligible | 1,854 |
 | **Positives (reverted within 30 min)** | **71, base rate 3.8%** |
-| Temporary and anonymous editors | 256 eligible, 46 positive (18%) |
+| Temporary and anonymous editors | 248 eligible, 46 positive (19%) |
 | Edit to revert | p25 0.8 min, median 1.8 min, p90 8.8 min |
 | Reverts made by bot accounts, after the cutoff | 0 of 71 |
 | Self-reverts | 8 of 71 |
@@ -64,7 +64,7 @@ test. The development window measures them properly.
    → adopted: contract A5 already reports B2 raw and recalibrated (v2).
 2. A7's ClueBot NG caveat is unmeasured. → deferred: measure the bot share of within-horizon
    reverts in the development window, and amend A7's wording then (tracked in contract A10).
-3. Temporary and anonymous editors are 14% of eligible edits and 65% of positives, so account
+3. Temporary and anonymous editors are 13% of eligible edits and 65% of positives, so account
    type will dominate B1. → adopted: B1 already includes the account-type feature; the heuristics
    arm must beat B1, which this makes a real bar.
 4. The test length will be the 7-day minimum. → adopted: A8 unchanged; the power estimate is still
