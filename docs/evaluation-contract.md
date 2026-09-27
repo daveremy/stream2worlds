@@ -420,7 +420,7 @@ relationship edge touching a merged cluster does not count as correct.
 **No answer-key feedback into any mapping during the test.** Development-window keys may guide
 development, identically for every arm, and are disclosed.
 
-### B4. Gate-3 pass thresholds (Dave, 2026-09-27; v4 defect fixes to confirm)
+### B4. Gate-3 pass thresholds (Dave, 2026-09-27, including the v4 fixes)
 
 Each provider is judged separately, and **the obfuscated stream and the private stream must each
 pass on their own.** Each stream runs **5 replicates** (a fresh obfuscation key and field order for
@@ -476,7 +476,7 @@ Published with any result:
 | Eligible population (A2) | English Wikipedia, with a multilingual re-run after the slice | Dave, 2026-09-27 |
 | Gate-4 thresholds (A9) | Wikimedia's model reported, not required; calibration by equivalence test, the 90% interval for observed/expected positives inside [0.8, 1.25] | Dave, 2026-09-27 |
 | Private stream (B2.3) | lifeos dev-worker and sprint log (default; swappable) | karpathy default, 2026-09-27 |
-| Gate-3 thresholds and budget (B4) | As proposed: +0.10 identity F1 over H in all 5 replicates, +0.05 over B3, false merges ≤ 0.05 per replicate, $5 per stream per replicate. v4 fixes two defects found in review (round 3): the floor now uses entity recovery ≥ 60% instead of identity F1 ≥ 0.60, and the high-baseline waiver is removed. **Dave to confirm** | Dave, 2026-09-27 (v4 fixes pending) |
+| Gate-3 thresholds and budget (B4) | As proposed: +0.10 identity F1 over H in all 5 replicates, +0.05 over B3, false merges ≤ 0.05 per replicate, $5 per stream per replicate. v4 fixes two defects found in review (round 3): the floor now uses entity recovery ≥ 60% instead of identity F1 ≥ 0.60, and the high-baseline waiver is removed | Dave, 2026-09-27 (v4 fixes confirmed) |
 | Overall hours cap | 60 hours of sprint time | Dave, 2026-09-27 |
 | Pilot and open checks (A10) | ⟨pending⟩ | |
 
