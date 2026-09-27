@@ -18,7 +18,7 @@ fn main() -> ExitCode {
         }
         Some("--help" | "-h") | None => {
             println!(
-                "s2w: point it at an event stream and a world model forms.\n\nNothing runs yet: the harness is being built (gate 2).\n\nUsage: s2w --version"
+                "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch wikipedia [--since <ISO-8601>] [--log-dir <path>]\n      Stream Wikipedia page changes into the event log (default ./s2w-data).\n      Restarts resume from the log's stored cursor; --since replays history\n      into a log that has no cursor yet.\n  s2w --version"
             );
             ExitCode::SUCCESS
         }
