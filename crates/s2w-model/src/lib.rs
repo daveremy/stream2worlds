@@ -2,6 +2,7 @@
 //!
 //! This crate depends on `serde` and `thiserror` only, does no I/O and never reads a clock.
 //! Types arrive here when a second crate needs them, not before.
+#![deny(clippy::print_stdout, clippy::print_stderr)]
 
 use serde::{Deserialize, Serialize};
 

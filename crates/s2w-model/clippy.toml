@@ -1,15 +1,37 @@
-# The pure layer: no clock, no randomness, no hash-order iteration. (Per-crate clippy.toml
-# replaces the workspace one, so the test allowances are repeated here.)
+# The pure layer (decision 0001): selected clock, randomness, I/O and hash-order APIs are banned.
+# This is a denylist of common APIs, not proof of purity; the dependency allowlist (no async
+# runtime, no I/O crates) and review cover the rest. Per-crate clippy.toml replaces the workspace
+# one, so the test allowances are repeated here.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 disallowed-methods = [
   { path = "std::time::SystemTime::now", reason = "the core is pure: take time as an argument" },
+  { path = "std::time::SystemTime::elapsed", reason = "reads the clock: take time as an argument" },
   { path = "std::time::Instant::now", reason = "the core is pure: take time as an argument" },
-  { path = "std::thread::sleep", reason = "the core does no I/O or waiting" },
+  { path = "std::time::Instant::elapsed", reason = "reads the clock: take time as an argument" },
+  { path = "std::thread::sleep", reason = "the core does no waiting" },
+  { path = "std::thread::spawn", reason = "the core is single-threaded and deterministic" },
+  { path = "std::fs::read", reason = "the core does no I/O" },
+  { path = "std::fs::read_to_string", reason = "the core does no I/O" },
+  { path = "std::fs::write", reason = "the core does no I/O" },
+  { path = "std::fs::read_dir", reason = "the core does no I/O" },
+  { path = "std::fs::remove_file", reason = "the core does no I/O" },
+  { path = "std::fs::create_dir_all", reason = "the core does no I/O" },
+  { path = "std::env::var", reason = "configuration is passed in" },
+  { path = "std::env::var_os", reason = "configuration is passed in" },
+  { path = "std::env::vars", reason = "configuration is passed in" },
+  { path = "std::env::args", reason = "configuration is passed in" },
+  { path = "std::io::stdin", reason = "the core does no I/O" },
+  { path = "std::io::stdout", reason = "the core does no I/O" },
+  { path = "std::io::stderr", reason = "the core does no I/O" },
 ]
 disallowed-types = [
   { path = "std::collections::HashMap", reason = "iteration order is not deterministic: use BTreeMap" },
   { path = "std::collections::HashSet", reason = "iteration order is not deterministic: use BTreeSet" },
   { path = "std::fs::File", reason = "the core does no I/O" },
+  { path = "std::fs::OpenOptions", reason = "the core does no I/O" },
   { path = "std::net::TcpStream", reason = "the core does no I/O" },
+  { path = "std::net::TcpListener", reason = "the core does no I/O" },
+  { path = "std::net::UdpSocket", reason = "the core does no I/O" },
+  { path = "std::process::Command", reason = "the core runs nothing" },
 ]
