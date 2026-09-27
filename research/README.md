@@ -30,13 +30,13 @@ behind its decisions: what exists, what is known, and what we would be foolish t
 | 0002 | Discovering structure without an LLM: data profiling, key and dependency discovery, semantic type detection | Gate 3: the heuristics arm must be strong, or System 2 wins against a straw man | done |
 | 0003 | The Rust substrate: Kafka client, event-log storage, SSE, incremental computation, MCP server | Gate 2 decision records | done |
 | 0004 | Revert pilot: base rate, delays, cutoff losses and B2 behaviour on 30 minutes of English Wikipedia | Contract A10, A8 test length | done |
-| 0005 | Exploring worlds in 3D: libraries, stable layouts for a changing graph, navigating time and possible futures, uncertainty in 3D, when 3D is worse than 2D | 3D world explorer (#21), the gate-2 view API (#10) | in progress |
+| 0005 | Exploring worlds in 3D: libraries, stable layouts for a changing graph, navigating time and possible futures, uncertainty in 3D, when 3D is worse than 2D | 3D world explorer (#21), the gate-2 view API (#10) | done |
 
 ## Planned, not started
 
 
-- **Showing uncertainty:** forecast cones, fan charts, hypothetical outcome plots, how people
-  read probabilities in a live dashboard. Feeds the dashboard after gate 2.
+- **Showing uncertainty:** narrowed by 0005 §4 (ensemble members, ghosts, no cones in the 3D
+  scene) to what it does not cover: position clouds and how to display calibration live.
 - **Untrusted stream text:** prompt injection through data, and constraining LLM proposals. Feeds
   System 2 before gate 3.
 - **Kafka users' pain:** what people who run Kafka actually struggle with, in their own words.
