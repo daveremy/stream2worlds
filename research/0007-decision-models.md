@@ -633,7 +633,7 @@ their abstracts, Fireworks TTFT.
    tuple *and* an abstain reason (§8d). → deferred: README edit, #71 as in (1).
 3. Persisted verdicts carry `engine_id`, `temperature` and `reason` (§7a rule 4, §8e need 2). →
    deferred: contract schema addition as a dated section (the contract is frozen; this changes
-   no threshold), #71 as in (1).
+   no threshold), [#63](https://github.com/daveremy/stream2worlds/issues/63) (the verdict log).
 4. Gate 4: one decision model as a reported, non-primary predictor arm; A9.3 per engine. →
    deferred: gate-4 epic #14.
 5. Gate 3: decision models are not an arm; they may serve inside H+S2's System 2 as a pair judge
@@ -642,7 +642,7 @@ their abstracts, Fireworks TTFT.
    three arms; decision 0010's reasoning applies unchanged); → deferred as a System 2 component:
    gate-3 epic #13.
 6. The learned-router research question (§8e) with its four preconditions. → deferred: a
-   post-slice issue, labelled paper-candidate; not before gate 4's ledger exists.
-7. Spike order of §10, Blink first. → deferred: one spike issue.
+   post-slice issue, labelled paper-candidate, not yet filed as of 2026-09-27; not before gate 4's ledger exists.
+7. Spike order of §10, Blink first. → deferred: one spike issue, not yet filed as of 2026-09-27.
 8. Watch list, not work: Julia-1's API pricing ($0.025/MTok planned), GoldenMatch's Rust kernels,
    Rune v3 GGUF, `wm-conformal`. → deferred: re-check at the gate-4 spike, not before.
