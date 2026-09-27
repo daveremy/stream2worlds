@@ -28,5 +28,6 @@ sprint ends with a doc scrub** (Dave, 2026-09-27), run before the sprint report:
 3. The design page: claims overtaken by decisions get a dated note.
 4. Every crate's `AGENTS.md` still matches its dependencies and invariants.
 5. Links and commands in the README still resolve and run.
+6. Every research note's Design implications have a disposition (`research/README.md`).
 The sprint report carries one line: `doc scrub: clean` or what changed. Once the workspace
 exists, the mechanical parts (table vs `cargo metadata`, link check) run in `cargo xtask check`.

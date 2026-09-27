@@ -12,8 +12,15 @@ behind its decisions: what exists, what is known, and what we would be foolish t
   researcher's judgment are kept apart.
 - Notes are **dated snapshots**. They are not rewritten when the world changes; a later note
   supersedes an earlier one and says so, and this index marks the old one superseded.
-- When a note changes a decision, the decision record (`docs/decisions/`) or the contract cites
-  the note.
+- **Research must reach the design** (Dave, 2026-09-27). Every note ends with a **Design
+  implications** section: each proposed change to the architecture, the design page, the README,
+  the contract or a decision record, with exactly one disposition:
+  - `→ adopted: <commit or decision record>`;
+  - `→ rejected: <one-line reason>`;
+  - `→ deferred: <issue>`.
+
+  A note is not done until every implication has a disposition. The design, the README or the
+  contract then cites the note wherever it changed them.
 
 ## Index
 
