@@ -49,14 +49,18 @@ impl ServerHandler for WorldMcp {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        // rmcp 3.4.1's ToolRouter::call converts deserialization errors to tool content.
-        // Invoke the generated route directly to preserve our protocol-level param errors.
-        // This server has a fixed tool set; no routes are dynamically disabled.
-        let route = self
-            .tool_router
-            .map
-            .get(request.name.as_ref())
-            .ok_or_else(|| ErrorData::invalid_params("tool not found", None))?;
+        // rmcp 3.4.1's ToolRouter::call converts deserialization errors into an `is_error` tool
+        // result (`into_tool_argument_error`); we want them as a protocol-level INVALID_PARAMS
+        // error instead, so this bypasses that one conversion step. `has_route` reproduces
+        // `call`'s own "unknown or disabled" check first, so a future disabled tool (nothing
+        // calls `ToolRouter::disable_route` today) is rejected exactly as `call` would reject it.
+        if !self.tool_router.has_route(request.name.as_ref()) {
+            return Err(ErrorData::invalid_params("tool not found", None));
+        }
+        let Some(route) = self.tool_router.map.get(request.name.as_ref()) else {
+            // `has_route` just confirmed this name is present and enabled.
+            return Err(ErrorData::invalid_params("tool not found", None));
+        };
         (route.call)(ToolCallContext::new(self, request, context)).await
     }
 
