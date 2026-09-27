@@ -1,4 +1,4 @@
-# 0002: Hand-roll the Wikipedia SSE loop on reqwest
+# 0003: Hand-roll the Wikipedia SSE loop on reqwest
 
 Date: 2026-09-27 · Status: accepted · Gate 2
 
