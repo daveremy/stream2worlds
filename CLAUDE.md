@@ -29,5 +29,8 @@ sprint ends with a doc scrub** (Dave, 2026-09-27), run before the sprint report:
 4. Every crate's `AGENTS.md` still matches its dependencies and invariants.
 5. Links and commands in the README still resolve and run.
 6. Every research note's Design implications have a disposition (`research/README.md`).
+7. `CHANGELOG.md` has this sprint's entry (Dave, 2026-09-27): shipped, learned, changed course,
+   next. Written for someone following the project's arc, not a list of commits. A sprint with
+   no merge still gets an entry.
 The sprint report carries one line: `doc scrub: clean` or what changed. Once the workspace
 exists, the mechanical parts (table vs `cargo metadata`, link check) run in `cargo xtask check`.

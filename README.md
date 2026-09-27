@@ -112,7 +112,7 @@ The first slice is four gates and a launch, each able to fail honestly. A runnab
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
 
-After the slice: the revert forecast re-run on non-English Wikipedias (the first measurement is English-only by choice; `s2w` itself is built for streams in any language), the full possible-worlds view, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
+After the slice: the revert forecast re-run on non-English Wikipedias (the first measurement is English-only by choice; `s2w` itself is built for streams in any language), the full possible-worlds view, a 3D explorer for moving through a world and its possible futures, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
 
 ## Architecture, continuously
 
@@ -145,7 +145,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | System 1 router | Each judgment names a latency budget; rule → embeddings → decision model | later | Needs more than one engine worth routing between. |
 | System 2 | A hosted LLM API on a fixed budget; the client's own agent via MCP sampling, or a local model | building (gate 3) | Asynchronous, never in the stream. Two providers differ in latency, cost and where data goes. |
 | Agent interface | Read-only MCP server; every CLI command has `--json` | building (gate 2) | Agents are first-class clients. Write access comes later, and never from a good track record alone. |
-| Dashboard | Local web view (evidence table and graph first) | building (gate 2) | Ghosts, cones, scrub-past-now and live calibration come after the slice. |
+| Dashboard | Local web view (evidence table and graph first) | building (gate 2) | Ghosts, cones, scrub-past-now and live calibration come after the slice, then a 3D world explorer ([#21](https://github.com/daveremy/stream2worlds/issues/21)). The view reads the world through the same query interface as MCP, so the renderer can change without touching the core. |
 | Forecast ledger | Immutable issuances plus appended outcome observations | building (gate 4) | Scored against base rate and Wikimedia's revert-risk model. See the [evaluation contract](docs/evaluation-contract.md). |
 | Actions | WebAssembly plugins with host-enforced egress, secrets and limits | later | Customers add actions without touching the core. |
 
@@ -177,6 +177,7 @@ Every part of `s2w` exists somewhere. As of 2026-09-27 we found no system that d
 
 ## Design and reviews
 
+- [Changelog](CHANGELOG.md): the development arc, sprint by sprint
 - [Research notes](research/): prior art, structure discovery without LLMs, the Rust substrate, the revert pilot
 - [Design document](docs/design/stream2worlds-design.html) (interactive; open it locally in a browser)
 - Design critic passes: [round 1, Codex](docs/reviews/round1-codex.md) · [round 1, Claude](docs/reviews/round1-claude-critic.md) · [round 2, Codex](docs/reviews/round2-codex.md) · [round 2, Claude](docs/reviews/round2-claude-critic.md)
