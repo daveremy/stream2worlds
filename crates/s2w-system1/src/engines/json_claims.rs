@@ -39,7 +39,7 @@ impl Engine for JsonClaimsEngine {
                 };
             }
         };
-        if let Ok(envelope) = serde_json::from_value::<Envelope>(value.clone()) {
+        if let Ok(envelope) = Envelope::deserialize(&value) {
             let confidence = match envelope.confidence {
                 None | Some(10_000) => Ok(Confidence::CERTAIN),
                 Some(bp) => Confidence::try_from(bp),

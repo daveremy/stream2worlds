@@ -232,6 +232,7 @@ impl<R: LogReader> Bridge<R> {
         let events = match self.reader.read_after(self.last) {
             Ok(events) => events,
             Err(error) => {
+                eprintln!("s2w: bridge: reading the log failed, will retry: {error}");
                 report.error = Some(error);
                 return Ok(report);
             }
@@ -248,7 +249,8 @@ impl<R: LogReader> Bridge<R> {
             let engines = self.registry.engines_for(&stored.event.source);
             if engines.is_empty() {
                 report.stats.unrouted += 1;
-                if self.warned_unrouted.insert(stored.event.source.clone()) {
+                if !self.warned_unrouted.contains(&stored.event.source) {
+                    self.warned_unrouted.insert(stored.event.source.clone());
                     eprintln!(
                         "s2w: bridge: no System 1 engine is routed for source '{}'; its events are skipped",
                         stored.event.source.as_str()
