@@ -250,8 +250,24 @@ mod tests {
 
     #[test]
     fn kafka_since_with_a_stored_partition_cursor_is_a_usage_error() {
+        // Mirrors s2w_sources::kafka's private `cluster_id`: a length-prefixed hash of the
+        // sorted broker list, so the seeded source id matches what watch() will look up.
+        fn fnv1a64_hex(bytes: &[u8]) -> String {
+            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+            for &byte in bytes {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0100_0000_01b3);
+            }
+            format!("{hash:016x}")
+        }
+        let broker = "127.0.0.1:1";
+        let cluster = fnv1a64_hex(format!("{}:{broker}", broker.len()).as_bytes());
         let directory = TestDirectory::new("kafka-since-and-cursor");
-        seed(directory.path(), "kafka.127.0.0.1_1.orders.p0", b"41");
+        seed(
+            directory.path(),
+            &format!("kafka.{cluster}.orders.p0"),
+            b"41",
+        );
         let outcome = watch(WatchArgs {
             uri: "kafka://127.0.0.1:1/orders".to_owned(),
             since: Some("2026-09-27T00:00:00Z".to_owned()),

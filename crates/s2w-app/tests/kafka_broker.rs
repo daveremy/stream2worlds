@@ -58,18 +58,18 @@ fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std
     type Contents = (Vec<(String, String)>, Vec<String>);
 
     let broker = std::env::var("S2W_KAFKA_BROKER")?;
-    // Mirrors s2w_sources::kafka's private `cluster_id` sanitization: the source id includes
-    // the broker(s) so two clusters sharing a topic name never share cursors (#7 code review).
-    let cluster: String = broker
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
+    // Mirrors s2w_sources::kafka's private `cluster_id`: a length-prefixed hash of the sorted
+    // broker list, so the source id includes cluster identity and two clusters sharing a
+    // topic name never share cursors (#7 code review, round 2).
+    fn fnv1a64_hex(bytes: &[u8]) -> String {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for &byte in bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        format!("{hash:016x}")
+    }
+    let cluster = fnv1a64_hex(format!("{}:{broker}", broker.len()).as_bytes());
     run(async {
         let base = 1_790_000_000_000_i64;
         let topic = format!("s2w-app-it-{}", std::process::id());

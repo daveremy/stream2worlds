@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use crate::hash::fnv1a64_hex;
 use crate::kafka::KafkaAdapter;
 use crate::presets::preset;
 use crate::source::{Source, SourceError};
@@ -52,17 +53,6 @@ pub fn resolve(uri: &str) -> Result<Box<dyn Source>, ResolveError> {
     }
 }
 
-/// A non-cryptographic 64-bit hash (FNV-1a). Used only to give two distinct SSE endpoints
-/// distinct source ids; not a security boundary.
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for &byte in bytes {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    hash
-}
-
 fn sanitize(input: &str) -> String {
     input
         .chars()
@@ -110,7 +100,7 @@ fn sse(url: String) -> Result<SseSource, SourceError> {
     readable.truncate(MAX_READABLE.min(readable.len()));
     // Canonical identity: everything but the fragment, which the server never sees.
     let canonical = parsed.as_str().split('#').next().unwrap_or(parsed.as_str());
-    let source_id = format!("{readable}.{:016x}", fnv1a64(canonical.as_bytes()));
+    let source_id = format!("{readable}.{}", fnv1a64_hex(canonical.as_bytes()));
     Ok(SseSource::new(SseConfig {
         name: "sse",
         url,

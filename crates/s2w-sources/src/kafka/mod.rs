@@ -243,23 +243,22 @@ impl KafkaAdapter {
     }
 }
 
-/// A collision-resistant identity for one Kafka cluster: its brokers, order-independent and
-/// sanitized to [`SourceId`]'s allowed alphabet. Two targets naming the same brokers in a
-/// different order collapse to the same id; two distinct broker sets do not.
+/// A collision-resistant identity for one Kafka cluster: its brokers, order-independent.
+/// Two targets naming the same brokers in a different order collapse to the same id; two
+/// distinct broker sets do not — not even ones a naive separator-based join could confuse
+/// (`["a:9092","b:9093"]` vs `["a_9092_b:9093"]`, both of which sanitize to the same string).
+/// Each broker is length-prefixed before hashing so no choice of separator can make two
+/// different broker lists concatenate to the same bytes.
 fn cluster_id(brokers: &[String]) -> String {
     let mut sorted: Vec<&str> = brokers.iter().map(String::as_str).collect();
     sorted.sort_unstable();
-    sorted
-        .join(",")
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    let mut canonical = String::new();
+    for broker in sorted {
+        canonical.push_str(&broker.len().to_string());
+        canonical.push(':');
+        canonical.push_str(broker);
+    }
+    crate::hash::fnv1a64_hex(canonical.as_bytes())
 }
 
 /// The log source id of one partition: `kafka.<cluster>.<topic>.p<partition>`. The cluster
@@ -403,12 +402,13 @@ mod tests {
     use s2w_model::{Cursor, SourceId};
 
     use super::{
-        KafkaAdapter, KafkaSourceError, KafkaTarget, parse_since, seam_error, stored_offset,
+        KafkaAdapter, KafkaSourceError, KafkaTarget, cluster_id, parse_since, seam_error,
+        stored_offset,
     };
     use crate::source::{CursorLookup, Source, SourceError};
 
     /// A log holding exactly one stored cursor.
-    struct OneCursor(&'static str, &'static [u8]);
+    struct OneCursor(String, &'static [u8]);
 
     impl CursorLookup for OneCursor {
         fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, SourceError> {
@@ -435,10 +435,11 @@ mod tests {
 
     #[test]
     fn since_with_a_stored_partition_cursor_is_refused_before_connecting() {
-        let outcome = start(
-            Some("2026-09-27T00:00:00Z"),
-            &OneCursor("kafka.127.0.0.1_1.orders.p0", b"41"),
+        let source_id = format!(
+            "kafka.{}.orders.p0",
+            cluster_id(&["127.0.0.1:1".to_owned()])
         );
+        let outcome = start(Some("2026-09-27T00:00:00Z"), &OneCursor(source_id, b"41"));
         assert!(
             matches!(&outcome, Err(error @ SourceError::SinceWithStoredCursor { .. })
                 if error.to_string().contains("drop --since")),
@@ -448,7 +449,7 @@ mod tests {
 
     #[test]
     fn an_invalid_since_is_refused_before_connecting() {
-        let outcome = start(Some("yesterday"), &OneCursor("none", b"0"));
+        let outcome = start(Some("yesterday"), &OneCursor("none".to_owned(), b"0"));
         assert!(
             matches!(
                 outcome,
@@ -515,7 +516,8 @@ mod tests {
                     earliest: 5
                 }
             ),
-            SourceError::CursorUnresumable { source_id, .. } if source_id == "kafka.b_1.t.p2"
+            SourceError::CursorUnresumable { source_id, .. }
+                if source_id == format!("kafka.{}.t.p2", cluster_id(&["b:1".to_owned()]))
         ));
     }
 
@@ -533,6 +535,16 @@ mod tests {
             super::partition_source(&a, 0).unwrap(),
             super::partition_source(&c, 0).unwrap(),
             "distinct clusters sharing a topic name must not share a source id"
+        );
+        // codex-review round 2: a naive separator-based join let two DISTINCT broker lists
+        // sanitize to the same string ("a:9092,b:9093" and "a_9092_b:9093" both collapse
+        // every non-alnum byte to '_'). Length-prefixed hashing must keep them apart.
+        let ambiguous = KafkaTarget::parse("kafka://a_9092_b:9093/t").expect("valid target");
+        assert_ne!(
+            super::partition_source(&a, 0).unwrap(),
+            super::partition_source(&ambiguous, 0).unwrap(),
+            "a broker list must not collide with an unrelated single broker of the same \
+             sanitized shape"
         );
     }
 
