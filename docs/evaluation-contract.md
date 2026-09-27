@@ -291,7 +291,9 @@ Still open before the freeze:
 - The bot share of within-horizon reverts, measured on the development window. None appeared
   after the cutoff in the pilot, so A7's ClueBot NG caveat is unmeasured and is amended when the
   number exists.
-- Wikimedia revert-risk model's training target (research note 0001).
+- ~~Wikimedia revert-risk model's training target~~: resolved by research note 0001 — its
+  label has no time window, so its raw scores answer a different question than Q-revert-30m;
+  A5's mandatory recalibration stands.
 - The matcher fixtures (A1) passing.
 
 ---
