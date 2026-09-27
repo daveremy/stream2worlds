@@ -13,6 +13,32 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 60 — sources become adapters and presets (2026-09-27, 13:00–15:00)
+
+Wikipedia stopped being special. The single `Source` trait research 0006 built the group-commit
+API for now has three real transports behind it, and Wikipedia is one named configuration of one
+of them, not its own module.
+
+**Shipped**
+- **Kafka, by explicit partition assignment** ([#7](https://github.com/daveremy/stream2worlds/issues/7), [decision 0007](docs/decisions/0007-kafka-client.md)). `s2w watch kafka://broker/topic` reads the topic's partitions from cluster metadata, resolves one start offset per partition, and runs one fetch loop per partition — never a consumer group, never an offset commit. Each partition is its own log source with its own stored offset; a resume offset deleted by retention or past the partition's end is a loud, fatal error, never a silent skip. A record is stored as a byte-deterministic JSON envelope so the log's content-hash dedupe collapses redeliveries but never distinct records.
+- **The registry resolves `s2w watch <uri>` by scheme** ([#49](https://github.com/daveremy/stream2worlds/issues/49)): `kafka://`, `sse://`/`https://`/`http://`, `-` for stdin, or an exact preset name. `s2w-app` no longer has a line of per-source code — `WatchWikipediaArgs`, `WIKIPEDIA_SOURCE` and `watch_wikipedia` are gone, replaced by one `s2w_app::watch(WatchArgs)` over any `Source`.
+- **The SSE transport generalized; Wikipedia became a preset over it** ([decision 0008](docs/decisions/0008-generic-sse-adapter.md), a dated amendment to [decision 0003](docs/decisions/0003-wikipedia-sse-client.md)). `sse/{mod,connect,frame}.rs` carry the connection, backpressure and reconnect-backoff logic every SSE stream shares; `sse/dialect.rs`'s `SseDialect` trait carries what only one stream knows — how an `id:` becomes a cursor, how to ask for a start time, which frames to keep. `Wikimedia` (now under `presets/`) implements the existing cursor-arbitration and canary/`examplewiki` filtering; `Opaque` is the default for a bare `sse://`/`https://`/`http://` target: the `id:` verbatim as the cursor, no `--since` support, every payload kept. A frame with no `id:` cannot be resumed from, so three in a row force a reconnect — forever, not a crash or a hang, because the transport cannot know whether an arbitrary stream was ever meant to carry ids.
+- **stdin NDJSON** joined the same seam: one raw-line-per-event adapter, no `--since` support, ending at end of input.
+- **`sse/mod.rs` split to stay under the 400-line cap** ([#44](https://github.com/daveremy/stream2worlds/issues/44)): the HTTP connection, request-building and backoff moved to `sse/connect.rs`; `mod.rs` keeps the `Source` impl and the read loop.
+
+**Learned**
+- **Codex astra was walled on both ChatGPT accounts for this whole sprint.** Every chunk was implemented on Claude Opus instead (Dave-approved fallback); the two-independent-reviewer rule held regardless of who wrote the code.
+- **"Kafka never emits `Skipped`" needed a new error variant, not a workaround.** Kafka's fetch errors are always retryable from the same offset, never a decode failure, so they needed their own non-fatal `SourceError::Retrying` rather than overloading `Skipped`, which now means only "a malformed frame, safe to drop."
+- **A dialect that assumes JSON is the wrong shape for a *generic* transport.** The plan's first `SseDialect::is_filtered(&Value) -> bool` baked in a JSON assumption a bare `https://` target does not share. It became `accept(&str) -> Result<bool, String>`: the dialect decides whether and how to parse, and a parse failure is a reported `Skipped`, not a panic.
+
+**Changed course**
+- **None.** Both plan-review rounds (fable + opus, `full` mode's 2-round cap) converged on APPROVE with fixes folded in before implementation, rather than a course change mid-build.
+
+**Next**
+- The live bridge from the log into query state ([#51](https://github.com/daveremy/stream2worlds/issues/51)), the evidence view ([#10](https://github.com/daveremy/stream2worlds/issues/10)), the read-only MCP server ([#52](https://github.com/daveremy/stream2worlds/issues/52)), and the rest of in-crate fitness functions beyond the 400-line module cap ([#44](https://github.com/daveremy/stream2worlds/issues/44)).
+
+---
+
 ## Sprint 59 — the world becomes queryable (2026-09-27, 11:00–13:00)
 
 Five merges in two hours. The sprint opened with a stored log and a source, and closed with a command that runs for hours, a fold that replays byte-for-byte, and an HTTP surface over the folded world.

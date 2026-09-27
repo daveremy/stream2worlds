@@ -15,7 +15,7 @@
 <p align="center"><b>Point <code>s2w</code> at an event stream you have never seen and watch a model of the world behind it form. Every forecast it makes is graded against what the stream shows next. The LLM never touches an event.</b></p>
 
 > [!NOTE]
-> **A research project, pre-alpha.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. `s2w watch wikipedia` streams live edits into a durable log and resumes across restarts; `s2w mcp` exposes five read-only query tools over stdio (an empty world until the live bridge lands). Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions, the append-only event log, a live Wikipedia source, the pure fold with golden replay and a world query API; the second source, the evidence view and the live query bridge are being built. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
+> **A research project, pre-alpha.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. `s2w watch` runs today against Wikipedia, Kafka, generic Server-Sent Events streams and stdin, streaming into a durable log that resumes across restarts; `s2w mcp` exposes five read-only query tools over stdio (an empty world until the live bridge lands). Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions, the append-only event log, three sources, the pure fold with golden replay, a world query API and read-only MCP; the live bridge into query state and the evidence view are being built. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
 
 ## Latest
 
