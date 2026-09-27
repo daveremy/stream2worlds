@@ -737,10 +737,14 @@ pub struct Fork {                               // display: a forecast drawn as 
    ├─ s2w-sources   Wikipedia SSE, Kafka (assign, no group), stdin NDJSON   ─┐
    ├─ s2w-system1   rules engine, embeddings engine; verdicts logged       ─┤
    ├─ s2w-system2   hosted LLM client, client-agent sampling; outputs kept ─┼─→ s2w-model
-   ├─ s2w-log       append-only segments, source cursors                   ─┤
+   ├─ s2w-log       append-only SQLite WAL, source cursors                 ─┤
    └─ s2w-core      pure fold, repairs, forecast issue and grading          ─┘
 s2w-model      Event, Offset, EntityId, Repair, Proposal, Issuance (serde, thiserror only)
 s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</pre>
+  <div class="prose"><p><strong>Storage note, 2026-09-27:</strong> decision 0002 selects SQLite
+  for the slice-1 event log; the segment-file design is deferred to
+  <a href="https://github.com/daveremy/stream2worlds/issues/19">issue #19</a> unless measured
+  replay throughput requires it.</p></div>
 </section>
 
 <section id="continuous-architecture">

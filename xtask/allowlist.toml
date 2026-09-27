@@ -10,7 +10,7 @@ dev = ["serde_json"]
 normal = ["s2w-model"]
 
 [crates.s2w-log]
-normal = ["s2w-model"]
+normal = ["s2w-model", "rusqlite"]
 
 [crates.s2w-sources]
 normal = ["s2w-model", "reqwest", "tokio", "serde_json", "tokio-stream", "thiserror"]
@@ -28,7 +28,7 @@ normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w
 normal = ["s2w-app"]
 
 [crates.s2w-testkit]
-normal = ["s2w-model"]
+normal = ["s2w-model", "s2w-log"]
 
 [crates.xtask]
 normal = ["serde", "serde_json", "toml"]
@@ -51,6 +51,9 @@ readme_row = "Sources"
 
 [external.tokio-stream]
 readme_row = "Sources"
+
+[external.rusqlite]
+readme_row = "Event log"
 
 [external.toml]
 readme_row = "Fitness functions"

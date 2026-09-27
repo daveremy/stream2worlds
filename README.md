@@ -17,6 +17,15 @@
 > [!NOTE]
 > **Pre-alpha. Nothing runs yet.** The binary answers `--version` and `--help` and nothing else. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) is a reviewed workspace skeleton with no source, log or fold behind it yet. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
 
+## Latest
+
+*Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
+
+- **The evaluation contract is signed** (gate 1). How we will know whether `s2w` works was fixed before any code: one forecast question on live Wikipedia, its baselines and its pass thresholds. [Contract](docs/evaluation-contract.md)
+- **The forecast question is well posed.** A 30-minute pilot on English Wikipedia: 3.8% of edits reverted within 30 minutes, and Wikimedia's own model scores ROC AUC 0.888 on it. [Pilot](research/0004-revert-pilot.md)
+- **The architecture is enforced by the build.** Nine crates whose boundaries are the layers; `cargo xtask check` fails a PR that crosses one, and the compiler forbids `unwrap`, `todo!` and `unsafe`. [Decision 0001](docs/decisions/0001-workspace-layers.md)
+- **In progress:** the Wikipedia source and the event log, the first code that touches a real stream.
+
 ---
 
 ## The idea
@@ -107,12 +116,12 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
-- [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton and its fitness functions passed review on 2026-09-27; everything else in this gate is still to build. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
+- [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, and append-only event log are built; the remaining components are still to build. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
 
-After the slice: the revert forecast re-run on non-English Wikipedias (the first measurement is English-only by choice; `s2w` itself is built for streams in any language), the full possible-worlds view, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
+After the slice: the revert forecast re-run on non-English Wikipedias (the first measurement is English-only by choice; `s2w` itself is built for streams in any language), the full possible-worlds view, a 3D explorer for moving through a world and its possible futures, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
 
 ## Architecture, continuously
 
@@ -135,8 +144,9 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Workspace | `s2w-model` ← `s2w-core`, `s2w-log`, `s2w-sources`, `s2w-system1`, `s2w-system2` ← `s2w-app` ← `s2w`; `s2w-testkit` for tests | building (gate 2) | The workspace is the architecture: core and model do no I/O, adapters depend only on the model, the app composes them. |
 | Serialization and errors | `serde`, `serde_json`, `thiserror` | building (gate 2) | The model's only dependencies; typed errors in libraries. |
 | Fitness functions | `cargo xtask check` (`toml`, `serde_json`) | building (gate 2) | Dependency allowlist by identity, this table by exact name, AGENTS.md in every crate, workspace lint inheritance. |
+| Licence and advisory gate | `cargo deny check licenses advisories bans` | building (gate 2) | Dependencies must stay MIT/Apache-2.0 (one scoped exception: `unicode-ident`'s `Unicode-3.0` component) per [research 0003 §8d](research/0003-rust-substrate.md#8d-licences), and RustSec advisories must not silently ship. |
 | Sources | Wikipedia EventStreams (SSE) via `reqwest`, `tokio`, and `tokio-stream`; Kafka by partition assignment (never a consumer group, never commits); stdin NDJSON | building (gate 2) | Two real sources plus a free third, so the source seam is not designed from one case. |
-| Event log | Append-only local log with source cursors and provenance; storage format chosen in a gate-2 decision record | building (gate 2) | Raw events are never edited; the world is a replay of the log. |
+| Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | building (gate 2) | Simplest thing that replays deterministically. |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
 | System 1 engines | Rules; local embeddings (can abstain) | building (gate 2–3) | Two engines behind one verdict/confidence/abstain trait. |
@@ -144,7 +154,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | System 1 router | Each judgment names a latency budget; rule → embeddings → decision model | later | Needs more than one engine worth routing between. |
 | System 2 | A hosted LLM API on a fixed budget; the client's own agent via MCP sampling, or a local model | building (gate 3) | Asynchronous, never in the stream. Two providers differ in latency, cost and where data goes. |
 | Agent interface | Read-only MCP server; every CLI command has `--json` | building (gate 2) | Agents are first-class clients. Write access comes later, and never from a good track record alone. |
-| Dashboard | Local web view (evidence table and graph first) | building (gate 2) | Ghosts, cones, scrub-past-now and live calibration come after the slice. |
+| Dashboard | Local web view (evidence table and graph first) | building (gate 2) | Ghosts, cones, scrub-past-now and live calibration come after the slice, then a 3D world explorer built on three.js ([#21](https://github.com/daveremy/stream2worlds/issues/21), [research 0005](research/0005-3d-exploration.md)): 3D for exploring, linked 2D panels for reading. The view reads the world through the same query interface as MCP, so the renderer can change without touching the core. |
 | Forecast ledger | Immutable issuances plus appended outcome observations | building (gate 4) | Scored against base rate and Wikimedia's revert-risk model. See the [evaluation contract](docs/evaluation-contract.md). |
 | Actions | WebAssembly plugins with host-enforced egress, secrets and limits | later | Customers add actions without touching the core. |
 
@@ -159,9 +169,10 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo xtask check
+cargo deny check licenses advisories bans
 ```
 
-Rust 1.98 or later. `cargo xtask check` is the fitness-function suite described above; when it fails, its message says what to change.
+Rust 1.98 or later. `cargo xtask check` is the fitness-function suite described above; when it fails, its message says what to change. The separate `cargo deny` gate rejects unapproved dependency licences and RustSec advisories.
 
 ## Related work
 
@@ -175,6 +186,7 @@ Every part of `s2w` exists somewhere. As of 2026-09-27 we found no system that d
 
 ## Design and reviews
 
+- [Changelog](CHANGELOG.md): the development arc, sprint by sprint
 - [Research notes](research/): prior art, structure discovery without LLMs, the Rust substrate, the revert pilot
 - [Design document](docs/design/stream2worlds-design.html) (interactive; open it locally in a browser)
 - Design critic passes: [round 1, Codex](docs/reviews/round1-codex.md) · [round 1, Claude](docs/reviews/round1-claude-critic.md) · [round 2, Codex](docs/reviews/round2-codex.md) · [round 2, Claude](docs/reviews/round2-claude-critic.md)
