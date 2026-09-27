@@ -72,7 +72,7 @@ impl HubCounters {
 /// The world: everything the fold has concluded from the events so far.
 ///
 /// Fields are read through accessors so only the fold can change them. The whole state
-/// serializes, so a fold can resume from a serialized prefix (decision 0004).
+/// serializes, so a fold can resume from a serialized prefix (decision 0005).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct World {
     world_id: WorldId,

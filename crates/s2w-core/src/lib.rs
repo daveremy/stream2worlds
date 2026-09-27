@@ -3,7 +3,7 @@
 //! [`fold_one`] takes a [`World`] and a [`WorldEvent`] and returns the next [`World`]. It is
 //! total: an event it cannot apply is a documented no-op, never a panic or an error. The same
 //! events always fold to the same bytes, and a world serialized mid-log resumes to the same
-//! result as folding the whole log (decision 0004; `cargo xtask check` replays a golden log).
+//! result as folding the whole log (decision 0005; `cargo xtask check` replays a golden log).
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 mod event;

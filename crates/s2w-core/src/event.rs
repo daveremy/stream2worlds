@@ -58,7 +58,7 @@ pub enum AttrValue {
 }
 
 /// One input to the fold. Every variant is total: an event the fold cannot apply is a
-/// documented no-op, never an error (decision 0004).
+/// documented no-op, never an error (decision 0005).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorldEvent {
     /// An entity was seen. Mints an id on the key's first mention; the type and attributes land

@@ -215,7 +215,7 @@ Per-question source lists are inline above. Author verification on 2026-09-27: n
 Dispositioned by karpathy, 2026-09-27. Most land in the issue that builds them.
 
 1. **#10 query API**: snapshot at offset with `branch` and `lod`, SSE deltas with `id: <offset>` and typed events including merge/split, `/branches`, `/diff`, `/entity/:id/history`, `/time`; JSON in the d3 field shape. → deferred: stream2worlds#10
-2. **`s2w-model` invariant**: entity ids are assigned once and never reused; merges alias, revoked repairs split; no id changes on either. → deferred: stream2worlds#9 (the fold owns identity; also gate 3 merge semantics)
+2. **`s2w-model` invariant**: entity ids are assigned once and never reused; merges alias, revoked repairs split; no id changes on either. → adopted: docs/decisions/0005-pure-fold.md (the fold owns identity, 2026-09-27; gate 3 merge semantics build on it)
 3. **Level of detail is an API parameter** (`lod=type|cluster|entity`, `focus`+`hops`), required by the measured stream size, not a rendering option. → deferred: stream2worlds#10
 4. **Layout stays out of the core**; positions are client-owned, keyed by entity id, persisted locally; a Rust-side layout is reconsidered only if shareable moments need reproducible positions. → adopted: stream2worlds#21 constraint (2026-09-27)
 5. **Time is the log offset** in every view and URL, with a timestamp index; the explorer's URL encodes offset, branch, focus, lod and camera. → deferred: stream2worlds#10

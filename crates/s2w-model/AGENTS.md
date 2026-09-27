@@ -16,4 +16,4 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Persisted types get a version before any format is frozen (decision record, then migration).
 - An entity id is assigned once and never reused. A merge aliases ids under the survivor;
   revoking a repair splits them back apart; neither operation changes an id. (`EntityId` lives
-  in `s2w-core` until a second crate needs it; decision 0004.)
+  in `s2w-core` until a second crate needs it; decision 0005.)
