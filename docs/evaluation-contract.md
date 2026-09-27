@@ -278,15 +278,20 @@ answered.
 Pass requires 1, 2 and 3, and no "sensitive to censoring" qualifier on 1 or 2. An unmeasurable or
 inconclusive run is neither a pass nor a fail.
 
-### A10. Pilot and open checks (filled before sign-off)
+### A10. Pilot and open checks
 
-⟨pending⟩
+**Pilot, 2026-09-27** ([research note 0004](../research/0004-revert-pilot.md)): one 30-minute
+cohort of 1,864 English edits. Base rate 3.8%; median edit-to-revert 1.8 minutes (p90 8.8); 10
+edits reverted before the cutoff; edit arrival p99 20 s, none over 60 s; B2 present for 93% of
+edits, all before the cutoff, with ROC AUC 0.888 but a raw mean of 0.40, so recalibration is
+essential. Orders of magnitude only; the development window measures them properly.
 
-- An English inception cohort from the 2026-09-27 collector: base rate, edit-to-revert delay,
-  revert-to-provenance delivery delay, edit arrival delay, the share reverted before a 15-second
-  cutoff, and B2's arrival delay.
-- Wikimedia revert-risk model's training target (what counts as a revert, and the window), from
-  its training repositories.
+Still open before the freeze:
+
+- The bot share of within-horizon reverts, measured on the development window. None appeared
+  after the cutoff in the pilot, so A7's ClueBot NG caveat is unmeasured and is amended when the
+  number exists.
+- Wikimedia revert-risk model's training target (research note 0001).
 - The matcher fixtures (A1) passing.
 
 ---

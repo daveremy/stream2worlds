@@ -29,6 +29,7 @@ behind its decisions: what exists, what is known, and what we would be foolish t
 | 0001 | Prior art: who already does parts of this, what is open, what to cite | Novelty claim, paper, launch framing, contract A10 (revert-model target) | in progress |
 | 0002 | Discovering structure without an LLM: data profiling, key and dependency discovery, semantic type detection | Gate 3: the heuristics arm must be strong, or System 2 wins against a straw man | in progress |
 | 0003 | The Rust substrate: Kafka client, event-log storage, SSE, incremental computation, MCP server | Gate 2 decision records | in progress |
+| 0004 | Revert pilot: base rate, delays, cutoff losses and B2 behaviour on 30 minutes of English Wikipedia | Contract A10, A8 test length | done |
 
 ## Planned, not started
 
