@@ -84,3 +84,14 @@ a rare duplicate on `--since` resume is the log's job to collapse. Tracked as a 
 
 A second SSE source can share enough parsing and reconnection policy to justify a generic client,
 or reqwest is removed from the source-adapter allowlist.
+
+## Amendment, 2026-09-27: superseded by the generic transport + dialect split (#49)
+
+That second source arrived: `sse://`/`https://`/`http://` targets and future presets. The
+transport, connection, and frame-parsing code described above (`sse/{mod,connect,frame}.rs`) is
+now generic and shared; what is left as Wikimedia-specific is the `Wikimedia` [`SseDialect`]
+(`sse/dialect.rs`): the resume-ID arbitration, the per-topic position decoding, and the canary /
+`examplewiki` filter this decision describes. See decision
+[0008](0008-generic-sse-adapter.md) for the dialect split and the default `Opaque` dialect's
+no-`id:` behavior. Everything else in this decision (fixtures, `MALFORMED_ID_LIMIT`, the
+redelivery/dedup deferral to the log) still holds unchanged.
