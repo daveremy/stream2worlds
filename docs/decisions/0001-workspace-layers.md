@@ -33,11 +33,16 @@ xtask: the fitness functions
 3. **AGENTS.md** in every crate, `xtask` included: allowed dependencies and invariants, where the
    coding agents doing the work will read them.
 4. **Lint inheritance:** every crate manifest has `[lints] workspace = true`.
+5. **No dependency overrides:** no `[patch]` or `[replace]` in the workspace manifest and no
+   `[patch]` or `paths` in `.cargo/config.toml`, since an override changes a dependency's
+   resolved source without changing its declared identity.
 
-The compiler enforces the rest. Workspace lints deny `unsafe_code`, `unreachable_pub`,
-`unwrap_used`, `expect_used`, `todo`, `unimplemented`, `dbg_macro`, and `allow_attributes`: the
-only permitted exception is `#[expect(lint, reason = "...")]`, which fails once it is no longer
-needed and shows its reason in review. In `s2w-model` and `s2w-core`, clippy bans common clock,
+The compiler enforces the rest. Workspace lints **forbid** `unsafe_code`, `unreachable_pub`,
+`unwrap_used`, `expect_used`, `todo`, `unimplemented` and `dbg_macro`; no attribute, inner or
+outer, can override a forbid, so relaxing one means editing the workspace manifest under a new
+decision record. Other lints may be relaxed locally, but outer `#[allow]` is denied in favour of
+`#[expect(lint, reason = "...")]`, and every allowance needs a reason. Crate-level `#![allow]`
+is not caught by that lint; it is limited to non-forbidden lints and is caught in review. In `s2w-model` and `s2w-core`, clippy bans common clock,
 thread, file, network, environment, process and hash-order APIs, and printing is denied. That is
 a denylist of common APIs, not proof of purity; the dependency allowlist (no async runtime, no
 I/O crates in those two) and review cover the rest.
@@ -52,7 +57,7 @@ source text, and allowed counts only to fall. Review ([skeleton round 1](../revi
 found routine bypasses: `cfg_attr(..., allow(...))`, `Option::unwrap(x)`, `pub(crate)`, macros,
 files outside `src/`, and a `#[cfg(test)]` line that stopped the scan for the rest of a file. A
 text scanner over Rust has an unbounded bypass space, so patching it one bypass at a time does
-not converge (the lesson of lifeos#1034). The compiler lints above replace it, and the public-API
+not converge (the lesson of lifeos#1034). The forbidden lints above replace it, and the public-API
 count is dropped as over-engineered for a skeleton; `unreachable_pub` covers visibility drift in
 private modules.
 

@@ -15,16 +15,18 @@ serde_json = "1"
 thiserror = "2"
 toml = "1"
 
+# "forbid" cannot be overridden by any attribute, inner or outer (decision 0001). Changing one
+# of these needs a decision record and an edit here, visible in review.
 [workspace.lints.rust]
-unreachable_pub = "deny"
 unsafe_code = "forbid"
+unreachable_pub = "forbid"
 missing_docs = "warn"
 
 [workspace.lints.clippy]
-allow_attributes_without_reason = "deny"
-unwrap_used = "deny"
-expect_used = "deny"
-todo = "deny"
-unimplemented = "deny"
+unwrap_used = "forbid"
+expect_used = "forbid"
+todo = "forbid"
+unimplemented = "forbid"
+dbg_macro = "forbid"
 allow_attributes = "deny"
-dbg_macro = "deny"
+allow_attributes_without_reason = "deny"

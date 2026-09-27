@@ -12,10 +12,14 @@
 //!    the Workspace row.
 //! 3. **AGENTS.md** in every crate, `xtask` included.
 //! 4. **Lint inheritance:** every crate manifest has `[lints] workspace = true`, so the
-//!    workspace's denied lints (`unsafe_code`, `unwrap_used`, `allow_attributes`, ...) apply.
+//!    workspace's forbidden and denied lints apply.
+//! 5. **No dependency overrides:** no `[patch]` or `[replace]` in the workspace manifest, and no
+//!    `[patch]` or `paths` in `.cargo/config.toml`. An override would swap a checked crates.io
+//!    dependency for another source without changing its declared identity.
 //!
-//! Escape hatches (`unwrap`, `#[allow]`, `todo!`) are not counted here: the compiler denies them,
-//! and the only permitted exception is `#[expect(lint, reason = "...")]`, visible in review.
+//! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
+//! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
+//! forbid. Other lints may be relaxed locally only with a reason, visible in review.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -177,6 +181,7 @@ fn check(root: &Path) -> Result<String, Vec<String>> {
             ));
         }
     }
+    problems.extend(overrides(root));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -211,13 +216,41 @@ fn check(root: &Path) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))
     } else {
         Err(problems)
     }
+}
+
+/// Dependency overrides that would change a dependency's resolved source without changing its
+/// declared identity.
+fn overrides(root: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (file, banned) in [
+        ("Cargo.toml", &["patch", "replace"][..]),
+        (".cargo/config.toml", &["patch", "paths"][..]),
+    ] {
+        let path = root.join(file);
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        match toml::from_str::<toml::Table>(&text) {
+            Ok(table) => {
+                for key in banned {
+                    if table.contains_key(*key) {
+                        problems.push(format!(
+                            "{file}: `{key}` overrides dependency sources, which the allowlist cannot see. Remove it; a genuine need gets a decision record and a check first."
+                        ));
+                    }
+                }
+            }
+            Err(e) => problems.push(format!("{file}: {e}")),
+        }
+    }
+    problems
 }
 
 fn crate_dir(manifest: &Path) -> PathBuf {

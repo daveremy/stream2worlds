@@ -21,29 +21,37 @@ with open(out, 'w') as f:
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 data = None
+                pending_id = None  # committed to last_id only once its frame is fully processed
                 for raw in r:
                     line = raw.decode('utf-8', 'replace').rstrip('\n')
                     if line.startswith('id: '):
-                        last_id = line[4:]
+                        pending_id = line[4:]
                     elif line.startswith('data: '):
                         data = line[6:]
-                    elif line == '' and data:
-                        try:
-                            ev = json.loads(data)
-                        except Exception:
-                            data = None
+                    elif line == '':
+                        frame, data = data, None
+                        frame_id, pending_id = pending_id, None
+                        if frame is None:
                             continue
-                        data = None
+                        try:
+                            ev = json.loads(frame)
+                        except Exception:
+                            if frame_id:
+                                last_id = frame_id
+                            continue
                         wiki = ev.get('wiki_id') or ev.get('database')
                         if wiki != 'enwiki':
+                            if frame_id:
+                                last_id = frame_id
                             continue
                         edt = ev.get('meta', {}).get('dt')
                         if edt and dt.datetime.fromisoformat(edt.replace('Z', '+00:00')) > until_t:
                             done = True
                             break
-                        if True:
-                            f.write(json.dumps(ev) + '\n')
-                            n += 1
+                        f.write(json.dumps(ev) + '\n')
+                        n += 1
+                        if frame_id:
+                            last_id = frame_id
         except Exception as e:
             print('reconnect', reconnects, repr(e)[:120], flush=True)
         if done:
