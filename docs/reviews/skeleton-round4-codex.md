@@ -1,0 +1,1 @@
+APPROVE. Resolved: `overrides()` now checks legacy `.cargo/config` for both `patch` and `paths`. Calling xtask directly in CI avoids the hidden-alias issue. No defects identified in this diff.
