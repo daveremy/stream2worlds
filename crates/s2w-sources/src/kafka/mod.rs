@@ -22,6 +22,12 @@ use crate::source::{
 
 pub(crate) use fetch::KafkaConnection;
 
+/// The longest topic name guaranteed to fit under [`SourceId`]'s 128-byte cap once wrapped as
+/// `kafka.<16-hex-cluster>.<topic>.p<partition>`: 128 minus `"kafka."` (6) minus the cluster's
+/// 16 hex digits minus the two `.` separators minus `"p"` plus up to 10 digits for an `i32`
+/// partition number.
+const MAX_TOPIC_LEN: usize = 128 - 6 - 16 - 2 - 1 - 10;
+
 /// The broker list and topic from a `kafka://<broker>[,<broker>…]/<topic>` URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct KafkaTarget {
@@ -32,8 +38,12 @@ pub(crate) struct KafkaTarget {
 impl KafkaTarget {
     /// Parses `kafka://host:port[,host:port…]/topic`.
     ///
-    /// The topic must satisfy Kafka's own rules: 1 to 249 bytes of ASCII letters, digits, `.`,
-    /// `_` and `-`, and not `.` or `..`.
+    /// The topic must satisfy Kafka's own rules (1 to 249 bytes of ASCII letters, digits,
+    /// `.`, `_` and `-`, and not `.` or `..`) AND fit under [`SourceId`]'s 128-byte cap once
+    /// wrapped as `kafka.<16-hex-cluster>.<topic>.p<partition>` (`partition_source`) — Kafka's
+    /// own limit is looser than ours, so this checks the tighter of the two up front instead
+    /// of letting a topic that Kafka accepts fail later, at `start()`, naming the derived
+    /// source id rather than "topic too long".
     ///
     /// # Errors
     /// Returns [`KafkaSourceError::InvalidTarget`] naming what is wrong.
@@ -55,16 +65,16 @@ impl KafkaTarget {
             return Err(invalid("each broker must be host:port"));
         }
         let valid_topic = !topic.is_empty()
-            && topic.len() <= 249
+            && topic.len() <= MAX_TOPIC_LEN
             && topic != "."
             && topic != ".."
             && topic
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
         if !valid_topic {
-            return Err(invalid(
-                "topic must be 1-249 ASCII letters, digits, '.', '_' or '-'",
-            ));
+            return Err(invalid(&format!(
+                "topic must be 1-{MAX_TOPIC_LEN} ASCII letters, digits, '.', '_' or '-'"
+            )));
         }
         Ok(Self {
             brokers,
@@ -402,8 +412,8 @@ mod tests {
     use s2w_model::{Cursor, SourceId};
 
     use super::{
-        KafkaAdapter, KafkaSourceError, KafkaTarget, cluster_id, parse_since, seam_error,
-        stored_offset,
+        KafkaAdapter, KafkaSourceError, KafkaTarget, MAX_TOPIC_LEN, cluster_id, parse_since,
+        seam_error, stored_offset,
     };
     use crate::source::{CursorLookup, Source, SourceError};
 
@@ -558,7 +568,7 @@ mod tests {
 
     #[test]
     fn target_rejects_bad_urls_loudly() {
-        let too_long = format!("kafka://localhost:9092/{}", "t".repeat(250));
+        let too_long = format!("kafka://localhost:9092/{}", "t".repeat(MAX_TOPIC_LEN + 1));
         for url in [
             "http://localhost:9092/orders",
             "kafka://localhost:9092",
@@ -577,7 +587,7 @@ mod tests {
                 "{url} should be refused"
             );
         }
-        let longest = format!("kafka://localhost:9092/{}", "t".repeat(249));
+        let longest = format!("kafka://localhost:9092/{}", "t".repeat(MAX_TOPIC_LEN));
         assert!(KafkaTarget::parse(&longest).is_ok());
     }
 

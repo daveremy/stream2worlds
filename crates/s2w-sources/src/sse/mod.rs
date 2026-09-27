@@ -8,6 +8,7 @@
 
 mod connect;
 mod dialect;
+mod envelope;
 mod frame;
 #[cfg(test)]
 mod tests;
@@ -333,12 +334,13 @@ async fn process_frame(
         Ok(false) => return FrameAction::Continue,
         Err(reason) => return send(sender, Err(stream.skipped(reason))).await,
     }
+    let stored_payload = stream.dialect.store(&event_cursor, &payload);
     let event = Cursor::new(event_cursor.into_bytes())
         .map(|cursor| RawEvent {
             source: stream.source_id.clone(),
             cursor,
             received_at: now(),
-            payload: payload.into_bytes(),
+            payload: stored_payload,
         })
         .map_err(SourceError::from);
     send(sender, event).await

@@ -173,6 +173,15 @@ impl SseDialect for Wikimedia {
             .map_err(|error| format!("event data is not valid JSON: {error}"))?;
         Ok(!is_filtered(&value))
     }
+
+    /// Wikimedia's `data:` already carries a stream-unique `meta.id`, so the raw JSON is
+    /// stored verbatim — unlike the generic dialect, which folds the cursor in (see
+    /// `SseDialect::store`'s default). Storing anything else here would both break dedupe
+    /// against logs already written by the pre-envelope build and break the fold, which parses
+    /// this payload as Wikimedia's own JSON shape, not the generic envelope's.
+    fn store(&self, _cursor: &str, data: &str) -> Vec<u8> {
+        data.as_bytes().to_vec()
+    }
 }
 
 fn is_filtered(value: &serde_json::Value) -> bool {

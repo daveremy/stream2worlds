@@ -26,6 +26,15 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   by retention or past the partition's end is a fatal, loud error.
 - Kafka payloads are the byte-deterministic envelope from `kafka::envelope` (offset inside), so
   the log's content-hash dedupe collapses redeliveries but never distinct records.
+- Whether an SSE payload is stored raw or enveloped is the dialect's call
+  (`SseDialect::store`), not the transport's: `Opaque` (the generic `sse://`/`https://` path)
+  envelopes `data:` with its cursor id (`sse::envelope`) because an arbitrary stream carries no
+  guarantee that `data:` alone is unique — without the cursor folded in, two distinct events
+  with identical `data:` would collapse under the log's `(source, payload)` dedupe. `Wikimedia`
+  overrides `store` to keep the raw `data:` bytes verbatim: its payload already carries a
+  stream-unique `meta.id`, and changing the stored bytes would break dedupe against logs
+  already written by the pre-envelope build and break the fold, which parses this payload as
+  Wikimedia's own JSON shape.
 - Every event leaves with its source cursor; reconnects resume from the cursor (SSE: the
   dialect's cursor, sent back as `Last-Event-ID`).
 - Every SSE request uses a descriptive `User-Agent` (Wikimedia's policy, applied to every

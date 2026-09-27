@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::presets::wikimedia::{ENDPOINT, LastEventId, SOURCE_ID, Wikimedia};
+use crate::sse::envelope;
 
 /// One delivered event as `(cursor, payload)` text.
 #[derive(Debug)]
@@ -341,6 +342,64 @@ async_test!(status_and_transport_errors_both_retry, {
     assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
     observer.assert_no_mismatches().await;
 });
+
+async_test!(
+    opaque_dialect_envelopes_distinct_ids_with_identical_data_differently,
+    {
+        // codex astra round-3 BLOCK: an arbitrary/opaque SSE stream carries no guarantee that
+        // `data:` alone is unique per event (unlike Wikimedia's `meta.id`), so the generic
+        // dialect must fold the cursor into the stored bytes — otherwise the log's
+        // content-hash dedupe collapses two distinct events into one.
+        let connector = FakeConnect::new(vec![
+            Action::stream(
+                None,
+                None,
+                vec![
+                    format!(
+                        "{}{}",
+                        frame(FIRST_ID, NORMAL_DATA),
+                        frame(SECOND_ID, NORMAL_DATA)
+                    )
+                    .into_bytes(),
+                ],
+            ),
+            Action::pending_connect(None, Some(SECOND_ID.to_owned())),
+        ]);
+        let observer = connector.clone();
+        let (mut source, _task) = opaque(connector, Backoff::fixed(Duration::from_millis(0)));
+        let first = next_ok(&mut source).await;
+        let second = next_ok(&mut source).await;
+        assert_ne!(
+            first.payload, second.payload,
+            "distinct ids with identical data must not collapse under the log's dedupe"
+        );
+        assert_eq!(first.payload, envelope::envelope(FIRST_ID, NORMAL_DATA));
+        assert_eq!(second.payload, envelope::envelope(SECOND_ID, NORMAL_DATA));
+        observer.assert_no_mismatches().await;
+    }
+);
+
+async_test!(
+    wikipedia_dialect_stores_the_raw_data_field_byte_identical,
+    {
+        // Wikimedia's payload already carries a stream-unique `meta.id`, so it is stored verbatim
+        // (never enveloped): the stored bytes must match dedupe against logs written by the
+        // pre-envelope build, and the fold parses this payload as Wikimedia's own JSON shape.
+        let connector = FakeConnect::new(vec![
+            Action::stream(None, None, vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()]),
+            Action::pending_connect(None, Some(FIRST_ID.to_owned())),
+        ]);
+        let observer = connector.clone();
+        let (mut source, _task) = wikipedia(
+            connector,
+            None,
+            None,
+            Backoff::fixed(Duration::from_millis(0)),
+        );
+        assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+        observer.assert_no_mismatches().await;
+    }
+);
 
 #[test]
 fn reqwest_request_has_exact_url_and_resume_header() {

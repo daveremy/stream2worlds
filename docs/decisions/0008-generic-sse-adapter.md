@@ -18,6 +18,18 @@ one) cannot be resumed from, so `Opaque::cursor` returns an error, which the loo
 three in a row the loop forces a fresh connection, same as three malformed Wikimedia
 `Last-Event-ID`s do today.
 
+`SseDialect` also decides what bytes get stored (`store`, added round 3, codex astra BLOCK):
+`Opaque` envelopes each accepted frame as `{"data":…,"id":…}` (`sse::envelope`) because an
+arbitrary target carries no guarantee that `data:` alone is unique per event — without the
+cursor folded in, two distinct events with identical `data:` collapse under the log's
+`(source, payload)` content-hash dedupe, exactly the failure mode Kafka's own envelope
+(`kafka::envelope`) exists to prevent. `Wikimedia` overrides `store` to keep its default: the
+raw `data:` bytes verbatim, since its payload already carries a stream-unique `meta.id` and
+changing the stored bytes would both break dedupe against logs already written by the
+pre-envelope build and break the fold, which parses this payload as Wikimedia's own JSON
+shape. The choice is per-dialect, not per-transport, so a future preset picks whichever fits
+its own payload's identity guarantees.
+
 ## Why
 
 The generic transport cannot know, for an arbitrary target, whether a given stream is expected

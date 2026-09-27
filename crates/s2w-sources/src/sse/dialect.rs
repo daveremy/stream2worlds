@@ -51,6 +51,18 @@ pub(crate) trait SseDialect: Send + Sync + 'static {
     ///
     /// Why the payload is malformed.
     fn accept(&self, data: &str) -> Result<bool, String>;
+
+    /// The bytes stored in the log for one accepted frame, given its cursor and `data:` text.
+    ///
+    /// Default: the byte-deterministic `{"data":…,"id":…}` envelope
+    /// (`super::envelope::envelope`) — see its doc for why a generic stream needs the cursor
+    /// folded into the stored bytes. Override to store `data` verbatim when the payload
+    /// already carries stream-unique identity on its own (Wikimedia's `meta.id`) — changing
+    /// those stored bytes would break dedupe against logs already written under the old,
+    /// unenveloped format, and the fold that parses the payload as JSON.
+    fn store(&self, cursor: &str, data: &str) -> Vec<u8> {
+        super::envelope::envelope(cursor, data).into_bytes()
+    }
 }
 
 /// The default dialect for a bare `sse://`, `https://` or `http://` URI: the `id:` verbatim as
