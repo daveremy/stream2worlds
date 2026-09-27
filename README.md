@@ -135,6 +135,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Workspace | `s2w-model` ← `s2w-core`, `s2w-log`, `s2w-sources`, `s2w-system1`, `s2w-system2` ← `s2w-app` ← `s2w`; `s2w-testkit` for tests | building (gate 2) | The workspace is the architecture: core and model do no I/O, adapters depend only on the model, the app composes them. |
 | Serialization and errors | `serde`, `serde_json`, `thiserror` | building (gate 2) | The model's only dependencies; typed errors in libraries. |
 | Fitness functions | `cargo xtask check` (`toml`, `serde_json`) | building (gate 2) | Dependency allowlist by identity, this table by exact name, AGENTS.md in every crate, workspace lint inheritance. |
+| Licence and advisory gate | `cargo deny check licenses advisories bans` | building (gate 2) | Dependencies must stay MIT/Apache-2.0 (one scoped exception: `unicode-ident`'s `Unicode-3.0` component) per [research 0003 §8d](research/0003-rust-substrate.md#8d-licences), and RustSec advisories must not silently ship. |
 | Sources | Wikipedia EventStreams (SSE), Kafka by partition assignment (never a consumer group, never commits), stdin NDJSON | building (gate 2) | Two real sources plus a free third, so the source seam is not designed from one case. |
 | Event log | Append-only local log with source cursors and provenance; storage format chosen in a gate-2 decision record | building (gate 2) | Raw events are never edited; the world is a replay of the log. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | building (gate 2) | Simplest thing that replays deterministically. |
@@ -159,9 +160,10 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo xtask check
+cargo deny check licenses advisories bans
 ```
 
-Rust 1.98 or later. `cargo xtask check` is the fitness-function suite described above; when it fails, its message says what to change.
+Rust 1.98 or later. `cargo xtask check` is the fitness-function suite described above; when it fails, its message says what to change. The separate `cargo deny` gate rejects unapproved dependency licences and RustSec advisories.
 
 ## Related work
 

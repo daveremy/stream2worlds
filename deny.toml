@@ -1,0 +1,17 @@
+[advisories]
+# cargo-deny denies every RustSec advisory by default. Keep the exception list explicit and empty.
+ignore = []
+
+[licenses]
+# Licenses not listed here are denied by default, including crates with no detectable license.
+allow = ["MIT", "Apache-2.0"]
+
+# unicode-ident is required by the proc-macro toolchain and its expression includes Unicode-3.0.
+# Scope the additional license to that crate rather than allowing it for every dependency.
+exceptions = [
+    { allow = ["Unicode-3.0"], crate = "unicode-ident" },
+]
+
+[bans]
+# Duplicate versions are useful visibility but are not part of this gate's enforcement scope.
+multiple-versions = "warn"

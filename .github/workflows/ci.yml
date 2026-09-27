@@ -21,3 +21,8 @@ jobs:
         run: cargo test --workspace
       - name: fitness functions
         run: cargo run --quiet --package xtask -- check  # not the alias: a .cargo/config would hide it
+      - name: licenses and advisories
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          rust-version: "1.98"
+          command: check licenses advisories bans
