@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::future;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use super::*;
 use crate::presets::wikimedia::{ENDPOINT, LastEventId, SOURCE_ID, Wikimedia};
@@ -42,6 +43,21 @@ fn wikipedia<C: Connect>(
         initial_cursor.map(|cursor| cursor.as_header_value().to_owned()),
         backoff,
     )
+}
+
+/// The read loop with the generic `Opaque` dialect (no preset), for a bare `sse://`/`https://`
+/// target that carries no `id:` field.
+fn opaque<C: Connect>(connector: C, backoff: Backoff) -> (SseStream, JoinHandle<()>) {
+    let source_id = match SourceId::new("opaque-test") {
+        Ok(source_id) => source_id,
+        Err(error) => panic!("the test source id is valid: {error}"),
+    };
+    let state = StreamState {
+        name: "sse",
+        source_id,
+        dialect: Arc::new(Opaque),
+    };
+    spawn(connector, state, None, None, backoff)
 }
 
 const FIRST_ID: &str = r#"[{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"offset":1}]"#;
@@ -228,6 +244,32 @@ async_test!(
         for _ in 0..MALFORMED_ID_LIMIT {
             let item = source.next().await;
             assert!(matches!(item, Some(Err(SourceError::Skipped { .. }))));
+        }
+        observer.assert_no_mismatches().await;
+    }
+);
+
+async_test!(
+    opaque_dialect_with_no_ids_reconnects_forever_without_crashing,
+    {
+        // Decision 0008: a generic `sse://`/`https://` target with no `id:` field on any frame
+        // has no cursor to advance, so every frame is `Skipped` and three in a row force a
+        // reconnect (`MALFORMED_ID_LIMIT`) — forever, not a crash or a hang, because the
+        // transport cannot know whether this stream was ever expected to carry ids.
+        let no_id_frames = "event: message\ndata: no id here\n\n".repeat(MALFORMED_ID_LIMIT);
+        let connector = FakeConnect::new(vec![
+            Action::stream(None, None, vec![no_id_frames.clone().into_bytes()]),
+            Action::stream(None, None, vec![no_id_frames.into_bytes()]),
+            Action::pending_connect(None, None),
+        ]);
+        let observer = connector.clone();
+        let (mut source, _task) = opaque(connector, Backoff::fixed(Duration::from_millis(0)));
+        for _ in 0..(MALFORMED_ID_LIMIT * 2) {
+            let item = tokio::time::timeout(Duration::from_secs(2), source.next()).await;
+            match item {
+                Ok(Some(Err(SourceError::Skipped { .. }))) => {}
+                other => panic!("expected a Skipped error for a frame with no id, got {other:?}"),
+            }
         }
         observer.assert_no_mismatches().await;
     }
