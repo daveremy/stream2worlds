@@ -387,7 +387,7 @@ Per-question source lists are inline above. Aggregate verification done by the a
 Each choice becomes a decision record written by the issue that first uses it, after measuring
 the open items above that apply.
 
-1. Kafka client rskafka. → deferred: stream2worlds#7
+1. Kafka client rskafka. → adopted: [decision 0007](../docs/decisions/0007-kafka-client.md) (stream2worlds#7; Redpanda timestamp check still open)
 2. SSE: hand-rolled loop on reqwest. → deferred: stream2worlds#6
 3. Log: own segment files + redb. → deferred: stream2worlds#8
 4. Incremental engine: differential-dataflow first, DBSP runner-up, still on trigger.

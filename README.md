@@ -15,17 +15,20 @@
 <p align="center"><b>Point <code>s2w</code> at an event stream you have never seen and watch a model of the world behind it form. Every forecast it makes is graded against what the stream shows next. The LLM never touches an event.</b></p>
 
 > [!NOTE]
-> **A research project, pre-alpha.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. `s2w watch wikipedia` streams live edits into a durable log and resumes across restarts; `s2w mcp` exposes five read-only query tools over stdio (an empty world until the live bridge lands). Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions, the append-only event log, a live Wikipedia source, the pure fold with golden replay and a world query API; the second source, the evidence view and the live query bridge are being built. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
+> **A research project, pre-alpha.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. `s2w watch` runs today against Wikipedia, Kafka, generic Server-Sent Events streams and stdin, streaming into a durable log that resumes across restarts; `s2w mcp` exposes five read-only query tools over stdio (an empty world until the live bridge lands). Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions, the append-only event log, three sources, the pure fold with golden replay, a world query API and read-only MCP; the live bridge into query state and the evidence view are being built. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
 
 ## Latest
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **A second source: Kafka, by partition assignment.** `s2w watch kafka://broker/topic` reads every partition itself, joins no consumer group, commits no offsets, and resumes each partition from its own stored offset. [Decision 0007](docs/decisions/0007-kafka-client.md) · [#7](https://github.com/daveremy/stream2worlds/issues/7)
+- **Sources are transports; streams are presets.** The registry resolves `s2w watch <uri>` by scheme — `kafka://`, `sse://`/`https://`/`http://`, `-` for stdin — and `wikipedia` is now a preset over the generic SSE adapter, not its own module. [Decision 0008](docs/decisions/0008-generic-sse-adapter.md) · [#49](https://github.com/daveremy/stream2worlds/issues/49)
+- **A read-only MCP server mirrors the query API.** `s2w mcp` serves the same world-query tools over stdio for MCP clients (`claude mcp add s2w -- s2w mcp`). [Decision 0009](docs/decisions/0009-mcp-server.md) · [#52](https://github.com/daveremy/stream2worlds/issues/52)
 - **`s2w watch wikipedia` runs for real, and restarts lose nothing.** A 38.5-minute live run stored 47,282 English Wikipedia edits with 0 duplicates and 0 gaps across a restart, resuming from the stored cursor; 300 forced redeliveries were collapsed by the log. [#29](https://github.com/daveremy/stream2worlds/issues/29) · [#25](https://github.com/daveremy/stream2worlds/issues/25)
 - **The world can be asked at any offset.** `s2w-app` serves `/world?at=<offset>&lod=type|entity&focus=&hops=`, one SSE delta per offset, `/branches`, `/diff`, `/entity/:id/history` and `/time` over the folded world; entities past the in-degree cap come back as one hub node. Main branch only for now. [Decision 0006](docs/decisions/0006-world-query-api.md)
 - **The fold is pure and its replay is checked in CI.** An entity id is assigned once and never reused; a merge aliases and a revoke splits. `cargo xtask check` folds the golden log twice and from every saved prefix, and fails on a single differing byte. [Decision 0005](docs/decisions/0005-pure-fold.md)
 - **The first slice has a stated scale envelope.** One process, 1,000 events/s, 10^6 live entities in 1 GB, 20 forks under 100 ms; `synchronous=FULL` everywhere, throughput from group commit. Not a distributed system, by decision. [Decision 0004](docs/decisions/0004-scale-envelope.md)
-- **In progress:** Kafka and stdin behind one `Source` trait ([#7](https://github.com/daveremy/stream2worlds/issues/7)), in-crate fitness functions ([#44](https://github.com/daveremy/stream2worlds/issues/44)), and the evidence view ([#10](https://github.com/daveremy/stream2worlds/issues/10)).
+- **In progress:** in-crate fitness functions ([#44](https://github.com/daveremy/stream2worlds/issues/44)) and the evidence view ([#10](https://github.com/daveremy/stream2worlds/issues/10)).
 
 ---
 
@@ -79,31 +82,38 @@ s2w watch wikipedia --log-dir ./s2w-data
 
 # replay history first; only for a log that has no stored cursor yet
 s2w watch wikipedia --since 2026-09-27T00:00:00Z --log-dir ./fresh-dir
+
+# your Kafka topic: reads by partition assignment, never joins a consumer group, commits nothing
+s2w watch kafka://localhost:9092/orders --log-dir ./s2w-data
+
+# any Server-Sent Events stream over https — ids are stored verbatim, no --since
+s2w watch https://stream.example.org/v2/recent --log-dir ./s2w-data
+
+# newline-delimited JSON already on your machine
+kcat -C -b broker:9092 -t orders | s2w watch - --log-dir ./s2w-data
 ```
 
-Stop it with Ctrl-C. Run it again on the same `--log-dir` and it resumes from the stored cursor (`Last-Event-ID`), not from now. Events redelivered on resume are collapsed by the log, which dedupes on source plus payload content, so two distinct events sharing a millisecond are both kept. Passing `--since` to a log that already has a cursor is a usage error.
+Stop it with Ctrl-C. Run it again on the same `--log-dir` and it resumes from the stored cursor (Wikipedia's `Last-Event-ID`, a generic SSE stream's `id:`, or a Kafka partition's last offset), not from now. Events redelivered on resume are collapsed by the log, which dedupes on source plus payload content, so two distinct events sharing a millisecond are both kept. Passing `--since` to a log that already has a cursor is a usage error; a generic SSE or stdin source never accepts `--since` at all.
+
+If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log ([decision 0007](docs/decisions/0007-kafka-client.md)).
 
 To connect an MCP client, configure it to launch `s2w mcp` (for example, `claude mcp add s2w -- s2w mcp`). It exposes `world_view`, `world_diff`, `entity_history`, `branches`, and `time`; each returns the same JSON as its HTTP query route. The CLI currently serves an empty world: the bridge from the stored event log to the query timeline is still to build. Stdout carries only MCP messages. See [decision 0009](docs/decisions/0009-mcp-server.md).
 
 ## Planned interface
 
-This is the target shape. `s2w watch wikipedia` and `s2w mcp` above run today.
+This is the target shape. `s2w watch wikipedia`, `s2w watch kafka://…` and `s2w mcp` above run
+today. Still to build: reading only some partitions or sampling entities by key on a busier
+Kafka topic.
 
 ```bash
-# a public stream, no key needed
-s2w watch https://stream.wikimedia.org/v2/stream/recentchange
-
-# your Kafka topic: reads by partition assignment, never joins a consumer group, commits nothing
-s2w watch kafka://localhost:9092/orders --lookback 2h
-
-# anything you can already consume
-kcat -C -b broker:9092 -t orders | s2w watch -
+# for a busier topic, read some partitions or sample entities by key
+s2w watch kafka://localhost:9092/orders --partitions 0,1 --sample 1/4
 
 # then ask it from your coding agent
 claude mcp add s2w -- s2w mcp
 ```
 
-If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log. It targets about 1,000 events/s on a laptop; for a busier topic, read some partitions (`--partitions`) or sample entities by key (`--sample 1/N`). Local by default: nothing leaves your machine unless you approve an export manifest.
+`s2w` targets about 1,000 events/s on a laptop. Local by default: nothing leaves your machine unless you approve an export manifest.
 
 ## Evaluation
 
@@ -131,7 +141,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
-- [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, append-only event log, Wikipedia source, `s2w watch wikipedia`, the pure fold with golden replay and the world query API (actual world only) are built; read-only MCP over stdio is also built (empty world until the live bridge lands); the second source, the evidence view and the live query bridge are still to build. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
+- [ ] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the world query API (actual world only) are built; read-only MCP over stdio is also built (empty world until the live bridge lands); the evidence view and the live query bridge are still to build. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
@@ -161,7 +171,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Fitness functions | `cargo xtask check` (`toml`, `serde_json`) | building (gate 2) | Dependency allowlist by identity, this table by exact name, AGENTS.md in every crate, workspace lint inheritance, and golden replay: the golden log folds to the same bytes twice, from any serialized prefix, and matches the human-owned snapshot. |
 | Property & snapshot testing | `proptest`, `insta` | building (gate 2) | Property tests check the fold's entity identity against an independent reference model and resume from any serialized prefix; `insta` pins the fold's output shape for human review. Test-only dependencies of `s2w-core`. |
 | Licence and advisory gate | `cargo deny check licenses advisories bans` | built (gate 2) | Dependencies must stay permissive: MIT, Apache-2.0, ISC, BSD-3-Clause or Unicode-3.0, plus two scoped exceptions (`foldhash` Zlib, never compiled for our targets; `webpki-root-certs` CDLA-Permissive-2.0, the Mozilla CA bundle), per [research 0003 §8d](research/0003-rust-substrate.md#8d-licences). RustSec advisories must not silently ship. |
-| Sources | Wikipedia EventStreams (SSE) via `reqwest`, `tokio`, and `tokio-stream` (built); Kafka by partition assignment (never a consumer group, never commits); stdin NDJSON | building (gate 2) | Two real sources plus a free third, so the source seam is not designed from one case. |
+| Sources | A `Source` registry resolved by URI scheme ([decision 0008](docs/decisions/0008-generic-sse-adapter.md)): Kafka by partition assignment via `rskafka` (never a consumer group, never commits; [decision 0007](docs/decisions/0007-kafka-client.md)), a generic SSE adapter via `reqwest`/`tokio`/`tokio-stream` with `wikipedia` as a preset over it ([decision 0003](docs/decisions/0003-wikipedia-sse-client.md)), and stdin NDJSON | built (gate 2) | Three real transports plus a preset, so the source seam is not designed from one case. |
 | Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms | target (gate 2) | Targets until the scale fitness function measures them. Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |

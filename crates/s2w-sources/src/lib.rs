@@ -1,17 +1,12 @@
-//! Stream sources. Each yields raw events with a source cursor; none joins a consumer group or commits offsets.
+//! Stream sources. Adapters (`kafka`, `sse`, `stdin`) are transports that implement
+//! [`source::Source`]; presets (`wikipedia`) are data over an adapter; [`registry::resolve`]
+//! maps a `s2w watch` URI to one. None joins a consumer group or commits offsets.
 
-pub mod wikipedia;
-
-use s2w_model::Timestamp;
-use wikipedia::LastEventId;
-
-/// A raw source event paired with the cursor needed to resume after it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceEvent {
-    /// The raw JSON text from the SSE `data:` field.
-    pub payload: String,
-    /// The structured Wikimedia `Last-Event-ID` for this event.
-    pub cursor: LastEventId,
-    /// The wall-clock time at which the source finished decoding the event.
-    pub received_at: Timestamp,
-}
+mod hash;
+mod kafka;
+mod ndjson;
+mod presets;
+pub mod registry;
+pub mod source;
+mod sse;
+mod stdin;

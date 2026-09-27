@@ -78,7 +78,7 @@ impl ServerHandler for WorldMcp {
 
 /// Runs `s2w mcp` over stdio until the client disconnects.
 ///
-/// Builds a current-thread Tokio runtime (the same shape as [`crate::watch_wikipedia`]) from a
+/// Builds a current-thread Tokio runtime (the same shape as [`crate::watch`]) from a
 /// plain sync entry point, so the CLI never nests runtimes. The serving future returns when the
 /// client closes the pipe; stderr stays free for diagnostics, stdout does not.
 ///

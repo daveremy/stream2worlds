@@ -7,13 +7,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use s2w_app::query::{QueryState, Timeline};
-use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchWikipediaArgs};
+use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchArgs};
 
 /// Where `s2w watch` keeps its event log when `--log-dir` is absent, relative to the working
 /// directory.
 const DEFAULT_LOG_DIR: &str = "./s2w-data";
 
-const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch wikipedia [--since <ISO-8601>] [--log-dir <path>]\n      Stream Wikipedia page changes into the event log (default ./s2w-data).\n      Restarts resume from the log's stored cursor; --since replays history\n      into a log that has no cursor yet.\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world until the live\n      event-log bridge lands.\n  s2w --version\n  --json: JSON for --version, --help, and errors; unavailable for watch/mcp.";
+const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists.\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes ISO-8601\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world until the live\n      event-log bridge lands.\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; unavailable for watch/mcp.";
 
 fn main() -> ExitCode {
     dispatch(std::env::args().skip(1).collect())
@@ -82,29 +82,25 @@ fn watch(args: &[String]) -> ExitCode {
     }
 }
 
-/// The parsed `s2w watch` arguments, shaped for `s2w_app`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct WatchArgs {
-    since: Option<String>,
-    log_dir: PathBuf,
-}
+/// The forms `s2w watch` accepts, for usage errors.
+const STREAMS: &str =
+    "s2w watch wikipedia | kafka://<broker>/<topic> | sse://<host>/<path> | https://<url> | -";
 
-/// Parses everything after `s2w watch`: `wikipedia [--since <value>] [--log-dir <path>]`.
+/// Parses everything after `s2w watch`: a source URI (resolved later by the source registry)
+/// with `[--since <value>] [--log-dir <path>]`.
 ///
 /// Pure — no filesystem or network access — so every usage error is unit-testable.
 fn parse_watch(args: &[String]) -> Result<WatchArgs, String> {
-    match args.first().map(String::as_str) {
-        Some("wikipedia") => parse_watch_flags(&args[1..]),
-        Some(other) => Err(format!(
-            "unknown stream '{other}'. Try: s2w watch wikipedia"
-        )),
-        None => Err("missing stream name after 'watch'. Try: s2w watch wikipedia".to_owned()),
-    }
+    let uri = match args.first() {
+        Some(uri) if !uri.starts_with("--") => uri.clone(),
+        _ => return Err(format!("missing source after 'watch'. Try: {STREAMS}")),
+    };
+    parse_watch_flags(uri, &args[1..])
 }
 
-/// Parses the flag tail of `s2w watch wikipedia`: `--since` and `--log-dir`, each with exactly
+/// Parses the flag tail of `s2w watch <source>`: `--since` and `--log-dir`, each with exactly
 /// one value, at most once each.
-fn parse_watch_flags(args: &[String]) -> Result<WatchArgs, String> {
+fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> {
     let mut since = None;
     let mut log_dir = None;
     let mut index = 0;
@@ -137,18 +133,16 @@ fn parse_watch_flags(args: &[String]) -> Result<WatchArgs, String> {
         index += 2;
     }
     Ok(WatchArgs {
+        uri,
         since,
         log_dir: log_dir.map_or_else(|| PathBuf::from(DEFAULT_LOG_DIR), PathBuf::from),
     })
 }
 
-/// Runs a parsed `s2w watch wikipedia` command.
+/// Runs a parsed `s2w watch` command.
 fn run_watch(args: WatchArgs) -> ExitCode {
-    let args = WatchWikipediaArgs {
-        since: args.since,
-        log_dir: args.log_dir,
-    };
-    match s2w_app::watch_wikipedia(args) {
+    let outcome = s2w_app::watch(args);
+    match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             output::print_error(Format::Human, &error.to_string());
@@ -250,6 +244,7 @@ mod tests {
         assert_eq!(
             parse_watch(&args(&["wikipedia"])),
             Ok(WatchArgs {
+                uri: "wikipedia".to_owned(),
                 since: None,
                 log_dir: PathBuf::from("./s2w-data")
             })
@@ -267,6 +262,7 @@ mod tests {
                 "/tmp/s2w"
             ])),
             Ok(WatchArgs {
+                uri: "wikipedia".to_owned(),
                 since: Some("2026-09-27T12:00:00Z".to_owned()),
                 log_dir: PathBuf::from("/tmp/s2w")
             })
@@ -278,6 +274,7 @@ mod tests {
         assert_eq!(
             parse_watch(&args(&["wikipedia", "--since", "123"])),
             Ok(WatchArgs {
+                uri: "wikipedia".to_owned(),
                 since: Some("123".to_owned()),
                 log_dir: PathBuf::from("./s2w-data")
             })
@@ -285,6 +282,7 @@ mod tests {
         assert_eq!(
             parse_watch(&args(&["wikipedia", "--log-dir", "data/dir"])),
             Ok(WatchArgs {
+                uri: "wikipedia".to_owned(),
                 since: None,
                 log_dir: PathBuf::from("data/dir")
             })
@@ -292,14 +290,42 @@ mod tests {
     }
 
     #[test]
-    fn watch_rejects_unknown_and_missing_stream_names() {
+    fn watch_rejects_a_missing_source() {
+        for missing in [&args(&[])[..], &args(&["--since", "1"])[..]] {
+            assert_eq!(
+                parse_watch(missing),
+                Err(format!("missing source after 'watch'. Try: {STREAMS}"))
+            );
+        }
+    }
+
+    #[test]
+    fn watch_accepts_a_kafka_url_with_flags() {
         assert_eq!(
-            parse_watch(&args(&["kafka"])),
-            Err("unknown stream 'kafka'. Try: s2w watch wikipedia".to_owned())
+            parse_watch(&args(&[
+                "kafka://localhost:9092/orders",
+                "--since",
+                "1700000000000",
+                "--log-dir",
+                "k"
+            ])),
+            Ok(WatchArgs {
+                uri: "kafka://localhost:9092/orders".to_owned(),
+                since: Some("1700000000000".to_owned()),
+                log_dir: PathBuf::from("k")
+            })
         );
+    }
+
+    #[test]
+    fn watch_accepts_stdin_with_log_dir() {
         assert_eq!(
-            parse_watch(&[]),
-            Err("missing stream name after 'watch'. Try: s2w watch wikipedia".to_owned())
+            parse_watch(&args(&["-", "--log-dir", "s"])),
+            Ok(WatchArgs {
+                uri: "-".to_owned(),
+                since: None,
+                log_dir: PathBuf::from("s")
+            })
         );
     }
 

@@ -14,7 +14,7 @@ dev = ["serde_json", "proptest", "insta"]
 normal = ["s2w-model", "rusqlite"]
 
 [crates.s2w-sources]
-normal = ["s2w-model", "reqwest", "tokio", "serde_json", "tokio-stream", "thiserror"]
+normal = ["s2w-model", "reqwest", "rskafka", "tokio", "serde_json", "tokio-stream", "thiserror"]
 
 [crates.s2w-system1]
 normal = ["s2w-model"]
@@ -24,7 +24,7 @@ normal = ["s2w-model"]
 
 [crates.s2w-app]
 normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2", "axum", "rmcp", "serde", "serde_json", "thiserror", "tokio", "tokio-stream"]
-dev = ["rmcp", "tokio", "tower"]
+dev = ["rmcp", "rskafka", "tokio", "tower"]
 
 [crates.s2w]
 normal = ["s2w-app"]
@@ -46,6 +46,9 @@ readme_row = "Serialization and errors"
 readme_row = "Serialization and errors"
 
 [external.reqwest]
+readme_row = "Sources"
+
+[external.rskafka]
 readme_row = "Sources"
 
 [external.tokio]

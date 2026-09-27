@@ -17,6 +17,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   events can share a cursor value. On a hash hit the stored payload bytes are compared; a
   collision between distinct payloads is a loud `LogError::Corrupt`, never a silent drop, and a
   duplicate leaves the stored cursor row untouched.
+- `append_batch` is group commit: one transaction per batch, all or nothing, outcomes in input
+  order, each event classified as sequential `append` would. It is a required trait method with
+  no default body, because a looping default would silently lose atomicity. The N-events /
+  T-ms flush policy lives in `s2w-app`; the log has no clock. `synchronous=FULL` is unchanged
+  (decision 0004).
 - Never depends on the core or on another adapter.
 - The public seam is `EventLog`, with durable `SqliteEventLog`, fixture-friendly
   `InMemoryEventLog`, and storage-neutral `LogError` implementations.
