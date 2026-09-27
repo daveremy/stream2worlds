@@ -13,10 +13,9 @@ use serde::{Deserialize, Serialize};
 pub struct EntityId(u64);
 
 impl EntityId {
-    /// Wraps a raw id. Only the fold mints ids that mean anything; this exists for the fold
-    /// itself and for tools that read a serialized world.
+    /// Wraps a raw id. Only the fold mints ids.
     #[must_use]
-    pub const fn new(raw: u64) -> Self {
+    pub(crate) const fn new(raw: u64) -> Self {
         Self(raw)
     }
 

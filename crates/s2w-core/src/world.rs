@@ -304,7 +304,8 @@ impl World {
 
 /// Folds one event into the world. Pure and total: it never panics, and an event it cannot
 /// apply (an unknown key, a cyclic merge, an exhausted id space) is a no-op that still counts
-/// towards [`World::offset`].
+/// towards [`World::offset`]. The one exception: once `offset` is `u64::MAX`, events are
+/// dropped without advancing it.
 #[must_use]
 pub fn fold_one(world: World, event: &WorldEvent) -> World {
     let mut world = world;

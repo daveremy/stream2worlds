@@ -139,19 +139,23 @@ fn hub_cap_counts_distinct_sources_and_turns_edges_into_hub_refs() {
             relate("p1", "wiki", "on"), // same source again: still one source
             relate("p2", "wiki", "on"),
             relate("p3", "wiki", "on"), // third distinct source: past the cap
+            relate("p1", "wiki", "on"), // after the trip, even a pre-cap source becomes a hub_ref
         ],
     );
     let wiki = w.id_of(&key("wiki")).unwrap();
+    let p1 = w.id_of(&key("p1")).unwrap();
     let p3 = w.id_of(&key("p3")).unwrap();
+    // p1's pre-trip edge stays at its pre-trip weight; readers union it with p1's hub_refs.
     assert_eq!(
         w.relationships().values().copied().collect::<Vec<_>>(),
         [2, 1]
     );
     assert_eq!(w.entities()[&p3].hub_refs.get("on"), Some(&wiki));
+    assert_eq!(w.entities()[&p1].hub_refs.get("on"), Some(&wiki));
     let counters = &w.hub_counters()[&wiki];
     assert_eq!(counters.in_degree(), 3);
-    assert_eq!(counters.by_kind.get("on"), Some(&4));
-    assert_eq!(counters.last_seen_offset, 4);
+    assert_eq!(counters.by_kind.get("on"), Some(&5));
+    assert_eq!(counters.last_seen_offset, 5);
 }
 
 #[test]
@@ -193,4 +197,22 @@ fn small_fold_snapshot() {
         ],
     );
     insta::assert_json_snapshot!(w);
+}
+
+/// Minting past the id space is a no-op. Only reachable through a deserialized world.
+#[test]
+fn id_exhaustion_is_a_no_op() {
+    let mut json = serde_json::to_value(World::default()).unwrap();
+    json["next_entity_id"] = serde_json::json!(u64::MAX - 1);
+    let w: World = serde_json::from_value(json).unwrap();
+
+    let two_new = fold(w.clone(), &[relate("a", "b", "edited")]);
+    assert!(two_new.keys().is_empty());
+    assert!(two_new.relationships().is_empty());
+    assert_eq!(two_new.offset(), 1);
+
+    let one_new = fold(w, &[observe("a", "user", &[])]);
+    assert_eq!(one_new.id_of(&key("a")).unwrap().get(), u64::MAX - 1);
+    let full = fold(one_new, &[observe("b", "user", &[])]);
+    assert_eq!(full.id_of(&key("b")), None);
 }

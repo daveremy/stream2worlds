@@ -6,12 +6,13 @@ Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #9 · Research [0003 §4
 
 `s2w-core` folds `WorldEvent`s into a `World` with `fold_one(World, &WorldEvent) -> World`. The
 fold is pure and **total**: it never panics and never returns an error. An event it cannot apply
-is a documented no-op that still advances `World::offset`.
+is a documented no-op that still advances `World::offset` (except once `offset` is `u64::MAX`,
+when events are dropped without advancing it).
 
 `WorldEvent` has four variants: `EntityObserved`, `RelationshipObserved`, `EntitiesMerged` and
 `MergeRevoked`. `EntityId`, `NaturalKey`, `AttrValue`, `WorldEvent` and `World` live in
-`s2w-core`, not `s2w-model`: no second crate needs them yet (the `s2w-model` rule). They move
-when `s2w-system1` emits claims.
+`s2w-core`, not `s2w-model`: no adapter crate needs them yet (the `s2w-model` rule; `xtask`
+is tooling and depends on the core directly). They move when `s2w-system1` emits claims.
 
 `cargo xtask check` (check 6) is the fitness function. It folds the human-owned golden log
 twice and requires the same bytes both times and the same bytes as the committed snapshot. It
@@ -68,9 +69,13 @@ same bytes again.
 count and the offset of the latest observation. They update on every `RelationshipObserved`.
 The in-degree is the number of **distinct sources**, so one source repeating a relationship
 counts once. When a target's in-degree exceeds `hub_in_degree_cap`, the relationship is not
-materialized: the source entity's `hub_refs[kind]` is set to the hub's id instead. `hub_refs`
-is its own field, so a source attribute can never collide with it. Edges materialized before
-the cap tripped stay. Serving a hub as an aggregate at every `lod` is query work (#10, #36).
+materialized: the source entity's `hub_refs[kind]` is set to the hub's id instead (keyed by
+kind, so the latest hub wins if one source points at two hubs with the same kind). `hub_refs`
+is its own field, so a source attribute can never collide with it. The test is on the count
+after the observation, so once a target has tripped, every later observation of it becomes a
+`hub_ref`, including one from a source whose edge was stored before the trip. That edge stays
+at its pre-trip weight; a reader unions `relationships` and `hub_refs`. Serving a hub as an
+aggregate at every `lod` is query work (#10, #36).
 
 ## Golden replay
 
