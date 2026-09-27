@@ -1,8 +1,7 @@
 //! `cargo xtask` — the workspace's fitness functions.
 //!
 //! `cargo xtask check` runs every check, prints each violation with what to do about it, and
-//! fails if there is any. The checks read Cargo's own metadata and the manifests, never source
-//! text: a text scanner over Rust source has an unbounded bypass space (decision 0001).
+//! fails on enforced violations. Rust source is read only as syn ASTs, never as text.
 //!
 //! 1. **Dependency allowlist** (`xtask/allowlist.toml`): every dependency edge of every
 //!    workspace crate is listed, and nothing listed is unused. Internal edges must resolve to the
@@ -20,6 +19,8 @@
 //!    byte for byte, twice, and to the same bytes when resumed from a serialized prefix at every
 //!    split point. The fixture must use every `WorldEvent` variant and trip the hub cap.
 //!
+//! 7. **Module sizes** (`module_size.rs`): report-only AST spans and blocking exemption growth.
+//!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
 //! forbid. Other lints may be relaxed locally only with a reason, visible in review.
@@ -32,16 +33,18 @@ use std::process::{Command, ExitCode};
 use serde::Deserialize;
 
 mod golden;
+mod module_size;
 
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.iter().map(String::as_str).ne(["check"]) {
-        eprintln!("usage: cargo xtask check");
+    let tighten = args == ["check", "--tighten-baseline"];
+    if args != ["check"] && !tighten {
+        eprintln!("usage: cargo xtask check [--tighten-baseline]");
         return ExitCode::from(2);
     }
-    match check(&workspace_root()) {
+    match check(&workspace_root(), tighten) {
         Ok(summary) => {
             println!("{summary}");
             ExitCode::SUCCESS
@@ -67,6 +70,7 @@ fn workspace_root() -> PathBuf {
 #[derive(Deserialize)]
 struct Metadata {
     packages: Vec<Package>,
+    target_directory: PathBuf,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +78,7 @@ struct Package {
     name: String,
     manifest_path: PathBuf,
     dependencies: Vec<Dependency>,
+    targets: Vec<module_size::Target>,
 }
 
 #[derive(Deserialize)]
@@ -146,7 +151,7 @@ fn read_toml<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, Vec<String>
 
 // ---------- the check ----------
 
-fn check(root: &Path) -> Result<String, Vec<String>> {
+fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     let meta = metadata(root)?;
     let allow: Allowlist = read_toml(&root.join("xtask/allowlist.toml"))?;
     let readme =
@@ -188,6 +193,7 @@ fn check(root: &Path) -> Result<String, Vec<String>> {
     }
     problems.extend(overrides(root));
     problems.extend(golden::check(root));
+    problems.extend(module_size::check(root, &meta, tighten));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -222,7 +228,7 @@ fn check(root: &Path) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))

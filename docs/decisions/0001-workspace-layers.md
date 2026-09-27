@@ -21,7 +21,8 @@ xtask: the fitness functions
 
 ## Enforcement
 
-`cargo xtask check` reads Cargo metadata and manifests, never Rust source text:
+`cargo xtask check` reads Cargo metadata and manifests, never Rust source text (the 2026-09-27
+amendment below adds `syn` AST parsing for structural checks; text scanning stays out):
 
 1. **Dependency allowlist** (`xtask/allowlist.toml`): every edge listed, nothing listed unused.
    Internal edges must resolve to the workspace member of that name; external dependencies must
@@ -80,3 +81,28 @@ critic review.)
 ## Revisit when
 
 A layer needs an edge this record forbids. Write a new record, then change the allowlist.
+
+### Amendment, 2026-09-27: structural AST fitness functions
+
+`xtask` may now parse Rust with `syn` for structural checks. Text or regex scanning of Rust
+source remains excluded. The module-size check closes these bypass classes:
+
+- Test-only cfg predicates are evaluated structurally: `test`, `all` with any test-only arm,
+  `any` with every arm test-only, and `#[test]` exclude the entire item recursively. Neither
+  `not(test)` nor `cfg_attr(test, ...)` alone excludes an item.
+- `#[path = "..."]` and `cfg_attr(_, path = "...")` are refused, irrespective of predicate;
+  standard file-backed and inline module layout keeps resolution inspectable.
+- `include!`, `include_str!` and `include_bytes!` are refused wherever `syn` finds them,
+  including both item and expression positions; use real module structure instead. `syn`
+  does not parse inside another macro's arguments, so an include nested there is not seen;
+  the dep-info cross-check below catches any `.rs` file it pulls in.
+- Cargo target kinds exempt tests, benches, examples and custom build scripts, independent
+  of directory names. Every other target kind (library crate-types, binaries, proc-macros)
+  is walked.
+- Rustc dep-info cross-checks compiled `.rs` files under each crate's `src/` against the
+  walker, exposing missed files as violations rather than silently undercounting.
+
+The initial 400-line cap is report-only. Exemption growth is separately checked against
+`origin/main`, requiring a `Baseline-growth: s2w#<N>` trailer anywhere in the PR commit range.
+One trailer authorizes every exemption that grows in that range. A failed base read allows
+no unauthorised growth and prints its cause.
