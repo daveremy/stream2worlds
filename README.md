@@ -12,10 +12,10 @@
   <img alt="license: permissive at launch" src="https://img.shields.io/badge/license-permissive%20at%20launch-5B6778">
 </p>
 
-<p align="center"><b>Point it at an event stream you have never seen. In minutes, watch a living model of the world behind it form: what is true now, what is probably coming, and what to do about it.</b></p>
+<p align="center"><b>Point <code>s2w</code> at an event stream you have never seen and watch a model of the world behind it form. Every forecast it makes is graded against what the stream shows next. The LLM never touches an event.</b></p>
 
 > [!NOTE]
-> **Status: an experiment, pre-alpha. Nothing runs yet.** This README describes what we are building and the roadmap below says exactly where we are. Opinions are held lightly.
+> **Pre-alpha. Nothing runs yet.** The binary answers `--version` and `--help` and nothing else. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) is a reviewed workspace skeleton with no source, log or fold behind it yet. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
 
 ---
 
@@ -23,22 +23,24 @@
 
 Every organization already describes itself in streams: orders, shipments, edits, sensor readings, database writes. Almost nobody sees them as a whole, because turning a stream into a model of the business has always meant a schema project and a data team.
 
-Stream2Worlds (`s2w`) skips that step. A stream is many entities' lives interleaved, every cart, customer and flight emitting events on its own schedule. `s2w` untangles it into a **world**: typed entities, relationships and state, rebuilt from the log so you can scrub it back to any moment. Then it forecasts what each entity does next, draws those forecasts as **possible worlds**, and grades every one against what actually happens.
+Stream2Worlds (`s2w`) skips that step. A stream is many entities' lives interleaved: every cart, customer and flight emitting events on its own schedule. `s2w` untangles it into a **world**, typed entities, relationships and state, rebuilt from the log so you can scrub it back to any moment. Then it forecasts what each entity does next, draws those forecasts as **possible worlds**, and grades every one against what actually happens.
 
 A **possible world** here is one sampled future of the world, rolled forward from the present state. A forecast is a question asked across many such samples, recorded before the outcome and graded after it. (Probabilistic databases use the same phrase for uncertainty about the *present*; `s2w` borrows their Monte Carlo semantics and points them at the future. See [research 0001](research/0001-prior-art.md#q2-possible-worlds-as-a-term).)
 
-## What you'll see
+## What the demo will show
 
-- **One command, no configuration.** `s2w watch <stream>` and raw events start flowing.
-- **A world assembling itself.** Ids become entities, entities get types and names, the graph tidies itself as it learns.
-- **It is not just remembering.** Rename every field to `f1…f17`, hash every id, and it still works out that the stream is air traffic.
-- **Possible worlds.** Forecasts appear as dashed ghosts with probabilities, then turn solid or shatter when reality arrives, and the scorecard ticks.
-- **Time travel.** The same scrubber replays the past exactly and imagines the future probabilistically.
-- **Ask it from your agent.** Claude, Codex or any MCP client can query the world, ask for forecasts with their track records, and propose rules.
+None of this exists yet. It is the demo the first slice builds toward, and each line names the gate that has to pass first.
+
+- **One command, no configuration.** `s2w watch <stream>` and raw events start flowing. (gate 2)
+- **A world assembling itself.** Ids become entities, entities get types and names, the graph tidies itself as it learns. (gate 2 for the evidence view, gate 3 for the learning)
+- **Structure, not memorized names.** Gate 3 feeds `s2w` a copy of a stream with every field renamed to `f1…f17` and every id hashed. It has to recover the entities and their keys anyway, and it is scored against heuristics and against an LLM shown raw events.
+- **Possible worlds.** Forecasts appear as dashed ghosts with probabilities, then turn solid or shatter when reality arrives, and the scorecard ticks. (the ledger in gate 4; the view after the slice)
+- **Time travel.** One scrubber replays the past exactly and imagines the future probabilistically. (gate 2 for replay; the future view after the slice)
+- **Ask it from your agent.** Claude, Codex or any MCP client can query the world, ask for forecasts with their track records, and propose rules. (read-only MCP in gate 2)
 
 ## How it works
 
-Two systems over one log. **System 1** runs on every event in microseconds to milliseconds: rules, embeddings, and fast decision models such as Jev. **System 2** runs in the background in seconds: an LLM that reads snapshots of the world, proposes types, repairs and forecasters, and teaches System 1. System 2 never sits in the stream, which is the lesson from this project's predecessor.
+Two systems over one log. **System 1** runs on every event in microseconds to milliseconds: rules, embeddings, and fast decision models such as Jev. **System 2** runs in the background in seconds: an LLM that reads snapshots of the world, proposes types, repairs and forecasters, and teaches System 1. System 2 never sits in the stream. That is the lesson from this project's predecessor, which put the LLM on the event path and was too slow.
 
 ```mermaid
 flowchart LR
@@ -61,6 +63,8 @@ flowchart LR
 
 ## Planned interface
 
+This is the target shape. None of these commands run today.
+
 ```bash
 # a public stream, no key needed
 s2w watch https://stream.wikimedia.org/v2/stream/recentchange
@@ -75,7 +79,7 @@ kcat -C -b broker:9092 -t orders | s2w watch -
 claude mcp add s2w -- s2w mcp
 ```
 
-Local by default: nothing leaves your machine unless you approve an export manifest.
+If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log. Local by default: nothing leaves your machine unless you approve an export manifest.
 
 ## Evaluation
 
@@ -96,12 +100,14 @@ Stream outcomes are awkward to grade, and the ledger is built around that:
 
 Each predictor's record (graded count, skill over the base rate, calibration) is what `forecast.ask` returns alongside a probability, and what the System 1 router will use to pick an engine. `s2w` is not a general LLM eval framework. It grades forecasts and judgments against a live stream, the part existing eval tools do not cover.
 
+**The first question, with its numbers.** Gate 4 asks, for each human edit to an English Wikipedia article: will it be reverted within 30 minutes? A 30-minute pilot on 2026-09-27 ([research 0004](research/0004-revert-pilot.md)) measured 1,854 eligible edits, a 3.8% base rate, and ROC AUC 0.888 for Wikimedia's own revert-risk model on that question. One Sunday-morning window, so these are orders of magnitude, not the test. Wikimedia's model is reported beside `s2w`'s score, not required to be beaten: the gate asks for skill over the base rate and over a simple-features model, and calibration ([contract A9](docs/evaluation-contract.md#a9-gate-4-pass-thresholds-dave-2026-09-27-report-b2-dont-require-it)).
+
 ## Roadmap
 
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
-- [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton and its fitness functions passed review on 2026-09-27. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
+- [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton and its fitness functions passed review on 2026-09-27; everything else in this gate is still to build. ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
@@ -144,6 +150,19 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 
 This table is checked, not just maintained: `cargo xtask check` fails when a workspace crate is missing from this section, or when an external dependency does not name a row here ([decision 0001](docs/decisions/0001-workspace-layers.md)).
 
+## Building
+
+There is nothing to run, but the gates that CI runs on every pull request already pass:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo xtask check
+```
+
+Rust 1.98 or later. `cargo xtask check` is the fitness-function suite described above; when it fails, its message says what to change.
+
 ## Related work
 
 Every part of `s2w` exists somewhere. As of 2026-09-27 we found no system that does all of it: discovering entity types, identity keys and relationships from a raw event stream, keeping the LLM off the event path, replaying the world from its log, and grading its own forecasts against the live stream. The full map, with citations, is [research 0001](research/0001-prior-art.md). The nearest neighbours:
@@ -156,7 +175,7 @@ Every part of `s2w` exists somewhere. As of 2026-09-27 we found no system that d
 
 ## Design and reviews
 
-- [Research notes](research/): prior art, structure discovery without LLMs, the Rust substrate
+- [Research notes](research/): prior art, structure discovery without LLMs, the Rust substrate, the revert pilot
 - [Design document](docs/design/stream2worlds-design.html) (interactive; open it locally in a browser)
 - Design critic passes: [round 1, Codex](docs/reviews/round1-codex.md) · [round 1, Claude](docs/reviews/round1-claude-critic.md) · [round 2, Codex](docs/reviews/round2-codex.md) · [round 2, Claude](docs/reviews/round2-claude-critic.md)
 - Evaluation contract reviews: [1](docs/reviews/gate1-contract-round1-codex.md) · [2](docs/reviews/gate1-contract-round2-codex.md) · [3](docs/reviews/gate1-contract-round3-codex.md) · [4](docs/reviews/gate1-contract-round4-codex.md) · [5, sign](docs/reviews/gate1-contract-round5-codex.md)
@@ -169,4 +188,4 @@ It started at EventStore with a wish: switch on predictions for an event store t
 
 ## License
 
-To be chosen at launch; it will be permissive (MIT or Apache-2.0).
+To be chosen at launch; it will be permissive. The workspace manifest already declares `MIT OR Apache-2.0`.
