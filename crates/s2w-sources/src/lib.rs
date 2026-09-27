@@ -1,6 +1,7 @@
 //! Stream sources. Each yields raw events with a source cursor; none joins a consumer group or commits offsets.
 
 pub mod kafka;
+pub mod ndjson;
 pub mod wikipedia;
 
 use s2w_model::Timestamp;
