@@ -34,7 +34,7 @@ pub enum AppError {
     Model(#[from] s2w_model::ModelError),
     /// The async runtime could not be built.
     #[error("could not build the async runtime: {0}")]
-    Runtime(#[from] std::io::Error),
+    Runtime(#[source] std::io::Error),
     /// A stored cursor could not be decoded as the UTF-8 `Last-Event-ID` the source stores.
     #[error("stored wikipedia cursor is not valid UTF-8: {0}")]
     StoredCursorUtf8(#[from] std::str::Utf8Error),
@@ -62,7 +62,8 @@ pub enum AppError {
 pub fn watch_wikipedia(args: WatchWikipediaArgs) -> Result<(), AppError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()?;
+        .build()
+        .map_err(AppError::Runtime)?;
     runtime.block_on(run_wikipedia(args))
 }
 
@@ -72,7 +73,7 @@ pub fn watch_wikipedia(args: WatchWikipediaArgs) -> Result<(), AppError> {
 async fn run_wikipedia(args: WatchWikipediaArgs) -> Result<(), AppError> {
     let mut log = SqliteEventLog::open(&args.log_dir)?;
     let source_id = SourceId::new(WIKIPEDIA_SOURCE)?;
-    let source = match log.cursor(&source_id)? {
+    let mut source = match log.cursor(&source_id)? {
         Some(stored) => {
             if let Some(since) = &args.since {
                 return Err(AppError::Usage(format!(
@@ -87,7 +88,9 @@ async fn run_wikipedia(args: WatchWikipediaArgs) -> Result<(), AppError> {
         None => WikipediaSource::new(args.since.clone())?,
     };
 
-    let mut source = source;
+    // Appends run on the runtime's only thread, so each synchronous=FULL commit pauses reads
+    // from the stream. Nothing is lost: the source's bounded channel and TCP backpressure hold
+    // the stream. Moving writes off this thread belongs with group commit (#7).
     while let Some(item) = source.next().await {
         let event = match item {
             Ok(event) => event,

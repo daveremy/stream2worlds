@@ -183,9 +183,7 @@ impl EventLog for InMemoryEventLog {
                 ))
             })?;
             if stored != event.payload.as_slice() {
-                return Err(LogError::Corrupt(
-                    "content-hash collision between distinct payloads".to_owned(),
-                ));
+                return Err(collision(event.source.as_str(), key.1, position));
             }
             // Duplicate: the cursor is untouched, so a redelivery cannot move it backwards.
             return Ok(AppendOutcome::Duplicate(position));
@@ -282,7 +280,7 @@ impl SqliteEventLog {
             .map_err(map_sqlite)?;
         if version != 0 && version != SCHEMA_VERSION {
             return Err(LogError::Corrupt(format!(
-                "unsupported schema version {version}; expected {SCHEMA_VERSION}"
+                "unsupported schema version {version}; expected {SCHEMA_VERSION}. An older s2w wrote this log; open a fresh log directory"
             )));
         }
         if version == 0 {
@@ -371,6 +369,17 @@ impl EventLog for SqliteEventLog {
     }
 }
 
+/// The loud error for a 64-bit content-hash collision between two distinct payloads.
+///
+/// Names the source, hash and stored position so a human can inspect the two events: the same
+/// event is redelivered on every restart, so this error repeats until someone acts on it.
+fn collision(source: &str, hash: i64, position: LogPosition) -> LogError {
+    LogError::Corrupt(format!(
+        "content-hash collision between distinct payloads: source {source}, hash {hash}, stored at position {}",
+        position.as_u64()
+    ))
+}
+
 /// Classifies an insert that changed no rows: a byte-identical redelivery, or a hash collision.
 ///
 /// The stored payload bytes are compared against the new event's, because `UNIQUE(source,
@@ -391,14 +400,12 @@ fn resolve_duplicate(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(map_sqlite)?;
-    if stored_payload != payload {
-        return Err(LogError::Corrupt(
-            "content-hash collision between distinct payloads".to_owned(),
-        ));
-    }
     let position = u64::try_from(position)
         .map(LogPosition)
         .map_err(|error| LogError::Corrupt(error.to_string()))?;
+    if stored_payload != payload {
+        return Err(collision(source, hash, position));
+    }
     Ok(AppendOutcome::Duplicate(position))
 }
 
@@ -749,6 +756,15 @@ mod tests {
         ));
         assert_eq!(log.replay(None)?.count(), 5);
         assert_eq!(log.cursor(&source_a)?, Some(cursor(9)?));
+
+        // The resume-boundary case (s2w#25): an inclusive timestamp seek redelivers the first
+        // sibling after the second was stored. It collapses, and nothing moves.
+        assert!(matches!(
+            log.append(sibling_a)?,
+            AppendOutcome::Duplicate(_)
+        ));
+        assert_eq!(log.replay(None)?.count(), 5);
+        assert_eq!(log.cursor(&source_a)?, Some(cursor(9)?));
         Ok(())
     }
 
@@ -786,6 +802,45 @@ mod tests {
         );
         assert_eq!(read_cursor_row(&log)?, before);
         assert_eq!(log.cursor(&first.source)?, Some(second.cursor.clone()));
+        Ok(())
+    }
+
+    #[test]
+    fn in_memory_hash_collision_is_loud_and_stores_nothing() -> TestResult {
+        let mut log = InMemoryEventLog::new();
+        let stored = event(1)?;
+        inserted(log.append(stored.clone())?)?;
+        // Force a collision: keep the stored hash key but change the stored bytes, so the next
+        // append of the original payload hits the key with different bytes behind it.
+        match log.events.first_mut() {
+            Some(first) => first.event.payload = b"different bytes".to_vec(),
+            None => panic!("the log should hold the event just appended"),
+        }
+        match log.append(stored) {
+            Err(LogError::Corrupt(message)) => assert!(message.contains("collision")),
+            other => panic!("a hash collision must be Corrupt, got {other:?}"),
+        }
+        assert_eq!(log.replay(None)?.count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn sqlite_hash_collision_is_loud_and_stores_nothing() -> TestResult {
+        let directory = TestDirectory::new("collision")?;
+        let incoming = event(1)?;
+        let mut log = SqliteEventLog::open(directory.path())?;
+        // A row whose hash is the incoming payload's but whose bytes differ: a collision.
+        log.connection.execute(
+            "INSERT INTO events (source, cursor, received_at, payload, content_hash)
+             VALUES (?1, X'01', 1, X'01', ?2)",
+            params![incoming.source.as_str(), content_hash(&incoming.payload)],
+        )?;
+        match log.append(incoming.clone()) {
+            Err(LogError::Corrupt(message)) => assert!(message.contains("collision")),
+            other => panic!("a hash collision must be Corrupt, got {other:?}"),
+        }
+        assert_eq!(log.replay(None)?.count(), 1);
+        assert_eq!(log.cursor(&incoming.source)?, None);
         Ok(())
     }
 
