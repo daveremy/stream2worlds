@@ -17,6 +17,15 @@
 > [!NOTE]
 > **Pre-alpha. Nothing runs yet.** The binary answers `--version` and `--help` and nothing else. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) is a reviewed workspace skeleton with no source, log or fold behind it yet. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
 
+## Latest
+
+*Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
+
+- **The evaluation contract is signed** (gate 1). How we will know whether `s2w` works was fixed before any code: one forecast question on live Wikipedia, its baselines and its pass thresholds. [Contract](docs/evaluation-contract.md)
+- **The forecast question is well posed.** A 30-minute pilot on English Wikipedia: 3.8% of edits reverted within 30 minutes, and Wikimedia's own model scores ROC AUC 0.888 on it. [Pilot](research/0004-revert-pilot.md)
+- **The architecture is enforced by the build.** Nine crates whose boundaries are the layers; `cargo xtask check` fails a PR that crosses one, and the compiler forbids `unwrap`, `todo!` and `unsafe`. [Decision 0001](docs/decisions/0001-workspace-layers.md)
+- **In progress:** the Wikipedia source and the event log, the first code that touches a real stream.
+
 ---
 
 ## The idea
