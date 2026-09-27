@@ -171,6 +171,8 @@ struct Graph<'w> {
     hubs: BTreeMap<EntityId, HubAgg>,
     links: BTreeMap<(EntityId, EntityId, String), u64>,
     hub_edges: BTreeSet<(EntityId, EntityId, String)>,
+    /// `hub_edges` grouped by source, so a node's `hub_refs` is one lookup, not a scan.
+    hub_refs: BTreeMap<EntityId, Vec<HubRef>>,
 }
 
 impl<'w> Graph<'w> {
@@ -190,18 +192,31 @@ impl<'w> Graph<'w> {
                 .push(key.as_str().to_owned());
         }
         let cap = world.hub_in_degree_cap();
+        // A hub is any entity a raw target resolves to whose own counters tripped the cap.
+        // `hub_counters` stays keyed by the target resolved at observation time and a merge
+        // never rewrites it, so every entry resolving to a hub folds into that hub's aggregate,
+        // including sub-cap entries merged in later: otherwise the aggregate under-counts the
+        // edges `hub_edges` resolves into it.
+        let hub_ids: BTreeSet<EntityId> = world
+            .hub_counters()
+            .iter()
+            .filter(|(_, counters)| u64::try_from(counters.in_degree()).map_or(true, |n| n > cap))
+            .map(|(&target, _)| world.resolve(target))
+            .collect();
         let mut hubs: BTreeMap<EntityId, HubAgg> = BTreeMap::new();
         for (&target, counters) in world.hub_counters() {
-            if u64::try_from(counters.in_degree()).map_or(true, |n| n > cap) {
-                let agg = hubs.entry(world.resolve(target)).or_default();
-                agg.sources
-                    .extend(counters.sources.iter().map(|&s| world.resolve(s)));
-                for (kind, n) in &counters.by_kind {
-                    let total = agg.by_kind.entry(kind.clone()).or_insert(0);
-                    *total = total.saturating_add(*n);
-                }
-                agg.last_seen_offset = agg.last_seen_offset.max(counters.last_seen_offset);
+            let hub = world.resolve(target);
+            if !hub_ids.contains(&hub) {
+                continue;
             }
+            let agg = hubs.entry(hub).or_default();
+            agg.sources
+                .extend(counters.sources.iter().map(|&s| world.resolve(s)));
+            for (kind, n) in &counters.by_kind {
+                let total = agg.by_kind.entry(kind.clone()).or_insert(0);
+                *total = total.saturating_add(*n);
+            }
+            agg.last_seen_offset = agg.last_seen_offset.max(counters.last_seen_offset);
         }
         let mut links: BTreeMap<(EntityId, EntityId, String), u64> = BTreeMap::new();
         let mut hub_edges = BTreeSet::new();
@@ -224,6 +239,13 @@ impl<'w> Graph<'w> {
                 }
             }
         }
+        let mut hub_refs: BTreeMap<EntityId, Vec<HubRef>> = BTreeMap::new();
+        for (s, h, kind) in &hub_edges {
+            hub_refs.entry(*s).or_default().push(HubRef {
+                kind: kind.clone(),
+                hub: node_id(*h),
+            });
+        }
         Self {
             world,
             members,
@@ -231,6 +253,7 @@ impl<'w> Graph<'w> {
             hubs,
             links,
             hub_edges,
+            hub_refs,
         }
     }
 
@@ -300,15 +323,7 @@ impl<'w> Graph<'w> {
                 keys,
                 attrs,
                 members: members.to_vec(),
-                hub_refs: self
-                    .hub_edges
-                    .iter()
-                    .filter(|(s, _, _)| *s == id)
-                    .map(|(_, h, kind)| HubRef {
-                        kind: kind.clone(),
-                        hub: node_id(*h),
-                    })
-                    .collect(),
+                hub_refs: self.hub_refs.get(&id).cloned().unwrap_or_default(),
             },
         }
     }

@@ -177,6 +177,83 @@ mod golden {
     }
 
     #[test]
+    fn a_sub_cap_target_merged_into_the_hub_folds_into_its_aggregate() {
+        run(a_sub_cap_target_merged_into_the_hub_folds_into_its_aggregate_body());
+    }
+
+    /// `enwiki_mirror` collects three `on` edges (not past the cap of 3, so it is not a hub on
+    /// its own), then is merged into `enwiki`. The hub's aggregate must count those sources,
+    /// agreeing with the per-source hub_refs and the lod=type aggregate link weights.
+    async fn a_sub_cap_target_merged_into_the_hub_folds_into_its_aggregate_body() {
+        let mut log = events();
+        for page in ["page:Docs", "page:Book", "page:Rust"] {
+            log.push(WorldEvent::RelationshipObserved {
+                from: NaturalKey::new(page),
+                to: NaturalKey::new("enwiki_mirror"),
+                kind: "on".to_owned(),
+            });
+        }
+        log.push(WorldEvent::EntitiesMerged {
+            survivor: NaturalKey::new("enwiki"),
+            absorbed: NaturalKey::new("enwiki_mirror"),
+        });
+        let mut t = Timeline::new(CAP);
+        for (i, e) in log.iter().cloned().enumerate() {
+            t.append(Timestamp::from_millis(i64::try_from(i).unwrap() * 1000), e);
+        }
+        let app = router(QueryState::new(t));
+        let world = fold(World::with_hub_cap(CAP), &log);
+        let key_id = |k: &str| format!("e:{}", world.id_of(&NaturalKey::new(k)).unwrap().get());
+        let enwiki = key_id("enwiki");
+
+        let (status, view) = get(&app, "/world").await;
+        assert_eq!(status, StatusCode::OK);
+        let hub = node(&view, &enwiki).unwrap();
+        assert_eq!(hub["kind"], "hub");
+        // The golden five, plus Docs and Book; Rust was already a source.
+        assert_eq!(hub["in_degree"], 7);
+        assert_eq!(hub["by_kind"]["on"], 9);
+        assert_eq!(
+            hub["members"][0],
+            world
+                .id_of(&NaturalKey::new("enwiki_mirror"))
+                .unwrap()
+                .get()
+        );
+        // No per-source link into the merged hub; the merged-in sources carry a hub_ref.
+        for link in view["links"].as_array().unwrap() {
+            assert_ne!(link["target"], enwiki.as_str());
+        }
+        let with_ref = view["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|n| {
+                n["hub_refs"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|h| h["hub"] == enwiki.as_str()))
+            })
+            .count();
+        assert_eq!(with_ref, 7);
+        for page in ["page:Docs", "page:Book"] {
+            let n = node(&view, &key_id(page)).unwrap();
+            assert_eq!(n["hub_refs"][0]["hub"], enwiki.as_str(), "{page}");
+        }
+
+        let (status, view) = get(&app, "/world?lod=type").await;
+        assert_eq!(status, StatusCode::OK);
+        let total: u64 = view["links"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|l| l["target"] == enwiki.as_str())
+            .map(|l| l["weight"].as_u64().unwrap())
+            .sum();
+        assert_eq!(total, 7);
+        assert_eq!(node(&view, &enwiki).unwrap()["in_degree"], 7);
+    }
+
+    #[test]
     fn focus_limits_to_the_neighbourhood_and_never_expands_a_hub() {
         run(focus_limits_to_the_neighbourhood_and_never_expands_a_hub_body());
     }
