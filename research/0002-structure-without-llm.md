@@ -381,3 +381,16 @@ Marked **UNVERIFIED** where used: Swan's speedups, DynFD internals, Baazizi et a
 inference mechanism, the Data Profiling book's chapter bodies, CORDS, Rebmann et al.'s paper
 body (the code was read instead), De Fazio et al. 2023, the 2026 "simple heuristic for the case
 ID attribute" paper, Zhang et al. 2010's full text, and SortingHat's names-off ablation.
+
+## Design implications
+
+1. H is an integration of published methods; §6's seven-stage design, exact hash sets for
+   containment, and abstaining name embeddings on the obfuscated stream. → deferred: stream2worlds#4
+2. Build H first and measure it on the development window before building System 2.
+   → adopted: gate-3 epic stream2worlds#13 sequencing (2026-09-27)
+3. H may exceed 0.90 identity F1 on Wikipedia, making B4's 0.10 margin unreachable.
+   → deferred: stream2worlds#4 (measure first; if true, Dave re-decides the margin before the freeze)
+4. The four contract questions in §9. → deferred: stream2worlds#17
+5. Three signals that appear unpublished (distinct-count growth, burstiness, carry-over pairs).
+   → deferred: stream2worlds#1 (paper candidates, not claims)
+
