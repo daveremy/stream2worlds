@@ -15,6 +15,3 @@ exceptions = [
 [bans]
 # Duplicate versions are useful visibility but are not part of this gate's enforcement scope.
 multiple-versions = "warn"
-
-[sources]
-# Keep cargo-deny's default source policy; crates.io is the default allowed registry.
