@@ -128,6 +128,18 @@ pub trait EventLog {
     /// Returns a storage error without partially storing the event or advancing the cursor.
     fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError>;
 
+    /// Appends `events` in order as one group commit: one transaction, one durable sync.
+    ///
+    /// Returns one outcome per input event, in input order. Each event is classified exactly as
+    /// [`EventLog::append`] would classify it after the events before it in the batch, so an
+    /// event repeated inside one batch is [`AppendOutcome::Duplicate`] of its first copy, and each
+    /// source's cursor ends at its last inserted event. An empty batch writes nothing.
+    ///
+    /// # Errors
+    /// All or nothing: on any error — an oversized payload, a content-hash collision, a storage
+    /// failure — no event of the batch is stored and no cursor moves.
+    fn append_batch(&mut self, events: Vec<RawEvent>) -> Result<Vec<AppendOutcome>, LogError>;
+
     /// Reads the most recently committed cursor for `source`.
     ///
     /// # Errors
@@ -160,17 +172,8 @@ impl InMemoryEventLog {
         Self::default()
     }
 
-    /// The stored payload at `position`, if it is still held.
-    fn stored_payload(&self, position: LogPosition) -> Option<&[u8]> {
-        let index = usize::try_from(position.as_u64().checked_sub(1)?).ok()?;
-        self.events
-            .get(index)
-            .map(|stored| stored.event.payload.as_slice())
-    }
-}
-
-impl EventLog for InMemoryEventLog {
-    fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
+    /// Classifies and, when new, stores one event; the shared body of both append paths.
+    fn insert(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
         check_payload_size(event.payload.len())?;
         let key = (event.source.clone(), content_hash(&event.payload));
         if let Some(&position) = self.seen.get(&key) {
@@ -198,6 +201,38 @@ impl EventLog for InMemoryEventLog {
         self.events.push(StoredEvent { position, event });
         self.seen.insert(key, position);
         Ok(AppendOutcome::Inserted(position))
+    }
+
+    /// The stored payload at `position`, if it is still held.
+    fn stored_payload(&self, position: LogPosition) -> Option<&[u8]> {
+        let index = usize::try_from(position.as_u64().checked_sub(1)?).ok()?;
+        self.events
+            .get(index)
+            .map(|stored| stored.event.payload.as_slice())
+    }
+}
+
+impl EventLog for InMemoryEventLog {
+    fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
+        self.insert(event)
+    }
+
+    fn append_batch(&mut self, events: Vec<RawEvent>) -> Result<Vec<AppendOutcome>, LogError> {
+        for event in &events {
+            check_payload_size(event.payload.len())?;
+        }
+        // All or nothing: apply to a copy and swap it in only when every event succeeded.
+        let mut staged = InMemoryEventLog {
+            events: self.events.clone(),
+            cursors: self.cursors.clone(),
+            seen: self.seen.clone(),
+        };
+        let outcomes = events
+            .into_iter()
+            .map(|event| staged.insert(event))
+            .collect::<Result<Vec<_>, _>>()?;
+        *self = staged;
+        Ok(outcomes)
     }
 
     fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, LogError> {
@@ -296,45 +331,31 @@ impl SqliteEventLog {
 
 impl EventLog for SqliteEventLog {
     fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
-        check_payload_size(event.payload.len())?;
-        let hash = content_hash(&event.payload);
+        let mut outcomes = self.append_batch(vec![event])?;
+        outcomes
+            .pop()
+            .ok_or_else(|| LogError::Corrupt("a one-event append produced no outcome".to_owned()))
+    }
+
+    fn append_batch(&mut self, events: Vec<RawEvent>) -> Result<Vec<AppendOutcome>, LogError> {
+        for event in &events {
+            check_payload_size(event.payload.len())?;
+        }
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_sqlite)?;
-        let inserted = transaction
-            .execute(
-                "INSERT INTO events (source, cursor, received_at, payload, content_hash)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(source, content_hash) DO NOTHING",
-                params![
-                    event.source.as_str(),
-                    event.cursor.as_bytes(),
-                    event.received_at.as_millis(),
-                    event.payload,
-                    hash
-                ],
-            )
-            .map_err(map_sqlite)?;
-        if inserted == 0 {
-            return resolve_duplicate(&transaction, event.source.as_str(), hash, &event.payload);
-        }
-        let row_id = transaction.last_insert_rowid();
-        transaction
-            .execute(
-                "INSERT INTO cursors (source, cursor, last_position)
-                 VALUES (?1, ?2, ?3)
-                 ON CONFLICT(source) DO UPDATE SET
-                    cursor = excluded.cursor,
-                    last_position = excluded.last_position",
-                params![event.source.as_str(), event.cursor.as_bytes(), row_id],
-            )
-            .map_err(map_sqlite)?;
+        let outcomes = events
+            .iter()
+            .map(|event| insert_in(&transaction, event))
+            .collect::<Result<Vec<_>, _>>()?;
+        // Any error above returned early and dropped the transaction uncommitted: nothing of
+        // the batch is stored and no cursor moved.
         transaction.commit().map_err(map_sqlite)?;
-        let position = u64::try_from(row_id)
-            .map(LogPosition)
-            .map_err(|error| LogError::Corrupt(error.to_string()))?;
-        Ok(AppendOutcome::Inserted(position))
+        Ok(outcomes)
     }
 
     fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, LogError> {
@@ -369,6 +390,48 @@ impl EventLog for SqliteEventLog {
     }
 }
 
+/// Inserts one event inside an open transaction and advances its source cursor there.
+///
+/// A duplicate or collision is classified by [`resolve_duplicate`] and leaves the cursor row
+/// untouched. The caller owns the commit.
+fn insert_in(
+    transaction: &rusqlite::Transaction<'_>,
+    event: &RawEvent,
+) -> Result<AppendOutcome, LogError> {
+    let hash = content_hash(&event.payload);
+    let inserted = transaction
+        .execute(
+            "INSERT INTO events (source, cursor, received_at, payload, content_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(source, content_hash) DO NOTHING",
+            params![
+                event.source.as_str(),
+                event.cursor.as_bytes(),
+                event.received_at.as_millis(),
+                event.payload,
+                hash
+            ],
+        )
+        .map_err(map_sqlite)?;
+    if inserted == 0 {
+        return resolve_duplicate(transaction, event.source.as_str(), hash, &event.payload);
+    }
+    let row_id = transaction.last_insert_rowid();
+    transaction
+        .execute(
+            "INSERT INTO cursors (source, cursor, last_position)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(source) DO UPDATE SET
+                cursor = excluded.cursor,
+                last_position = excluded.last_position",
+            params![event.source.as_str(), event.cursor.as_bytes(), row_id],
+        )
+        .map_err(map_sqlite)?;
+    u64::try_from(row_id)
+        .map(|position| AppendOutcome::Inserted(LogPosition(position)))
+        .map_err(|error| LogError::Corrupt(error.to_string()))
+}
+
 /// The loud error for a 64-bit content-hash collision between two distinct payloads.
 ///
 /// Names the source, hash and stored position so a human can inspect the two events: the same
@@ -384,9 +447,10 @@ fn collision(source: &str, hash: i64, position: LogPosition) -> LogError {
 ///
 /// The stored payload bytes are compared against the new event's, because `UNIQUE(source,
 /// content_hash)` alone would silently drop a real event on a 64-bit hash collision between two
-/// distinct payloads. Nothing was inserted, and the transaction is dropped uncommitted: the
-/// cursor upsert is skipped entirely, since `last_insert_rowid()` still reports the previous
-/// successful insert's row here and would corrupt `cursors.last_position`.
+/// distinct payloads. Nothing was inserted, so the cursor upsert is skipped entirely:
+/// `last_insert_rowid()` still reports the previous successful insert's row here and would
+/// corrupt `cursors.last_position`. A collision error aborts the whole transaction, batch
+/// included.
 fn resolve_duplicate(
     transaction: &rusqlite::Transaction<'_>,
     source: &str,
@@ -841,6 +905,115 @@ mod tests {
         }
         assert_eq!(log.replay(None)?.count(), 1);
         assert_eq!(log.cursor(&incoming.source)?, None);
+        Ok(())
+    }
+
+    /// The batch seam: in-order outcomes, in-batch duplicates, cursors, all-or-nothing errors.
+    fn run_batch_suite<L: EventLog>(mut log: L) -> TestResult {
+        assert_eq!(log.append_batch(Vec::new())?, Vec::new());
+        let outcomes =
+            log.append_batch(vec![event(1)?, event(2)?, event(3)?, event(4)?, event(1)?])?;
+        let positions = outcomes[..4]
+            .iter()
+            .map(|outcome| inserted(*outcome))
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(
+            positions.iter().map(|p| p.as_u64()).collect::<Vec<_>>(),
+            vec![1, 2, 3, 4]
+        );
+        assert_eq!(outcomes[4], AppendOutcome::Duplicate(positions[0]));
+        assert_eq!(log.cursor(&source("source-a")?)?, Some(cursor(3)?));
+        assert_eq!(log.cursor(&source("source-b")?)?, Some(cursor(4)?));
+
+        // Same stored state as appending one by one.
+        let mut sequential = InMemoryEventLog::new();
+        for index in 1..=4 {
+            sequential.append(event(index)?)?;
+        }
+        let batched = log.replay(None)?.collect::<Result<Vec<_>, _>>()?;
+        let expected = sequential.replay(None)?.collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(batched, expected);
+
+        // An oversized payload anywhere in the batch stores nothing and moves no cursor.
+        let mut oversized = event(7)?;
+        oversized.payload = vec![0; MAX_PAYLOAD_BYTES + 1];
+        assert_eq!(
+            log.append_batch(vec![event(5)?, oversized]),
+            Err(LogError::TooLarge)
+        );
+        assert_eq!(log.replay(None)?.count(), 4);
+        assert_eq!(log.cursor(&source("source-a")?)?, Some(cursor(3)?));
+        Ok(())
+    }
+
+    #[test]
+    fn in_memory_batch_append_conforms() -> TestResult {
+        run_batch_suite(InMemoryEventLog::new())
+    }
+
+    #[test]
+    fn sqlite_batch_append_conforms() -> TestResult {
+        let directory = TestDirectory::new("batch")?;
+        run_batch_suite(SqliteEventLog::open(directory.path())?)
+    }
+
+    #[test]
+    fn sqlite_batch_in_batch_duplicate_keeps_cursor_on_last_insert() -> TestResult {
+        let directory = TestDirectory::new("batch-dup")?;
+        let mut log = SqliteEventLog::open(directory.path())?;
+        let a = event(1)?;
+        let b = event(3)?;
+        let outcomes = log.append_batch(vec![a.clone(), a, b.clone()])?;
+        let first = inserted(outcomes[0])?;
+        assert_eq!(outcomes[1], AppendOutcome::Duplicate(first));
+        let last = inserted(outcomes[2])?;
+        let last_position: i64 = log.connection.query_row(
+            "SELECT last_position FROM cursors WHERE source = ?1",
+            [b.source.as_str()],
+            |row| row.get(0),
+        )?;
+        assert_eq!(u64::try_from(last_position)?, last.as_u64());
+        assert_eq!(log.cursor(&b.source)?, Some(b.cursor));
+        Ok(())
+    }
+
+    #[test]
+    fn sqlite_batch_with_a_collision_stores_nothing() -> TestResult {
+        let directory = TestDirectory::new("batch-collision")?;
+        let incoming = event(1)?;
+        let mut log = SqliteEventLog::open(directory.path())?;
+        log.connection.execute(
+            "INSERT INTO events (source, cursor, received_at, payload, content_hash)
+             VALUES (?1, X'01', 1, X'01', ?2)",
+            params![incoming.source.as_str(), content_hash(&incoming.payload)],
+        )?;
+        match log.append_batch(vec![event(2)?, event(3)?, incoming]) {
+            Err(LogError::Corrupt(message)) => assert!(message.contains("collision")),
+            other => panic!("a hash collision must be Corrupt, got {other:?}"),
+        }
+        assert_eq!(log.replay(None)?.count(), 1);
+        assert_eq!(log.cursor(&source("source-a")?)?, None);
+        assert_eq!(log.cursor(&source("source-b")?)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn in_memory_batch_with_a_collision_stores_nothing() -> TestResult {
+        let mut log = InMemoryEventLog::new();
+        log.append(event(2)?)?;
+        // Point event 3's identity at the stored event 2, whose bytes differ: a collision.
+        let incoming = event(3)?;
+        let stored = LogPosition(1);
+        log.seen.insert(
+            (incoming.source.clone(), content_hash(&incoming.payload)),
+            stored,
+        );
+        match log.append_batch(vec![event(4)?, incoming]) {
+            Err(LogError::Corrupt(message)) => assert!(message.contains("collision")),
+            other => panic!("a hash collision must be Corrupt, got {other:?}"),
+        }
+        assert_eq!(log.replay(None)?.count(), 1);
+        assert_eq!(log.cursor(&source("source-b")?)?, Some(cursor(2)?));
         Ok(())
     }
 

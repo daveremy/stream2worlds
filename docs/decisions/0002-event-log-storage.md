@@ -47,3 +47,10 @@ Measured replay throughput requires segment files, or append throughput requires
 track both with issue #19. The SIGKILL test proves transaction atomicity and recovery after a
 process dies. It does not prove `synchronous=FULL` fsync durability under an operating-system
 crash or power loss, which a child-process SIGKILL cannot exercise.
+
+## Amendment, 2026-09-27 (#7)
+
+Per [decision 0004](0004-scale-envelope.md), `EventLog::append_batch` now exists: one
+transaction per batch of events, all or nothing, with each source's cursor advanced inside the
+same transaction. `append` is a batch of one. `synchronous=FULL` is unchanged. The flush policy
+(every N events or T ms) belongs to the application, not the log.
