@@ -1,7 +1,10 @@
 //! Runtime wiring: composes sources, the log, the core and the engines, and serves the read-only MCP server and the local web view.
 
+mod group_commit;
+mod kafka;
 pub mod mcp;
 pub mod query;
+mod stdin;
 
 /// The hub in-degree cap a served timeline starts under, re-exported so the CLI can build the
 /// MCP server's empty world without depending on the core itself.
@@ -13,6 +16,9 @@ use s2w_log::{AppendOutcome, EventLog, SqliteEventLog};
 use s2w_model::{Cursor, RawEvent, SourceId};
 use s2w_sources::wikipedia::{LastEventId, WikipediaSource, WikipediaSourceError};
 use tokio_stream::StreamExt;
+
+pub use kafka::{WatchKafkaArgs, watch_kafka};
+pub use stdin::{WatchStdinArgs, watch_stdin};
 
 /// The source id under which `s2w watch wikipedia` files its events.
 const WIKIPEDIA_SOURCE: &str = "wikipedia.page_change";
@@ -50,10 +56,28 @@ pub enum AppError {
     /// A stored cursor could not be decoded as the UTF-8 `Last-Event-ID` the source stores.
     #[error("stored wikipedia cursor is not valid UTF-8: {0}")]
     StoredCursorUtf8(#[from] std::str::Utf8Error),
-    /// The source's stream ended. Wikimedia keeps this stream open and drops it only to
-    /// reconnect it, so an ended stream means something is wrong, not that the work is done.
-    #[error("the wikipedia source stream ended unexpectedly; it should reconnect until stopped")]
-    StreamEnded,
+    /// The Kafka source could not start, or stopped.
+    #[error("kafka source: {0}")]
+    Kafka(#[from] s2w_sources::kafka::KafkaSourceError),
+    /// Reading stdin failed.
+    #[error("stdin: {0}")]
+    Ndjson(#[from] s2w_sources::ndjson::NdjsonSourceError),
+    /// A stored Kafka cursor is not the decimal offset the source stores.
+    #[error("stored cursor {cursor:?} for {source_id} is not a Kafka offset")]
+    StoredCursorOffset {
+        /// The log source whose cursor failed to decode.
+        source_id: String,
+        /// The stored bytes, lossily decoded for the message.
+        cursor: String,
+    },
+    /// The Kafka source delivered a record from a partition it was not assigned.
+    #[error("kafka delivered a record from unassigned partition {0}")]
+    UnexpectedPartition(i32),
+    /// A live source's stream ended. Wikipedia and Kafka keep their streams open (Wikipedia
+    /// drops it only to reconnect it), so an ended stream means something is wrong, not that
+    /// the work is done.
+    #[error("the {0} source stream ended unexpectedly; it should keep running until stopped")]
+    StreamEnded(&'static str),
     /// The command cannot run as given, and says what to try instead. The binary maps this to
     /// its usage exit code.
     #[error("{0}")]
@@ -72,11 +96,15 @@ pub enum AppError {
 /// appended to, a cursor that cannot be decoded, or a source that cannot start. A single
 /// malformed frame from the stream does not stop it.
 pub fn watch_wikipedia(args: WatchWikipediaArgs) -> Result<(), AppError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    current_thread_runtime()?.block_on(run_wikipedia(args))
+}
+
+/// A current-thread Tokio runtime with the I/O and timer drivers: enough for one source.
+fn current_thread_runtime() -> Result<tokio::runtime::Runtime, AppError> {
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(AppError::Runtime)?;
-    runtime.block_on(run_wikipedia(args))
+        .map_err(AppError::Runtime)
 }
 
 /// Composes the Wikipedia source with the durable log and consumes the stream.
@@ -128,7 +156,7 @@ async fn run_wikipedia(args: WatchWikipediaArgs) -> Result<(), AppError> {
             }
         }
     }
-    Err(AppError::StreamEnded)
+    Err(AppError::StreamEnded("wikipedia"))
 }
 
 #[cfg(test)]
@@ -140,11 +168,25 @@ mod tests {
 
     use super::{AppError, WIKIPEDIA_SOURCE, WatchWikipediaArgs, watch_wikipedia};
 
+    /// Runs `test` on a current-thread runtime whose clock is paused (auto-advancing when idle)
+    /// when `paused` is set. `#[tokio::test]` expands to an `allow(clippy::expect_used)` the
+    /// workspace forbids.
+    pub(crate) fn run<F: std::future::Future>(paused: bool, test: F) -> F::Output {
+        match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .start_paused(paused)
+            .build()
+        {
+            Ok(runtime) => runtime.block_on(test),
+            Err(error) => panic!("building the test runtime should succeed: {error}"),
+        }
+    }
+
     /// A per-test scratch directory under the system temp dir, removed on drop.
-    struct TestDirectory(PathBuf);
+    pub(crate) struct TestDirectory(PathBuf);
 
     impl TestDirectory {
-        fn new(name: &str) -> Self {
+        pub(crate) fn new(name: &str) -> Self {
             let nanos = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |elapsed| elapsed.as_nanos());
@@ -153,7 +195,7 @@ mod tests {
             )
         }
 
-        fn path(&self) -> &Path {
+        pub(crate) fn path(&self) -> &Path {
             &self.0
         }
     }
