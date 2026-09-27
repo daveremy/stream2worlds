@@ -31,6 +31,7 @@ behind its decisions: what exists, what is known, and what we would be foolish t
 | 0003 | The Rust substrate: Kafka client, event-log storage, SSE, incremental computation, MCP server | Gate 2 decision records | done |
 | 0004 | Revert pilot: base rate, delays, cutoff losses and B2 behaviour on 30 minutes of English Wikipedia | Contract A10, A8 test length | done |
 | 0005 | Exploring worlds in 3D: libraries, stable layouts for a changing graph, navigating time and possible futures, uncertainty in 3D, when 3D is worse than 2D | 3D world explorer (#21), the gate-2 view API (#10) | done |
+| 0006 | Scaling: where s2w breaks first as streams grow, and the cheapest way past each wall | Scale envelope (#31), scale fitness function (#32), long runs (#33), the fold (#9), gate 3 and 4 epics | done |
 
 ## Planned, not started
 
