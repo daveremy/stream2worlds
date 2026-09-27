@@ -7,7 +7,7 @@ use s2w_model::Cursor;
 ///
 /// Cursors are text: SSE's `Last-Event-ID` is a string, so the cursor stored in the log and
 /// the header sent on reconnect are the same bytes.
-pub trait SseDialect: Send + Sync + 'static {
+pub(crate) trait SseDialect: Send + Sync + 'static {
     /// The cursor for a frame's `id:` field (`None` when the frame has none). `Err` is a
     /// malformed id: reported, and counted toward the forced-reconnect limit.
     ///
@@ -44,7 +44,7 @@ pub trait SseDialect: Send + Sync + 'static {
 /// the cursor, no start-time parameter, every payload kept. A frame without an `id:` has no
 /// cursor and is skipped; three in a row force a reconnect (decision 0008).
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Opaque;
+pub(crate) struct Opaque;
 
 impl SseDialect for Opaque {
     fn cursor(&self, id: Option<&str>) -> Result<String, String> {

@@ -1,6 +1,6 @@
 //! Presets: named real streams, each an adapter plus its configuration, as data.
 
-pub mod wikimedia;
+pub(crate) mod wikimedia;
 
 use std::sync::Arc;
 
@@ -8,14 +8,14 @@ use crate::source::Source;
 use crate::sse::{SseConfig, SseSource, USER_AGENT};
 
 /// Builds a preset's source.
-pub type PresetFn = fn() -> Box<dyn Source>;
+pub(crate) type PresetFn = fn() -> Box<dyn Source>;
 
 /// Every preset, by the exact (case-sensitive) name `s2w watch` accepts.
-pub const PRESETS: &[(&str, PresetFn)] = &[("wikipedia", wikipedia)];
+pub(crate) const PRESETS: &[(&str, PresetFn)] = &[("wikipedia", wikipedia)];
 
 /// The preset named `name`, if there is one.
 #[must_use]
-pub fn preset(name: &str) -> Option<Box<dyn Source>> {
+pub(crate) fn preset(name: &str) -> Option<Box<dyn Source>> {
     PRESETS
         .iter()
         .find(|(preset, _)| *preset == name)

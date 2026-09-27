@@ -10,15 +10,15 @@ use s2w_model::Cursor;
 use crate::sse::SseDialect;
 
 /// The EventStreams endpoint the `wikipedia` preset reads.
-pub const ENDPOINT: &str = "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1";
+pub(crate) const ENDPOINT: &str = "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1";
 
 /// The log source id the `wikipedia` preset files its events under.
-pub const SOURCE_ID: &str = "wikipedia.page_change";
+pub(crate) const SOURCE_ID: &str = "wikipedia.page_change";
 
 /// A Wikimedia `Last-Event-ID` that is not the documented JSON array of positions.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("invalid Last-Event-ID {value:?}: {reason}")]
-pub struct InvalidLastEventId {
+pub(crate) struct InvalidLastEventId {
     /// The invalid `id:` value.
     pub value: String,
     /// Why the value could not be decoded.
@@ -30,7 +30,7 @@ pub struct InvalidLastEventId {
 /// The original JSON is retained byte-for-byte for the next `Last-Event-ID` request header,
 /// while [`positions`](Self::positions) exposes the parsed per-partition positions.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LastEventId {
+pub(crate) struct LastEventId {
     raw: String,
     positions: Vec<StreamPosition>,
 }
@@ -45,7 +45,7 @@ impl LastEventId {
     ///
     /// Returns [`InvalidLastEventId`] when the value is not the documented
     /// non-empty array of topic, partition, and offset-or-timestamp objects.
-    pub fn parse(value: impl Into<String>) -> Result<Self, InvalidLastEventId> {
+    pub(crate) fn parse(value: impl Into<String>) -> Result<Self, InvalidLastEventId> {
         let raw = value.into();
         let decoded: serde_json::Value =
             serde_json::from_str(&raw).map_err(|error| InvalidLastEventId {
@@ -75,48 +75,38 @@ impl LastEventId {
 
     /// The exact value to send in a `Last-Event-ID` request header.
     #[must_use]
-    pub fn as_header_value(&self) -> &str {
+    pub(crate) fn as_header_value(&self) -> &str {
         &self.raw
     }
 
     /// The per-topic, per-partition positions contained in this cursor.
+    #[cfg(test)]
     #[must_use]
-    pub fn positions(&self) -> &[StreamPosition] {
+    fn positions(&self) -> &[StreamPosition] {
         &self.positions
     }
 }
 
 /// A position in one Wikimedia Kafka topic partition.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StreamPosition {
+pub(crate) struct StreamPosition {
     topic: String,
     partition: i64,
     at: PositionAt,
 }
 
+#[cfg(test)]
 impl StreamPosition {
-    /// The Kafka topic represented by this position.
-    #[must_use]
-    pub fn topic(&self) -> &str {
-        &self.topic
-    }
-
-    /// The Kafka partition represented by this position.
-    #[must_use]
-    pub const fn partition(&self) -> i64 {
-        self.partition
-    }
-
     /// Whether the position resumes by offset or timestamp.
     #[must_use]
-    pub const fn at(&self) -> PositionAt {
+    const fn at(&self) -> PositionAt {
         self.at
     }
 }
 
 /// The value used to locate an event within one stream partition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PositionAt {
+pub(crate) enum PositionAt {
     /// Resume at this Kafka offset.
     Offset(i64),
     /// Resume at this Unix timestamp in milliseconds when no offset is available.
@@ -152,7 +142,7 @@ fn parse_position(value: &serde_json::Value) -> Result<StreamPosition, String> {
 
 /// The Wikimedia EventStreams dialect.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct Wikimedia;
+pub(crate) struct Wikimedia;
 
 impl SseDialect for Wikimedia {
     fn cursor(&self, id: Option<&str>) -> Result<String, String> {

@@ -16,7 +16,7 @@ use tokio_stream::wrappers::LinesStream;
 
 /// One NDJSON line, ready for the log.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NdjsonEvent {
+pub(crate) struct NdjsonEvent {
     /// The 1-based physical line number.
     pub line: u64,
     /// The line's text, without its line ending.
@@ -27,7 +27,7 @@ pub struct NdjsonEvent {
 
 /// Failures from the NDJSON source.
 #[derive(Debug, thiserror::Error)]
-pub enum NdjsonSourceError {
+pub(crate) enum NdjsonSourceError {
     /// A line is not valid JSON. It is reported and skipped; reading continues.
     #[error("line {line} is not valid JSON and was skipped: {reason}")]
     InvalidJson {
@@ -55,14 +55,14 @@ pub enum NdjsonSourceError {
 impl NdjsonSourceError {
     /// Whether the source has stopped because of this error.
     #[must_use]
-    pub fn is_fatal(&self) -> bool {
+    pub(crate) fn is_fatal(&self) -> bool {
         matches!(self, Self::Io { .. })
     }
 }
 
 /// A stream of NDJSON events that ends at end of input.
 #[derive(Debug)]
-pub struct NdjsonSource<R> {
+pub(crate) struct NdjsonSource<R> {
     lines: LinesStream<R>,
     line: u64,
     stopped: bool,
@@ -70,7 +70,7 @@ pub struct NdjsonSource<R> {
 
 impl<R: AsyncBufRead> NdjsonSource<R> {
     /// Reads NDJSON from `reader`.
-    pub fn new(reader: R) -> Self {
+    pub(crate) fn new(reader: R) -> Self {
         use tokio::io::AsyncBufReadExt;
         Self {
             lines: LinesStream::new(reader.lines()),

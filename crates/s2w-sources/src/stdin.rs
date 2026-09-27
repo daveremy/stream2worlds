@@ -18,20 +18,20 @@ const STDIN_SOURCE: &str = "stdin";
 const NAME: &str = "stdin";
 
 /// NDJSON read from a byte stream, stdin in production.
-pub struct StdinSource {
+pub(crate) struct StdinSource {
     reader: Box<dyn AsyncBufRead + Unpin>,
 }
 
 impl StdinSource {
     /// Reads the process's stdin.
     #[must_use]
-    pub fn from_stdin() -> Self {
+    pub(crate) fn from_stdin() -> Self {
         Self::from_reader(tokio::io::BufReader::new(tokio::io::stdin()))
     }
 
     /// Reads `reader`; tests feed it bytes.
     #[must_use]
-    pub fn from_reader(reader: impl AsyncBufRead + Unpin + 'static) -> Self {
+    pub(crate) fn from_reader(reader: impl AsyncBufRead + Unpin + 'static) -> Self {
         Self {
             reader: Box::new(reader),
         }

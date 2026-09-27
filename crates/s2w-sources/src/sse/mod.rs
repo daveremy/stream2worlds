@@ -24,13 +24,14 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
-pub use dialect::{Opaque, SseDialect};
+pub(crate) use dialect::{Opaque, SseDialect};
 use frame::{FrameParser, RawFrame};
 
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
 
 /// The `User-Agent` every SSE request sends (Wikimedia's policy asks for a descriptive one).
-pub const USER_AGENT: &str = "stream2worlds/0.0.0 (https://github.com/daveremy/stream2worlds)";
+pub(crate) const USER_AGENT: &str =
+    "stream2worlds/0.0.0 (https://github.com/daveremy/stream2worlds)";
 const CHANNEL_CAPACITY: usize = 64;
 const MALFORMED_ID_LIMIT: usize = 3;
 
@@ -38,7 +39,7 @@ type ByteStream = Pin<Box<dyn Stream<Item = Result<Vec<u8>, ConnectError>> + Sen
 type Item = Result<RawEvent, SourceError>;
 
 /// One SSE source: where it connects and how its frames are read.
-pub struct SseConfig {
+pub(crate) struct SseConfig {
     /// The name in messages: the preset name, or `sse`.
     pub name: &'static str,
     /// The `https://` or `http://` URL to connect to.
@@ -52,20 +53,21 @@ pub struct SseConfig {
 }
 
 /// An SSE source, not yet started.
-pub struct SseSource {
+pub(crate) struct SseSource {
     config: SseConfig,
 }
 
 impl SseSource {
     /// A source for `config`; nothing connects until [`Source::start`].
     #[must_use]
-    pub fn new(config: SseConfig) -> Self {
+    pub(crate) fn new(config: SseConfig) -> Self {
         Self { config }
     }
 
     /// The log source id this source files events under.
+    #[cfg(test)]
     #[must_use]
-    pub fn source_id(&self) -> &str {
+    pub(crate) fn source_id(&self) -> &str {
         &self.config.source_id
     }
 }
@@ -114,6 +116,9 @@ impl Source for SseSource {
                 None => None,
             };
             if let Some(since) = since {
+                // Validation-only dry run: applied to a throwaway clone so an unsupported
+                // `since` surfaces here, before we open a connection. The real mutation
+                // happens per-connect in `connect.rs::build_request`.
                 dialect
                     .apply_since(&mut parsed.clone(), since)
                     .map_err(|reason| SourceError::SinceUnsupported { name, reason })?;

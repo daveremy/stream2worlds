@@ -9,7 +9,7 @@ use rskafka::record::RecordAndOffset;
 /// when they are valid UTF-8, `{"hex":"…"}` otherwise, and `null` when absent. The value is never
 /// parsed and re-serialised, so a redelivered record encodes to identical bytes.
 #[must_use]
-pub fn envelope(topic: &str, partition: i32, record: &RecordAndOffset) -> String {
+pub(crate) fn envelope(topic: &str, partition: i32, record: &RecordAndOffset) -> String {
     let mut fields = serde_json::Map::new();
     fields.insert("key".to_owned(), bytes_value(record.record.key.as_deref()));
     fields.insert("offset".to_owned(), record.offset.into());

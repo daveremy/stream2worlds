@@ -30,7 +30,7 @@ const CLIENT_RETRY_DEADLINE: Duration = Duration::from_secs(60);
 
 /// A connection to the brokers with the topic's partitions discovered, not yet reading.
 #[derive(Debug)]
-pub struct KafkaConnection {
+pub(crate) struct KafkaConnection {
     client: Arc<Client>,
     topic: String,
     partitions: Vec<i32>,
@@ -44,7 +44,7 @@ impl KafkaConnection {
     /// # Errors
     /// Returns [`KafkaSourceError::Connect`] when the brokers cannot be reached and
     /// [`KafkaSourceError::UnknownTopic`] when the topic does not exist.
-    pub async fn open(target: &KafkaTarget) -> Result<Self, KafkaSourceError> {
+    pub(crate) async fn open(target: &KafkaTarget) -> Result<Self, KafkaSourceError> {
         let client = ClientBuilder::new(target.brokers.clone())
             .client_id("s2w")
             .backoff_config(BackoffConfig {
@@ -77,7 +77,7 @@ impl KafkaConnection {
 
     /// The topic's partitions, ascending.
     #[must_use]
-    pub fn partitions(&self) -> &[i32] {
+    pub(crate) fn partitions(&self) -> &[i32] {
         &self.partitions
     }
 
@@ -89,7 +89,7 @@ impl KafkaConnection {
     /// Returns the first partition whose start cannot be resolved, including
     /// [`KafkaSourceError::CursorPruned`] and [`KafkaSourceError::CursorAhead`] for a stored
     /// cursor that no longer lines up with the partition.
-    pub async fn start(
+    pub(crate) async fn start(
         self,
         starts: &BTreeMap<i32, KafkaStart>,
     ) -> Result<KafkaSource, KafkaSourceError> {
@@ -134,7 +134,7 @@ impl KafkaConnection {
 /// Records from one partition arrive in offset order; partitions interleave in arrival order.
 /// The stream ends only if every fetch task stops, which happens after a fatal error.
 #[derive(Debug)]
-pub struct KafkaSource {
+pub(crate) struct KafkaSource {
     receiver: ReceiverStream<Result<KafkaEvent, KafkaSourceError>>,
     tasks: Vec<AbortHandle>,
     start_offsets: Vec<(i32, i64)>,
@@ -143,7 +143,7 @@ pub struct KafkaSource {
 impl KafkaSource {
     /// The resolved `(partition, first offset to read)` for every partition.
     #[must_use]
-    pub fn start_offsets(&self) -> &[(i32, i64)] {
+    pub(crate) fn start_offsets(&self) -> &[(i32, i64)] {
         &self.start_offsets
     }
 }

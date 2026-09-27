@@ -20,12 +20,11 @@ use crate::source::{
     CursorLookup, Ending, Source, SourceError, StartFuture, Started, refuse_since_with_stored,
 };
 
-pub use envelope::envelope;
-pub use fetch::{KafkaConnection, KafkaSource};
+pub(crate) use fetch::KafkaConnection;
 
 /// The broker list and topic from a `kafka://<broker>[,<broker>…]/<topic>` URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KafkaTarget {
+pub(crate) struct KafkaTarget {
     brokers: Vec<String>,
     topic: String,
 }
@@ -38,7 +37,7 @@ impl KafkaTarget {
     ///
     /// # Errors
     /// Returns [`KafkaSourceError::InvalidTarget`] naming what is wrong.
-    pub fn parse(url: &str) -> Result<Self, KafkaSourceError> {
+    pub(crate) fn parse(url: &str) -> Result<Self, KafkaSourceError> {
         let invalid = |reason: &str| KafkaSourceError::InvalidTarget {
             value: url.to_owned(),
             reason: reason.to_owned(),
@@ -74,21 +73,22 @@ impl KafkaTarget {
     }
 
     /// The bootstrap brokers, as given.
+    #[cfg(test)]
     #[must_use]
-    pub fn brokers(&self) -> &[String] {
+    fn brokers(&self) -> &[String] {
         &self.brokers
     }
 
     /// The topic name.
     #[must_use]
-    pub fn topic(&self) -> &str {
+    pub(crate) fn topic(&self) -> &str {
         &self.topic
     }
 }
 
 /// Where one partition starts reading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KafkaStart {
+pub(crate) enum KafkaStart {
     /// The partition's high watermark: only records produced from now on.
     Latest,
     /// The first record whose timestamp is at or after this many epoch milliseconds
@@ -103,7 +103,7 @@ pub enum KafkaStart {
 ///
 /// # Errors
 /// Returns [`KafkaSourceError::InvalidSince`] when the value is neither.
-pub fn parse_since(value: &str) -> Result<i64, KafkaSourceError> {
+pub(crate) fn parse_since(value: &str) -> Result<i64, KafkaSourceError> {
     if let Ok(millis) = value.parse::<i64>() {
         return Ok(millis);
     }
@@ -117,7 +117,7 @@ pub fn parse_since(value: &str) -> Result<i64, KafkaSourceError> {
 
 /// One Kafka record, ready for the log.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KafkaEvent {
+pub(crate) struct KafkaEvent {
     /// The partition the record came from.
     pub partition: i32,
     /// The record's offset within its partition; the resume cursor.
@@ -130,7 +130,7 @@ pub struct KafkaEvent {
 
 /// Failures from the Kafka source.
 #[derive(Debug, thiserror::Error)]
-pub enum KafkaSourceError {
+pub(crate) enum KafkaSourceError {
     /// The `kafka://` URL could not be used.
     #[error("invalid kafka target {value:?}: {reason}")]
     InvalidTarget {
@@ -199,11 +199,13 @@ pub enum KafkaSourceError {
     },
 }
 
+#[cfg(test)]
 impl KafkaSourceError {
     /// Whether the source has stopped reading because of this error. A non-fatal error is
-    /// reported and the source keeps going.
+    /// reported and the source keeps going. Test-only: production code maps errors through
+    /// [`seam_error`] directly; this exists to assert that mapping's fatality independently.
     #[must_use]
-    pub fn is_fatal(&self) -> bool {
+    fn is_fatal(&self) -> bool {
         !matches!(self, Self::Fetch { .. })
     }
 }
@@ -218,7 +220,7 @@ const NAME: &str = "kafka";
 /// byte-deterministic envelope with no decode step, and a failed fetch is
 /// [`SourceError::Retrying`] from the same offset, never a skip.
 #[derive(Debug)]
-pub struct KafkaAdapter {
+pub(crate) struct KafkaAdapter {
     target: KafkaTarget,
 }
 
@@ -228,7 +230,7 @@ impl KafkaAdapter {
     /// # Errors
     ///
     /// [`SourceError::InvalidTarget`] when the URI is malformed.
-    pub fn parse(uri: &str) -> Result<Self, SourceError> {
+    pub(crate) fn parse(uri: &str) -> Result<Self, SourceError> {
         KafkaTarget::parse(uri)
             .map(|target| Self { target })
             .map_err(|error| SourceError::InvalidTarget {
