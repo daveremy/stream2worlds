@@ -142,6 +142,7 @@ This table is checked, not just maintained: from gate 2 on, a fitness function f
 
 ## Design and reviews
 
+- [Research notes](research/): prior art, structure discovery without LLMs, the Rust substrate
 - [Design document](docs/design/stream2worlds-design.html) (interactive; open it locally in a browser)
 - Critic passes: [round 1, Codex](docs/reviews/round1-codex.md) · [round 1, Claude](docs/reviews/round1-claude-critic.md) · [round 2, Codex](docs/reviews/round2-codex.md) · [round 2, Claude](docs/reviews/round2-claude-critic.md)
 

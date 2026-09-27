@@ -240,7 +240,7 @@ answered.
    sensitivity lower bound > 0).
 2. **More than the obvious features.** BSS against B1 > 0 on the point estimate. The stronger
    claim "reliably beats B1" is made only if its intervals also exclude 0.
-3. **Calibrated overall ⟨Dave: re-approve⟩.** The 90% interval for the ratio of observed to
+3. **Calibrated overall (Dave, 2026-09-27).** The 90% interval for the ratio of observed to
    expected positives lies **entirely inside [0.8, 1.25]**, an equivalence test. The interval uses
    the A6 primary bootstrap. If fewer than 20 positives are expected, the run is underpowered for
    this check and is extended per A8.
@@ -379,9 +379,9 @@ minutes**. A claim about human time needs a small blinded study, planned for aft
 **No answer-key feedback into any mapping during the test.** Development-window keys may guide
 development, identically for every arm, and are disclosed.
 
-### B4. Gate-3 pass thresholds ⟨Dave⟩
+### B4. Gate-3 pass thresholds (Dave, 2026-09-27: accepted as proposed)
 
-Proposed. Each provider is judged separately, and **the obfuscated stream and the private stream
+Each provider is judged separately, and **the obfuscated stream and the private stream
 must each pass on their own.** Each stream runs **5 replicates** (a fresh obfuscation key and
 field order for the obfuscated stream, a fresh model seed for all). All arms share a replicate.
 Five replicates show variability; they are not a formal significance test, so the rule below
@@ -432,9 +432,9 @@ Published with any result:
 | Item | Decision | By, when |
 |---|---|---|
 | Eligible population (A2) | English Wikipedia, with a multilingual re-run after the slice | Dave, 2026-09-27 |
-| Gate-4 thresholds (A9) | Wikimedia's model reported, not required (Dave). Calibration check now an equivalence test: the 90% interval for observed/expected positives must lie inside [0.8, 1.25]. **Needs Dave's re-approval** | Dave, 2026-09-27 (part) |
+| Gate-4 thresholds (A9) | Wikimedia's model reported, not required; calibration by equivalence test, the 90% interval for observed/expected positives inside [0.8, 1.25] | Dave, 2026-09-27 |
 | Private stream (B2.3) | lifeos dev-worker and sprint log (default; swappable) | karpathy default, 2026-09-27 |
-| Gate-3 thresholds and budget (B4) | ⟨pending⟩ | |
+| Gate-3 thresholds and budget (B4) | As proposed: +0.10 identity F1 over H in all 5 replicates, +0.05 over B3, false merges ≤ 0.05 per replicate, identity F1 ≥ 0.60, $5 per stream per replicate | Dave, 2026-09-27 |
 | Overall hours cap | 60 hours of sprint time | Dave, 2026-09-27 |
 | Pilot and open checks (A10) | ⟨pending⟩ | |
 
