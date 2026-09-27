@@ -1,6 +1,6 @@
 # Evaluation contract (gate 1)
 
-Status: **DRAFT v4, 2026-09-27.** Reviewed three times by Codex (gpt-6-astra), each "revise",
+Status: **DRAFT v4.1, 2026-09-27.** Reviewed three times by Codex (gpt-6-astra), each "revise",
 on a narrowing list: [round 1](reviews/gate1-contract-round1-codex.md) (17 findings),
 [round 2](reviews/gate1-contract-round2-codex.md) (10), [round 3](reviews/gate1-contract-round3-codex.md)
 (5 blockers, plus cheaper equivalents for this 60-hour scope, which v4 adopts). The change log at
@@ -152,9 +152,13 @@ first.
     contrast is `(p − y)² − (b − y)² = (p − b)(p + b − 2y)`.
 
   It then recomputes the gate. If the gate survives, the pass stands. If it reverses, the result
-  is **"pass, sensitive to censoring"**, which does not count as a pass for gate 4. For
-  calibration (A9), the evaluator computes the smallest and largest observed-positive totals the
-  evidence allows, and the calibration check must hold at both.
+  is **"pass, sensitive to censoring"**, which does not count as a pass for gate 4.
+- **Calibration sensitivity.** Including a candidate changes both observed and expected totals,
+  so the evaluator bounds the **ratio** directly. In each bootstrap replicate it computes the
+  smallest and largest observed/expected ratio over all evidence-consistent choices of
+  eligibility and label for the censored candidates. The calibration check (A9) passes only if
+  the 5th percentile of the smallest ratios is at least 0.8 and the 95th percentile of the
+  largest is at most 1.25.
 - Censored and ineligible counts are broken down by hour, page activity, predictor score range and
   editor type.
 
@@ -194,8 +198,8 @@ answered.
   It is paired: every predictor is scored on the same resampled weights, and both sums are
   recomputed in each replicate. Fitted predictors stay fixed.
 - **Sanity check before the freeze.** A simulation with page, editor and day effects sized from
-  development data compares **two predictors of equal expected Brier score** (a known zero
-  contrast), 500 repeats. The interval should exclude zero, on either side, in no more than 7% of
+  development data compares **two different predictors of equal expected Brier score** (a known zero
+  contrast whose per-case differences are not all zero), 500 repeats. The interval should exclude zero, on either side, in no more than 7% of
   repeats. If it does worse, the method is replaced before the freeze. The simulation settings are
   frozen with the contract. This is a sanity check, not a proof of coverage.
 - **Diagnostics, not gates:** one-way bootstraps by page, by editor and by day, published beside
@@ -261,7 +265,7 @@ answered.
    also excludes 0.
 3. **Calibrated overall (Dave, 2026-09-27).** The 90% interval for the ratio of observed to
    expected positives, from the primary bootstrap, lies **entirely inside [0.8, 1.25]**, an
-   equivalence test. It must hold at both censoring extremes (A4). If fewer than 20 positives are
+   equivalence test. It must also pass the censoring bound (A4). If fewer than 20 positives are
    expected in the fixed window, the calibration check is **inconclusive**, and so is gate 4.
 4. **B2 is reported, not required.** The gap to Wikimedia's model is published as measured.
 
@@ -373,8 +377,9 @@ streams in general needs a stream from an independent owner, planned for after t
 The result is **predicted mentions**, each placed in a predicted cluster (an entity), and
 **predicted relationship edges** between clusters.
 
-**Identity, primary: B-cubed F1** over mentions, as defined by Bagga and Baldwin (1998), with
-Cai and Strube's (2010) handling of mentions that appear in only one of key and prediction.
+**Identity, primary: B-cubed F1** over mentions, computed on the unmodified key and predicted
+partitions with the formulas of the reference coreference scorer (Pradhan et al. 2014, §4.2). No
+mention is added or dropped to make the two partitions match.
 
 - Every key mention counts in recall and every predicted mention counts in precision, singletons
   included. A key mention the mapping missed scores zero recall. A predicted mention not in the key
@@ -385,6 +390,8 @@ Cai and Strube's (2010) handling of mentions that appear in only one of key and 
 - **False-merge rate:** 1 − B-cubed precision.
 - B-cubed weighs every mention equally, so large entities count in proportion to their mentions.
   That is intended; the entity-level floor in B4 guards the other side.
+- Worked check, frozen as a fixture: key `{a, b, c}`, prediction `{a, b, d}` gives precision,
+  recall and F1 of 4/9 each.
 
 **Entity recovery, the floor metric:** the share of key entities with at least two mentions that
 are **recovered**: some predicted cluster holds at least 90% of the entity's mentions, and at least
@@ -395,8 +402,11 @@ so a mapping that links nothing scores 0 and one huge entity cannot carry the sc
 test corpus.
 
 - A predicted edge's endpoints are mapped to key entities by majority: a predicted cluster maps to
-  the key entity holding more than half of its mentions. A cluster with no majority entity cannot
-  match anything, so any edge touching it is false.
+  the key entity holding **strictly more than half** of its mentions. A cluster with no such entity
+  cannot match anything, so any edge touching it is false. A cluster that merges a small part of
+  another entity still maps to its majority entity; the merge is already penalized by identity.
+- Each key edge yields at most one true positive. Further predicted edges that map to the same key
+  edge (for example, from an entity split across clusters) are false positives.
 - Predicted relationship types are aligned to key types one-to-one, maximizing matched edges
   (Hungarian assignment; ties broken by the lexicographic order of type names). Edges of an
   unaligned predicted type are all false. Edges of an unaligned key type are all missed.
@@ -414,8 +424,10 @@ it fails for that replicate.
 **Reference scorer and fixtures, committed before the test.** The scorer is code in the repo, run
 identically on every arm. Its fixtures show, at minimum, that: an extra spurious type lowers
 precision; an omitted type lowers recall; a false merge lowers precision whatever the mapping
-calls the merged cluster; an all-singletons mapping scores 0 entity recovery; a
-relationship edge touching a merged cluster does not count as correct.
+calls the merged cluster; an all-singletons mapping scores 0 entity recovery; the B-cubed
+4/9 case above; an edge touching a cluster with no strict majority entity is false; an edge
+touching a 9-to-1 merged cluster maps to the majority entity; two predicted edges mapping to one
+key edge give one true positive and one false positive.
 
 **No answer-key feedback into any mapping during the test.** Development-window keys may guide
 development, identically for every arm, and are disclosed.
@@ -476,11 +488,16 @@ Published with any result:
 | Eligible population (A2) | English Wikipedia, with a multilingual re-run after the slice | Dave, 2026-09-27 |
 | Gate-4 thresholds (A9) | Wikimedia's model reported, not required; calibration by equivalence test, the 90% interval for observed/expected positives inside [0.8, 1.25] | Dave, 2026-09-27 |
 | Private stream (B2.3) | lifeos dev-worker and sprint log (default; swappable) | karpathy default, 2026-09-27 |
-| Gate-3 thresholds and budget (B4) | As proposed: +0.10 identity F1 over H in all 5 replicates, +0.05 over B3, false merges ≤ 0.05 per replicate, $5 per stream per replicate. v4 fixes two defects found in review (round 3): the floor now uses entity recovery ≥ 60% instead of identity F1 ≥ 0.60, and the high-baseline waiver is removed | Dave, 2026-09-27 (v4 fixes confirmed) |
+| Gate-3 thresholds and budget (B4) | As proposed: identity F1 at least 0.10 above H on the mean and higher than H in all 5 replicates; at least 0.05 above B3 on the mean; false merges ≤ 0.05 per replicate, $5 per stream per replicate. v4 fixes two defects found in review (round 3): the floor now uses entity recovery ≥ 60% instead of identity F1 ≥ 0.60, and the high-baseline waiver is removed | Dave, 2026-09-27 (v4 fixes confirmed) |
 | Overall hours cap | 60 hours of sprint time | Dave, 2026-09-27 |
 | Pilot and open checks (A10) | ⟨pending⟩ | |
 
 ## Change log
+
+**v4.1 (2026-09-27)**, answering the Codex round-4 delta review: B-cubed on unmodified partitions
+(reference scorer) with a 4/9 fixture; strict-majority endpoints and one true positive per key edge;
+calibration sensitivity bounds the observed/expected ratio per bootstrap replicate; the equal-skill
+simulation must use two different predictors; the B4 sign-off row states the actual rule.
 
 **v4 (2026-09-27)**, answering the Codex round-3 review and adopting its cheaper equivalents for a
 60-hour scope.
