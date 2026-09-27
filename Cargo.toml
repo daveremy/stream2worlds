@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/daveremy/stream2worlds"
+rust-version = "1.98"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "1"
+
+# "forbid" cannot be overridden by any attribute, inner or outer (decision 0001). Changing one
+# of these needs a decision record and an edit here, visible in review.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unreachable_pub = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "forbid"
+expect_used = "forbid"
+todo = "forbid"
+unimplemented = "forbid"
+dbg_macro = "forbid"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"

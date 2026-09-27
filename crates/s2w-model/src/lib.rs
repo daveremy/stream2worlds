@@ -1,0 +1,117 @@
+//! Shared vocabulary for every `s2w` crate.
+//!
+//! This crate depends on `serde` and `thiserror` only, does no I/O and never reads a clock.
+//! Types arrive here when a second crate needs them, not before.
+#![deny(clippy::print_stdout, clippy::print_stderr)]
+
+use serde::{Deserialize, Serialize};
+
+/// A point in time, in milliseconds since the Unix epoch.
+///
+/// Always passed in from the imperative shell; nothing in the model or the core reads a clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Timestamp(i64);
+
+impl Timestamp {
+    /// A timestamp from milliseconds since the Unix epoch.
+    #[must_use]
+    pub const fn from_millis(millis: i64) -> Self {
+        Self(millis)
+    }
+
+    /// Milliseconds since the Unix epoch.
+    #[must_use]
+    pub const fn as_millis(self) -> i64 {
+        self.0
+    }
+}
+
+/// The name of one configured source, such as `wikipedia.recentchange` or `kafka.orders`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct SourceId(String);
+
+impl SourceId {
+    /// A source id: non-empty, at most 128 bytes, ASCII letters, digits, `.`, `-` and `_` only.
+    ///
+    /// # Errors
+    /// Returns [`ModelError::InvalidSourceId`] when the name breaks those rules.
+    pub fn new(name: impl Into<String>) -> Result<Self, ModelError> {
+        let name = name.into();
+        let valid = !name.is_empty()
+            && name.len() <= 128
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_'));
+        if valid {
+            Ok(Self(name))
+        } else {
+            Err(ModelError::InvalidSourceId(name))
+        }
+    }
+
+    /// The source id as a string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for SourceId {
+    type Error = ModelError;
+
+    fn try_from(name: String) -> Result<Self, Self::Error> {
+        Self::new(name)
+    }
+}
+
+impl From<SourceId> for String {
+    fn from(id: SourceId) -> Self {
+        id.0
+    }
+}
+
+/// Errors from constructing model values.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ModelError {
+    /// A source id broke the naming rules.
+    #[error(
+        "invalid source id {0:?}: use 1-128 ASCII letters, digits, '.', '-' or '_', for example 'kafka.orders'"
+    )]
+    InvalidSourceId(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_id_accepts_the_documented_shape() {
+        assert_eq!(
+            SourceId::new("kafka.orders-v2_eu").map(|s| s.as_str().to_owned()),
+            Ok("kafka.orders-v2_eu".to_owned())
+        );
+    }
+
+    #[test]
+    fn source_id_rejects_empty_spaces_and_overlong_names() {
+        for bad in ["", "has space", "slash/name", &"x".repeat(129)] {
+            assert!(SourceId::new(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn source_id_validates_on_deserialize() {
+        assert!(serde_json::from_str::<SourceId>("\"no spaces allowed\"").is_err());
+        assert!(serde_json::from_str::<SourceId>("\"wikipedia.recentchange\"").is_ok());
+    }
+
+    #[test]
+    fn timestamp_round_trips_millis() {
+        assert_eq!(
+            Timestamp::from_millis(1_790_519_122_000).as_millis(),
+            1_790_519_122_000
+        );
+    }
+}
