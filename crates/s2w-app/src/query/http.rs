@@ -196,7 +196,10 @@ async fn history(
 ) -> Response {
     let run = || -> Result<_, QueryError> {
         check_branch(p.branch.as_deref())?;
-        let id = parse::<u64>("id", Some(&id))?.unwrap_or_default();
+        let id = id.parse::<u64>().map_err(|e| QueryError::BadParameter {
+            name: "id",
+            reason: format!("'{id}': {e}"),
+        })?;
         let to = parse("to", p.to.as_deref())?;
         state.read(|t| t.history(id, to.unwrap_or_else(|| t.head())))
     };
@@ -210,6 +213,9 @@ struct TimeAt {
 }
 
 async fn time(State(state): State<QueryState>, Query(p): Query<Params>) -> Response {
+    if let Err(e) = check_branch(p.branch.as_deref()) {
+        return e.into_response();
+    }
     match parse::<i64>("ts", p.ts.as_deref()) {
         Err(e) => e.into_response(),
         Ok(Some(ts)) => state

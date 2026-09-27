@@ -251,6 +251,11 @@ mod golden {
                 "unknown_entity",
             ),
             ("/time?ts=soon", StatusCode::BAD_REQUEST, "bad_parameter"),
+            (
+                "/time?branch=fork1",
+                StatusCode::NOT_IMPLEMENTED,
+                "branch_not_yet",
+            ),
         ] {
             let (got, body) = get(&app, uri).await;
             assert_eq!(got, status, "{uri}");
