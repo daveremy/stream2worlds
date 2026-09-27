@@ -1,7 +1,7 @@
 # 0001: Prior art
 
 - **Question:** who already does parts of Stream2Worlds, what is genuinely open, and what to cite?
-- **Date:** 2026-09-27 · **Researcher:** sagan (Fable, with research subagents) · **Status:** draft — Design implications pending disposition (next session)
+- **Date:** 2026-09-27 · **Researcher:** sagan (Fable, with research subagents) · **Status:** done — implications dispositioned 2026-09-27
 - **Feeds:** the novelty claim, the paper (stream2worlds#1), launch framing, contract A10 (revert-model target).
 
 # Stream2Worlds — prior-art map
@@ -387,17 +387,26 @@ Every clause in the second version has a citation in this document.
 
 ---
 
-## Design implications (dispositions pending)
+## Design implications
 
-1. Name Zep/Graphiti ourselves in the README and launch, with the real differences. → pending
+1. Name Zep/Graphiti ourselves in the README and launch, with the real differences.
+   → adopted: README "Related work" (2026-09-27)
 2. "Possible worlds": keep in the pitch, define it in one sentence (MCDB-style), say "rollout" or
-   "sampled future world" in technical prose. → pending
-3. Export OCEL 2.0 and adopt its vocabulary (object type, E2O, O2O) in `s2w-model`. → pending
-4. Rebmann et al. BPM 2022 as a gate-3 comparison, or as the cited closest academic prior art. → pending
+   "sampled future world" in technical prose. → adopted: README "The idea" definition; technical
+   prose rule carried to the design page (stream2worlds#2)
+3. Export OCEL 2.0 and adopt its vocabulary (object type, E2O, O2O) in `s2w-model`.
+   → adopted (mapping): README "Related work" states the world maps onto OCEL 2.0; user-facing
+   words stay "entity" and "relationship". Export itself → deferred: stream2worlds#3
+4. Rebmann et al. BPM 2022 as a gate-3 comparison, or as the cited closest academic prior art.
+   → adopted (citation): README "Related work". As a gate-3 arm → deferred: stream2worlds#4
+   (decided with research 0002, which feeds the heuristics arm)
 5. Wikimedia's revert-risk label has no time window, so B2's raw scores answer a different
    question; recalibration stays mandatory. → adopted: contract A5/A10 (v2, 2026-09-27)
 6. Scoring: Murphy decomposition of the Brier score; treat "within H" as right-censored; never
    coerce unobserved outcomes to 0; pre-register with a signed tag before the first forecast.
-   → pending (partly adopted: A4 never coerces unobserved to negative)
-7. Venue: ACM DEBS 2027 (deadline around 2027-02-16) plus a Grand Challenge proposal. → pending
-   (stream2worlds#1)
+   → right-censoring and never-coerce: adopted, contract A4 (censored, not negative; evaluator-owned).
+   Murphy decomposition and an externally timestamped freeze record → deferred: stream2worlds#5
+   (a contract amendment, decided when gate 4's freeze is built; the repo is private, so a git tag
+   alone proves nothing to outsiders)
+7. Venue: ACM DEBS 2027 (deadline around 2027-02-16) plus a Grand Challenge proposal.
+   → deferred: stream2worlds#1
