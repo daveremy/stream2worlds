@@ -22,6 +22,10 @@ pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };
 
+// The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
+// never disagree about what a valid `branch` or `lod` is.
+pub(crate) use http::{check_branch, parse_lod};
+
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum QueryError {
