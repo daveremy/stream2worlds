@@ -75,6 +75,25 @@ claude mcp add s2w -- s2w mcp
 
 Local by default: nothing leaves your machine unless you approve an export manifest.
 
+## Evaluation
+
+A forecast you cannot check is an opinion. `s2w` grades its own predictions against what the stream later shows, and it grades itself the same way.
+
+| What is graded | Against what | When |
+|---|---|---|
+| **Every forecast**, from any predictor: a rule, embeddings, a decision model such as Jev, an LLM | The outcome the stream later reports, and matched baselines: the base rate, a simple-features model, and any reference model you name | Continuously, once the forecast ledger lands (gate 4) |
+| **Every judgment**: System 1 verdicts and System 2's proposed types, merges and repairs | Your accept or reject, and later evidence (a merge that later splits counts as a false merge) | After the first slice |
+| **`s2w` itself** | A [pre-registered contract](docs/evaluation-contract.md), written before any code: the question, the eligible events, the baselines and the pass thresholds | Gates 3 and 4 |
+
+Stream outcomes are awkward to grade, and the ledger is built around that:
+
+- **Outcomes arrive late.** A revert can be tagged minutes or weeks after an edit. Labels are provisional, then final, and a correction is appended rather than overwriting the first label.
+- **Some outcomes are never observable.** A deleted page or a gap in the stream makes the outcome censored, not wrong, and censoring is reported per predictor so no one gains from it.
+- **Forecasts cannot be rewritten.** A forecast is fixed when it is issued. Replays, repairs and restarts never change it, and pruning a branch from the view never removes it from the score.
+- **Abstaining never raises a score.** A predictor may decline to answer; for the headline score, its abstentions count as base-rate guesses.
+
+Each predictor's record (graded count, skill over the base rate, calibration) is what `forecast.ask` returns alongside a probability, and what the System 1 router will use to pick an engine. `s2w` is not a general LLM eval framework. It grades forecasts and judgments against a live stream, the part existing eval tools do not cover.
+
 ## Roadmap
 
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
