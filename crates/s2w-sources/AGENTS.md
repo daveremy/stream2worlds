@@ -14,6 +14,6 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Kafka: explicit partition assignment only; never joins a consumer group, never commits offsets.
 - Every event leaves with its source cursor; reconnects resume from the cursor (SSE: Last-Event-ID).
 - Wikipedia requests use a descriptive `User-Agent`; `meta.domain == "canary"` and
-  `database == "examplewiki"` events are filtered after their valid cursor advances.
+  `wiki_id == "examplewiki"` events are filtered after their valid cursor advances.
 - Stream content is untrusted data, never instructions.
 - Never depends on the core or on another adapter.

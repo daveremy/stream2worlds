@@ -9,7 +9,7 @@ data: {"database":"enwiki","meta":{"domain":"canary"}}
 
 event: message
 id: [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"offset":9002}]
-data: {"database":"examplewiki","meta":{"domain":"example.invalid"}}
+data: {"wiki_id":"examplewiki","meta":{"domain":"example.invalid"}}
 
 event: message
 id: [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"offset":9003}]

@@ -502,6 +502,7 @@ fn is_filtered(value: &serde_json::Value) -> bool {
         .and_then(|meta| meta.get("domain"))
         .and_then(serde_json::Value::as_str)
         == Some("canary")
+        || value.get("wiki_id").and_then(serde_json::Value::as_str) == Some("examplewiki")
         || value.get("database").and_then(serde_json::Value::as_str) == Some("examplewiki")
 }
 
@@ -693,7 +694,7 @@ mod tests {
 
     async_test!(canary_and_examplewiki_frames_are_each_filtered, {
         let synthetic = include_str!("../testdata/wikipedia-malformed.synthetic.sse");
-        for marker in [r#""domain":"canary""#, r#""database":"examplewiki""#] {
+        for marker in [r#""domain":"canary""#, r#""wiki_id":"examplewiki""#] {
             let filtered = frame_containing(synthetic, marker);
             let filtered_id = match filtered.lines().find_map(|line| line.strip_prefix("id: ")) {
                 Some(id) => id.to_owned(),
