@@ -72,7 +72,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
         scan.incomplete = true;
     }
     let mut files = Vec::new();
-    if let Err(e) = dep_files(&meta.target_directory, &mut files) {
+    if let Err(e) = dep_files(&meta.target_directory.join("debug"), &mut files) {
         findings.push(e);
     }
     for pkg in &meta.packages {

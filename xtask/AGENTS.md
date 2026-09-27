@@ -24,6 +24,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer.
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual
-counts; it never raises them. Ordinary cap and exemption-shape findings are report-only until
+counts; it never raises them. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
+dep-info, build failure) are report-only until
 `module-size.toml` enables enforcement; baseline growth always blocks without an authorized
 `Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`. CI needs full git history.

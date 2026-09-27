@@ -21,7 +21,8 @@ xtask: the fitness functions
 
 ## Enforcement
 
-`cargo xtask check` reads Cargo metadata and manifests, never Rust source text:
+`cargo xtask check` reads Cargo metadata and manifests, never Rust source text (the 2026-09-27
+amendment below adds `syn` AST parsing for structural checks; text scanning stays out):
 
 1. **Dependency allowlist** (`xtask/allowlist.toml`): every edge listed, nothing listed unused.
    Internal edges must resolve to the workspace member of that name; external dependencies must
@@ -92,7 +93,9 @@ source remains excluded. The module-size check closes these bypass classes:
 - `#[path = "..."]` and `cfg_attr(_, path = "...")` are refused, irrespective of predicate;
   standard file-backed and inline module layout keeps resolution inspectable.
 - `include!`, `include_str!` and `include_bytes!` are refused wherever `syn` finds them,
-  including both item and expression positions; use real module structure instead.
+  including both item and expression positions; use real module structure instead. `syn`
+  does not parse inside another macro's arguments, so an include nested there is not seen;
+  the dep-info cross-check below catches any `.rs` file it pulls in.
 - Cargo target kinds exempt tests, benches, examples and custom build scripts, independent
   of directory names. Every other target kind (library crate-types, binaries, proc-macros)
   is walked.
