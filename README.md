@@ -85,7 +85,7 @@ The first slice is four gates and a launch, each able to fail honestly. A runnab
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported.
 - [ ] **Launch.** The split-screen demo, one install path, open source.
 
-After the slice: the full possible-worlds view, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
+After the slice: the revert forecast re-run on non-English Wikipedias (the first measurement is English-only by choice; `s2w` itself is built for streams in any language), the full possible-worlds view, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
 
 ## Architecture, continuously
 
@@ -97,6 +97,29 @@ Good architecture from the first commit, paid down every sprint instead of in a 
 - an `AGENTS.md` in every crate, because most of the code will be written by coding agents.
 
 Decisions live in [`docs/decisions/`](docs/decisions/).
+
+## Technical architecture
+
+What `s2w` is built on, and what is deliberately not built yet. **Building** means part of the first slice, in the gate named; **later** means after the first slice; **on trigger** means we switch only when the named measurement says so.
+
+| Part | Choice | Status | Why, or what would change it |
+|---|---|---|---|
+| Language and delivery | Rust, one static binary | building (gate 2) | Small enough to drop into someone else's network; predictable memory, no GC pauses in the stream, good async I/O for many sources. |
+| Workspace | `s2w-model` ← `s2w-core`, `s2w-log`, `s2w-sources`, `s2w-system1`, `s2w-system2` ← `s2w-app` ← `s2w` | building (gate 2) | The workspace is the architecture: core and model do no I/O, adapters depend only on the model, the app composes them. |
+| Sources | Wikipedia EventStreams (SSE), Kafka by partition assignment (never a consumer group, never commits), stdin NDJSON | building (gate 2) | Two real sources plus a free third, so the source seam is not designed from one case. |
+| Event log | Append-only local log with source cursors and provenance; storage format chosen in a gate-2 decision record | building (gate 2) | Raw events are never edited; the world is a replay of the log. |
+| World computation | Pure fold over the log; each forecast world recomputed from a snapshot | building (gate 2) | Simplest thing that replays deterministically. |
+| Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) or [Feldera's DBSP](https://github.com/feldera/feldera), world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget. The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
+| System 1 engines | Rules; local embeddings (can abstain) | building (gate 2–3) | Two engines behind one verdict/confidence/abstain trait. |
+| System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it joins through the bake-off, p50/p99 and accuracy per engine. |
+| System 1 router | Each judgment names a latency budget; rule → embeddings → decision model | later | Needs more than one engine worth routing between. |
+| System 2 | A hosted LLM API on a fixed budget; the client's own agent via MCP sampling, or a local model | building (gate 3) | Asynchronous, never in the stream. Two providers differ in latency, cost and where data goes. |
+| Agent interface | Read-only MCP server; every CLI command has `--json` | building (gate 2) | Agents are first-class clients. Write access comes later, and never from a good track record alone. |
+| Dashboard | Local web view (evidence table and graph first) | building (gate 2) | Ghosts, cones, scrub-past-now and live calibration come after the slice. |
+| Forecast ledger | Immutable issuances plus appended outcome observations | building (gate 4) | Scored against base rate and Wikimedia's revert-risk model. See the [evaluation contract](docs/evaluation-contract.md). |
+| Actions | WebAssembly plugins with host-enforced egress, secrets and limits | later | Customers add actions without touching the core. |
+
+This table is checked, not just maintained: from gate 2 on, a fitness function fails a PR when a row marked **building** names a crate or dependency that does not exist, or when a new external dependency arrives without a row here.
 
 ## Design and reviews
 
