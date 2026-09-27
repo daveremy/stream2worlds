@@ -18,3 +18,8 @@ s2w-log = { path = "../s2w-log" }
 s2w-sources = { path = "../s2w-sources" }
 s2w-system1 = { path = "../s2w-system1" }
 s2w-system2 = { path = "../s2w-system2" }
+# `rt` for the runtime this crate builds, `net` and `time` for the I/O and timer drivers
+# reqwest's async client needs underneath it (`enable_all` enables exactly those two).
+tokio = { version = "1", features = ["rt", "net", "time"] }
+tokio-stream = "0.1"
+thiserror.workspace = true

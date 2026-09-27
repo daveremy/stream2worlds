@@ -13,6 +13,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Append-only: raw events are never edited or deleted by the log.
 - Every event carries its source cursor and receipt time; restarts resume from cursors.
 - Dedupe never merges identical payloads from different legitimate source identities.
+- Append dedupes on `(source, FNV-1a payload content hash)`, never on the cursor: two real
+  events can share a cursor value. On a hash hit the stored payload bytes are compared; a
+  collision between distinct payloads is a loud `LogError::Corrupt`, never a silent drop, and a
+  duplicate leaves the stored cursor row untouched.
 - Never depends on the core or on another adapter.
 - The public seam is `EventLog`, with durable `SqliteEventLog`, fixture-friendly
   `InMemoryEventLog`, and storage-neutral `LogError` implementations.

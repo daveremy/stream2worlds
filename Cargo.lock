@@ -992,6 +992,9 @@ dependencies = [
  "s2w-sources",
  "s2w-system1",
  "s2w-system2",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
