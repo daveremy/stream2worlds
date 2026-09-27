@@ -1,10 +1,16 @@
 # Evaluation contract (gate 1)
 
-Status: **DRAFT v4.1, 2026-09-27.** Reviewed three times by Codex (gpt-6-astra), each "revise",
-on a narrowing list: [round 1](reviews/gate1-contract-round1-codex.md) (17 findings),
-[round 2](reviews/gate1-contract-round2-codex.md) (10), [round 3](reviews/gate1-contract-round3-codex.md)
-(5 blockers, plus cheaper equivalents for this 60-hour scope, which v4 adopts). The change log at
-the end maps each finding. Items marked **⟨Dave⟩** are his to set.
+Status: **SIGNED v4.1, 2026-09-27** (specification). Five Codex (gpt-6-astra) review rounds on
+a narrowing list: [1](reviews/gate1-contract-round1-codex.md) (17 findings),
+[2](reviews/gate1-contract-round2-codex.md) (10), [3](reviews/gate1-contract-round3-codex.md) (5
+blockers, plus cheaper equivalents for this 60-hour scope, adopted),
+[4](reviews/gate1-contract-round4-codex.md) (3 spot fixes), [5](reviews/gate1-contract-round5-codex.md):
+**sign**. Dave approved every decision in the sign-off table. The change log at the end maps each
+finding.
+
+**Signed is not frozen.** The freeze prerequisites are built in gates 2 to 4 and must pass before
+any test window opens: the A10 pilot, the A1 matcher fixtures, the B3 reference scorer and its
+fixtures, the A6 simulation, and the frozen data manifests.
 
 Once signed, this file is frozen. A change after sign-off is a new dated section with its reason,
 never an edit in place. No gate-3 or gate-4 result counts unless it was measured under the

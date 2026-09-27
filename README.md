@@ -98,7 +98,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
-- [ ] **Gate 1 — the evaluation contract.** The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
+- [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
 - [ ] **Gate 2 — the local harness.** Rust workspace, two sources, the log, the pure fold with golden replay, an evidence view, read-only MCP.
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream.
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported.
