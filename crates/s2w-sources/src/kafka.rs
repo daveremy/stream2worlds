@@ -1,4 +1,4 @@
-//! Kafka by explicit partition assignment, through `rskafka` (decision 0006).
+//! Kafka by explicit partition assignment, through `rskafka` (decision 0007).
 //!
 //! The source discovers the topic's partitions once, resolves one start offset per partition,
 //! and runs one fetch task per partition. It never joins a consumer group and never commits
@@ -677,7 +677,7 @@ mod tests {
         assert_eq!(first, envelope("t", 0, &record(None, Some(b"tick"), 1)));
     }
 
-    /// Against a real broker (decision 0006's measurement): assignment reads, timestamp starts,
+    /// Against a real broker (decision 0007's measurement): assignment reads, timestamp starts,
     /// the after-the-last-record case, resume-after, and a compressed batch.
     #[test]
     #[ignore = "needs a local broker: S2W_KAFKA_BROKER=localhost:19092"]

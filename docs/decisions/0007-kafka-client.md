@@ -1,4 +1,4 @@
-# 0006: Kafka client — rskafka by partition assignment
+# 0007: Kafka client — rskafka by partition assignment
 
 Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #7 · Research [0003 §1](../../research/0003-rust-substrate.md#1-kafka-clients)
 

@@ -5,7 +5,7 @@ Stream sources: Wikipedia EventStreams (SSE), Kafka by partition assignment, std
 ## Allowed dependencies
 
 - `s2w-model`, `reqwest`, `rskafka`, `tokio`, `tokio-stream`, `serde_json`, `thiserror`; the
-  HTTP/runtime choices are recorded in decision 0003, the Kafka client in decision 0006
+  HTTP/runtime choices are recorded in decision 0003, the Kafka client in decision 0007
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
