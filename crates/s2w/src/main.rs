@@ -1,5 +1,8 @@
 //! The `s2w` command-line tool.
 
+pub mod output;
+
+use output::Format;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -10,26 +13,65 @@ use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchArgs};
 /// directory.
 const DEFAULT_LOG_DIR: &str = "./s2w-data";
 
+const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists.\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes ISO-8601\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world until the live\n      event-log bridge lands.\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; unavailable for watch/mcp.";
+
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    dispatch(std::env::args().skip(1).collect())
+}
+
+fn dispatch(mut args: Vec<String>) -> ExitCode {
+    let format = take_output_format(&mut args);
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => {
-            println!("s2w {}", env!("CARGO_PKG_VERSION"));
+            output::print_version(format, env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         Some("--help" | "-h") | None => {
-            println!(
-                "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists.\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes ISO-8601\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world until the live\n      event-log bridge lands.\n\n  s2w --version"
-            );
+            output::print_usage(format, USAGE);
             ExitCode::SUCCESS
         }
+        Some("watch" | "mcp") if format == Format::Json => output::print_error(
+            format,
+            "--json is unavailable for watch/mcp. Try: s2w --help",
+        ),
         Some("watch") => watch(&args[1..]),
-        Some("mcp") => run_mcp(),
-        Some(other) => {
-            eprintln!("s2w: unknown argument '{other}'. Try: s2w --help");
-            ExitCode::from(2)
-        }
+        Some("mcp") => match args.get(1) {
+            Some(other) => output::print_error(
+                format,
+                &format!("unexpected argument '{other}': mcp takes no arguments. Try: s2w mcp"),
+            ),
+            None => run_mcp(),
+        },
+        Some(other) => output::print_error(
+            format,
+            &format!("unknown argument '{other}'. Try: s2w --help"),
+        ),
     }
+}
+
+/// Removes top-level --json flags, leaving watch/mcp tails entirely untouched.
+fn take_output_format(args: &mut Vec<String>) -> Format {
+    if let Some(index) = args.iter().position(|arg| arg != "--json")
+        && matches!(args[index].as_str(), "watch" | "mcp")
+    {
+        // A prefix requests JSON, but the subcommand's own arguments stay opaque.
+        args.drain(..index);
+        return if index == 0 {
+            Format::Human
+        } else {
+            Format::Json
+        };
+    }
+    let mut format = Format::Human;
+    args.retain(|arg| {
+        if arg == "--json" {
+            format = Format::Json;
+            false
+        } else {
+            true
+        }
+    });
+    format
 }
 
 /// Dispatches `s2w watch <stream> [flags]`.
@@ -103,7 +145,7 @@ fn run_watch(args: WatchArgs) -> ExitCode {
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("s2w: {error}");
+            output::print_error(Format::Human, &error.to_string());
             match error {
                 AppError::Usage(_) => ExitCode::from(2),
                 _ => ExitCode::FAILURE,
@@ -118,7 +160,7 @@ fn run_mcp() -> ExitCode {
     match s2w_app::mcp::run_mcp(state) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("s2w: {error}");
+            output::print_error(Format::Human, &error.to_string());
             match error {
                 AppError::Usage(_) => ExitCode::from(2),
                 _ => ExitCode::FAILURE,
@@ -129,8 +171,7 @@ fn run_mcp() -> ExitCode {
 
 /// Prints one usage message and returns the usage exit code.
 fn usage_error(message: String) -> ExitCode {
-    eprintln!("s2w: {message}");
-    ExitCode::from(2)
+    output::print_error(Format::Human, &message)
 }
 
 #[cfg(test)]
@@ -139,6 +180,63 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn json_before_or_after_version_selects_json() {
+        for values in [["--json", "--version"], ["--version", "--json"]] {
+            let mut arguments = args(&values);
+            assert_eq!(take_output_format(&mut arguments), Format::Json);
+            assert_eq!(arguments, args(&["--version"]));
+        }
+    }
+
+    #[test]
+    fn json_help_and_top_level_errors_select_json() {
+        for values in [
+            vec!["--json"],
+            vec!["--help", "--json"],
+            vec!["--json", "-h"],
+            vec!["unknown", "--json"],
+            vec!["--json", "unknown"],
+        ] {
+            let mut arguments = args(&values);
+            assert_eq!(take_output_format(&mut arguments), Format::Json);
+            assert!(!arguments.iter().any(|arg| arg == "--json"));
+        }
+        let mut arguments = args(&["--json"]);
+        take_output_format(&mut arguments);
+        assert!(arguments.is_empty()); // Dispatches to the same usage branch as --help.
+    }
+
+    #[test]
+    fn json_detection_preserves_subcommand_tails() {
+        for values in [vec!["watch", "wikipedia", "--json"], vec!["mcp", "--json"]] {
+            let mut arguments = args(&values);
+            assert_eq!(take_output_format(&mut arguments), Format::Human);
+            assert_eq!(arguments, args(&values));
+            arguments.insert(0, "--json".to_owned());
+            assert_eq!(take_output_format(&mut arguments), Format::Json);
+            assert_eq!(arguments, args(&values));
+        }
+    }
+
+    #[test]
+    fn mcp_rejects_all_arguments_before_starting_the_server() {
+        // The extra-argument branch only calls print_error (stderr); run_mcp and
+        // every stdout writer are in separate branches, so no protocol can start.
+        for extra in ["--json", "foo"] {
+            assert_eq!(dispatch(args(&["mcp", extra])), ExitCode::from(2));
+        }
+        assert_eq!(dispatch(args(&["--json", "mcp"])), ExitCode::from(2));
+    }
+
+    #[test]
+    fn json_prefix_is_unavailable_for_watch() {
+        assert_eq!(
+            dispatch(args(&["--json", "watch", "wikipedia"])),
+            ExitCode::from(2)
+        );
     }
 
     #[test]
