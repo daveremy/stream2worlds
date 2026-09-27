@@ -47,7 +47,7 @@ struct Walker {
     counted: BTreeSet<usize>,
     tests: BTreeSet<usize>,
     children: Vec<(PathBuf, String)>,
-    pub(super) findings: Vec<String>,
+    findings: Vec<String>,
 }
 // Visit every item kind (including associated/foreign items and items inside blocks).
 // Union spans within each top-level item, then subtract test spans: no nesting double count.
@@ -119,7 +119,10 @@ impl<'ast> Visit<'ast> for Walker {
             } else {
                 "explicit #[path]"
             };
-            self.findings.push(format!("{}: {class} defeats the size check; remove it and use standard module layout, or if the file genuinely needs an unusual location, list it in xtask/module-size.toml with a reason", self.key));
+            self.findings.push(format!(
+                "{}: {class} defeats the size check; remove it and use standard module layout",
+                self.key
+            ));
         }
         syn::visit::visit_attribute(self, attr);
     }
@@ -141,7 +144,12 @@ impl Scan {
             .map_err(|e| format!("{}: {e}; restore the module file", path.display()))?;
         // Resolve each module identity, even when multiple targets share the same source file.
         self.visited.insert(canonical);
-        let source = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let source = fs::read_to_string(path).map_err(|e| {
+            format!(
+                "{}: {e}; make the module file readable UTF-8",
+                path.display()
+            )
+        })?;
         let ast = syn::parse_file(&source).map_err(|e| {
             format!(
                 "{}: {e}; use parseable Rust module structure",

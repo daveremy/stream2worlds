@@ -38,9 +38,12 @@ pub(super) fn dep_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), Stri
             dir.display()
         )
     })? {
-        let entry = entry.map_err(|e| e.to_string())?;
+        let unreadable = |e: std::io::Error| {
+            format!("{}: {e}; check target-directory permissions", dir.display())
+        };
+        let entry = entry.map_err(unreadable)?;
         let path = entry.path();
-        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        let kind = entry.file_type().map_err(unreadable)?;
         if kind.is_dir() {
             dep_files(&path, files)?;
         } else if path.extension().is_some_and(|e| e == "d") {
@@ -57,24 +60,29 @@ pub(super) fn dep_check(
     visited: &BTreeSet<PathBuf>,
 ) -> Result<(), String> {
     let name = target.name.replace('-', "_");
+    // Dep-info paths are canonicalized below; compare like with like, or a symlinked root
+    // makes every starts_with() false and the backstop passes having checked nothing.
+    let src = fs::canonicalize(src).unwrap_or_else(|_| src.to_path_buf());
+    let src_path = fs::canonicalize(&target.src_path).unwrap_or_else(|_| target.src_path.clone());
     let mut found = false;
     for file in files {
         let stem = file.file_stem().unwrap_or_default().to_string_lossy();
         if stem != target.name && stem != name && stem != format!("lib{name}") {
             continue;
         }
-        let text = fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
+        let text = fs::read_to_string(file)
+            .map_err(|e| format!("{}: {e}; delete it and rebuild", file.display()))?;
         let deps: BTreeSet<_> = dep_paths(&text)
             .iter()
             .map(|p| root.join(p))
             .map(|p| fs::canonicalize(&p).unwrap_or(p))
             .collect();
-        if !deps.contains(&target.src_path) {
+        if !deps.contains(&src_path) {
             continue;
         }
         found = true;
         for path in deps {
-            if path.starts_with(src)
+            if path.starts_with(&src)
                 && path.extension().is_some_and(|e| e == "rs")
                 && !visited.contains(&path)
             {

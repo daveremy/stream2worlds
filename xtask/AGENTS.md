@@ -10,7 +10,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 ## Invariants
 
-- Structural-check inputs: never text or regexes; `syn` ASTs, Cargo metadata, and this crate's own TOML config only. Existing manifest checks retain their TOML inputs (decision 0001, amendment).
+- Rust source is read only as `syn` ASTs, never as text or regexes. Other inputs: Cargo metadata, this crate's own TOML config, rustc dep-info files (the walker backstop), and `git show`/`git log` for the exemption ratchet (decision 0001, amendment).
 - Every violation message says what to do next.
 - A new check is shown to fire (break the rule on purpose, watch it fail) before it is trusted.
 

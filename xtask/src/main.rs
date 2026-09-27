@@ -1,7 +1,7 @@
 //! `cargo xtask` — the workspace's fitness functions.
 //!
 //! `cargo xtask check` runs every check, prints each violation with what to do about it, and
-//! fails on enforced violations. Structural checks use syn ASTs, never source-text scanning.
+//! fails on enforced violations. Rust source is read only as syn ASTs, never as text.
 //!
 //! 1. **Dependency allowlist** (`xtask/allowlist.toml`): every dependency edge of every
 //!    workspace crate is listed, and nothing listed is unused. Internal edges must resolve to the

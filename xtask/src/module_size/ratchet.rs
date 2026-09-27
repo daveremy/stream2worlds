@@ -9,7 +9,7 @@ pub(super) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
         .args(args)
         .current_dir(root)
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("git: {e}; install git and put it on PATH"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).trim().to_owned());
     }

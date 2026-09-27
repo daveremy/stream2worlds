@@ -45,7 +45,8 @@ fn exemptions(config: &Config, scan: &Scan) -> Vec<String> {
         match scan.rows.get(&e.module) {
             None => findings.push(format!("stale exemption for {}: delete it", e.module)),
             Some((_, _, n)) if *n <= config.cap => findings.push(format!("stale exemption for {}: delete it", e.module)),
-            Some((_, _, n)) if *n != e.lines => findings.push(format!("{}: exemption lines {} != actual {n}; run cargo xtask check --tighten-baseline (growth requires explicit authorization)", e.module, e.lines)),
+            Some((_, _, n)) if *n < e.lines => findings.push(format!("{}: exemption lines {} > actual {n}; run cargo xtask check --tighten-baseline", e.module, e.lines)),
+            Some((_, _, n)) if *n > e.lines => findings.push(format!("{}: actual {n} > exemption lines {}; split the module, or raise lines with a Baseline-growth: s2w#<N> commit trailer", e.module, e.lines)),
             _ => {}
         }
     }
@@ -63,20 +64,25 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
         .current_dir(root)
         .status();
     let mut findings = Vec::new();
-    if !build.is_ok_and(|s| s.success()) {
+    let mut scan = Scan::default();
+    // A failed build can leave stale dep-info that would pass the backstop; skip it instead.
+    let built = build.is_ok_and(|s| s.success());
+    if !built {
         findings.push("module-size dep-info unavailable: cargo build --workspace failed; fix the build and retry".into());
+        scan.incomplete = true;
     }
     let mut files = Vec::new();
     if let Err(e) = dep_files(&meta.target_directory, &mut files) {
         findings.push(e);
     }
-    let mut scan = Scan::default();
     for pkg in &meta.packages {
         for target in &pkg.targets {
-            if !target
+            // Skip only the kinds the doctrine exempts, so lib crate-types such as cdylib or
+            // rlib (reported as their own kind) are walked rather than silently dropped.
+            if target
                 .kind
                 .iter()
-                .any(|k| matches!(k.as_str(), "lib" | "bin" | "proc-macro"))
+                .any(|k| matches!(k.as_str(), "test" | "bench" | "example" | "custom-build"))
             {
                 continue;
             }
@@ -86,17 +92,22 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
                 findings.push(e);
             }
             let src = super::crate_dir(&pkg.manifest_path).join("src");
-            if let Err(e) = dep_check(root, target, &src, &files, &target_scan.visited) {
+            if built && let Err(e) = dep_check(root, target, &src, &files, &target_scan.visited) {
                 findings.push(e);
             }
-            scan.rows.extend(target_scan.rows);
+            for (key, row) in target_scan.rows {
+                if scan.rows.insert(key.clone(), row).is_some() {
+                    findings.push(format!("{key}: two targets resolve to the same module key, so one row would hide the other; rename one target"));
+                }
+            }
             scan.findings.extend(target_scan.findings);
             scan.incomplete |= target_scan.incomplete;
         }
     }
     // Check growth BEFORE tightening so the repair command cannot conceal a new exemption.
     let mut problems = growth(root, &config);
-    if tighten && (scan.incomplete || !findings.is_empty() || !problems.is_empty()) {
+    let blocked = scan.incomplete || !scan.findings.is_empty() || !findings.is_empty();
+    if tighten && (blocked || !problems.is_empty()) {
         problems.push("cannot tighten an incomplete scan or unauthorized baseline; resolve the findings and retry".into());
     } else if tighten {
         config
@@ -113,7 +124,10 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
             .and_then(|s| fs::write(&config_path, s).map_err(|e| e.to_string()))
         {
             Ok(()) => {}
-            Err(e) => problems.push(format!("cannot tighten {}: {e}", config_path.display())),
+            Err(e) => problems.push(format!(
+                "cannot tighten {}: {e}; check the file is writable and retry",
+                config_path.display()
+            )),
         }
     }
     findings.extend(exemptions(&config, &scan));
@@ -254,11 +268,10 @@ mod tests {
     fn exemption_equality_staleness_and_required_fields() {
         let mut config = config();
         let mut scan = Scan::default();
-        for actual in [500, 502] {
+        for (actual, next_step) in [(500, "--tighten-baseline"), (502, "Baseline-growth")] {
             scan.rows.insert("demo".into(), (600, 100, actual));
             let errors = exemptions(&config, &scan);
-            assert!(errors[0].contains("!= actual"));
-            println!("{}", errors[0]);
+            assert!(errors[0].contains(next_step), "{}", errors[0]);
         }
         scan.rows.insert("demo".into(), (600, 99, 501));
         assert!(exemptions(&config, &scan).is_empty());

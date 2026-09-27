@@ -94,10 +94,12 @@ source remains excluded. The module-size check closes these bypass classes:
 - `include!`, `include_str!` and `include_bytes!` are refused wherever `syn` finds them,
   including both item and expression positions; use real module structure instead.
 - Cargo target kinds exempt tests, benches, examples and custom build scripts, independent
-  of directory names. Only library, binary and proc-macro targets are walked.
+  of directory names. Every other target kind (library crate-types, binaries, proc-macros)
+  is walked.
 - Rustc dep-info cross-checks compiled `.rs` files under each crate's `src/` against the
   walker, exposing missed files as violations rather than silently undercounting.
 
 The initial 400-line cap is report-only. Exemption growth is separately checked against
 `origin/main`, requiring a `Baseline-growth: s2w#<N>` trailer anywhere in the PR commit range.
-A failed base read allows no unauthorised growth and prints its cause.
+One trailer authorizes every exemption that grows in that range. A failed base read allows
+no unauthorised growth and prints its cause.
