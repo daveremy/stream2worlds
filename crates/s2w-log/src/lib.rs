@@ -1,7 +1,8 @@
 //! An append-only event log with atomic source cursors.
 //!
 //! [`SqliteEventLog`] is the durable implementation. [`InMemoryEventLog`] provides the same
-//! seam without I/O for composition and tests.
+//! seam without I/O for composition and tests. The System 1 verdict store sits beside the log
+//! in the same directory: see [`VerdictStore`].
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
@@ -14,8 +15,10 @@ use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior, pa
 use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
 
 mod reader;
+mod verdicts;
 
 pub use reader::LogReader;
+pub use verdicts::{InMemoryVerdictStore, SqliteVerdictStore, StoredVerdict, VerdictStore};
 
 const DATABASE_FILE: &str = "events.sqlite3";
 const LOCK_FILE: &str = "LOCK";
@@ -72,6 +75,10 @@ pub struct StoredEvent {
     pub position: LogPosition,
     /// The source event stored at that position.
     pub event: RawEvent,
+    /// The FNV-1a hash of `event.payload` that keys append dedupe, as stored (`i64`). Every
+    /// log implementation computes it with the same function, so a verdict store can bind a
+    /// verdict to the exact event it judged, not only to a position.
+    pub content_hash: i64,
 }
 
 /// What one [`EventLog::append`] did.
@@ -202,7 +209,12 @@ impl InMemoryEventLog {
         let position = LogPosition(next);
         self.cursors
             .insert(event.source.clone(), (event.cursor.clone(), position));
-        self.events.push(StoredEvent { position, event });
+        let content_hash = key.1;
+        self.events.push(StoredEvent {
+            position,
+            event,
+            content_hash,
+        });
         self.seen.insert(key, position);
         Ok(AppendOutcome::Inserted(position))
     }
@@ -491,7 +503,7 @@ impl Replay<'_> {
         let mut statement = self
             .connection
             .prepare(
-                "SELECT position, source, cursor, received_at, payload
+                "SELECT position, source, cursor, received_at, payload, content_hash
                  FROM events
                  WHERE position > ?1
                  ORDER BY position
@@ -566,6 +578,7 @@ fn decode_stored_event(row: &rusqlite::Row<'_>) -> Result<StoredEvent, LogError>
     let cursor: Vec<u8> = row.get(2).map_err(map_sqlite)?;
     let received_at: i64 = row.get(3).map_err(map_sqlite)?;
     let payload: Vec<u8> = row.get(4).map_err(map_sqlite)?;
+    let content_hash: i64 = row.get(5).map_err(map_sqlite)?;
 
     let position = u64::try_from(position)
         .map(LogPosition)
@@ -581,6 +594,7 @@ fn decode_stored_event(row: &rusqlite::Row<'_>) -> Result<StoredEvent, LogError>
             received_at: Timestamp::from_millis(received_at),
             payload,
         },
+        content_hash,
     })
 }
 
@@ -615,10 +629,11 @@ mod tests {
 
     type TestResult = Result<(), Box<dyn Error>>;
 
-    struct TestDirectory(PathBuf);
+    /// A unique scratch directory removed on drop; shared with the verdict-store tests.
+    pub(crate) struct TestDirectory(PathBuf);
 
     impl TestDirectory {
-        fn new(label: &str) -> std::io::Result<Self> {
+        pub(crate) fn new(label: &str) -> std::io::Result<Self> {
             loop {
                 let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
                 let path = env::temp_dir()
@@ -631,7 +646,7 @@ mod tests {
             }
         }
 
-        fn path(&self) -> &Path {
+        pub(crate) fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -715,11 +730,13 @@ mod tests {
             vec![
                 StoredEvent {
                     position: position_b,
-                    event: event_b.clone()
+                    content_hash: content_hash(&event_b.payload),
+                    event: event_b.clone(),
                 },
                 StoredEvent {
                     position: position_c,
-                    event: event_c.clone()
+                    content_hash: content_hash(&event_c.payload),
+                    event: event_c.clone(),
                 }
             ]
         );
@@ -730,15 +747,18 @@ mod tests {
             vec![
                 StoredEvent {
                     position: position_a,
-                    event: event_a
+                    content_hash: content_hash(&event_a.payload),
+                    event: event_a,
                 },
                 StoredEvent {
                     position: position_b,
-                    event: event_b
+                    content_hash: content_hash(&event_b.payload),
+                    event: event_b,
                 },
                 StoredEvent {
                     position: position_c,
-                    event: event_c
+                    content_hash: content_hash(&event_c.payload),
+                    event: event_c,
                 }
             ]
         );
@@ -1148,6 +1168,23 @@ mod tests {
         assert_eq!(log.append(oversized), Err(LogError::TooLarge));
         assert!(log.replay(None)?.next().is_none());
         assert_eq!(log.cursor(&source("source-a")?)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn both_logs_expose_the_same_content_hash() -> TestResult {
+        let directory = TestDirectory::new("content-hash")?;
+        let mut sqlite = SqliteEventLog::open(directory.path())?;
+        let mut memory = InMemoryEventLog::new();
+        let events = (1..=3).map(event).collect::<Result<Vec<_>, _>>()?;
+        sqlite.append_batch(events.clone())?;
+        memory.append_batch(events.clone())?;
+        let from_sqlite = sqlite.replay(None)?.collect::<Result<Vec<_>, _>>()?;
+        let from_memory = memory.replay(None)?.collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(from_sqlite, from_memory);
+        for (stored, original) in from_sqlite.iter().zip(&events) {
+            assert_eq!(stored.content_hash, content_hash(&original.payload));
+        }
         Ok(())
     }
 
