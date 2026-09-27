@@ -36,6 +36,8 @@ tokio-stream = "0.1"
 [dev-dependencies]
 # `client` turns rmcp into an in-process MCP client for the stdio round-trip test.
 rmcp = { version = "=3.4.1", default-features = false, features = ["client"] }
+# Produces records for the ignored real-broker test; pinned like s2w-sources (decision 0007).
+rskafka = "=0.6.0"
 # `io-util` for the `tokio::io::duplex` pipe that test runs the server over; `test-util` for
 # time-mocking in the group-commit / kafka-cursor tests.
 tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }

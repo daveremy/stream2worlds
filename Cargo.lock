@@ -1710,6 +1710,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "rmcp",
+ "rskafka",
  "s2w-core",
  "s2w-log",
  "s2w-model",
