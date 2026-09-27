@@ -89,7 +89,7 @@ kcat -C -b broker:9092 -t orders | s2w watch -
 claude mcp add s2w -- s2w mcp
 ```
 
-If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log. Local by default: nothing leaves your machine unless you approve an export manifest.
+If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log. It targets about 1,000 events/s on a laptop; for a busier topic, read some partitions (`--partitions`) or sample entities by key (`--sample 1/N`). Local by default: nothing leaves your machine unless you approve an export manifest.
 
 ## Evaluation
 
@@ -147,6 +147,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Fitness functions | `cargo xtask check` (`toml`, `serde_json`) | building (gate 2) | Dependency allowlist by identity, this table by exact name, AGENTS.md in every crate, workspace lint inheritance. |
 | Licence and advisory gate | `cargo deny check licenses advisories bans` | built (gate 2) | Dependencies must stay permissive: MIT, Apache-2.0, ISC, BSD-3-Clause or Unicode-3.0, plus two scoped exceptions (`foldhash` Zlib, never compiled for our targets; `webpki-root-certs` CDLA-Permissive-2.0, the Mozilla CA bundle), per [research 0003 §8d](research/0003-rust-substrate.md#8d-licences). RustSec advisories must not silently ship. |
 | Sources | Wikipedia EventStreams (SSE) via `reqwest`, `tokio`, and `tokio-stream` (built); Kafka by partition assignment (never a consumer group, never commits); stdin NDJSON | building (gate 2) | Two real sources plus a free third, so the source seam is not designed from one case. |
+| Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms | target (gate 2) | Targets until the scale fitness function measures them. Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | building (gate 2) | Simplest thing that replays deterministically. |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
