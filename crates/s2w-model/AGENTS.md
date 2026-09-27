@@ -14,3 +14,6 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - A type arrives here only when a second crate needs it; `Cursor` and `RawEvent` live here so
   source and log adapters can exchange them without depending on one another.
 - Persisted types get a version before any format is frozen (decision record, then migration).
+- An entity id is assigned once and never reused. A merge aliases ids under the survivor;
+  revoking a repair splits them back apart; neither operation changes an id. (`EntityId` lives
+  in `s2w-core` until a second crate needs it; decision 0004.)

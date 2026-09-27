@@ -16,6 +16,9 @@
 //! 5. **No dependency overrides:** no `[patch]` or `[replace]` in the workspace manifest, and no
 //!    `[patch]` or `paths` in `.cargo/config.toml` or the older `.cargo/config`. An override would swap a checked crates.io
 //!    dependency for another source without changing its declared identity.
+//! 6. **Golden replay** (`golden.rs`): the human-owned golden log folds to the committed snapshot,
+//!    byte for byte, twice, and to the same bytes when resumed from a serialized prefix at every
+//!    split point. The fixture must use every `WorldEvent` variant and trip the hub cap.
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -27,6 +30,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use serde::Deserialize;
+
+mod golden;
 
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
@@ -182,6 +187,7 @@ fn check(root: &Path) -> Result<String, Vec<String>> {
         }
     }
     problems.extend(overrides(root));
+    problems.extend(golden::check(root));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -216,7 +222,7 @@ fn check(root: &Path) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))
