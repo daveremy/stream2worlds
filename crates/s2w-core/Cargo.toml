@@ -1,0 +1,15 @@
+[package]
+name = "s2w-core"
+description = "The pure fold: events in, world out. No I/O, no clock, no randomness."
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+s2w-model = { path = "../s2w-model" }

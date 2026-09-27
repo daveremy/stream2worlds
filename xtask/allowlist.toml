@@ -1,0 +1,47 @@
+# Every dependency edge in the workspace. An allowlist, not a denylist: an edge not listed here
+# fails `cargo xtask check`, and so does a listed edge nobody uses. Layer rules and reasons live
+# in docs/decisions/0001-workspace-layers.md and each crate's AGENTS.md.
+
+[crates.s2w-model]
+normal = ["serde", "thiserror"]
+dev = ["serde_json"]
+
+[crates.s2w-core]
+normal = ["s2w-model"]
+
+[crates.s2w-log]
+normal = ["s2w-model"]
+
+[crates.s2w-sources]
+normal = ["s2w-model"]
+
+[crates.s2w-system1]
+normal = ["s2w-model"]
+
+[crates.s2w-system2]
+normal = ["s2w-model"]
+
+[crates.s2w-app]
+normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2"]
+
+[crates.s2w]
+normal = ["s2w-app"]
+
+[crates.s2w-testkit]
+normal = ["s2w-model"]
+
+[crates.xtask]
+normal = ["serde", "serde_json", "toml"]
+
+# Every external dependency names the README "Technical architecture" row that explains it.
+[external.serde]
+readme_row = "Serialization and errors"
+
+[external.serde_json]
+readme_row = "Serialization and errors"
+
+[external.thiserror]
+readme_row = "Serialization and errors"
+
+[external.toml]
+readme_row = "Fitness functions"

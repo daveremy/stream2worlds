@@ -124,7 +124,9 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Part | Choice | Status | Why, or what would change it |
 |---|---|---|---|
 | Language and delivery | Rust, one static binary | building (gate 2) | Small enough to drop into someone else's network; predictable memory, no GC pauses in the stream, good async I/O for many sources. |
-| Workspace | `s2w-model` ← `s2w-core`, `s2w-log`, `s2w-sources`, `s2w-system1`, `s2w-system2` ← `s2w-app` ← `s2w` | building (gate 2) | The workspace is the architecture: core and model do no I/O, adapters depend only on the model, the app composes them. |
+| Workspace | `s2w-model` ← `s2w-core`, `s2w-log`, `s2w-sources`, `s2w-system1`, `s2w-system2` ← `s2w-app` ← `s2w`; `s2w-testkit` for tests | building (gate 2) | The workspace is the architecture: core and model do no I/O, adapters depend only on the model, the app composes them. |
+| Serialization and errors | `serde`, `serde_json`, `thiserror` | building (gate 2) | The model's only dependencies; typed errors in libraries. |
+| Fitness functions | `cargo xtask check` (`toml`, `serde_json`) | building (gate 2) | Dependency allowlist, this table, AGENTS.md in every crate, escape-hatch ratchet. |
 | Sources | Wikipedia EventStreams (SSE), Kafka by partition assignment (never a consumer group, never commits), stdin NDJSON | building (gate 2) | Two real sources plus a free third, so the source seam is not designed from one case. |
 | Event log | Append-only local log with source cursors and provenance; storage format chosen in a gate-2 decision record | building (gate 2) | Raw events are never edited; the world is a replay of the log. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | building (gate 2) | Simplest thing that replays deterministically. |
@@ -138,7 +140,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Forecast ledger | Immutable issuances plus appended outcome observations | building (gate 4) | Scored against base rate and Wikimedia's revert-risk model. See the [evaluation contract](docs/evaluation-contract.md). |
 | Actions | WebAssembly plugins with host-enforced egress, secrets and limits | later | Customers add actions without touching the core. |
 
-This table is checked, not just maintained: from gate 2 on, a fitness function fails a PR when a row marked **building** names a crate or dependency that does not exist, or when a new external dependency arrives without a row here.
+This table is checked, not just maintained: `cargo xtask check` fails when a workspace crate is missing from this section, or when an external dependency does not name a row here ([decision 0001](docs/decisions/0001-workspace-layers.md)).
 
 ## Design and reviews
 

@@ -1,0 +1,15 @@
+[package]
+name = "s2w-system2"
+description = "System 2 providers: asynchronous, budget-capped model passes that propose, never apply."
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+s2w-model = { path = "../s2w-model" }
