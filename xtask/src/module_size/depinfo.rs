@@ -59,6 +59,7 @@ pub(super) fn dep_check(
     files: &[PathBuf],
     visited: &BTreeSet<PathBuf>,
 ) -> Result<(), String> {
+    // Matches Cargo's uplifted, unhashed `target/debug/{lib,}<name>.d`, not `deps/<name>-<hash>.d`.
     let name = target.name.replace('-', "_");
     // Dep-info paths are canonicalized below; compare like with like, or a symlinked root
     // makes every starts_with() false and the backstop passes having checked nothing.
