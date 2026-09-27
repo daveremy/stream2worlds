@@ -13,6 +13,36 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 61 — the live bridge (2026-09-27, 15:00–17:00)
+
+The log and the world met. Until this sprint the query API and the MCP server served a world
+that only a golden replay could fill; now a running bridge reads the stored log, asks System 1
+engines what each raw event claims, and folds the claims into query state. Two engines ship
+behind one trait, and the second one lets anyone drive a world by hand from a file.
+
+**Shipped**
+- **The live bridge: log → System 1 engines → query state** ([#51](https://github.com/daveremy/stream2worlds/issues/51), [decision 0011](docs/decisions/0011-system1-bridge.md)). `s2w_system1::Engine` has one total method, `evaluate(&RawEvent) -> Verdict`, that never errors and must not panic; a `Verdict` is `Propose { claims, confidence }` or `Abstain { reason }`, and abstaining is a value with a named reason (`NotMine`, `Unparseable`, `Insufficient`, or `Panicked`, which only the bridge produces). Confidence is an integer in basis points, because a float threshold replayed across machines would break byte-identical replay just as floats in the world would. `Bridge<R: LogReader>` polls the log (SQLite has no cross-process notification), backs off on empty polls, and every matching engine runs in registration order, so the timeline is a deterministic function of the log and the registry.
+- **Two engines, not one.** `WikimediaPageChangeEngine` turns a page-change event into claims by rules; `JsonClaimsEngine` treats a payload that already is a claim as one (Dave's choice for the second engine). The second is what makes `cat golden.jsonl | s2w watch -` a way to drive a hand-written world, and it keeps the engine seam from being designed from a single case.
+- **`WorldEvent`, `NaturalKey` and `AttrValue` moved to `s2w-model`** (a dated amendment to [decision 0005](docs/decisions/0005-pure-fold.md)). Engines see only the payload and mint natural keys; they never see a `World`, so the claim types belong to the model, not the core.
+- **In-crate fitness functions, first slice: the module-size checker** ([#44](https://github.com/daveremy/stream2worlds/issues/44), a dated amendment to [decision 0001](docs/decisions/0001-workspace-layers.md)). `cargo xtask check` walks every non-test target with `syn`, counts non-test lines per module, refuses `#[path]` and `include!`-family macros, and cross-checks rustc dep-info so a compiled file the walker missed is reported. Cap 400, report-only for now; growth of the exemption list against `origin/main` blocks even in report-only mode. Over the cap today: `s2w_log` (564) and `s2w_app::query::view` (420), both queued for [#66](https://github.com/daveremy/stream2worlds/issues/66).
+- **Research 0007: decision models for System 1 and System 2** ([research](research/0007-decision-models.md)). Jev and the roughly fifteen open models that speak its `/v1/systemone` format, read latency first: only Blink-tiny fits per-event at 1,000 events/s; the text-reading classifiers are sampled or asynchronous rungs. Routing beyond latency (cascades, learned routers, bandits over engines) and a ranked spike shortlist. Refreshed weekly (lifeos#1121).
+
+**Learned**
+- **Codex was walled mid-sprint on both accounts; Claude Opus 5.5 implemented both PRs.** Dave made Opus 5.5 a peer implementer alongside Codex astra rather than a fallback. The two-independent-reviewer rule held as it did in Sprints 59 and 60.
+- **A Codex run left a truncated file on disk** — `module_size.rs` was 1 byte after the run. Clippy caught it, and the file was rebuilt byte-exact from the run log before review. The build gates, not the author, are what noticed.
+- **The deepseek reviewer fails on prompts over about 30–40 KB.** Split the diff; a review that never ran is not a review.
+
+**Changed course**
+- **Persist verdicts, then embeddings, then measure H** ([#63](https://github.com/daveremy/stream2worlds/issues/63) → [#64](https://github.com/daveremy/stream2worlds/issues/64) → [#56](https://github.com/daveremy/stream2worlds/issues/56)). Local embeddings were the planned second engine; they now wait on the verdict log, because a model file is an input the log does not capture. H is measured only once embeddings are part of it, as the contract's B1 and [decision 0010](docs/decisions/0010-gate3-h-arm.md) define the arm.
+- **Gate 3's obfuscated stream folds `wiki` into the title and revision hash domains** ([#17](https://github.com/daveremy/stream2worlds/issues/17), Dave). Cross-wiki composite-key discovery is scored as its own unfloored sub-metric rather than through the floored hash domains. The contract's B2 text stands as signed.
+- **The scale fitness function's scope was cut** ([#32](https://github.com/daveremy/stream2worlds/issues/32), accepted).
+- **System 1 as a learning layer is now a thesis, not a row in a table** ([#71](https://github.com/daveremy/stream2worlds/issues/71)): an engine adapter, a router over judgment kind and latency, and System 2 feedback into System 1. Dave: differentiating. Research 0007's deferred implications land there.
+
+**Next**
+- The verdict store in two PRs ([#63](https://github.com/daveremy/stream2worlds/issues/63)), then the local embeddings engine ([#64](https://github.com/daveremy/stream2worlds/issues/64)); `watch` hardening ([#39](https://github.com/daveremy/stream2worlds/issues/39)); wiring the bridge into a serving command so a live stream reaches the query API and MCP ([#10](https://github.com/daveremy/stream2worlds/issues/10)); the bridge follow-ups from review ([#74](https://github.com/daveremy/stream2worlds/issues/74)). Also filed: operator-supplied domain context ([#61](https://github.com/daveremy/stream2worlds/issues/61)), the remaining fitness-function slices ([#65](https://github.com/daveremy/stream2worlds/issues/65)–[#69](https://github.com/daveremy/stream2worlds/issues/69)), and the lifeos-side tooling epic ([#62](https://github.com/daveremy/stream2worlds/issues/62)).
+
+---
+
 ## Sprint 60 — sources become adapters and presets (2026-09-27, 13:00–15:00)
 
 Wikipedia stopped being special. The single `Source` trait research 0006 built the group-commit

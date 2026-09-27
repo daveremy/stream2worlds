@@ -626,14 +626,14 @@ their abstracts, Fireworks TTFT.
 1. Target the `/v1/systemone` wire format plus one in-process FFI adapter behind the `Engine`
    trait, with the four abstain rules of §7a in the adapter and an engine *registry* (name,
    pinned version, latency profile, temperature) instead of hard-coded engines. → deferred:
-   issue to file against #51, ≥ 2 engines per adapter per the two-implementations rule.
+   [#71](https://github.com/daveremy/stream2worlds/issues/71) (System 1 as a learning layer), ≥ 2 engines per adapter per the two-implementations rule.
 2. README "System 1, decision models" row: replace "TypeSafe's Jev and similar models" with the
    three-tier reading of §7b (in-process form model / sidecar encoder / hosted) and cite this
    note; README "System 1 router" row: each rung names a latency budget *and* a judgment-kind
-   tuple *and* an abstain reason (§8d). → deferred: README edit, same issue as (1).
+   tuple *and* an abstain reason (§8d). → deferred: README edit, #71 as in (1).
 3. Persisted verdicts carry `engine_id`, `temperature` and `reason` (§7a rule 4, §8e need 2). →
    deferred: contract schema addition as a dated section (the contract is frozen; this changes
-   no threshold), same issue as (1).
+   no threshold), #71 as in (1).
 4. Gate 4: one decision model as a reported, non-primary predictor arm; A9.3 per engine. →
    deferred: gate-4 epic #14.
 5. Gate 3: decision models are not an arm; they may serve inside H+S2's System 2 as a pair judge
