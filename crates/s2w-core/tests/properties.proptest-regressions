@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 66a48e73ef81563207770a5cf2a67a7811909e4e7c2a45724fdfd404d78bf6fb # shrinks to events = [EntityObserved { key: NaturalKey("b"), entity_type: "user", attrs: {"n": Int(0)} }, EntityObserved { key: NaturalKey("f"), entity_type: "user", attrs: {"n": Int(0)} }, EntitiesMerged { survivor: NaturalKey("f"), absorbed: NaturalKey("b") }, RelationshipObserved { from: NaturalKey("a"), to: NaturalKey("d"), kind: "edited" }, MergeRevoked { survivor: NaturalKey("a"), absorbed: NaturalKey("b") }]

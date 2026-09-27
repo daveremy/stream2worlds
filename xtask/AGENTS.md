@@ -4,7 +4,7 @@ The workspace's fitness functions: `cargo xtask check`.
 
 ## Allowed dependencies
 
-- `serde`, `serde_json`, `toml`
+- `serde`, `serde_json`, `toml`, `s2w-core` (the golden replay check folds the golden log)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 

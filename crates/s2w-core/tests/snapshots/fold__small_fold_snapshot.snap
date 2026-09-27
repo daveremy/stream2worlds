@@ -1,0 +1,94 @@
+---
+source: crates/s2w-core/tests/fold.rs
+expression: w
+---
+{
+  "world_id": 0,
+  "offset": 9,
+  "fold_version": 1,
+  "hub_in_degree_cap": 2,
+  "next_entity_id": 5,
+  "keys": {
+    "Main_Page": 1,
+    "alice": 0,
+    "alice_alt": 4,
+    "bob": 2,
+    "carol": 3
+  },
+  "merges": {},
+  "entities": {
+    "0": {
+      "entity_type": "user",
+      "attrs": {
+        "edits": {
+          "Int": 1
+        },
+        "tz": {
+          "Str": "UTC"
+        }
+      },
+      "hub_refs": {}
+    },
+    "1": {
+      "entity_type": "page",
+      "attrs": {
+        "ns": {
+          "Int": 0
+        }
+      },
+      "hub_refs": {}
+    },
+    "2": {
+      "entity_type": "",
+      "attrs": {},
+      "hub_refs": {}
+    },
+    "3": {
+      "entity_type": "",
+      "attrs": {},
+      "hub_refs": {
+        "edited": 1
+      }
+    },
+    "4": {
+      "entity_type": "user",
+      "attrs": {
+        "bot": {
+          "Bool": false
+        }
+      },
+      "hub_refs": {}
+    }
+  },
+  "relationships": [
+    [
+      {
+        "from": 0,
+        "to": 1,
+        "kind": "edited"
+      },
+      1
+    ],
+    [
+      {
+        "from": 2,
+        "to": 1,
+        "kind": "edited"
+      },
+      1
+    ]
+  ],
+  "hub_counters": {
+    "1": {
+      "sources": [
+        0,
+        2,
+        3
+      ],
+      "by_kind": {
+        "edited": 3
+      },
+      "last_seen_offset": 5
+    }
+  }
+}

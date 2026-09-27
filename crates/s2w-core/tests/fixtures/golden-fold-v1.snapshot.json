@@ -1,0 +1,185 @@
+{
+  "world_id": 0,
+  "offset": 24,
+  "fold_version": 1,
+  "hub_in_degree_cap": 3,
+  "next_entity_id": 9,
+  "keys": {
+    "enwiki": 0,
+    "page:Cargo": 5,
+    "page:Clippy": 6,
+    "page:Rust": 1,
+    "page:Serde": 3,
+    "page:Tokio": 4,
+    "user:Alice": 2,
+    "user:Alice_alt": 7,
+    "user:Bob": 8
+  },
+  "merges": {
+    "2": 8
+  },
+  "entities": {
+    "0": {
+      "entity_type": "wiki",
+      "attrs": {
+        "lang": {
+          "Str": "en"
+        }
+      },
+      "hub_refs": {}
+    },
+    "1": {
+      "entity_type": "page",
+      "attrs": {
+        "ns": {
+          "Int": 0
+        }
+      },
+      "hub_refs": {
+        "on": 0
+      }
+    },
+    "2": {
+      "entity_type": "user",
+      "attrs": {
+        "bot": {
+          "Bool": false
+        },
+        "tz": {
+          "Str": "UTC"
+        }
+      },
+      "hub_refs": {}
+    },
+    "3": {
+      "entity_type": "",
+      "attrs": {},
+      "hub_refs": {}
+    },
+    "4": {
+      "entity_type": "",
+      "attrs": {},
+      "hub_refs": {}
+    },
+    "5": {
+      "entity_type": "",
+      "attrs": {},
+      "hub_refs": {
+        "on": 0
+      }
+    },
+    "6": {
+      "entity_type": "",
+      "attrs": {},
+      "hub_refs": {
+        "on": 0
+      }
+    },
+    "7": {
+      "entity_type": "user",
+      "attrs": {
+        "edits": {
+          "Int": 3
+        }
+      },
+      "hub_refs": {}
+    },
+    "8": {
+      "entity_type": "user",
+      "attrs": {},
+      "hub_refs": {}
+    }
+  },
+  "relationships": [
+    [
+      {
+        "from": 1,
+        "to": 0,
+        "kind": "on"
+      },
+      1
+    ],
+    [
+      {
+        "from": 2,
+        "to": 1,
+        "kind": "edited"
+      },
+      2
+    ],
+    [
+      {
+        "from": 2,
+        "to": 3,
+        "kind": "edited"
+      },
+      1
+    ],
+    [
+      {
+        "from": 3,
+        "to": 0,
+        "kind": "on"
+      },
+      1
+    ],
+    [
+      {
+        "from": 4,
+        "to": 0,
+        "kind": "on"
+      },
+      1
+    ],
+    [
+      {
+        "from": 7,
+        "to": 4,
+        "kind": "edited"
+      },
+      1
+    ]
+  ],
+  "hub_counters": {
+    "0": {
+      "sources": [
+        1,
+        3,
+        4,
+        5,
+        6
+      ],
+      "by_kind": {
+        "on": 6
+      },
+      "last_seen_offset": 11
+    },
+    "1": {
+      "sources": [
+        2
+      ],
+      "by_kind": {
+        "edited": 2
+      },
+      "last_seen_offset": 5
+    },
+    "3": {
+      "sources": [
+        2
+      ],
+      "by_kind": {
+        "edited": 1
+      },
+      "last_seen_offset": 15
+    },
+    "4": {
+      "sources": [
+        7
+      ],
+      "by_kind": {
+        "edited": 1
+      },
+      "last_seen_offset": 23
+    }
+  }
+}

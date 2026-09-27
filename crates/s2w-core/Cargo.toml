@@ -13,3 +13,9 @@ workspace = true
 
 [dependencies]
 s2w-model = { path = "../s2w-model" }
+serde.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+proptest = "1"
+insta = { version = "1", features = ["json"] }

@@ -393,6 +393,6 @@ the open items above that apply.
 4. Incremental engine: differential-dataflow first, DBSP runner-up, still on trigger.
    → adopted: README technical-architecture row (2026-09-27)
 5. MCP rmcp; 6. web view axum + memory-serve. → deferred: stream2worlds#10
-7. Testing: proptest + insta for the fold, paused clock + turmoil for adapters. → deferred: stream2worlds#9
+7. Testing: proptest + insta for the fold, paused clock + turmoil for adapters. → adopted: docs/decisions/0005-pure-fold.md for the fold, proptest + insta (2026-09-27); paused clock + turmoil apply as each adapter gets tests
 8. tokio, serde_json, thiserror/anyhow. → deferred: stream2worlds#6 (first crate that needs them)
 9. Licences enforced with cargo-deny. → deferred: stream2worlds#16

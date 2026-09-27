@@ -7,7 +7,8 @@ normal = ["serde", "thiserror"]
 dev = ["serde_json"]
 
 [crates.s2w-core]
-normal = ["s2w-model"]
+normal = ["s2w-model", "serde"]
+dev = ["serde_json", "proptest", "insta"]
 
 [crates.s2w-log]
 normal = ["s2w-model", "rusqlite"]
@@ -31,7 +32,7 @@ normal = ["s2w-app"]
 normal = ["s2w-model", "s2w-log"]
 
 [crates.xtask]
-normal = ["serde", "serde_json", "toml"]
+normal = ["serde", "serde_json", "toml", "s2w-core"]
 
 # Every external dependency names the README "Technical architecture" row that explains it.
 [external.serde]
@@ -57,3 +58,9 @@ readme_row = "Event log"
 
 [external.toml]
 readme_row = "Fitness functions"
+
+[external.proptest]
+readme_row = "Property & snapshot testing"
+
+[external.insta]
+readme_row = "Property & snapshot testing"
