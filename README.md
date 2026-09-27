@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img alt="status: experiment" src="https://img.shields.io/badge/status-experiment%20%C2%B7%20pre--alpha-B8721A">
+  <img alt="status: research project" src="https://img.shields.io/badge/status-research%20project%20%C2%B7%20pre--alpha-B8721A">
   <img alt="language: Rust" src="https://img.shields.io/badge/built%20in-Rust-2F5BD3">
   <img alt="interface: MCP" src="https://img.shields.io/badge/agents-MCP-0E8487">
   <img alt="license: permissive at launch" src="https://img.shields.io/badge/license-permissive%20at%20launch-5B6778">
@@ -15,7 +15,7 @@
 <p align="center"><b>Point <code>s2w</code> at an event stream you have never seen and watch a model of the world behind it form. Every forecast it makes is graded against what the stream shows next. The LLM never touches an event.</b></p>
 
 > [!NOTE]
-> **Pre-alpha. Nothing runs yet.** The binary answers `--version` and `--help` and nothing else. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) is a reviewed workspace skeleton with no source, log or fold behind it yet. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
+> **A research project, pre-alpha. Nothing runs yet.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. The binary answers `--version` and `--help` and nothing else. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions and the append-only event log; the sources, the fold and the view are being built. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
 
 ## Latest
 
