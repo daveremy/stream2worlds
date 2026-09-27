@@ -72,6 +72,62 @@ impl From<SourceId> for String {
     }
 }
 
+/// An opaque, source-defined resume position.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "Vec<u8>", into = "Vec<u8>")]
+pub struct Cursor(Vec<u8>);
+
+impl Cursor {
+    /// A non-empty source cursor of at most 4096 bytes.
+    ///
+    /// # Errors
+    /// Returns [`ModelError::EmptyCursor`] for an empty cursor and
+    /// [`ModelError::CursorTooLarge`] when `bytes` exceeds 4096 bytes.
+    pub fn new(bytes: impl Into<Vec<u8>>) -> Result<Self, ModelError> {
+        let bytes = bytes.into();
+        if bytes.is_empty() {
+            Err(ModelError::EmptyCursor)
+        } else if bytes.len() > 4096 {
+            Err(ModelError::CursorTooLarge(bytes.len()))
+        } else {
+            Ok(Self(bytes))
+        }
+    }
+
+    /// The source cursor as opaque bytes.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl TryFrom<Vec<u8>> for Cursor {
+    type Error = ModelError;
+
+    fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::new(bytes)
+    }
+}
+
+impl From<Cursor> for Vec<u8> {
+    fn from(cursor: Cursor) -> Self {
+        cursor.0
+    }
+}
+
+/// An uninterpreted event received from a configured source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RawEvent {
+    /// The configured source that produced the event.
+    pub source: SourceId,
+    /// The source-defined position to resume after this event.
+    pub cursor: Cursor,
+    /// When the imperative shell received the event.
+    pub received_at: Timestamp,
+    /// Opaque event bytes; the log never interprets them.
+    pub payload: Vec<u8>,
+}
+
 /// Errors from constructing model values.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ModelError {
@@ -80,6 +136,12 @@ pub enum ModelError {
         "invalid source id {0:?}: use 1-128 ASCII letters, digits, '.', '-' or '_', for example 'kafka.orders'"
     )]
     InvalidSourceId(String),
+    /// A source cursor was empty.
+    #[error("a source cursor must not be empty")]
+    EmptyCursor,
+    /// A source cursor exceeded the defensive size cap.
+    #[error("source cursor is {0} bytes; the maximum is 4096")]
+    CursorTooLarge(usize),
 }
 
 #[cfg(test)]
@@ -113,5 +175,29 @@ mod tests {
             Timestamp::from_millis(1_790_519_122_000).as_millis(),
             1_790_519_122_000
         );
+    }
+
+    #[test]
+    fn cursor_accepts_non_empty_bytes_at_the_limit() {
+        let bytes = vec![7; 4096];
+        assert_eq!(
+            Cursor::new(bytes.clone()).map(|cursor| cursor.as_bytes().to_vec()),
+            Ok(bytes)
+        );
+    }
+
+    #[test]
+    fn cursor_rejects_empty_and_overlong_values() {
+        assert_eq!(Cursor::new(Vec::new()), Err(ModelError::EmptyCursor));
+        assert_eq!(
+            Cursor::new(vec![0; 4097]),
+            Err(ModelError::CursorTooLarge(4097))
+        );
+    }
+
+    #[test]
+    fn cursor_validates_on_deserialize() {
+        assert!(serde_json::from_str::<Cursor>("[]").is_err());
+        assert!(serde_json::from_str::<Cursor>("[1,2,3]").is_ok());
     }
 }
