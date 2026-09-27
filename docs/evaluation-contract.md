@@ -10,6 +10,12 @@ The first slice asks two questions, and this contract fixes how each is graded:
 - **Part A (gate 4):** can `s2w` issue forecasts that earn a graded record on a live stream?
 - **Part B (gate 3):** does System 2 make an unfamiliar stream useful faster than heuristics alone?
 
+**This contract is also a draft schema.** Sections A1 to A8 record what any registered forecast
+question needs: the question, who is eligible, the cutoff, the horizon, the outcome sources,
+what counts as censored, the baselines and the scoring. Gate 4's `forecast.register` should
+capture those same fields, so a user registers a question in the shape we used to evaluate
+`s2w` itself. Differences found while building gate 4 are recorded here as a dated section.
+
 ---
 
 ## Part A: the forecast question
