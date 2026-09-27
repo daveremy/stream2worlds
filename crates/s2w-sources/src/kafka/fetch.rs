@@ -1,11 +1,4 @@
-//! Kafka by explicit partition assignment, through `rskafka` (decision 0007).
-//!
-//! The source discovers the topic's partitions once, resolves one start offset per partition,
-//! and runs one fetch task per partition. It never joins a consumer group and never commits
-//! offsets: `rskafka` has neither concept, so the invariant holds by construction. Each record
-//! leaves as a byte-deterministic JSON envelope that carries its own offset, so the log's
-//! `(source, payload hash)` dedupe collapses a real redelivery but never two distinct records
-//! whose values happen to be equal.
+//! The connection, per-partition fetch tasks and the merged record stream.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -16,12 +9,14 @@ use rskafka::chrono::{DateTime, Utc};
 use rskafka::client::error::{Error as RsKafkaError, ProtocolError};
 use rskafka::client::partition::{OffsetAt, PartitionClient, UnknownTopicHandling};
 use rskafka::client::{Client, ClientBuilder};
-use rskafka::record::RecordAndOffset;
 use s2w_model::Timestamp;
 use tokio::sync::mpsc;
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
+
+use super::envelope::envelope;
+use super::{KafkaEvent, KafkaSourceError, KafkaStart, KafkaTarget};
 
 /// Records buffered between the fetch tasks and the consumer.
 const CHANNEL_CAPACITY: usize = 1024;
@@ -32,191 +27,6 @@ const MAX_WAIT_MS: i32 = 500;
 /// How long `rskafka` retries a retriable error inside one call before giving the error back,
 /// so a dead broker surfaces as an error item instead of looking like a quiet partition.
 const CLIENT_RETRY_DEADLINE: Duration = Duration::from_secs(60);
-
-/// The broker list and topic from a `kafka://<broker>[,<broker>…]/<topic>` URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KafkaTarget {
-    brokers: Vec<String>,
-    topic: String,
-}
-
-impl KafkaTarget {
-    /// Parses `kafka://host:port[,host:port…]/topic`.
-    ///
-    /// The topic must satisfy Kafka's own rules: 1 to 249 bytes of ASCII letters, digits, `.`,
-    /// `_` and `-`, and not `.` or `..`.
-    ///
-    /// # Errors
-    /// Returns [`KafkaSourceError::InvalidTarget`] naming what is wrong.
-    pub fn parse(url: &str) -> Result<Self, KafkaSourceError> {
-        let invalid = |reason: &str| KafkaSourceError::InvalidTarget {
-            value: url.to_owned(),
-            reason: reason.to_owned(),
-        };
-        let rest = url
-            .strip_prefix("kafka://")
-            .ok_or_else(|| invalid("expected kafka://<broker>/<topic>"))?;
-        let (brokers, topic) = rest
-            .split_once('/')
-            .ok_or_else(|| invalid("missing /<topic> after the broker"))?;
-        let brokers: Vec<String> = brokers.split(',').map(str::to_owned).collect();
-        if brokers.iter().any(|broker| {
-            broker.is_empty() || broker.contains(char::is_whitespace) || !broker.contains(':')
-        }) {
-            return Err(invalid("each broker must be host:port"));
-        }
-        let valid_topic = !topic.is_empty()
-            && topic.len() <= 249
-            && topic != "."
-            && topic != ".."
-            && topic
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
-        if !valid_topic {
-            return Err(invalid(
-                "topic must be 1-249 ASCII letters, digits, '.', '_' or '-'",
-            ));
-        }
-        Ok(Self {
-            brokers,
-            topic: topic.to_owned(),
-        })
-    }
-
-    /// The bootstrap brokers, as given.
-    #[must_use]
-    pub fn brokers(&self) -> &[String] {
-        &self.brokers
-    }
-
-    /// The topic name.
-    #[must_use]
-    pub fn topic(&self) -> &str {
-        &self.topic
-    }
-}
-
-/// Where one partition starts reading.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KafkaStart {
-    /// The partition's high watermark: only records produced from now on.
-    Latest,
-    /// The first record whose timestamp is at or after this many epoch milliseconds
-    /// (`offsetsForTimes`, inclusive). A time after the last record starts at the high
-    /// watermark.
-    Timestamp(i64),
-    /// The record after this already-stored offset: a resume from the log's cursor.
-    After(i64),
-}
-
-/// Parses a `--since` value: RFC 3339 (`2026-09-27T12:00:00Z`) or integer epoch milliseconds.
-///
-/// # Errors
-/// Returns [`KafkaSourceError::InvalidSince`] when the value is neither.
-pub fn parse_since(value: &str) -> Result<i64, KafkaSourceError> {
-    if let Ok(millis) = value.parse::<i64>() {
-        return Ok(millis);
-    }
-    DateTime::parse_from_rfc3339(value)
-        .map(|time| time.timestamp_millis())
-        .map_err(|error| KafkaSourceError::InvalidSince {
-            value: value.to_owned(),
-            reason: error.to_string(),
-        })
-}
-
-/// One Kafka record, ready for the log.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KafkaEvent {
-    /// The partition the record came from.
-    pub partition: i32,
-    /// The record's offset within its partition; the resume cursor.
-    pub offset: i64,
-    /// The JSON envelope (see [`envelope`]).
-    pub payload: String,
-    /// The wall-clock time at which the source received the record.
-    pub received_at: Timestamp,
-}
-
-/// Failures from the Kafka source.
-#[derive(Debug, thiserror::Error)]
-pub enum KafkaSourceError {
-    /// The `kafka://` URL could not be used.
-    #[error("invalid kafka target {value:?}: {reason}")]
-    InvalidTarget {
-        /// The URL as given.
-        value: String,
-        /// Why it was refused.
-        reason: String,
-    },
-    /// The `--since` value is neither RFC 3339 nor epoch milliseconds.
-    #[error("invalid --since {value:?}: expected RFC 3339 or epoch milliseconds ({reason})")]
-    InvalidSince {
-        /// The value as given.
-        value: String,
-        /// The parser's complaint.
-        reason: String,
-    },
-    /// The brokers could not be reached, or metadata could not be read.
-    #[error("could not connect to kafka: {0}")]
-    Connect(String),
-    /// The brokers do not know the topic.
-    #[error("kafka topic {0:?} does not exist")]
-    UnknownTopic(String),
-    /// Resolving a partition's start offset failed.
-    #[error("partition {partition}: could not resolve the start offset: {message}")]
-    StartOffset {
-        /// The partition.
-        partition: i32,
-        /// The client's error.
-        message: String,
-    },
-    /// A fetch failed; the source retries from the same offset and never skips.
-    #[error("partition {partition}: fetch at offset {offset} failed, retrying: {message}")]
-    Fetch {
-        /// The partition.
-        partition: i32,
-        /// The offset that will be fetched again.
-        offset: i64,
-        /// The client's error.
-        message: String,
-    },
-    /// The next offset to read has been deleted by retention. Continuing would silently skip
-    /// records, so the partition stops and the error is fatal.
-    #[error(
-        "partition {partition}: the next offset {next} was deleted by retention (earliest is {earliest}); resuming would skip records"
-    )]
-    CursorPruned {
-        /// The partition.
-        partition: i32,
-        /// The offset the source needed next.
-        next: i64,
-        /// The partition's earliest remaining offset.
-        earliest: i64,
-    },
-    /// The stored cursor is past the partition's end: the topic was probably deleted and
-    /// recreated, so its offsets no longer mean what the log recorded.
-    #[error(
-        "partition {partition}: the next offset {next} is past the partition's end {latest}; was the topic recreated?"
-    )]
-    CursorAhead {
-        /// The partition.
-        partition: i32,
-        /// The offset the source needed next.
-        next: i64,
-        /// The partition's high watermark.
-        latest: i64,
-    },
-}
-
-impl KafkaSourceError {
-    /// Whether the source has stopped reading because of this error. A non-fatal error is
-    /// reported and the source keeps going.
-    #[must_use]
-    pub fn is_fatal(&self) -> bool {
-        !matches!(self, Self::Fetch { .. })
-    }
-}
 
 /// A connection to the brokers with the topic's partitions discovered, not yet reading.
 #[derive(Debug)]
@@ -507,45 +317,6 @@ async fn report_and_wait(
     true
 }
 
-/// Encodes one record as the byte-deterministic JSON envelope stored in the log:
-/// `{"key":…,"offset":…,"partition":…,"timestamp_ms":…,"topic":…,"value":…}`.
-///
-/// Keys are in that fixed order. `key` and `value` are the record's raw bytes: a JSON string
-/// when they are valid UTF-8, `{"hex":"…"}` otherwise, and `null` when absent. The value is never
-/// parsed and re-serialised, so a redelivered record encodes to identical bytes.
-#[must_use]
-pub fn envelope(topic: &str, partition: i32, record: &RecordAndOffset) -> String {
-    let mut fields = serde_json::Map::new();
-    fields.insert("key".to_owned(), bytes_value(record.record.key.as_deref()));
-    fields.insert("offset".to_owned(), record.offset.into());
-    fields.insert("partition".to_owned(), partition.into());
-    fields.insert(
-        "timestamp_ms".to_owned(),
-        record.record.timestamp.timestamp_millis().into(),
-    );
-    fields.insert("topic".to_owned(), topic.into());
-    fields.insert(
-        "value".to_owned(),
-        bytes_value(record.record.value.as_deref()),
-    );
-    serde_json::Value::Object(fields).to_string()
-}
-
-fn bytes_value(bytes: Option<&[u8]>) -> serde_json::Value {
-    match bytes {
-        None => serde_json::Value::Null,
-        Some(bytes) => match std::str::from_utf8(bytes) {
-            Ok(text) => text.into(),
-            Err(_) => {
-                let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-                let mut object = serde_json::Map::new();
-                object.insert("hex".to_owned(), hex.into());
-                serde_json::Value::Object(object)
-            }
-        },
-    }
-}
-
 /// Doubling delay between failed fetches: 250 ms up to 30 s, reset by a good fetch.
 struct Backoff {
     delay: Duration,
@@ -586,96 +357,9 @@ mod tests {
     use std::collections::BTreeMap;
 
     use rskafka::chrono::DateTime;
-    use rskafka::record::{Record, RecordAndOffset};
+    use rskafka::record::Record;
 
-    use super::{KafkaSourceError, KafkaTarget, envelope, parse_since};
-
-    fn record(key: Option<&[u8]>, value: Option<&[u8]>, offset: i64) -> RecordAndOffset {
-        RecordAndOffset {
-            record: Record {
-                key: key.map(<[u8]>::to_vec),
-                value: value.map(<[u8]>::to_vec),
-                headers: BTreeMap::new(),
-                timestamp: DateTime::from_timestamp_millis(1_790_000_000_123).unwrap_or_default(),
-            },
-            offset,
-        }
-    }
-
-    #[test]
-    fn target_parses_brokers_and_topic() -> Result<(), KafkaSourceError> {
-        let target = KafkaTarget::parse("kafka://a:9092,b:9093/orders.v1_x-y")?;
-        assert_eq!(target.brokers(), ["a:9092", "b:9093"]);
-        assert_eq!(target.topic(), "orders.v1_x-y");
-        Ok(())
-    }
-
-    #[test]
-    fn target_rejects_bad_urls_loudly() {
-        let too_long = format!("kafka://localhost:9092/{}", "t".repeat(250));
-        for url in [
-            "http://localhost:9092/orders",
-            "kafka://localhost:9092",
-            "kafka://localhost/orders",
-            "kafka://localhost:9092/",
-            "kafka://localhost:9092/a/b",
-            "kafka://localhost:9092/..",
-            "kafka://,localhost:9092/orders",
-            too_long.as_str(),
-        ] {
-            assert!(
-                matches!(
-                    KafkaTarget::parse(url),
-                    Err(KafkaSourceError::InvalidTarget { .. })
-                ),
-                "{url} should be refused"
-            );
-        }
-        let longest = format!("kafka://localhost:9092/{}", "t".repeat(249));
-        assert!(KafkaTarget::parse(&longest).is_ok());
-    }
-
-    #[test]
-    fn since_accepts_rfc3339_and_epoch_millis() -> Result<(), KafkaSourceError> {
-        assert_eq!(parse_since("1790000000123")?, 1_790_000_000_123);
-        assert_eq!(parse_since("2026-09-27T12:00:00Z")?, 1_790_510_400_000);
-        assert_eq!(parse_since("2026-09-27T05:00:00-07:00")?, 1_790_510_400_000);
-        assert!(matches!(
-            parse_since("yesterday"),
-            Err(KafkaSourceError::InvalidSince { .. })
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn envelope_bytes_are_pinned() {
-        let encoded = envelope(
-            "orders",
-            3,
-            &record(Some(b"k1"), Some(b"{\"b\":1, \"a\":2}"), 42),
-        );
-        assert_eq!(
-            encoded,
-            r#"{"key":"k1","offset":42,"partition":3,"timestamp_ms":1790000000123,"topic":"orders","value":"{\"b\":1, \"a\":2}"}"#
-        );
-    }
-
-    #[test]
-    fn envelope_encodes_missing_and_binary_bytes() {
-        let encoded = envelope("t", 0, &record(None, Some(&[0xff, 0x00, 0x10]), 7));
-        assert_eq!(
-            encoded,
-            r#"{"key":null,"offset":7,"partition":0,"timestamp_ms":1790000000123,"topic":"t","value":{"hex":"ff0010"}}"#
-        );
-    }
-
-    #[test]
-    fn equal_values_at_different_offsets_encode_differently() {
-        let first = envelope("t", 0, &record(None, Some(b"tick"), 1));
-        let second = envelope("t", 0, &record(None, Some(b"tick"), 2));
-        assert_ne!(first, second);
-        assert_eq!(first, envelope("t", 0, &record(None, Some(b"tick"), 1)));
-    }
+    use crate::kafka::{KafkaSourceError, KafkaTarget};
 
     /// Against a real broker (decision 0007's measurement): assignment reads, timestamp starts,
     /// the after-the-last-record case, resume-after, and a compressed batch.
@@ -777,21 +461,5 @@ mod tests {
             }
             Ok(())
         })
-    }
-
-    #[test]
-    fn only_fetch_errors_are_non_fatal() {
-        let fetch = KafkaSourceError::Fetch {
-            partition: 0,
-            offset: 1,
-            message: String::new(),
-        };
-        let pruned = KafkaSourceError::CursorPruned {
-            partition: 0,
-            next: 1,
-            earliest: 5,
-        };
-        assert!(!fetch.is_fatal());
-        assert!(pruned.is_fatal());
     }
 }

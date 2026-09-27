@@ -71,8 +71,8 @@ pub trait Source {
     ) -> StartFuture<'a>;
 }
 
-/// Failures from starting or running a source. Only [`SourceError::Skipped`] lets the stream
-/// continue.
+/// Failures from starting or running a source. Only [`SourceError::Skipped`] and
+/// [`SourceError::Retrying`] let the stream continue.
 #[derive(Debug, thiserror::Error)]
 pub enum SourceError {
     /// `--since` was given for a source that already has a stored cursor.
@@ -149,6 +149,15 @@ pub enum SourceError {
         /// What was skipped and why.
         reason: String,
     },
+    /// A transient failure (a fetch, a dropped connection); the source retries from the same
+    /// position, so nothing is skipped. Reported by the pump; the stream continues.
+    #[error("{name}: {reason}")]
+    Retrying {
+        /// The source name.
+        name: &'static str,
+        /// What failed and is being retried.
+        reason: String,
+    },
     /// The log's stored cursors could not be read.
     #[error("cursor lookup: {0}")]
     Lookup(String),
@@ -158,10 +167,11 @@ pub enum SourceError {
 }
 
 impl SourceError {
-    /// Whether this error stops the stream. Only [`SourceError::Skipped`] does not.
+    /// Whether this error stops the stream. [`SourceError::Skipped`] and
+    /// [`SourceError::Retrying`] do not.
     #[must_use]
     pub fn is_fatal(&self) -> bool {
-        !matches!(self, Self::Skipped { .. })
+        !matches!(self, Self::Skipped { .. } | Self::Retrying { .. })
     }
 
     /// Whether this error means the command was given wrongly (the CLI's usage exit code).
@@ -204,7 +214,7 @@ mod tests {
     use super::SourceError;
 
     #[test]
-    fn only_skipped_is_non_fatal() {
+    fn only_skipped_and_retrying_are_non_fatal() {
         let fatal = [
             SourceError::SinceWithStoredCursor {
                 source_id: "s".into(),
@@ -243,12 +253,17 @@ mod tests {
         for variant in fatal {
             assert!(variant.is_fatal(), "{variant:?} must be fatal");
         }
-        assert!(
-            !SourceError::Skipped {
+        for variant in [
+            SourceError::Skipped {
                 name: "n",
-                reason: "r".into()
-            }
-            .is_fatal()
-        );
+                reason: "r".into(),
+            },
+            SourceError::Retrying {
+                name: "n",
+                reason: "r".into(),
+            },
+        ] {
+            assert!(!variant.is_fatal(), "{variant:?} must not be fatal");
+        }
     }
 }

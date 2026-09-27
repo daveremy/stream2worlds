@@ -1,7 +1,6 @@
 //! Runtime wiring: composes sources, the log, the core and the engines, and serves the read-only MCP server and the local web view.
 
 mod group_commit;
-mod kafka;
 pub mod mcp;
 pub mod query;
 
@@ -17,8 +16,6 @@ use s2w_sources::registry::resolve;
 use s2w_sources::source::{CursorLookup, Ending, SourceError};
 use s2w_sources::wikipedia::{LastEventId, WikipediaSource, WikipediaSourceError};
 use tokio_stream::StreamExt;
-
-pub use kafka::{WatchKafkaArgs, watch_kafka};
 
 /// The source id under which `s2w watch wikipedia` files its events.
 const WIKIPEDIA_SOURCE: &str = "wikipedia.page_change";
@@ -59,20 +56,6 @@ pub enum AppError {
     /// A stored cursor could not be decoded as the UTF-8 `Last-Event-ID` the source stores.
     #[error("stored wikipedia cursor is not valid UTF-8: {0}")]
     StoredCursorUtf8(#[from] std::str::Utf8Error),
-    /// The Kafka source could not start, or stopped.
-    #[error("kafka source: {0}")]
-    Kafka(#[from] s2w_sources::kafka::KafkaSourceError),
-    /// A stored Kafka cursor is not the decimal offset the source stores.
-    #[error("stored cursor {cursor:?} for {source_id} is not a Kafka offset")]
-    StoredCursorOffset {
-        /// The log source whose cursor failed to decode.
-        source_id: String,
-        /// The stored bytes, lossily decoded for the message.
-        cursor: String,
-    },
-    /// The Kafka source delivered a record from a partition it was not assigned.
-    #[error("kafka delivered a record from unassigned partition {0}")]
-    UnexpectedPartition(i32),
     /// A live source's stream ended. Wikipedia and Kafka keep their streams open (Wikipedia
     /// drops it only to reconnect it), so an ended stream means something is wrong, not that
     /// the work is done.
@@ -106,19 +89,12 @@ pub fn watch(args: WatchArgs) -> Result<(), AppError> {
     current_thread_runtime()?.block_on(run_watch(args))
 }
 
-/// The log's stored cursors, as the read-only view sources consult before starting.
-struct LogCursors<'a, L>(&'a L);
-
-impl<L: EventLog> CursorLookup for LogCursors<'_, L> {
-    fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, SourceError> {
-        self.0
-            .cursor(source)
-            .map_err(|error| SourceError::Lookup(error.to_string()))
-    }
-}
-
-/// Resolves the URI, starts the source against the log's cursors, and pumps it into the log.
-async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
+/// [`watch`] on the caller's runtime (current-thread: the stream is not `Send`).
+///
+/// # Errors
+///
+/// As [`watch`].
+pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
     let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)?;
     let name = source.name();
@@ -139,6 +115,17 @@ async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
     match started.ends {
         Ending::AtEndOfInput => Ok(()),
         Ending::Never => Err(AppError::StreamEnded(name)),
+    }
+}
+
+/// The log's stored cursors, as the read-only view sources consult before starting.
+struct LogCursors<'a, L>(&'a L);
+
+impl<L: EventLog> CursorLookup for LogCursors<'_, L> {
+    fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, SourceError> {
+        self.0
+            .cursor(source)
+            .map_err(|error| SourceError::Lookup(error.to_string()))
     }
 }
 

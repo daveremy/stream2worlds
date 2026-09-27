@@ -1,15 +1,19 @@
 //! Resolves a `s2w watch` URI to a [`Source`]: the one place that knows every adapter and
 //! preset.
 
-use crate::source::Source;
+use crate::kafka::KafkaAdapter;
+use crate::source::{Source, SourceError};
 use crate::stdin::StdinSource;
 
 /// The forms [`resolve`] accepts, for usage messages.
 pub const FORMS: &str = "wikipedia | kafka://<broker>[,<broker>...]/<topic> | sse://<host>/<path> (https) | https://… | http://… | -";
 
-/// A URI no adapter or preset claims.
+/// A URI no adapter or preset claims, or one an adapter claims but cannot use.
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveError {
+    /// The adapter for this scheme refused the URI.
+    #[error(transparent)]
+    Invalid(#[from] SourceError),
     /// Neither a preset name, `-`, nor a known scheme.
     #[error("unknown stream {uri:?}. Try: {forms}")]
     Unknown {
@@ -24,15 +28,19 @@ pub enum ResolveError {
 ///
 /// # Errors
 ///
-/// [`ResolveError::Unknown`] listing the accepted forms.
+/// [`ResolveError::Unknown`] listing the accepted forms, or [`ResolveError::Invalid`] when the
+/// scheme's adapter refuses the rest of the URI.
 pub fn resolve(uri: &str) -> Result<Box<dyn Source>, ResolveError> {
     if uri == "-" {
         return Ok(Box::new(StdinSource::from_stdin()));
     }
-    Err(ResolveError::Unknown {
-        uri: uri.to_owned(),
-        forms: FORMS,
-    })
+    match uri.split_once("://") {
+        Some(("kafka", _)) => Ok(Box::new(KafkaAdapter::parse(uri)?)),
+        _ => Err(ResolveError::Unknown {
+            uri: uri.to_owned(),
+            forms: FORMS,
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -48,6 +56,15 @@ mod tests {
     #[test]
     fn dash_is_stdin() {
         assert_eq!(name("-"), Ok("stdin"));
+    }
+
+    #[test]
+    fn kafka_scheme_is_the_kafka_adapter() {
+        assert_eq!(name("kafka://b:9092/t"), Ok("kafka"));
+        match name("kafka://b:9092") {
+            Err(message) => assert!(message.contains("invalid target"), "{message}"),
+            Ok(other) => panic!("a topicless kafka URI must be refused, got {other}"),
+        }
     }
 
     #[test]
