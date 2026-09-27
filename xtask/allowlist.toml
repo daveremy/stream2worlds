@@ -43,8 +43,8 @@ readme_row = "Serialization and errors"
 [external.thiserror]
 readme_row = "Serialization and errors"
 
-[external.toml]
-readme_row = "Fitness functions"
-
 [external.rusqlite]
 readme_row = "Event log"
+
+[external.toml]
+readme_row = "Fitness functions"

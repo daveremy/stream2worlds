@@ -19,12 +19,24 @@ const SCHEMA_VERSION: i64 = 1;
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const REPLAY_PAGE_SIZE: i64 = 256;
 
+/// Rejects a payload before any write is attempted, shared by every [`EventLog`] impl.
+fn check_payload_size(len: usize) -> Result<(), LogError> {
+    if len > MAX_PAYLOAD_BYTES {
+        return Err(LogError::TooLarge);
+    }
+    Ok(())
+}
+
 /// A monotonically increasing position assigned by one event log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LogPosition(u64);
 
 impl LogPosition {
     /// The numeric, log-local position.
+    ///
+    /// There is no public constructor: a [`LogPosition`] is only ever produced by a
+    /// log implementation itself (via `append`/`replay`), so it is an opaque replay
+    /// token rather than a value callers assemble by hand.
     #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
@@ -118,9 +130,7 @@ impl InMemoryEventLog {
 
 impl EventLog for InMemoryEventLog {
     fn append(&mut self, event: RawEvent) -> Result<LogPosition, LogError> {
-        if event.payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(LogError::TooLarge);
-        }
+        check_payload_size(event.payload.len())?;
         let next = u64::try_from(self.events.len())
             .map_err(|error| LogError::Io(error.to_string()))?
             .checked_add(1)
@@ -228,9 +238,7 @@ impl SqliteEventLog {
 
 impl EventLog for SqliteEventLog {
     fn append(&mut self, event: RawEvent) -> Result<LogPosition, LogError> {
-        if event.payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(LogError::TooLarge);
-        }
+        check_payload_size(event.payload.len())?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
