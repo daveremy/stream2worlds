@@ -19,7 +19,7 @@ s2w-sources = { path = "../s2w-sources" }
 s2w-system1 = { path = "../s2w-system1" }
 s2w-system2 = { path = "../s2w-system2" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
-# The read-only MCP server (decision 0007), stdio only: `server` pulls the tool system,
+# The read-only MCP server (decision 0009), stdio only: `server` pulls the tool system,
 # schemars and uuid; `transport-io` the stdio transport (rmcp enables tokio's `io-std` on its
 # own dependency, so s2w-app's tokio feature list is unchanged).
 rmcp = { version = "=3.4.1", default-features = false, features = ["server", "macros", "transport-io"] }

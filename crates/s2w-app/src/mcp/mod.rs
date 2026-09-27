@@ -1,4 +1,4 @@
-//! The read-only MCP server (decision 0007): `s2w mcp` serves the query API's five read tools
+//! The read-only MCP server (decision 0009): `s2w mcp` serves the query API's five read tools
 //! over stdio, one per HTTP route, each returning the route's exact JSON bytes as its text.
 //!
 //! Stdout is the JSON-RPC channel, so nothing on this path writes to it; the only failure that

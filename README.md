@@ -83,7 +83,7 @@ s2w watch wikipedia --since 2026-09-27T00:00:00Z --log-dir ./fresh-dir
 
 Stop it with Ctrl-C. Run it again on the same `--log-dir` and it resumes from the stored cursor (`Last-Event-ID`), not from now. Events redelivered on resume are collapsed by the log, which dedupes on source plus payload content, so two distinct events sharing a millisecond are both kept. Passing `--since` to a log that already has a cursor is a usage error.
 
-To connect an MCP client, configure it to launch `s2w mcp` (for example, `claude mcp add s2w -- s2w mcp`). It exposes `world_view`, `world_diff`, `entity_history`, `branches`, and `time`; each returns the same JSON as its HTTP query route. The CLI currently serves an empty world: the bridge from the stored event log to the query timeline is still to build. Stdout carries only MCP messages. See [decision 0007](docs/decisions/0007-mcp-server.md).
+To connect an MCP client, configure it to launch `s2w mcp` (for example, `claude mcp add s2w -- s2w mcp`). It exposes `world_view`, `world_diff`, `entity_history`, `branches`, and `time`; each returns the same JSON as its HTTP query route. The CLI currently serves an empty world: the bridge from the stored event log to the query timeline is still to build. Stdout carries only MCP messages. See [decision 0009](docs/decisions/0009-mcp-server.md).
 
 ## Planned interface
 
@@ -171,7 +171,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it joins through the bake-off, p50/p99 and accuracy per engine. |
 | System 1 router | Each judgment names a latency budget; rule → embeddings → decision model | later | Needs more than one engine worth routing between. |
 | System 2 | A hosted LLM API on a fixed budget; the client's own agent via MCP sampling, or a local model | building (gate 3) | Asynchronous, never in the stream. Two providers differ in latency, cost and where data goes. |
-| Read-only MCP server | `s2w mcp` over stdio using `rmcp` `=3.4.1`; five tools share the query API ([decision 0007](docs/decisions/0007-mcp-server.md)) | built (gate 2) | Read-only annotations, identical JSON responses, empty world until the live event-log bridge lands. No HTTP MCP transport yet. |
+| Read-only MCP server | `s2w mcp` over stdio using `rmcp` `=3.4.1`; five tools share the query API ([decision 0009](docs/decisions/0009-mcp-server.md)) | built (gate 2) | Read-only annotations, identical JSON responses, empty world until the live event-log bridge lands. No HTTP MCP transport yet. |
 | Dashboard | Local web view (evidence table and graph first) | building (gate 2) | Ghosts, cones, scrub-past-now and live calibration come after the slice, then a 3D world explorer built on three.js ([#21](https://github.com/daveremy/stream2worlds/issues/21), [research 0005](research/0005-3d-exploration.md)): 3D for exploring, linked 2D panels for reading. The view reads the world through the same query interface as MCP, so the renderer can change without touching the core. |
 | Forecast ledger | Immutable issuances plus appended outcome observations | building (gate 4) | Scored against base rate and Wikimedia's revert-risk model. See the [evaluation contract](docs/evaluation-contract.md). |
 | Actions | WebAssembly plugins with host-enforced egress, secrets and limits | later | Customers add actions without touching the core. |

@@ -1,4 +1,4 @@
-# 0007: The read-only MCP server
+# 0009: The read-only MCP server
 
 Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #52 · Research [0003 §5](../../research/0003-rust-substrate.md)
 
