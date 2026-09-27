@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" width="1280" height="360" role="img" aria-label="Stream2Worlds: event streams flowing into a living world model with a predicted possible world">
+<rect width="1280" height="360" rx="18" fill="#EEF1F5"/>
+<text x="64" y="158" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif" font-size="62" font-weight="700" fill="#16202E" letter-spacing="-1.5">Stream2Worlds</text>
+<text x="66" y="204" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif" font-size="24" fill="#16202E">Point it at any stream. Watch a world form.</text>
+<text x="66" y="240" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#5B6778">System 1 · System 2 · forecasts graded by reality</text>
+<rect x="600" y="107" width="6" height="6" rx="3" fill="#2F5BD3" opacity="0.35"/>
+<rect x="616" y="107" width="10" height="6" rx="3" fill="#2F5BD3" opacity="0.40"/>
+<rect x="628" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.43"/>
+<rect x="640" y="107" width="6" height="6" rx="3" fill="#2F5BD3" opacity="0.47"/>
+<rect x="652" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.50"/>
+<rect x="664" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.54"/>
+<rect x="694" y="107" width="10" height="6" rx="3" fill="#2F5BD3" opacity="0.63"/>
+<rect x="706" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.66"/>
+<rect x="718" y="107" width="10" height="6" rx="3" fill="#2F5BD3" opacity="0.70"/>
+<rect x="730" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.73"/>
+<rect x="746" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.78"/>
+<rect x="776" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.87"/>
+<rect x="792" y="107" width="4" height="6" rx="3" fill="#2F5BD3" opacity="0.92"/>
+<rect x="808" y="107" width="6" height="6" rx="3" fill="#2F5BD3" opacity="0.96"/>
+<path d="M826,110 C850,110 860,190 890,190" fill="none" stroke="#AEB8C6" stroke-width="1.2" opacity="0.8"/>
+<rect x="600" y="147" width="4" height="6" rx="3" fill="#0E8487" opacity="0.35"/>
+<rect x="612" y="147" width="6" height="6" rx="3" fill="#0E8487" opacity="0.39"/>
+<rect x="628" y="147" width="4" height="6" rx="3" fill="#0E8487" opacity="0.43"/>
+<rect x="644" y="147" width="6" height="6" rx="3" fill="#0E8487" opacity="0.48"/>
+<rect x="656" y="147" width="4" height="6" rx="3" fill="#0E8487" opacity="0.52"/>
+<rect x="668" y="147" width="4" height="6" rx="3" fill="#0E8487" opacity="0.55"/>
+<rect x="698" y="147" width="10" height="6" rx="3" fill="#0E8487" opacity="0.64"/>
+<rect x="720" y="147" width="10" height="6" rx="3" fill="#0E8487" opacity="0.70"/>
+<rect x="750" y="147" width="6" height="6" rx="3" fill="#0E8487" opacity="0.79"/>
+<rect x="772" y="147" width="4" height="6" rx="3" fill="#0E8487" opacity="0.86"/>
+<rect x="788" y="147" width="4" height="6" rx="3" fill="#0E8487" opacity="0.91"/>
+<rect x="800" y="147" width="6" height="6" rx="3" fill="#0E8487" opacity="0.94"/>
+<path d="M826,150 C850,150 860,190 890,190" fill="none" stroke="#AEB8C6" stroke-width="1.2" opacity="0.8"/>
+<rect x="600" y="187" width="6" height="6" rx="3" fill="#7A4FC8" opacity="0.35"/>
+<rect x="630" y="187" width="6" height="6" rx="3" fill="#7A4FC8" opacity="0.44"/>
+<rect x="642" y="187" width="4" height="6" rx="3" fill="#7A4FC8" opacity="0.47"/>
+<rect x="672" y="187" width="4" height="6" rx="3" fill="#7A4FC8" opacity="0.56"/>
+<rect x="694" y="187" width="4" height="6" rx="3" fill="#7A4FC8" opacity="0.63"/>
+<rect x="724" y="187" width="10" height="6" rx="3" fill="#7A4FC8" opacity="0.72"/>
+<rect x="736" y="187" width="4" height="6" rx="3" fill="#7A4FC8" opacity="0.75"/>
+<rect x="758" y="187" width="6" height="6" rx="3" fill="#7A4FC8" opacity="0.82"/>
+<rect x="780" y="187" width="10" height="6" rx="3" fill="#7A4FC8" opacity="0.88"/>
+<rect x="810" y="187" width="4" height="6" rx="3" fill="#7A4FC8" opacity="0.97"/>
+<path d="M826,190 C850,190 860,190 890,190" fill="none" stroke="#AEB8C6" stroke-width="1.2" opacity="0.8"/>
+<rect x="600" y="227" width="6" height="6" rx="3" fill="#B0457A" opacity="0.35"/>
+<rect x="630" y="227" width="4" height="6" rx="3" fill="#B0457A" opacity="0.44"/>
+<rect x="642" y="227" width="6" height="6" rx="3" fill="#B0457A" opacity="0.47"/>
+<rect x="672" y="227" width="6" height="6" rx="3" fill="#B0457A" opacity="0.56"/>
+<rect x="702" y="227" width="6" height="6" rx="3" fill="#B0457A" opacity="0.65"/>
+<rect x="714" y="227" width="10" height="6" rx="3" fill="#B0457A" opacity="0.69"/>
+<rect x="736" y="227" width="4" height="6" rx="3" fill="#B0457A" opacity="0.75"/>
+<rect x="748" y="227" width="10" height="6" rx="3" fill="#B0457A" opacity="0.79"/>
+<rect x="760" y="227" width="4" height="6" rx="3" fill="#B0457A" opacity="0.82"/>
+<rect x="782" y="227" width="4" height="6" rx="3" fill="#B0457A" opacity="0.89"/>
+<rect x="798" y="227" width="10" height="6" rx="3" fill="#B0457A" opacity="0.94"/>
+<path d="M826,230 C850,230 860,190 890,190" fill="none" stroke="#AEB8C6" stroke-width="1.2" opacity="0.8"/>
+<rect x="600" y="267" width="10" height="6" rx="3" fill="#0E8487" opacity="0.35"/>
+<rect x="612" y="267" width="4" height="6" rx="3" fill="#0E8487" opacity="0.39"/>
+<rect x="642" y="267" width="10" height="6" rx="3" fill="#0E8487" opacity="0.47"/>
+<rect x="664" y="267" width="4" height="6" rx="3" fill="#0E8487" opacity="0.54"/>
+<rect x="694" y="267" width="6" height="6" rx="3" fill="#0E8487" opacity="0.63"/>
+<rect x="724" y="267" width="6" height="6" rx="3" fill="#0E8487" opacity="0.72"/>
+<rect x="754" y="267" width="4" height="6" rx="3" fill="#0E8487" opacity="0.80"/>
+<rect x="770" y="267" width="4" height="6" rx="3" fill="#0E8487" opacity="0.85"/>
+<rect x="786" y="267" width="4" height="6" rx="3" fill="#0E8487" opacity="0.90"/>
+<rect x="802" y="267" width="4" height="6" rx="3" fill="#0E8487" opacity="0.95"/>
+<rect x="814" y="267" width="10" height="6" rx="3" fill="#0E8487" opacity="0.98"/>
+<path d="M826,270 C850,270 860,190 890,190" fill="none" stroke="#AEB8C6" stroke-width="1.2" opacity="0.8"/>
+<line x1="950" y1="112" x2="1040" y2="180" stroke="#AEB8C6" stroke-width="2"/>
+<line x1="1040" y1="180" x2="1140" y2="110" stroke="#AEB8C6" stroke-width="2"/>
+<line x1="1040" y1="180" x2="1085" y2="272" stroke="#AEB8C6" stroke-width="2"/>
+<line x1="955" y1="262" x2="1085" y2="272" stroke="#AEB8C6" stroke-width="2"/>
+<line x1="1040" y1="180" x2="1200" y2="205" stroke="#AEB8C6" stroke-width="2"/>
+<line x1="950" y1="112" x2="955" y2="262" stroke="#AEB8C6" stroke-width="2"/>
+<line x1="1085" y1="272" x2="1195" y2="312" stroke="#B8721A" stroke-width="2" stroke-dasharray="6 5"/>
+<circle cx="1085" cy="272" r="24" fill="none" stroke="#B8721A" stroke-width="1.6" stroke-dasharray="6 5"/>
+<circle cx="950" cy="112" r="20" fill="#2F5BD3" opacity="0.14"/>
+<circle cx="950" cy="112" r="13" fill="#2F5BD3" stroke="#EEF1F5" stroke-width="3"/>
+<circle cx="1040" cy="180" r="22" fill="#0E8487" opacity="0.14"/>
+<circle cx="1040" cy="180" r="15" fill="#0E8487" stroke="#EEF1F5" stroke-width="3"/>
+<circle cx="1140" cy="110" r="18" fill="#7A4FC8" opacity="0.14"/>
+<circle cx="1140" cy="110" r="11" fill="#7A4FC8" stroke="#EEF1F5" stroke-width="3"/>
+<circle cx="1085" cy="272" r="20" fill="#B0457A" opacity="0.14"/>
+<circle cx="1085" cy="272" r="13" fill="#B0457A" stroke="#EEF1F5" stroke-width="3"/>
+<circle cx="955" cy="262" r="18" fill="#2F5BD3" opacity="0.14"/>
+<circle cx="955" cy="262" r="11" fill="#2F5BD3" stroke="#EEF1F5" stroke-width="3"/>
+<circle cx="1200" cy="205" r="17" fill="#7A4FC8" opacity="0.14"/>
+<circle cx="1200" cy="205" r="10" fill="#7A4FC8" stroke="#EEF1F5" stroke-width="3"/>
+<circle cx="1205" cy="314" r="15" fill="#B8721A" fill-opacity="0.14" stroke="#B8721A" stroke-width="2" stroke-dasharray="5 4"/>
+<text x="1205" y="284" font-family="-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif" font-size="14" font-weight="600" text-anchor="middle" fill="#B8721A">ships late · p 0.81</text>
+</svg>

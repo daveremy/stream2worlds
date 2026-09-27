@@ -1,0 +1,1608 @@
+<title>Stream2Worlds</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EEF1F5; --surface:#FFFFFF; --surface-2:#F6F8FB; --ink:#16202E; --muted:#5B6778; --faint:#8A95A5;
+  --line:#D6DDE7; --line-strong:#AEB8C6;
+  --actual:#2F5BD3; --fork:#B8721A; --ok:#2E8B57; --bad:#C0453A; --prune:#8A95A5;
+  --t-customer:#2F5BD3; --t-cart:#0E8487; --t-product:#7A4FC8; --t-order:#B0457A; --t-address:#5B6778; --t-none:#9AA4B2;
+  --slow:#4B5A70;
+  --display:"Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --serif:"Source Serif 4", Georgia, "Times New Roman", serif;
+  --mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0D1219; --surface:#141B26; --surface-2:#18212E; --ink:#E4E9F1; --muted:#95A1B3; --faint:#6D7A8D;
+    --line:#243042; --line-strong:#3A485D;
+    --actual:#7C9CFF; --fork:#E3A451; --ok:#5CC08A; --bad:#EE7A6E; --prune:#6D7A8D;
+    --t-customer:#7C9CFF; --t-cart:#3FC2C2; --t-product:#B08CF2; --t-order:#E57FB0; --t-address:#9AA7BA; --t-none:#5E6B7E;
+    --slow:#A9B6C9;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0D1219; --surface:#141B26; --surface-2:#18212E; --ink:#E4E9F1; --muted:#95A1B3; --faint:#6D7A8D;
+  --line:#243042; --line-strong:#3A485D;
+  --actual:#7C9CFF; --fork:#E3A451; --ok:#5CC08A; --bad:#EE7A6E; --prune:#6D7A8D;
+  --t-customer:#7C9CFF; --t-cart:#3FC2C2; --t-product:#B08CF2; --t-order:#E57FB0; --t-address:#9AA7BA; --t-none:#5E6B7E;
+  --slow:#A9B6C9;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--serif);font-size:17px;line-height:1.6;padding-inline:16px;padding-block:0 64px}
+svg text:not([fill]){fill:currentColor}
+.wrap{max-width:1200px;margin:0 auto}
+.prose{max-width:68ch}
+h1,h2,h3,.ui{font-family:var(--display)}
+h1{font-size:clamp(40px,6vw,64px);line-height:1.02;letter-spacing:-0.02em;margin:0;font-weight:700;text-wrap:balance}
+h2{font-size:26px;line-height:1.2;margin:0 0 12px;letter-spacing:-0.01em;text-wrap:balance}
+h3{font-size:17px;margin:0 0 4px}
+p{margin:0 0 14px}
+code,.mono{font-family:var(--mono);font-size:0.86em}
+a{color:var(--actual)}
+.eyebrow{font-family:var(--display);font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+header.hero{padding-block:48px 28px;display:grid;gap:14px}
+.lede{font-size:21px;line-height:1.45;max-width:40ch;margin:0;color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;font-family:var(--display);font-size:13px;color:var(--muted);align-items:center}
+.legend span{display:inline-flex;align-items:center;gap:8px}
+.sw{width:28px;height:0;border-top:2px solid var(--actual)}
+.sw.fork{border-top:2px dashed var(--fork)}
+section{padding-block:36px 8px}
+section + section{border-top:1px solid var(--line)}
+
+/* ---------- mockup ---------- */
+.mock{background:var(--surface);border:1px solid var(--line);border-radius:10px;display:grid;overflow:hidden;
+  grid-template-columns:minmax(230px,270px) minmax(0,1fr) minmax(250px,290px);
+  grid-template-areas:"ticker head side" "ticker world side" "ticker ctrl side" "lanes lanes lanes";grid-template-rows:auto 1fr auto auto;}
+.m-head{grid-area:head;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line);font-family:var(--display);font-size:13px;color:var(--muted)}
+.m-head b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;background:var(--surface-2);color:var(--ink)}
+.chip.unknown{color:var(--muted);border-style:dashed}
+.m-world{grid-area:world;position:relative;min-height:460px;background:var(--surface)}
+#world{position:absolute;inset:0;display:block;width:100%;height:100%;cursor:pointer}
+.m-ctrl{grid-area:ctrl;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;border-top:1px solid var(--line);font-family:var(--display);font-size:13px}
+button{font-family:var(--display);font-size:13px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line-strong);border-radius:6px;padding:5px 11px;cursor:pointer;min-height:30px}
+button:hover{border-color:var(--actual)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--actual);outline-offset:2px}
+button.primary{background:var(--actual);border-color:var(--actual);color:var(--surface);font-weight:600;min-width:72px}
+#scrub{flex:1 1 180px;accent-color:var(--actual);min-width:120px}
+.off-read{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px}
+label.tog{display:inline-flex;gap:6px;align-items:center;color:var(--muted);cursor:pointer}
+label.tog input{accent-color:var(--fork)}
+
+.m-ticker{grid-area:ticker;border-right:1px solid var(--line);position:relative;min-height:0;background:var(--surface-2)}
+.panel-h{font-family:var(--display);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:12px 14px 8px;display:flex;justify-content:space-between;gap:8px}
+#ticker{list-style:none;margin:0;padding:0 8px 10px;overflow-y:auto;position:absolute;top:38px;bottom:0;left:0;right:0}
+#ticker li{padding:7px 8px;border-radius:6px;border:1px solid transparent;margin-bottom:4px;font-family:var(--mono);font-size:11.5px;line-height:1.45}
+#ticker li.now{border-color:var(--line-strong);background:var(--surface)}
+#ticker li.slow{border:1px dashed var(--line-strong)}
+.ev-top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.ev-off{color:var(--faint);font-variant-numeric:tabular-nums}
+.ev-type{color:var(--ink);font-weight:500}
+.ev-stream{color:var(--muted)}
+.ev-data{color:var(--faint);word-break:break-word}
+.ev-enr{color:var(--muted);margin-top:2px}
+.ev-enr .fx-fork{color:var(--fork)}
+.ev-enr .fx-ok{color:var(--ok)}
+.ev-enr .fx-bad{color:var(--bad)}
+.ev-enr .fx-sub{color:var(--actual)}
+.tag{font-family:var(--display);font-size:10px;letter-spacing:0.06em;text-transform:uppercase;border-radius:4px;padding:0 5px;border:1px solid var(--line-strong);color:var(--muted)}
+.tag.slow{color:var(--slow);border-style:dashed}
+.tag.rep{color:var(--ink);border-color:var(--ink)}
+.ev-rep{color:var(--ink);margin-top:2px}
+.ev-asrec{color:var(--faint);font-size:10px;letter-spacing:0.04em;text-transform:uppercase;font-family:var(--display)}
+.health{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px;font-family:var(--display)}
+.health div{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+.health b{display:block;font-size:17px;font-variant-numeric:tabular-nums}
+.health span{font-size:11px;color:var(--muted)}
+.inbox{list-style:none;margin:0;padding:0;display:grid;gap:8px;font-family:var(--display);font-size:12.5px}
+.inbox li{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px 10px;display:grid;gap:5px}
+.inbox .who{font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600;color:var(--slow)}
+.inbox .done{color:var(--ok)}
+.inbox button{justify-self:start;font-size:12px;min-height:26px;padding:3px 9px}
+
+.m-side{grid-area:side;border-left:1px solid var(--line);display:flex;flex-direction:column;min-width:0;background:var(--surface-2)}
+.m-side .block{padding:0 14px 14px;border-bottom:1px solid var(--line)}
+.m-side .block:last-child{border-bottom:0}
+.subs{list-style:none;margin:0;padding:0;display:grid;gap:8px;font-family:var(--display);font-size:13px}
+.subs li{display:grid;gap:2px}
+.scope{font-size:10.5px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600}
+.scope.raw{color:var(--muted)} .scope.actual{color:var(--actual)} .scope.fork{color:var(--fork)}
+.fired{list-style:none;margin:8px 0 0;padding:0;font-family:var(--mono);font-size:11px;color:var(--muted);display:grid;gap:4px;max-height:130px;overflow-y:auto}
+.fired li b{color:var(--ink);font-weight:500}
+.score{width:100%;border-collapse:collapse;font-family:var(--display);font-size:12.5px;font-variant-numeric:tabular-nums}
+.score th{font-weight:500;color:var(--muted);text-align:right;padding:3px 4px;font-size:11px}
+.score th:first-child,.score td:first-child{text-align:left}
+.score td{text-align:right;padding:3px 4px;border-top:1px solid var(--line)}
+.c-ok{color:var(--ok)} .c-bad{color:var(--bad)} .c-pr{color:var(--prune)} .c-open{color:var(--fork)}
+#inspector{font-family:var(--display);font-size:13px}
+#inspector .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:6px 0 10px}
+#inspector .kv dt{color:var(--muted)} #inspector .kv dd{margin:0;font-variant-numeric:tabular-nums}
+#inspector .hint{color:var(--muted);font-family:var(--serif);font-size:14px}
+#inspector .btns{display:flex;flex-wrap:wrap;gap:6px}
+#inspector .typebadge{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+
+.m-lanes{grid-area:lanes;border-top:1px solid var(--line);padding:4px 14px 12px;overflow-x:auto}
+#lanes{display:block;width:100%;font-family:var(--display)}
+#lanes .lbl{font-size:11.5px}
+#lanes .axis{font-size:10px;fill:var(--faint);font-family:var(--mono)}
+#lanes .row:hover rect.hit{fill:var(--surface-2)}
+.lanes-empty{font-family:var(--display);font-size:13px;color:var(--muted);padding:8px 0}
+
+@media (max-width: 1000px){
+  .mock{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "world" "ctrl" "lanes" "ticker" "side"}
+  .m-ticker{border-right:0;border-top:1px solid var(--line)}
+  #ticker{position:static;max-height:360px}
+  .m-side{border-left:0;border-top:1px solid var(--line)}
+  .m-world{min-height:360px}
+}
+
+.watch{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:18px 0 22px}
+.watch button{text-align:left;display:grid;gap:4px;padding:10px 12px;background:var(--surface);font-family:var(--serif);font-size:14.5px;line-height:1.4;border-color:var(--line)}
+.watch button .mono{font-size:11.5px;color:var(--muted)}
+.watch button strong{font-family:var(--display);font-size:14px}
+
+.ideas{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:26px 36px;margin-top:10px}
+.ideas p{font-size:16px;margin:0}
+.ideas h3{font-size:18px;margin-bottom:6px}
+.diagram{overflow-x:auto;margin:18px 0 6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px}
+.diagram svg{display:block;min-width:780px;width:100%;height:auto;color:var(--ink);font-family:var(--display)}
+pre{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:14px 16px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.55;margin:14px 0}
+.tbl{overflow-x:auto;margin:10px 0}
+table.q{border-collapse:collapse;width:100%;min-width:640px;font-size:15px}
+table.q th{font-family:var(--display);font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line-strong)}
+table.q td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.q td:first-child{font-family:var(--display);font-weight:600;font-size:14.5px}
+ol.slice{padding-left:1.3em;display:grid;gap:10px;max-width:74ch}
+ol.slice li::marker{font-family:var(--display);font-weight:700;color:var(--muted)}
+ol.slice .done{display:block;color:var(--muted);font-size:15px}
+.lineage{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;margin-top:8px}
+.lineage div{border-top:2px solid var(--line-strong);padding-top:10px}
+.lineage .nm{font-family:var(--mono);font-size:14px;font-weight:500}
+.lineage .lang{font-family:var(--display);font-size:12px;color:var(--muted)}
+.lineage p{font-size:15px;margin:6px 0 0}
+
+.sub{font-size:16.5px;color:var(--muted);max-width:60ch;margin:0}
+.triad{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:6px}
+.triad div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.triad .eyebrow{color:var(--actual)}
+.triad div:nth-child(2) .eyebrow{color:var(--fork)}
+.triad div:nth-child(3) .eyebrow{color:var(--ok)}
+.triad p{font-size:15.5px;margin:6px 0 0}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.metrics div{border-top:2px solid var(--actual);padding-top:8px}
+.metrics b{display:block;font-family:var(--display);font-size:22px;letter-spacing:-0.01em;font-variant-numeric:tabular-nums}
+.metrics span{font-family:var(--display);font-size:13px;color:var(--muted)}
+.crates{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px}
+.crates span{font-family:var(--mono);font-size:12.5px;border:1px solid var(--line-strong);border-radius:4px;padding:2px 8px;background:var(--surface)}
+.streams{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:6px}
+.streams > div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+.streams h3{font-size:19px;margin:4px 0 6px}
+.streams p{font-size:15px;margin:0 0 10px}
+.streams dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-family:var(--display);font-size:13px}
+.streams dt{color:var(--muted)} .streams dd{margin:0}
+.critic{display:grid;gap:14px;margin-top:10px;max-width:80ch}
+.critic > div{border-left:3px solid var(--line-strong);padding-left:14px}
+.critic > div.sev-high{border-left-color:var(--bad)}
+.critic > div.sev-med{border-left-color:var(--fork)}
+.critic h3{font-size:16.5px;margin:0 0 4px}
+.critic p{font-size:15.5px;margin:0 0 4px}
+.critic .resp{color:var(--muted)}
+.critic .src{font-family:var(--display);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)}
+.callout{background:var(--surface);border:1px solid var(--line-strong);border-radius:10px;padding:14px 18px;margin-top:18px;max-width:80ch}
+.callout p{font-size:15.5px;margin:0 0 6px}
+.callout p:last-child{margin:0}
+ul.pm{padding-left:1.2em;margin:0;display:grid;gap:4px;font-size:15.5px}
+.vizgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:8px}
+.vizgrid figure{margin:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.vizgrid svg{display:block;width:100%;height:auto;max-height:140px;color:var(--ink);font-family:var(--display)}
+.vizgrid figcaption{font-size:14.5px;line-height:1.45;margin-top:8px}
+footer{margin-top:40px;font-family:var(--display);font-size:13px;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">An experiment · 27 Sep 2026 · working name S2W · open source if it flies</div>
+  <h1>Stream2Worlds</h1>
+  <p class="lede">Point it at any stream, tidy or not. In minutes, see your organization as a living world: what is true now, what is probably coming, and what to do about it.</p>
+  <p class="sub">Status: playing. Everything below is a hypothesis, held lightly. A System 1 reads every event in milliseconds. A System 2 reasons in the background and teaches it. Every prediction is a fork of the world, and reality grades every fork.</p>
+  <div class="legend">
+    <span><i class="sw"></i>what happened (the actual world)</span>
+    <span><i class="sw fork"></i>what might happen (possible worlds)</span>
+  </div>
+</header>
+
+<section id="mockup" style="padding-top:8px">
+  <div class="mock" id="mock">
+    <div class="m-head">
+      <span id="domainChip" class="chip unknown">domain: unknown</span>
+      <span>offset <b id="stOff">#0000</b></span>
+      <span><b id="stEnt">0</b> entities</span>
+      <span><b id="stRel">0</b> relationships</span>
+      <span><b id="stFork">0</b> open worlds</span>
+    </div>
+    <div class="m-world"><canvas id="world" aria-label="World model graph: entities and relationships, with predicted possible worlds drawn dashed"></canvas></div>
+    <div class="m-ctrl">
+      <button id="btnBack" aria-label="Step back one event">◀</button>
+      <button id="btnPlay" class="primary">Pause</button>
+      <button id="btnFwd" aria-label="Step forward one event">▶</button>
+      <input id="scrub" type="range" min="0" max="46" value="0" aria-label="Scrub through the event log">
+      <span class="off-read" id="offRead">#0000</span>
+      <button id="btnSpeed">1×</button>
+      <label class="tog"><input type="checkbox" id="togForks" checked> possible worlds</label>
+    </div>
+    <div class="m-ticker">
+      <div class="panel-h"><span>Event stream</span><span>newest first</span></div>
+      <ul id="ticker"></ul>
+    </div>
+    <div class="m-side">
+      <div class="block">
+        <div class="panel-h" style="padding-inline:0">Subscriptions</div>
+        <ul class="subs" id="subs"></ul>
+        <ul class="fired" id="fired"></ul>
+      </div>
+      <div class="block">
+        <div class="panel-h" style="padding-inline:0">Stream health</div>
+        <div class="health" id="health"></div>
+        <ul class="inbox" id="inbox"></ul>
+      </div>
+      <div class="block">
+        <div class="panel-h" style="padding-inline:0">Reality's scorecard</div>
+        <table class="score" id="score"></table>
+      </div>
+      <div class="block">
+        <div class="panel-h" style="padding-inline:0">Inspector</div>
+        <div id="inspector"></div>
+      </div>
+    </div>
+    <div class="m-lanes">
+      <div class="panel-h" style="padding-inline:0"><span>Possible worlds over time</span><span>click a row to inspect · click the axis to scrub</span></div>
+      <div id="lanesBox"></div>
+    </div>
+  </div>
+
+  <div class="prose" style="margin-top:22px">
+    <p>A replay of a small retail stream (synthetic, 47 events, four of them deliberately messy). Timings and latencies are illustrative. Try the buttons in Stream health: connecting a source or approving a mapping re-projects the world on the spot. The world is recomputed from the log at every offset, so scrubbing backwards is exact.</p>
+  </div>
+  <div class="watch" aria-label="Jump to key moments">
+    <button data-jump="8"><span class="mono">#0008</span><strong>Raw ids only</strong>Nodes are whatever <code>*_id</code> fields turn up. No types, no domain.</button>
+    <button data-jump="16"><span class="mono">#0016</span><strong>System 2 names things</strong>An LLM proposal arrives as an event. The world re-projects with types.</button>
+    <button data-jump="21"><span class="mono">#0021</span><strong>A prediction acts</strong>Ben's cart forks to "abandoned" at p .67 and a subscription queues a win-back email.</button>
+    <button data-jump="30"><span class="mono">#0030</span><strong>A real event forks</strong>Ana moves before her order ships. A delivery-risk world opens.</button>
+    <button data-jump="38"><span class="mono">#0038</span><strong>An intervention outcome</strong>Ben comes back from the email and checks out. Without a holdout, nobody can say the email caused it (see the critic pass).</button>
+    <button data-jump="40"><span class="mono">#0040</span><strong>A messy source joins</strong>A second shipping system speaks its own dialect. It is mapped, applied, and queued for your approval.</button>
+  </div>
+</section>
+
+<section id="experiment">
+  <div class="prose">
+    <div class="eyebrow">The experiment</div>
+    <h2>Can any stream become a world in minutes?</h2>
+    <p>Every organization already describes itself in streams: orders, shipments, tickets, sensor readings, database writes, audit logs. Almost nobody reads them as a whole, because turning them into a model of the business has always meant a schema project, an integration project and a data team. Stream2Worlds tests whether that step can be skipped.</p>
+    <p>Point it at a stream it has never seen. <strong>System 1</strong>, fast and cheap, runs on every event. <strong>System 2</strong>, slow and deliberate, reads the world System 1 produces, repairs what it can, and teaches System 1 what it learned. Within minutes, with nothing configured, you should see three things:</p>
+  </div>
+  <div class="triad">
+    <div><span class="eyebrow">Understanding</span><p>A world of entities and relationships, typed and named, built from whatever the stream contains. The stream's mess is repaired in the open, and every repair can be undone.</p></div>
+    <div><span class="eyebrow">Prediction</span><p>Forecasts with probabilities, shown as possible worlds. Every forecast is scored against what actually happens, so every predictor carries a public track record.</p></div>
+    <div><span class="eyebrow">Action</span><p>Rules that fire on the actual world or on any likely one, and act through plugins. If this, then that, across worlds.</p></div>
+  </div>
+  <div class="prose" style="margin-top:26px">
+    <h3 style="font-size:19px;margin-bottom:10px">What would count as success</h3>
+    <p style="font-size:15.5px;color:var(--muted)">The claim under test is narrower than the vision: that System 2 makes an unfamiliar stream useful faster than heuristics alone, and that forecasts can earn trust through a graded record. Targets rewritten after the critic pass; none measured yet.</p>
+  </div>
+  <div class="metrics">
+    <div><b>&lt; 5 min</b><span>from first event to readable evidence: samples, shapes, candidate entities</span></div>
+    <div><b>&lt; 30 min</b><span>to a verified answer to a predefined operational question, failures reported</span></div>
+    <div><b>accuracy, not names</b><span>identity, relationship and state accuracy against owner labels; false merges and abstentions reported apart</span></div>
+    <div><b>correction minutes</b><span>total human time to reach target accuracy, not inbox clicks</span></div>
+    <div><b>Brier skill &gt; 0</b><span>against base rate and a simple contextual baseline, with sample counts and intervals</span></div>
+    <div><b>bounded p99 lag</b><span>under a declared workload, with memory and disk growth; System 2 spend capped, backlog reported</span></div>
+  </div>
+  <p class="prose" style="margin-top:14px;font-size:16px"><strong>And the one that matters:</strong> does someone make a better decision, or save real work, compared with how they do it today?</p>
+</section>
+
+<section id="demos">
+  <div class="prose">
+    <div class="eyebrow">The demo</div>
+    <h2>Thirty seconds that make Hacker News want to try it</h2>
+    <p>This is the full demo, built after the first slice; the launch clip uses its first three beats. The first audience is Hacker News and X, and especially Kafka users: people with a topic full of events and no picture of what is in it. The plan is to open-source it and let it fly if it amounts to anything, so the demo is the product until proven otherwise. It has to be one command, live, on real data, with a moment nobody has seen before.</p>
+  </div>
+  <ol class="slice">
+    <li><code>docker compose up</code> starts Redpanda (the Kafka API) with a live ADS-B feed piped into a topic, then <code>s2w watch kafka://localhost:9092/adsb</code>.<span class="done">Nothing configured, nothing signed up for.</span></li>
+    <li>Within seconds, dots become aircraft on a map and a graph of flights, airlines and airports.<span class="done">Raw ids at first, visibly messy.</span></li>
+    <li>System 2 names it: "air traffic". The world snaps into types, live, and on a split screen the same feed with every field renamed <code>f1…f17</code> and every id hashed snaps into the same types.<span class="done">The headline frame: it is not just remembering ADS-B.</span></li>
+    <li>Ghost worlds appear: dashed arrivals like "UAL1234 → SFO, p 0.81, 14:32 ± 4 min". When it lands, the ghost turns solid and the scorecard ticks, graded across every eligible flight, not the good ones.<span class="done">Needs a verified landing source: OpenSky's arrivals endpoint is a nightly batch, so touchdown is inferred and labelled as such.</span></li>
+    <li>Scrub back an hour and replay a go-around.<span class="done">Time travel, because the world is a replay of the log.</span></li>
+    <li>From Claude, over MCP: "Which flights into SFO are likely late?" The answer comes with evidence and each predictor's track record.<span class="done">The agent story in one question.</span></li>
+    <li>One line of rule DSL on a forecast; the backtest says it would have fired 3 times today.<span class="done">If this, then that, across worlds.</span></li>
+    <li>"Now point it at your own topic."<span class="done">The line the post ends on.</span></li>
+  </ol>
+  <div class="callout" style="margin-bottom:22px">
+    <p><strong>Launch kit.</strong> A 30-second clip built around the split screen (candidate X line: "I renamed every field to f1..f17. It still worked out this was air traffic."), a 10-second second beat where a Debezium CDC topic becomes OrderShipped without configuration (what Kafka users' topics actually look like), a GIF for the README, a public read-only live instance on the ADS-B stream, <code>cargo install s2w</code> and a Docker image, a permissive licence (MIT or Apache-2.0), one supported install path, interfaces marked experimental, and a Show HN post ("point it at an unknown Kafka topic, get a live typed model of what's in it; Rust, runs locally"). Success looks like strangers pointing it at their own Kafka topics, more than stars.</p>
+  </div>
+  <div class="streams">
+    <div>
+      <span class="eyebrow">Build against it</span>
+      <h3>Wikipedia EventStreams</h3>
+      <p>One public SSE URL, no key. Pages, editors, bots and edit wars form a world within seconds.</p>
+      <dl><dt>Predicts</dt><dd>Will this edit be reverted? Is an edit war starting?</dd><dt>Graded</dt><dd>in minutes</dd><dt>Mess</dt><dd>bots, anonymous editors, mixed event shapes</dd></dl>
+    </div>
+    <div>
+      <span class="eyebrow">The headline</span>
+      <h3>Air traffic (ADS-B)</h3>
+      <p>Aircraft, flights, airlines and airports forming on a map, from OpenSky or adsb.lol. Anyone understands it in ten seconds.</p>
+      <dl><dt>Predicts</dt><dd>Arrival airport and time; "late" and "diverted" need schedule data as a side source</dd><dt>Graded</dt><dd>in minutes</dd><dt>Mess</dt><dd>coverage gaps, missing callsigns, duplicate receivers</dd></dl>
+    </div>
+    <div>
+      <span class="eyebrow">Combining streams</span>
+      <h3>Polymarket + GDELT</h3>
+      <p>A prediction market's live prices, with GDELT's global news events as a side source. Your possible worlds, set against the crowd's odds.</p>
+      <dl><dt>Predicts</dt><dd>Price moves after news; market resolution</dd><dt>Graded</dt><dd>minutes (prices) to days (resolution)</dd><dt>Mess</dt><dd>entity matching between news actors and markets</dd></dl>
+    </div>
+  </div>
+  <p class="prose" style="font-size:15px;color:var(--muted);margin-top:14px">Also considered: Bluesky Jetstream (a stress test for fork counts), ship tracking (AIS), transit GTFS-Realtime, live sports, GH Archive. Access details, including Kalshi's WebSocket auth, are to be confirmed before any build. Models have read these streams' public schemas, so naming them proves little: every public demo runs beside an obfuscated copy (renamed fields, hashed ids).</p>
+</section>
+
+<section id="setup">
+  <div class="prose">
+    <div class="eyebrow">Zero-effort setup</div>
+    <h2>Your coding agent sets it up in a minute</h2>
+    <p>The real first touch will not be a person reading docs. It will be someone at a company, coding agent in hand, typing "set up s2w on our orders topic". The agent finds the stream, connects it, and hands back a live world and an MCP connection to it. Nothing to provision, nothing to configure, and nothing sensitive leaves the machine without the user seeing it first. This gets designed first, not bolted on before launch.</p>
+  </div>
+<pre>you&gt;   set up s2w on our orders topic
+
+agent&gt; $ s2w doctor --json
+       kafka   reachable at kafka.staging:9093 · auth SASL/SCRAM via your existing client config
+       topic   orders.v2 · Avro · schema registry reachable · you have READ and DESCRIBE
+
+agent&gt; $ s2w watch kafka://kafka.staging:9093/orders.v2 --lookback 2h
+       reading assigned partitions from 2h ago · no consumer group · commits nothing
+       world   http://localhost:7070   (local; nothing leaves this machine)
+       mcp     s2w is serving read-only MCP; add it with: claude mcp add s2w …
+
+agent&gt; [60 s later, over MCP] world.describe
+       candidate types: Order, Customer, Payment, Shipment (4 unconfirmed) · 2 gaps in the inbox
+
+you&gt;   share it with the team
+agent&gt; $ s2w share --manifest
+       export manifest: topic orders.v2 · 7 allowlisted fields · email, phone → keyed pseudonyms
+       destination s2w.dev · retention 7 days · model provider: your org's approved key
+       (needs your approval in the browser before anything is sent)</pre>
+  <div class="ideas" style="margin-top:16px">
+    <div><h3>Built for agents to drive</h3><p>Every command is non-interactive, idempotent, and has a <code>--json</code> mode. Errors say what to try next. An <code>llms.txt</code>, an AGENTS.md snippet and a Claude Code skill teach the flow, so any coding agent can run it without a human reading the docs.</p></div>
+    <div><h3>Reuse what already works</h3><p><code>s2w doctor</code> names the exact missing piece (unreachable host, ACL denied, no registry credentials) and the one command a human needs to run. It reuses the client config and auth the user already has rather than hunting for secrets, which would trip security tooling. The universal escape hatch: if you can consume the topic with any tool, s2w reads it, as in <code>kcat -C … | s2w watch -</code>.</p></div>
+    <div><h3>Local by default, cloud by manifest</h3><p>Company topics run locally unless someone chooses to share. Sharing binds to an export manifest the user approves (topic, fields, transformations, destination, retention, model provider) and the connector enforces it on every event, quarantining unexpected fields. The connector sends outbound over HTTPS: no inbound ports, no VPN.</p></div>
+    <div><h3>No signup to start</h3><p>Local mode needs no account at all. For public streams, or an approved share, a temporary cloud workspace comes back as a URL. Claiming it needs a login and a separate credential, so possessing the URL is never enough.</p></div>
+    <div><h3>Safe by default</h3><p>No consumer group: s2w assigns partitions, seeks by timestamp and never commits, so it needs only topic READ and fires no lag alerts. A bounded lookback, bandwidth limits and a sample cap protect the broker. Sharing uses field allowlists and keyed pseudonyms, described as pseudonymization, not anonymity. The client agent can act as System 2 itself, so data reaches only a model provider the company already approved.</p></div>
+    <div><h3>Local-first for the open-source crowd</h3><p><code>s2w up --local</code> does everything on the machine, with the UI on localhost and System 2 on any model the user configures. The cloud adds a hosted world, System 2 on our budget, and a share link. Same binary, same world format.</p></div>
+  </div>
+  <p class="prose" style="font-size:15px;color:var(--muted);margin-top:12px">What must work for the magic to hold: JSON, Avro and Protobuf through a registry, and SCRAM, mTLS, MSK IAM and Confluent API keys. Kafka first. Postgres WAL needs a replication slot, which can retain disk on the source if it stalls, so the agent path prefers an existing Debezium topic, and a direct WAL connection stays a deliberate, human-approved step.</p>
+</section>
+
+<section id="why">
+  <div class="prose">
+    <div class="eyebrow">Why this could matter</div>
+    <h2>An organization is its streams</h2>
+    <p>Much of what changes in an organization shows up in its streams. A system that can read them could show an organization to itself, live: few-shot, with no per-event model charge, from any stream, in minutes. Not everything lives in streams (contracts, rates and policies sit in tables and documents, which is what side sources are for), and the first slice tests a much smaller piece of this vision.</p>
+  </div>
+  <div class="ideas">
+    <div><h3>See the business as it is right now</h3><p>A live world instead of yesterday's dashboard. Scrub it backwards to the exact event that changed something, because the world is a replay of the log.</p></div>
+    <div><h3>See what is probably coming</h3><p>Forecasts with a published calibration record, shown as possible worlds. Trust in a predictor is earned from its record rather than asserted.</p></div>
+    <div><h3>Act before it happens</h3><p>Rules on worlds, through action plugins. Act on what happened, or on what is 80% likely to happen, with guard rails that tighten as the stakes rise.</p></div>
+    <div><h3>Start without the integration project</h3><p>No schema, mapping or event catalog to write first. System 2 proposes the model, and the mapping builds up from your answers in the inbox.</p></div>
+    <div><h3>Know what it knew</h3><p>Every repair, inference, forecast and action is an event with its source and confidence. You can replay what the system knew when it acted, and separately what it believes now.</p></div>
+    <div><h3>Could work for anyone with streams</h3><p>A retailer's orders, a city's 311 calls and transit feeds, a utility's grid sensors, an airline's operations. The first tests use public streams.</p></div>
+  </div>
+  <div class="prose" style="margin-top:30px">
+    <h3 style="font-size:19px;margin-bottom:10px">The cloud path, and the enterprise version of it</h3>
+    <p>The default path is the agent-driven setup above: an outbound connector and a temporary cloud workspace. For a company that wants more than a trial, setup should still take minutes; a customer's security review sets the real timeline. A hosted instance joins the customer's network over Tailscale, so it can read an internal stream without opening an inbound port, and their security team can scope and revoke what it reaches. Tailscale limits reach; it does not keep data inside their network. Where data cannot leave, the same Rust binary runs on their hardware, with System 2 pointed at a local or approved model.</p>
+  </div>
+  <ol class="slice">
+    <li>Sign up and get a private Stream2Worlds instance.<span class="done">Nothing to install yet.</span></li>
+    <li>Add the instance to your tailnet with one command, or run the binary on-prem.<span class="done">No inbound ports, no VPN project.</span></li>
+    <li>Paste a stream address: a Kafka topic, a Postgres connection, a webhook, a KurrentDB stream.<span class="done">The world starts forming while you watch.</span></li>
+  </ol>
+</section>
+
+<section id="why-now">
+  <div class="prose">
+    <div class="eyebrow">Why now</div>
+    <h2>Decision models make System 1 possible</h2>
+    <p>PredictStream hit a wall that no amount of engineering could fix: understanding an event meant calling an LLM, and an LLM takes seconds and costs money per event. The alternatives were fast but blind: rules someone had to write, or classical models trained per stream on labels nobody had. You could have speed or semantics, not both.</p>
+    <p>A new class of model changes that trade. Decision models such as TypeSafe's Jev take natural language and application state and return typed judgments with probabilities, built to be called like a function rather than chatted with. If they deliver on that at stream speed and stream cost, semantic understanding moves into the hot path for the first time. That is System 1, and it is the piece PredictStream was missing. Around it, the other pieces have also arrived: LLMs good enough to propose a domain model from a sample (System 2, amortized across millions of events), MCP as a standard way for agents to consume a world, and a Rust ecosystem that makes a single fast binary practical.</p>
+  </div>
+  <div class="ideas" style="margin-top:6px">
+    <div><h3>What a decision model does in S2W</h3><p>The per-event judgments rules cannot make and LLMs are too slow for: which entity this event is about when ids are missing, what kind of event a free-text log line is, whether this change looks like the start of an abandonment, whether two records are the same customer. Each one is a typed question with a probability, logged as an event, so it can be graded and replayed.</p></div>
+    <div><h3>In theory, so measured in practice</h3><p>Nobody has measured Jev's latency, cost or accuracy on these questions yet, and more models of this kind are coming fast. That is why System 1 is a seam with a built-in bake-off. If decision models deliver, S2W feels like magic. If they do not yet, rules and embeddings still carry it, just less impressively, and the scorecard shows exactly when a new model crosses the line.</p></div>
+  </div>
+</section>
+
+<section id="visualizing">
+  <div class="prose">
+    <div class="eyebrow">The dashboard</div>
+    <h2>Seeing possible worlds</h2>
+    <p>Agents will do most of the reading, but people decide whether to trust the thing, and people trust what they can see. Visualizing forecasts is its own design problem: show the future without pretending to know it, stay readable with hundreds of forecasts, and make the moment reality arrives feel like something. One grammar runs through all of it: solid is what happened, dashed ochre is what might, weight and opacity carry probability, and dash patterns back up colour so nothing depends on colour alone.</p>
+  </div>
+  <div class="vizgrid">
+    <figure>
+      <svg viewBox="0 0 240 120" role="img" aria-label="Ghost overlay sketch">
+        <line x1="60" y1="70" x2="130" y2="50" style="stroke:var(--line-strong)" stroke-width="2"/>
+        <circle cx="60" cy="70" r="11" style="fill:var(--t-customer)"/><circle cx="130" cy="50" r="11" style="fill:var(--t-cart)"/>
+        <line x1="130" y1="50" x2="190" y2="82" style="stroke:var(--fork);fill:none" stroke-width="1.8" stroke-dasharray="5 4"/>
+        <circle cx="190" cy="82" r="12" style="fill:var(--surface-2);stroke:var(--fork)" stroke-width="1.8" stroke-dasharray="4 3"/>
+        <text x="190" y="108" font-size="11" text-anchor="middle" style="fill:var(--fork)">abandoned · p .72</text>
+      </svg>
+      <figcaption><strong>Ghost overlay.</strong> A forecast drawn as a translucent, dashed future state beside the entity. Best for a handful at a time; it is what the mockup does.</figcaption>
+    </figure>
+    <figure>
+      <svg viewBox="0 0 240 120" role="img" aria-label="Risk weather map sketch">
+        <circle cx="50" cy="50" r="22" style="fill:var(--fork)" opacity="0.45"/><circle cx="50" cy="50" r="8" style="fill:var(--t-order)"/>
+        <circle cx="110" cy="78" r="14" style="fill:var(--fork)" opacity="0.2"/><circle cx="110" cy="78" r="8" style="fill:var(--t-order)"/>
+        <circle cx="160" cy="40" r="26" style="fill:var(--fork)" opacity="0.7"/><circle cx="160" cy="40" r="8" style="fill:var(--t-order)"/>
+        <circle cx="205" cy="85" r="10" style="fill:var(--fork)" opacity="0.1"/><circle cx="205" cy="85" r="8" style="fill:var(--t-order)"/>
+        <line x1="50" y1="50" x2="110" y2="78" style="stroke:var(--line-strong)"/><line x1="110" y1="78" x2="160" y2="40" style="stroke:var(--line-strong)"/><line x1="160" y1="40" x2="205" y2="85" style="stroke:var(--line-strong)"/>
+      </svg>
+      <figcaption><strong>Risk weather map.</strong> With hundreds of forecasts, ghosts give way to heat: each entity's halo shows its riskiest open forecast. The business as a weather map.</figcaption>
+    </figure>
+    <figure>
+      <svg viewBox="0 0 240 120" role="img" aria-label="Cone of uncertainty sketch">
+        <polygon points="120,58 225,20 225,100" style="fill:var(--fork)" opacity="0.18"/>
+        <polygon points="120,58 225,38 225,80" style="fill:var(--fork)" opacity="0.25"/>
+        <polyline points="15,78 40,70 65,74 90,62 120,58" style="stroke:var(--actual);fill:none" stroke-width="2.2"/>
+        <line x1="120" y1="58" x2="225" y2="56" style="stroke:var(--fork);fill:none" stroke-width="1.6" stroke-dasharray="5 4"/>
+        <line x1="120" y1="12" x2="120" y2="108" style="stroke:var(--ink)" stroke-width="1"/>
+        <text x="116" y="112" font-size="10" text-anchor="end" style="fill:var(--muted)">now</text>
+      </svg>
+      <figcaption><strong>Cone of uncertainty.</strong> For an entity or a metric: the solid line is history, the fan is the forecast, widening with horizon like a hurricane track. As time passes the cone collapses into the line.</figcaption>
+    </figure>
+    <figure>
+      <svg viewBox="0 0 240 120" role="img" aria-label="Scrub past now sketch">
+        <line x1="20" y1="60" x2="120" y2="60" style="stroke:var(--actual)" stroke-width="5" stroke-linecap="round"/>
+        <line x1="120" y1="60" x2="222" y2="60" style="stroke:var(--fork);fill:none" stroke-width="5" stroke-dasharray="7 5" stroke-linecap="round"/>
+        <circle cx="120" cy="60" r="9" style="fill:var(--surface);stroke:var(--ink)" stroke-width="2"/>
+        <text x="60" y="40" font-size="11" text-anchor="middle" style="fill:var(--actual)">replay · exact</text>
+        <text x="180" y="40" font-size="11" text-anchor="middle" style="fill:var(--fork)">imagine · probable</text>
+        <text x="120" y="90" font-size="11" text-anchor="middle" style="fill:var(--muted)">now</text>
+      </svg>
+      <figcaption><strong>Scrub past now.</strong> The same scrubber that replays history keeps going into the future. Past the "now" line the world morphs into its most likely next state, entities fading by probability. Backward is exact; forward is imagined.</figcaption>
+    </figure>
+    <figure>
+      <svg viewBox="0 0 240 120" role="img" aria-label="World lanes sketch">
+        <line x1="20" y1="26" x2="120" y2="26" style="stroke:var(--ok)" stroke-width="5" stroke-linecap="round"/>
+        <line x1="50" y1="46" x2="150" y2="46" style="stroke:var(--bad)" stroke-width="5" stroke-linecap="round"/>
+        <line x1="80" y1="66" x2="120" y2="66" style="stroke:var(--prune)" stroke-width="5" stroke-linecap="round"/>
+        <line x1="100" y1="86" x2="205" y2="86" style="stroke:var(--fork);fill:none" stroke-width="5" stroke-dasharray="6 4" stroke-linecap="round"/>
+        <path d="M100,26 L100,86" style="stroke:var(--line-strong);fill:none" stroke-dasharray="2 2"/>
+        <line x1="205" y1="12" x2="205" y2="108" style="stroke:var(--actual)" stroke-width="1.4"/>
+      </svg>
+      <figcaption><strong>World lanes.</strong> A git graph of worlds: each forecast is a lane from issuance to verdict, green confirmed, red refuted, grey pruned, dashed still open, with nested worlds branching off their parents. Also in the mockup.</figcaption>
+    </figure>
+    <figure>
+      <svg viewBox="0 0 240 120" role="img" aria-label="Live calibration sketch">
+        <rect x="70" y="10" width="100" height="100" style="fill:none;stroke:var(--line)"/>
+        <line x1="70" y1="110" x2="170" y2="10" style="stroke:var(--line-strong)" stroke-dasharray="3 3"/>
+        <circle cx="82" cy="100" r="3" style="fill:var(--actual)"/><circle cx="96" cy="88" r="5" style="fill:var(--actual)"/>
+        <circle cx="112" cy="64" r="6" style="fill:var(--actual)"/><circle cx="130" cy="54" r="4" style="fill:var(--actual)"/>
+        <circle cx="148" cy="30" r="5" style="fill:var(--actual)"/><circle cx="162" cy="22" r="3" style="fill:var(--actual)"/>
+        <text x="120" y="120" font-size="9.5" text-anchor="middle" style="fill:var(--muted)">forecast p → observed rate</text>
+      </svg>
+      <figcaption><strong>Live calibration.</strong> Reality grading, made visible: a reliability chart whose dots settle onto the diagonal (or don't) as outcomes arrive, sized by sample count, per predictor and per engine.</figcaption>
+    </figure>
+  </div>
+  <div class="ideas" style="margin-top:18px">
+    <div><h3>The collapse is the signature moment</h3><p>When reality arrives, the ghost turns solid (confirmed) or shatters (refuted), and the cone snaps to the line. A confident forecast that reality contradicts flashes as a surprise. That animation is what people will remember and clip.</p></div>
+    <div><h3>Diff two worlds</h3><p>Pick a possible world and see it onion-skinned over the actual one: which entities change state, which links appear, what it would cost. The same diff is what an agent gets from <code>explain</code>.</p></div>
+    <div><h3>Native views per domain</h3><p>On a map, a forecast arrival is a dashed arc ending in a time-window ellipse; for state machines, a flow diagram shows how many carts are forecast to reach checkout versus abandonment, with bands.</p></div>
+    <div><h3>Level of detail, always</h3><p>Zoomed out: heat and counts. Zoomed in: ghosts, cones and evidence. No branch is ever drawn without its forecast record one click away: probability, predictor, track record.</p></div>
+  </div>
+</section>
+
+<section id="decisions">
+  <div class="prose">
+    <div class="eyebrow">The design</div>
+    <h2>Seven decisions that make it work</h2>
+    <p>PredictStream was a pipeline of phases: ingest, identify, predict, act. Identify mattered most, and the LLM agents in it were too slow for a stream. These decisions keep what worked and remove what didn't.</p>
+  </div>
+  <div class="ideas">
+    <div><h3>System 1 and System 2</h3><p>System 1 runs on every event in microseconds to milliseconds: rules, embeddings, small decision models. System 2 runs asynchronously in seconds: LLMs reading world snapshots and gaps. System 2 never sits in the stream. It teaches System 1 by writing proposals (types, repairs, predictors) into the log, where accepted ones compile into System 1's configuration.</p></div>
+    <div><h3>Any stream, repaired in the open</h3><p>Real streams have no event types, drifting field names, missing ids, duplicates and gaps. The raw stream is never edited. Repairs are events with a confidence and a source, and the world folds over raw events plus repairs, so a wrong repair is revoked and the world re-projects. Proposals stay inert until accepted, and low-confidence repairs live in a preview world that rules cannot act on.</p></div>
+    <div><h3>The world is the product</h3><p>A world is a projection folded over the log: entities, relationships, current state. Time travel is replaying to an offset. A model change (a new entity type, say) re-projects history, which is why the mockup's graph tidies itself at #0016. So there are two replays: the world as known then, and the world as reinterpreted now. A later repair changes the second, never the evidence behind a forecast already issued.</p></div>
+    <div><h3>A prediction is a fork</h3><p>A fork is the base world at <em>t</em> plus a suffix of predicted events, each with a probability. Forks can fork. Beam width, a depth limit and a probability floor keep the view readable. Rules read forecasts, not branches: a forecast is a bounded question ("shipment exception within 24h") with one probability, so splitting a branch or changing the beam never changes an action.</p></div>
+    <div><h3>Every forecast gets graded</h3><p>A forecast is an immutable record: target, entity, issue time, horizon, probability, predictor version, evidence cutoff. Its outcome is scored apart from its display. Pruning hides a branch but never un-scores it, and an outcome the stream cannot observe is censored, not refuted. This is the feedback loop PredictStream never had, and it ranks System 1 engines on the same questions.</p></div>
+    <div><h3>If this, then that, on worlds</h3><p>One rule primitive: a condition over the raw stream, the actual world, or a registered forecast, plus an action plugin. An action does not care whether its trigger happened or was predicted; the guard rails do.</p></div>
+    <div><h3>Silence is ambiguous, and that is useful</h3><p>When a predicted event never arrives, either the world changed or the stream dropped it. Same signal, two readings. You pick one in the inbox, and the answer teaches the system which kind of silence it was.</p></div>
+  </div>
+</section>
+
+<section id="rules">
+  <div class="prose">
+    <div class="eyebrow">Rules and actions</div>
+    <h2>If this, then that, across worlds</h2>
+    <p>Subscriptions grow into rules. A rule's condition reads the actual world or a registered forecast (a bounded question with a horizon), never a branch. Its action is a plugin. The sketch below is illustrative syntax, not a decided language.</p>
+  </div>
+<pre>rule "stalled order"
+  when actual: Order.status == "paid" and no OrderShipped within 48h
+  then slack("#fulfilment", "{order} paid {age} ago, not shipped")
+
+rule "save the cart"
+  when forecast(Cart.abandoned within 30m) &gt;= 0.70
+  then email.winback(cart.customer)            # dry-run, with a holdout
+
+rule "delivery risk rising"
+  when forecast(Order.delivery_exception within 24h) rises by &gt; 0.20 within 10m
+  then page(oncall, evidence = world.diff)</pre>
+  <div class="ideas" style="margin-top:14px">
+    <div><h3>Action plugins</h3><p>Webhook, Slack, email, ticketing, HTTP, and user code as WebAssembly plugins, so a customer can add an action without touching the core. The host enforces each plugin's egress, secrets and limits; nothing is trusted from the plugin's own declaration.</p></div>
+    <div><h3>Guard rails</h3><p>Rules act only on accepted state, never on provisional repairs. Acting on a forecast is opt-in per rule. New rules start in dry-run. Irreversible actions (payments, deletions, messages to customers) need approval. Every action logs the world, forecast and offsets that triggered it, and every rule has a rate limit.</p></div>
+    <div><h3>Acting changes the outcome</h3><p>If a win-back email goes out and the customer returns, nobody knows whether the email caused it, and a prevented abandonment makes a good forecast look wrong. So the first experiment is observational. Later, acted-on forecasts need a randomized holdout, and promotion to automation depends on measured action outcomes, not forecast accuracy.</p></div>
+    <div><h3>Stream text is untrusted</h3><p>A ticket or log line can try to steer System 2 into a bad mapping or rule. Model workers hold no action credentials, proposals use a constrained format validated before acceptance, and revoking a repair invalidates the actions that depended on it.</p></div>
+  </div>
+</section>
+
+<section id="agents">
+  <div class="prose">
+    <div class="eyebrow">LLMs as clients</div>
+    <h2>The real users will be agents</h2>
+    <p>The inbox and the demo UI matter, but most of the reading will be done by LLMs. That suits the design: the world is already a compression of the stream (an agent wants a 2,000-token situation report, not ten million events), and the rule language is the kind of small, checkable language LLMs write well. The UI becomes the place people see what agents saw, did and proposed.</p>
+  </div>
+  <div class="ideas">
+    <div><h3>One language for reading, watching and acting</h3><p>A query is a <code>when</code> with no <code>then</code>. A subscription is a rule whose <code>then</code> is "notify me". An agent learns one small grammar, and a person can read every line it wrote.</p></div>
+    <div><h3>A compiler loop for rules</h3><p>The agent writes a rule, gets precise errors, sees a backtest ("would have fired 14 times last week; here are 3"), and revises. Constrained language with fast feedback is far safer than an agent writing code against the stream.</p></div>
+    <div><h3>Agents get woken, not just polled</h3><p><code>then wake(agent: "ops", with: evidence)</code> is an action plugin. The agent arrives holding the world diff, the forecast and its evidence, instead of starting cold.</p></div>
+    <div><h3>Every agent is an identity in the log</h3><p>Its reads, proposals and actions are events. MCP starts read-only; any write capability is granted explicitly and scoped to a task, and a good record never expands an agent's powers on its own. Stream content comes back as quoted data, but the real risk is a coding agent that reads poisoned evidence while holding shell or deploy tools, so investigation and execution stay separate.</p></div>
+  </div>
+  <div class="tbl" style="margin-top:18px">
+  <table class="q">
+    <thead><tr><th>MCP tool</th><th>What it gives the agent</th></tr></thead>
+    <tbody>
+      <tr><td><code>world.describe</code></td><td>The world profile: types, relationships, glossary. A few thousand tokens that orient any agent.</td></tr>
+      <tr><td><code>world.query(q, at?, branch?)</code></td><td>Structured answers, as known at any offset.</td></tr>
+      <tr><td><code>entity.card(id, detail)</code></td><td>A token-budgeted summary (state, recent events, open forecasts, links), at zoom levels from 200 to 5,000 tokens.</td></tr>
+      <tr><td><code>world.changes(since)</code></td><td>What changed since the agent's cursor. Agents come and go; they need digests, not the firehose.</td></tr>
+      <tr><td><code>forecast.ask(question, horizon)</code></td><td>A probability plus the predictor's record, for registered, versioned questions only. Anything else returns "unsupported" rather than a made-up probability.</td></tr>
+      <tr><td><code>explain(target)</code></td><td>The evidence chain: which events and repairs, with sources and confidence.</td></tr>
+      <tr><td><code>attention()</code></td><td>A ranked feed of surprises and forecasts that moved: the agent's inbox.</td></tr>
+      <tr><td><code>rule.propose(dsl)</code></td><td>Validation and a backtest against history. <code>rule.activate</code> needs an explicit, scoped grant.</td></tr>
+    </tbody>
+  </table>
+  </div>
+<pre>&gt; forecast.ask("UAL1234 lands late at SFO", horizon: "2h")
+{ "p": 0.72, "as_known_at": 918442, "predictor": "arrival-delay v3",
+  "record": { "graded": 2314, "brier_skill": 0.18 },
+  "evidence": [ { "offset": 918101, "event": "entered holding pattern" }, ... ] }
+
+&gt; rule.propose("when forecast(Flight.diverts within 60m) &gt;= 0.7 then webhook(ops)")
+{ "ok": true, "backtest": { "window": "24h", "would_fire": 3, "examples": [ ... ] } }</pre>
+  <p class="prose" style="font-size:15px;color:var(--muted)">Illustrative output. The MCP server comes early in the first slice, so Claude Code is the first client from week one.</p>
+</section>
+
+<section id="install">
+  <div class="prose">
+    <div class="eyebrow">Any stream</div>
+    <h2>Point, see, improve</h2>
+    <p>The whole install is one line. What it learns afterwards is saved as a readable world profile you can edit and commit, never a config file you had to write first.</p>
+  </div>
+  <ol class="slice">
+    <li><strong class="ui">Point.</strong> <code>s2w watch &lt;source&gt;</code>: a Kafka topic, a KurrentDB stream, a Postgres connection (read from the WAL), an SSE or webhook URL, or a log file.<span class="done">No schema, no mapping, no event catalog.</span></li>
+    <li><strong class="ui">See.</strong> Within a minute, raw events flow and an untyped world forms from whatever ids repeat. System 2's first pass names the domain and the entity types.<span class="done">Value before any human decision.</span></li>
+    <li><strong class="ui">Improve.</strong> Gaps and suggestions queue in an inbox. Accept, edit, reject, or connect a source. Each answer re-projects the world immediately.<span class="done">An autonomy dial sets the confidence above which repairs apply without asking.</span></li>
+  </ol>
+  <div class="tbl" style="margin-top:18px">
+  <table class="q">
+    <thead><tr><th>Problem in the stream</th><th>Repair</th><th>Who does it</th></tr></thead>
+    <tbody>
+      <tr><td>No event types (log lines, JSON blobs, CDC row changes)</td><td>Cluster by shape; System 2 names each cluster as a domain event, such as <code>orders.status: paid→shipped</code> becoming OrderShipped.</td><td>System 2 proposes, System 1 applies</td></tr>
+      <tr><td>Drifting field names</td><td>Alias learning (<code>cartId</code> → <code>cart_id</code>) from value overlap.</td><td>System 1, auto above the dial</td></tr>
+      <tr><td>Missing ids</td><td>Link by joint evidence (amount and time, email, session) with a confidence, or exactly through a connected source.</td><td>System 1, inbox below the dial</td></tr>
+      <tr><td>Duplicates and replays</td><td>Content hash within an idempotency window.</td><td>System 1</td></tr>
+      <tr><td>Late and out-of-order events</td><td>Event-time watermark; the world is re-folded, which is cheap because it is a projection.</td><td>System 1</td></tr>
+      <tr><td>Missing events</td><td>An expected event that never arrives: the same machinery as prediction.</td><td>System 2 flags, you decide</td></tr>
+      <tr><td>Thin entities (a SKU with no name or price)</td><td>A side source: a catalog, a table, an API. Added by you, or suggested by System 2 from evidence ("these ids look like Stripe charges").</td><td>You, or System 2 suggests</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="prose">
+    <div class="eyebrow">Architecture</div>
+    <h2>Two systems over one log</h2>
+    <p>Sources, repairs, System 2 proposals, predictions and verdicts all land in the same log with offsets. Everything downstream is a projection of it.</p>
+  </div>
+  <div class="diagram">
+    <svg viewBox="0 0 980 390" role="img" aria-label="Architecture: sources feed System 1, which projects the actual world; predictors fork it; rules act on any layer; System 2 reads snapshots and writes proposals back into the log">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--line-strong)"/></marker>
+        <marker id="ahf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--fork)"/></marker>
+        <marker id="ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--slow)"/></marker>
+      </defs>
+      <rect x="200" y="18" width="560" height="74" rx="8" style="fill:var(--surface-2);stroke:var(--slow)" stroke-dasharray="6 4"/>
+      <text x="220" y="44" font-size="15" font-weight="600">System 2 · LLMs, asynchronous, seconds, budget-capped</text>
+      <text x="220" y="66" font-size="12.5" style="fill:var(--muted)">reads snapshots and gaps · proposes types, repairs, predictors, side sources</text>
+      <text x="220" y="83" font-size="12.5" style="fill:var(--muted)">writes proposals back as events · accepted ones compile into System 1</text>
+      <g font-size="14" font-weight="600">
+        <rect x="16" y="160" width="150" height="88" rx="8" style="fill:var(--surface-2);stroke:var(--line-strong)"/>
+        <text x="30" y="186">Sources</text>
+        <text x="30" y="208" font-size="12" font-weight="400" style="fill:var(--muted)">Kafka · KurrentDB</text>
+        <text x="30" y="224" font-size="12" font-weight="400" style="fill:var(--muted)">Postgres WAL (CDC)</text>
+        <text x="30" y="240" font-size="12" font-weight="400" style="fill:var(--muted)">SSE · webhooks · files</text>
+
+        <rect x="200" y="160" width="170" height="88" rx="8" style="fill:var(--surface-2);stroke:var(--actual)"/>
+        <text x="214" y="186">System 1 · µs–ms</text>
+        <text x="214" y="208" font-size="12" font-weight="400" style="fill:var(--muted)">repair · alias · dedupe · link</text>
+        <text x="214" y="224" font-size="12" font-weight="400" style="fill:var(--muted)">resolve entities · judge</text>
+        <text x="214" y="240" font-size="12" font-weight="400" style="fill:var(--muted)">pluggable engines</text>
+
+        <rect x="404" y="160" width="160" height="88" rx="8" style="fill:var(--surface-2);stroke:var(--actual)" stroke-width="2"/>
+        <text x="418" y="186">Actual world</text>
+        <text x="418" y="208" font-size="12" font-weight="400" style="fill:var(--muted)">event-sourced projection</text>
+        <text x="418" y="224" font-size="12" font-weight="400" style="fill:var(--muted)">entities · relationships</text>
+        <text x="418" y="240" font-size="12" font-weight="400" style="fill:var(--muted)">replay to any offset</text>
+
+        <rect x="598" y="160" width="160" height="88" rx="8" style="fill:var(--surface-2);stroke:var(--fork)" stroke-dasharray="6 4"/>
+        <text x="612" y="186" style="fill:var(--fork)">Possible worlds</text>
+        <text x="612" y="208" font-size="12" font-weight="400" style="fill:var(--muted)">base@t + predicted suffix</text>
+        <text x="612" y="224" font-size="12" font-weight="400" style="fill:var(--muted)">beam · depth D · p floor</text>
+        <text x="612" y="240" font-size="12" font-weight="400" style="fill:var(--muted)">forks of forks</text>
+
+        <rect x="792" y="160" width="172" height="88" rx="8" style="fill:var(--surface-2);stroke:var(--line-strong)"/>
+        <text x="806" y="186">Rules → actions</text>
+        <text x="806" y="208" font-size="12" font-weight="400" style="fill:var(--muted)">if this: the world or a forecast</text>
+        <text x="806" y="224" font-size="12" font-weight="400" style="fill:var(--muted)">then that: action plugins</text>
+        <text x="806" y="240" font-size="12" font-weight="400" style="fill:var(--muted)">dry-run · approval gates</text>
+      </g>
+      <line x1="166" y1="204" x2="198" y2="204" style="stroke:var(--line-strong)" stroke-width="1.5" marker-end="url(#ah)"/>
+      <line x1="370" y1="204" x2="402" y2="204" style="stroke:var(--line-strong)" stroke-width="1.5" marker-end="url(#ah)"/>
+      <line x1="564" y1="204" x2="596" y2="204" style="stroke:var(--fork)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ahf)"/>
+      <line x1="758" y1="204" x2="790" y2="204" style="stroke:var(--line-strong)" stroke-width="1.5" marker-end="url(#ah)"/>
+      <path d="M484,158 L484,94" style="stroke:var(--slow);fill:none" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ahs)"/>
+      <text x="492" y="130" font-size="11.5" style="fill:var(--muted)">snapshots, gaps</text>
+      <path d="M300,94 L300,158" style="stroke:var(--slow);fill:none" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ahs)"/>
+      <text x="308" y="130" font-size="11.5" style="fill:var(--muted)">teaches: types, repairs</text>
+      <path d="M690,94 L690,158" style="stroke:var(--slow);fill:none" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ahs)"/>
+      <text x="698" y="130" font-size="11.5" style="fill:var(--muted)">new predictors</text>
+      <path d="M484,250 C484,300 678,300 678,252" style="stroke:var(--ok);fill:none" stroke-width="1.5" marker-end="url(#ah)"/>
+      <text x="520" y="296" font-size="12" style="fill:var(--ok)">reality confirms or refutes each fork</text>
+      <rect x="792" y="26" width="172" height="58" rx="8" style="fill:var(--surface-2);stroke:var(--line-strong)"/>
+      <text x="806" y="50" font-size="14" font-weight="600">You · the inbox</text>
+      <text x="806" y="70" font-size="12" style="fill:var(--muted)">accept · edit · connect</text>
+      <line x1="790" y1="55" x2="762" y2="55" style="stroke:var(--slow)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#ahs)" marker-start="url(#ahs)"/>
+      <rect x="16" y="262" width="354" height="46" rx="8" style="fill:var(--surface-2);stroke:var(--line-strong)" stroke-dasharray="3 3"/>
+      <text x="30" y="282" font-size="13" font-weight="600">Side sources</text>
+      <text x="30" y="299" font-size="12" style="fill:var(--muted)">catalogs, tables, APIs · added by you or suggested</text>
+      <line x1="285" y1="262" x2="285" y2="251" style="stroke:var(--line-strong)" stroke-width="1.5" marker-end="url(#ah)"/>
+      <rect x="16" y="322" width="948" height="44" rx="6" style="fill:var(--surface-2);stroke:var(--line)"/>
+      <text x="32" y="349" font-size="13.5" font-weight="600">Event log</text>
+      <text x="118" y="349" font-size="12.5" style="fill:var(--muted)">append-only, offsets · raw events are never edited · repairs, proposals, predictions, verdicts and actions land beside them</text>
+    </svg>
+  </div>
+</section>
+
+<section id="rust">
+  <div class="prose">
+    <div class="eyebrow">Implementation</div>
+    <h2>Rust from day one, with System 1 as a plug-in</h2>
+    <p>Rust because the core has to be fast, small and easy to drop into someone else's network: one static binary, predictable memory, no garbage-collection pauses in the stream, and good async I/O for many sources at once. The earlier prototypes (worldcraft, timely_worlds, strema) are already Rust, and Feldera's DBSP engine, the incremental option for later, is a Rust crate too. The browser view is the one part that is not Rust; the binary serves it.</p>
+    <p>System 1 is about to get crowded. Jev and a wave of other small decision models are arriving fast, and this month's best engine will not be next year's. So nothing in the core depends on one. The sketch below shows the seams we expect; each one ships with two real implementations in the first slice (see Continuous architecture), so every trait is designed against two cases, not guessed from one.</p>
+  </div>
+<pre>/// A fast judgment: typed question in, typed answer with a probability out.
+pub trait System1: Send + Sync {
+    fn profile(&amp;self) -&gt; EngineProfile;          // latency budget, batch size, cost per call
+    fn judge(&amp;self, q: &amp;Judgment, view: &amp;WorldView)
+        -&gt; Result&lt;Verdict, Abstain&gt;;                // abstaining is a first-class answer
+}   // deadlines live in the shell; verdicts are logged as events, so replay never re-runs an engine
+
+/* eventual seams, not first-slice code */
+}
+
+/// Slow, asynchronous reasoning over snapshots. Never called per event.
+#[async_trait]
+pub trait System2: Send + Sync {
+    async fn propose(&amp;self, snap: &amp;Snapshot, gaps: &amp;[Gap], budget: Budget) -&gt; Vec&lt;Proposal&gt;;
+}
+
+pub trait Source    { fn open(&amp;self, from: SourceCursor) -&gt; BoxStream&lt;'static, RawEvent&gt;; }
+pub trait Predictor { fn fork(&amp;self, world: &amp;WorldView, at: Offset) -&gt; Vec&lt;ForkSpec&gt;; }
+#[async_trait]
+pub trait Action    { fn policy(&amp;self) -&gt; ActionPolicy; async fn run(&amp;self, t: &amp;Trigger) -&gt; ActionResult; }
+                    // policy is enforced by the host: egress, secrets, approval tier
+
+pub enum Origin { Source(SourceId), Repair(RepairId), System2, Predictor, Verdict, Action }
+
+pub struct Issuance {                           // immutable once written
+    pub question: QuestionId, pub entity: EntityId, pub issued: Offset, pub horizon: Duration,
+    pub p: f32, pub predictor: Version, pub evidence_cutoff: Offset,
+}
+pub struct OutcomeObservation {                 // appended later, versioned; never edits the issuance
+    pub issuance: IssuanceId, pub outcome: Outcome, // Positive | Negative | Censored
+    pub observed: Offset, pub source: SourceId,
+}
+
+pub struct Fork {                               // display: a forecast drawn as a world
+    pub id: ForkId, pub parent: Branch, pub at: Offset,
+    pub suffix: Vec&lt;(Event, f32)&gt;,            // only what this world adds
+    pub issuance: IssuanceId, pub shown: bool, // pruning hides; it never un-scores
+}</pre>
+  <div class="ideas" style="margin-top:14px">
+    <div><h3>A router, later</h3><p>Once there are engines to route between, each judgment names a latency budget. The router picks the engine that fits: a rule if one exists, then embeddings, then a decision model such as Jev, falling back to System 2 later if nothing is confident.</p></div>
+    <div><h3>A built-in bake-off</h3><p>Forecasts get graded, so engines do too. Run two System 1 engines in shadow mode on the same eligible questions and the scorecard ranks them on accuracy, abstention, latency and cost. When a better model ships, you swap it in on evidence.</p></div>
+  </div>
+  <div class="prose" style="margin-top:16px"><p style="font-size:15.5px"><strong>First-slice workspace</strong>, kept small. Adapters depend only on <code>s2w-model</code>, never on the core or on each other.</p></div>
+<pre>s2w            binary: CLI
+└─ s2w-app     runtime, wiring, read-only MCP server, local web view
+   ├─ s2w-sources   Wikipedia SSE, Kafka (assign, no group), stdin NDJSON   ─┐
+   ├─ s2w-system1   rules engine, embeddings engine; verdicts logged       ─┤
+   ├─ s2w-system2   hosted LLM client, client-agent sampling; outputs kept ─┼─→ s2w-model
+   ├─ s2w-log       append-only segments, source cursors                   ─┤
+   └─ s2w-core      pure fold, repairs, forecast issue and grading          ─┘
+s2w-model      Event, Offset, EntityId, Repair, Proposal, Issuance (serde, thiserror only)
+s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</pre>
+</section>
+
+<section id="continuous-architecture">
+  <div class="prose">
+    <div class="eyebrow">Continuous architecture</div>
+    <h2>Pay architecture down every week, not every other sprint</h2>
+    <p>The usual burden builds up because architecture is treated as a phase: build fast, then schedule a cleanup that loses to the next demo. Alternating sprints has the same flaw at a smaller scale, since debt compounds for a sprint and then cleanup becomes a project. The proposal instead: make the architecture executable so drift fails a build, pay a fixed share in every sprint, and keep a circuit breaker for when debt gets ahead anyway.</p>
+  </div>
+  <div class="ideas">
+    <div><h3>A functional core, an imperative shell</h3><p>The heart of S2W is pure: events in, world out, forecasts graded, with no async and no I/O. Time, randomness, accepted mappings and external results are passed in as inputs, and clippy bans wall clocks, <code>HashMap</code> iteration order and RNGs in the core. A simple reference fold stays forever as the oracle for any faster implementation.</p></div>
+    <div><h3>Layers enforced by the build</h3><p>The workspace is the architecture: <code>s2w-core</code> and <code>s2w-model</code> do no I/O, adapters depend only on the model, and the app composes them. A CI check holds a per-crate allowlist of dependencies. An allowlist, not a denylist, because agents add crates nobody thought to ban.</p></div>
+    <div><h3>Every seam gets two implementations, early</h3><p>An abstraction designed against one case is a guess. So each seam we keep ships with two real implementations in the first slice, chosen to differ where it hurts (see the table). A seam that cannot find a second use in the slice stays a plain module until it can.</p></div>
+    <div><h3>Measure how hard change is</h3><p>Track how long representative changes take, how many unrelated modules they touch, and which defects recur. Removing a feature or an obligation counts as progress; shrinking line counts is only a symptom.</p></div>
+    <div><h3>Built mostly by agents, so guard against agent drift</h3><p>Coding agents duplicate types across issues, widen visibility to make tests compile, reach for <code>unwrap</code> and <code>#[allow]</code>, and regenerate a golden hash when it breaks. Countermeasures: shared types live only in <code>s2w-model</code>; an <code>AGENTS.md</code> in each crate states its allowed dependencies and invariants; lints for <code>unreachable_pub</code> and reasonless allows; golden files owned by a human, so any hash change needs sign-off. An LLM architecture reviewer is advisory; the mechanical checks are the gate.</p></div>
+  </div>
+  <div class="tbl" style="margin-top:18px">
+  <table class="q">
+    <thead><tr><th>Seam</th><th>First implementation</th><th>Second implementation</th><th>Why these two</th></tr></thead>
+    <tbody>
+      <tr><td>Source</td><td>Wikipedia SSE (push, server-side cursor)</td><td>Kafka with partition assign and timestamp seek (pull, client-side cursor)</td><td>Opposite cursor and recovery semantics; stdin NDJSON comes nearly free as a third.</td></tr>
+      <tr><td>System 1 engine</td><td>Rules and heuristics (deterministic)</td><td>Local embeddings (probabilistic, can abstain)</td><td>Forces the verdict, confidence and abstain contract; Jev slots in as a third.</td></tr>
+      <tr><td>System 2 provider</td><td>A hosted LLM API on our budget</td><td>The client agent via MCP sampling, or a local model</td><td>Different latency, cost and data destination.</td></tr>
+      <tr><td>World client</td><td>The local web view (a person)</td><td>Read-only MCP (an agent)</td><td>One query layer, two very different consumers.</td></tr>
+      <tr><td>Outcome source</td><td>In-stream labels (Wikipedia revert tags, which arrive late)</td><td>An external reference (Wikimedia's revert model scores)</td><td>Label latency and censoring differ, so grading is built for both.</td></tr>
+      <tr><td>Stream domain</td><td>Wikipedia</td><td>Its obfuscated copy, plus a private stream the author owns</td><td>Proves the model is not memorised domain knowledge.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="tbl" style="margin-top:18px">
+  <table class="q">
+    <thead><tr><th>Fitness function</th><th>What it checks</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td>Dependency allowlist</td><td>Each crate's external dependencies, from <code>cargo metadata</code>. Built first.</td><td>Every PR</td></tr>
+      <tr><td>Replay determinism</td><td>Golden logs replay to the same world, with expected answers as well as hashes, across partition interleavings, thread counts, restarts, and both histories.</td><td>Every PR</td></tr>
+      <tr><td>Escape-hatch ratchet</td><td>A committed per-crate count of <code>#[allow]</code>, <code>unwrap</code>, <code>todo!</code> and <code>pub</code> items. Counts may only fall without a decision record.</td><td>Every PR</td></tr>
+      <tr><td>Forecast integrity</td><td>No repair, replay or restart changes an issuance; no future evidence leaks in; every issuance is accounted for across pruning, censoring and abstention.</td><td>From step 4</td></tr>
+      <tr><td>Dedupe correctness</td><td>Identical payloads with different legitimate source identities are never merged.</td><td>Every PR</td></tr>
+      <tr><td>Authority boundaries</td><td>Provisional state cannot trigger anything; agents and tenants cannot reach what they were not granted.</td><td>Once writes or cloud exist</td></tr>
+      <tr><td>Resource bounds</td><td>End-to-end p99 lag, queue growth, retained state, replay time and model spend, against absolute budgets under a declared workload.</td><td>Nightly</td></tr>
+      <tr><td>Fuzzing</td><td>Decoders, identifier collisions, repeated events, repair and revocation sequences.</td><td>Nightly</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose" style="margin-top:18px">
+    <h3 style="font-size:19px;margin-bottom:8px">Cadence</h3>
+  </div>
+  <ul class="pm" style="max-width:80ch">
+    <li><strong>Every PR:</strong> the mechanical checks gate it; an architecture-lens reviewer adds advisory notes against the decision records.</li>
+    <li><strong>Every sprint:</strong> about a quarter of capacity is held in reserve for architecture. It is a reserve, not a quota: correctness work belongs in each feature's definition of done, and some weeks need nothing extra.</li>
+    <li><strong>Every fourth sprint:</strong> a fresh-eyes review over actual changes and failures, asking "if we started today, what would we build differently?" "Delete this" and "change nothing" are valid answers.</li>
+    <li><strong>Circuit breakers:</strong> a broken replay invariant, unbounded growth, the same boundary crossed by repeated changes, or change times rising sprint over sprint. Any of these earns a focused architecture sprint. Debt items name their observed cost and the next task they will slow.</li>
+    <li><strong>Decision records:</strong> short, numbered, in the repo, and summarised in each crate's <code>AGENTS.md</code> so the agents doing the work actually read them. Persisted formats get versioning and migrations before any Rust API is frozen.</li>
+  </ul>
+</section>
+
+<section id="questions">
+  <div class="prose">
+    <div class="eyebrow">Open questions</div>
+    <h2>What still needs a decision</h2>
+  </div>
+  <div class="tbl">
+  <table class="q">
+    <thead><tr><th>Question</th><th>Current leaning</th><th>What settles it</th></tr></thead>
+    <tbody>
+      <tr><td>Incremental engine</td><td>v1 recomputes each fork from a snapshot. Later: Feldera's DBSP crate, with the branch as a column, or Differential Dataflow.</td><td>The fork count × world size at which recompute misses a 100 ms frame budget.</td></tr>
+      <tr><td>System 1 engines</td><td>Rules and local embeddings first; Jev and similar models behind the trait for ambiguous cases.</td><td>Measured p50/p99 latency and accuracy per engine on the demo streams.</td></tr>
+      <tr><td>Entity resolution across streams</td><td><code>*_id</code> heuristics in System 1; merges proposed by System 2.</td><td>Polymarket markets matched to GDELT actors.</td></tr>
+      <tr><td>Fork explosion in the view</td><td>Beam 64, depth 3, p floor 0.1, for the view only; forecasts are kept and scored regardless. Past ~30 open worlds, a heat layer replaces ghost nodes.</td><td>ADS-B at a busy airport.</td></tr>
+      <tr><td>Probability semantics</td><td>Rules read bounded forecasts with horizons; branch paths are display. If paths return, define exclusive outcomes, conditional transitions and residual mass.</td><td>Invariant test: splitting a scenario or changing the beam never changes an action.</td></tr>
+      <tr><td>Rule language</td><td>A small declarative syntax compiled to Rust closures; no general-purpose scripting in conditions.</td><td>Whether ten real rules from the demos fit it without escape hatches.</td></tr>
+      <tr><td>Autonomy dial</td><td>In the experiment, nothing auto-accepts: every proposal needs an explicit yes. The dial comes back once merge precision is measured.</td><td>Measured false-merge rate on labelled data at each confidence level.</td></tr>
+      <tr><td>First audience</td><td>Hacker News and X, especially Kafka users. Open source, permissive licence.</td><td>Whether people point it at their own topics after the demo, and what they say it showed them.</td></tr>
+      <tr><td>Cloud connector</td><td>Deferred until the local experiment passes. Then: outbound HTTPS bound to an approved export manifest, tenant isolation, separate claim credentials, deletion of derived data.</td><td>A security test of tenant isolation, claim, expiry and deletion before any outside data.</td></tr>
+      <tr><td>Hosted trial security</td><td>Tailscale grants scoped to named hosts and ports; read-only source credentials; PII redaction before anything reaches an LLM; every data destination documented.</td><td>A written threat model, including prompt injection through stream text, before any outside user.</td></tr>
+      <tr><td>Name</td><td>Stream2Worlds (S2W), CLI <code>s2w</code>. It says what it does. Earlier candidates: Many Worlds, Manyfold, Foresight Flow, Worldcraft.</td><td>Your taste, and a domain and crate-name check.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="slice">
+  <div class="prose">
+    <div class="eyebrow">First slice</div>
+    <h2>Four gates and a launch, local first</h2>
+    <p>Rewritten after the second critic pass. The previous version had quietly grown a setup product, an agent platform and a cloud service before testing whether System 2 helps at all. This one tests that first, locally, and still ends in a demo worth posting.</p>
+  </div>
+  <ol class="slice">
+    <li>Set the hours cap and write the evaluation contract: the question ("a recognized revert within 30 minutes", with labels collected late because MediaWiki tags reverts asynchronously), the eligible edits, one forecast per edit at a declared cutoff, the baselines (base rate, Wikimedia's revert model, and a raw-sample LLM summary), and pass thresholds.<span class="done">Done when it is written down before any code.</span></li>
+    <li>The local harness in Rust: the small workspace, two sources (Wikipedia SSE and Kafka by partition assign) plus stdin, the log with provenance, the pure fold with golden replay, an evidence table and simple graph, <code>--json</code>, read-only MCP, and the first three fitness functions from day one.<span class="done">Done when restart, duplicates, gaps and ordering are verified, and a fresh Claude Code session sets it up on a local topic from one sentence.</span></li>
+    <li>Does System 2 earn its place? Heuristics alone against heuristics plus one budget-capped System 2 pass (both providers), on Wikipedia, its obfuscated copy, and a private stream the author owns and can label. Mappings are frozen, then evaluated on a later window.<span class="done">Done when it passes or fails the thresholds on accuracy, false merges and correction minutes, and beats the raw-sample LLM baseline, or doesn't.</span></li>
+    <li>One forecast ledger: the revert question, both outcome sources, matched baselines.<span class="done">Done when skill, coverage, censoring and uncertainty are reported, not just a calibration curve.</span></li>
+    <li>Launch, local first: the split-screen obfuscation clip, forecasts shown as badges on the graph, one install path, Show HN.<span class="done">Done when strangers run it on their own topics, or clearly don't.</span></li>
+  </ol>
+  <div class="callout">
+    <p><strong>Kill criteria.</strong> Stop before building more if System 2 does not beat heuristics and the raw-sample LLM baseline on accuracy or effort, or if the launch does not make people try it on their own streams. <strong>Time box:</strong> step 2 in one week; the overall hours cap is set before starting.</p>
+    <p><strong>A demo every sprint.</strong> Every sprint ends with something runnable on live data, with the command to reproduce it, and every third sprint the demo has to show usable value: a real question answered on a real stream. Each demo doubles as a build-in-public post. In the slice: gate 2 is <code>s2w watch</code> on Wikipedia with Claude asking "what's happening right now?" over MCP; gate 3 is the split screen; gate 4 is the calibration chart filling in live; then the launch. A sprint with no demo is a signal, like a broken fitness function.</p>
+    <p><strong>After the slice:</strong> the full possible-worlds view, rules with dry-run actions and holdouts, the ADS-B demo with a verified landing source, cloud sharing by export manifest, and Polymarket with GDELT.</p>
+  </div>
+</section>
+
+<section id="world-models">
+  <div class="prose">
+    <div class="eyebrow">A comparison</div>
+    <h2>Stream worlds and AI world models</h2>
+    <p>They are different animals solving the same problem, and the comparison runs both ways. The PredictStream intuition was that a stream is to an organization what vision is to a person: a constant flow of observations from which you keep an updating picture of reality and imagine what comes next. AI world models make that move for physical environments. Genie 3 generates playable worlds, NVIDIA's Cosmos trains world models for robots and cars, V-JEPA predicts in an abstract state space, and Dreamer-style agents plan by imagining futures. That is why the field reads as gaming: its showcase outputs are rendered worlds.</p>
+  </div>
+  <div class="tbl" style="margin-top:14px">
+  <table class="q">
+    <thead><tr><th>Aspect</th><th>AI world models</th><th>Stream worlds (S2W)</th></tr></thead>
+    <tbody>
+      <tr><td>What flows in</td><td>Video frames, sensor readings, actions</td><td>Business events: orders, edits, flights, CDC rows</td></tr>
+      <tr><td>The state</td><td>A learned latent vector, or a rendered scene</td><td>An explicit graph of entities, relationships and state</td></tr>
+      <tr><td>How the world changes</td><td>Dynamics learned end to end from huge datasets</td><td>The log itself, plus a forecaster per registered question</td></tr>
+      <tr><td>Imagination</td><td>Roll the latent forward and render possible futures</td><td>Possible worlds: forecasts drawn as forks</td></tr>
+      <tr><td>Learning signal</td><td>Error predicting the next frame</td><td>Forecasts graded against what actually happens</td></tr>
+      <tr><td>Inspectability</td><td>Mostly opaque</td><td>Every entity, repair and forecast traces to events</td></tr>
+      <tr><td>Time travel</td><td>Rare</td><td>Native: replay to any offset, as known then or as understood now</td></tr>
+      <tr><td>Acting</td><td>An agent plans inside the model before acting</td><td>Rules and agents act on forecasts, behind guard rails</td></tr>
+      <tr><td>Data needed</td><td>Enormous; pretrained</td><td>Starts zero-shot on a new stream and improves as it runs</td></tr>
+      <tr><td>How it fails</td><td>Physics hallucinations; drift over long rollouts</td><td>Wrong merges; facts the stream never shows; messy sources</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="ideas" style="margin-top:16px">
+    <div><h3>What S2W can borrow</h3><p>Forecast in the abstract state (entity changes), not raw payloads, as JEPA argues. Try candidate actions in imagined worlds before taking them, as Dreamer does, once the intervention problem is handled. And eventually learn dynamics across many streams: a model that has seen many organizations' event flows might forecast a new one zero-shot, the way a video model already knows that dropped things fall.</p></div>
+    <div><h3>What S2W offers back</h3><p>A state you can inspect and correct, imagined futures graded in public against reality, and structured context for agents that act inside businesses, where the relevant world is not pixels. An explicit world model is what an agent lacks when it acts on a company.</p></div>
+  </div>
+  <p class="prose" style="margin-top:14px;font-size:15.5px">Where they might meet: a learned dynamics model over S2W's entity states, a world model of organizations. That is far beyond the first slice, and exactly the kind of idea to hold lightly. In the Hacker News pitch it stays to one line, since reviewers warned the vocabulary invites eye-rolls; here it earns a section.</p>
+</section>
+
+<section id="neighbours">
+  <div class="prose">
+    <div class="eyebrow">Neighbours</div>
+    <h2>Who else is nearby</h2>
+  </div>
+  <div class="tbl" style="margin-top:18px">
+  <table class="q">
+    <thead><tr><th>Neighbour</th><th>What it already does</th><th>Where S2W differs</th></tr></thead>
+    <tbody>
+      <tr><td>Object-centric process mining (Celonis, SAP Signavio, OCEL 2.0)</td><td>Turns event logs into a graph of business objects, with conformance checks and actions. The closest prior art.</td><td>Live and zero-config; forecasts with a graded record.</td></tr>
+      <tr><td>Palantir Foundry / AIP Ontology</td><td>The organization as objects, links and actions.</td><td>Minutes and self-serve, instead of months with forward-deployed engineers.</td></tr>
+      <tr><td>Streaming databases (Confluent with Flink, Materialize, RisingWave, Feldera)</td><td>Correct incremental views over streams.</td><td>You write their views; S2W proposes the model.</td></tr>
+      <tr><td>Stream rules (Microsoft Fabric Activator, Flink CEP)</td><td>If-this-then-that on streams, with governance.</td><td>Rules over a modelled world and over forecasts.</td></tr>
+      <tr><td>Observability and AIOps (Datadog, Splunk ITSI)</td><td>Event correlation, log clustering, anomaly detection.</td><td>Business entities, not hosts and services.</td></tr>
+      <tr><td>Control towers and digital twins (Kinaxis, o9, Azure Digital Twins)</td><td>Deep domain models and trained predictors.</td><td>No setup and any domain; shallower at first.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="prose" style="margin-top:14px">
+    <p><strong>The wedge.</strong> Graphs over streams are crowded territory. The combination is not: a model proposed in minutes, corrections that are inspectable and reversible, and forecasts with an independent track record, in something light enough to try the same day. The first audience is Hacker News and X, especially Kafka users, reached through an open-source release and a demo they can run in one command.</p>
+  </div>
+</section>
+
+<section id="critic">
+  <div class="prose">
+    <div class="eyebrow">Critic pass</div>
+    <h2>What could sink it, and what changed</h2>
+    <p>Two rounds so far, each with two independent reviewers who did not see each other's notes. Round 1 read an early version of this page. <strong>Codex (gpt-6-astra)</strong> was asked about technical soundness, scope and metrics. A <strong>separate Claude critic</strong> was asked for a pre-mortem, a skeptical buyer's view, and the competition. Neither saw the other's notes. Codex returned <strong>BLOCK</strong> on the first slice as written while keeping the core experiment, and both reviews landed on the same fundamentals. Every change listed here has been applied to this page.</p>
+  </div>
+  <div class="prose" style="margin-top:6px">
+    <h3 style="font-size:19px;margin:0 0 8px">Round 2</h3>
+    <p>A second pass on the version with the demo, agent setup and continuous architecture: Codex (gpt-6-astra) re-checked its twelve findings and the new sections; a fresh Claude critic took the Hacker News reader, a real engineer running the agent setup, and a Rust architect. Codex returned <strong>BLOCK</strong> again, now mainly on scope: one earlier finding resolved outright, one resolved for the first slice, one resolved in design, eight partly resolved, and "the slice tests too much" not resolved, because it had grown again. Changes applied:</p>
+  </div>
+  <div class="critic" style="margin-bottom:26px">
+    <div class="sev-high"><span class="src">both reviews · high</span><h3>Agent setup could turn local access into data export</h3><p>Reading config is not permission to send events anywhere; hashing is not anonymity; a new consumer group needs ACLs and fires lag alerts; most company brokers are unreachable from a laptop.</p><p class="resp">Changed: local by default; sharing only through an approved export manifest enforced per event; reads by partition assign with no group; <code>s2w doctor</code> and a stdin escape hatch; keyed pseudonyms, described honestly.</p></div>
+    <div class="sev-high"><span class="src">Codex · high</span><h3>The slice had grown again</h3><p>Cloud workspaces, multi-system discovery, redaction, trust promotion, wake actions and launch packaging, all before testing whether System 2 helps. The ADS-B clip also needed features deferred until later.</p><p class="resp">Changed: four gates and a launch, local first, with a raw-sample LLM baseline and kill criteria. The launch clip needs only what the slice builds.</p></div>
+    <div class="sev-high"><span class="src">Codex · high</span><h3>The page still contradicted its own safeguards</h3><p>Rules and the MCP example still said "any world (p ≥ …)"; auto-accepting at 0.95 and trust tiers reopened authority paths; <code>forecast.ask</code> could invent a probability.</p><p class="resp">Changed: rules read registered forecasts only; nothing auto-accepts in the experiment; MCP starts read-only and a record never expands powers; unregistered questions return "unsupported".</p></div>
+    <div class="sev-med"><span class="src">Claude critic · medium</span><h3>The ghost that turns solid is predictable</h3><p>Planes landing where they are descending is not surprising, and OpenSky's arrivals endpoint is a nightly batch.</p><p class="resp">Changed: the headline is the split screen, where renamed fields and hashed ids still snap into the right types. Landing is labelled as inferred, and grades cover every eligible flight.</p></div>
+    <div class="sev-med"><span class="src">both reviews · medium</span><h3>Continuous architecture measured activity, not improvement</h3><p>Rituals need memory agents lack; a 25% quota and a summed debt ceiling are easy to game; API-drift gates are costly early; LOC targets reward the wrong thing; agent-written code drifts in specific ways.</p><p class="resp">Changed: purity made explicit with a reference fold; a dependency allowlist, replay determinism and an escape-hatch ratchet first; 25% as a reserve; concrete circuit breakers; per-crate <code>AGENTS.md</code>; human-owned golden files; the LLM reviewer advisory only.</p></div>
+    <div class="sev-med"><span class="src">Codex · medium</span><h3>A mutable outcome inside an "immutable" forecast</h3><p>The Forecast struct carried a changing outcome field.</p><p class="resp">Changed: an immutable issuance record, with outcome observations appended and versioned separately.</p></div>
+  </div>
+  <div class="prose">
+    <h3 style="font-size:17px;margin:0 0 6px">Round 2: not adopted, and why</h3>
+    <ul class="pm">
+      <li>A controlled study with a company's owner-labelled stream becomes a private stream the author owns and labels, plus the launch as the user signal. There is no company partner yet.</li>
+      <li>"Start with one core crate and one app crate" becomes a small workspace, because each kept seam ships with two implementations from the start, by design.</li>
+      <li>"Cut the world-model section to one sentence" applies to the pitch, not this page.</li>
+    </ul>
+    <h3 style="font-size:19px;margin:22px 0 8px">Round 1</h3>
+  </div>
+<div class="critic">
+    <div class="sev-high"><span class="src">both reviews · high</span><h3>Grading was not a valid evaluation contract</h3><p>Pruned forks were never scored, silence counted as refutation, and repeated forecasts on one entity inflated the sample. A scorecard like that rewards the wrong predictors.</p><p class="resp">Changed: forecasts are immutable records; outcome is scored apart from display; unobservable outcomes are censored; engines are compared on the same questions.</p></div>
+    <div class="sev-high"><span class="src">both reviews · high</span><h3>Acting on a forecast corrupts its grade</h3><p>The mockup's own win-back story is the example: the email may be why Ben came back, and a prevented abandonment makes a good forecast look wrong.</p><p class="resp">Changed: the first experiment is observational. Acted-on forecasts need a randomized holdout, and automation depends on measured action outcomes. The mockup now labels that world as an intervention outcome.</p></div>
+    <div class="sev-high"><span class="src">both reviews · high</span><h3>A stream may not identify the world</h3><p><code>status=3</code>, an id that could be a request or a customer, equal amounts at nearby times: an LLM gives a plausible reading of each without knowing. False merges then flow into forecasts and actions.</p><p class="resp">Changed: observed facts, inferences and unknowns stay apart; abstention is allowed; false-merge rate is a headline metric; tests use obfuscated and private streams.</p></div>
+    <div class="sev-high"><span class="src">Codex · high</span><h3>Provisional repairs and LLM proposals had action authority</h3><p>"Applies provisionally" meant low-confidence repairs could trigger rules, and stream text can try to steer System 2, which amounts to prompt injection into configuration.</p><p class="resp">Changed: proposals are inert until accepted; provisional repairs live in a preview world rules cannot read; model workers hold no action credentials; the host enforces plugin permissions.</p></div>
+    <div class="sev-med"><span class="src">both reviews · medium</span><h3>The slice tested too much, and the metrics rewarded appearance</h3><p>Seven steps across three demos could yield three beautiful displays without showing trustworthy inference or value. "Understood" had no definition.</p><p class="resp">Changed: five steps with kill criteria and a time box; metrics measure accuracy, correction minutes, Brier skill against baselines, and whether a decision improves.</p></div>
+    <div class="sev-med"><span class="src">Claude critic · medium</span><h3>Familiar demos flatter System 2</h3><p>The model has read Wikipedia's and ADS-B's schemas, so naming them proves little about an unknown stream.</p><p class="resp">Changed: an obfuscated copy runs beside every public demo, plus one private stream.</p></div>
+    <div class="sev-med"><span class="src">Codex · medium</span><h3>Branch probabilities had no coherent meaning</h3><p>Conditional or marginal? Two disjoint worlds at 0.4 each can imply an 0.8 event that neither passes. Beam pruning manufactures confidence.</p><p class="resp">Changed: rules read bounded forecasts; branches are display only; an invariant test guards it.</p></div>
+    <div class="sev-med"><span class="src">Codex · medium</span><h3>Replay needs two histories</h3><p>A mapping learned later must not rewrite the evidence behind an earlier forecast, and re-running an LLM cannot reconstruct an old decision.</p><p class="resp">Changed: "as known then" and "reinterpreted now" are separate replays; model outputs are persisted, never re-run.</p></div>
+    <div class="sev-med"><span class="src">both reviews · medium</span><h3>The buyer is everyone, so no one</h3><p>Palantir, Celonis, streaming databases and AIOps already cover graphs, streams and actions.</p><p class="resp">Changed: a Neighbours section, a named wedge, and the first user as an open question with a test.</p></div>
+    <div><span class="src">Claude critic · low</span><h3>Overstated claims</h3><p>"Zero cost", "a perfect record", "honest probabilities", "less time than a sales call".</p><p class="resp">Reworded: no per-event model charge; see what the system knew when it acted; a published calibration record; setup in minutes, with the security review setting the timeline.</p></div>
+  </div>
+  <div class="prose" style="margin-top:24px">
+    <h3 style="font-size:17px;margin-bottom:6px">Pre-mortem: the likeliest ways it fails</h3>
+    <ul class="pm">
+      <li>Types looked good only because the LLM already knew the domain.</li>
+      <li>Forecasts beat base rate and nothing else; dedicated models (Wikimedia's revert scoring, airline ETA models) do each demo's job better.</li>
+      <li>It outgrew the hobby slot: ten crates, a view, forks, rules, plugins, hosting.</li>
+      <li>A demo, not a job: people said "cool graph" and asked what to do with it.</li>
+      <li>Acting on forecasts poisoned their grades.</li>
+      <li>A silent wrong join drove a wrong action.</li>
+    </ul>
+    <h3 style="font-size:17px;margin:16px 0 6px">Round 1: not adopted, and why</h3>
+    <ul class="pm">
+      <li>"An organization is its streams" stays as the headline, with the qualifier in the text. It is the thesis under test, and side sources cover the tables and documents.</li>
+      <li>A view stays in step 2, kept small. It is how every other result gets judged, and the time box guards against polishing it.</li>
+    </ul>
+    <h3 style="font-size:17px;margin:16px 0 6px">Both reviews said to protect</h3>
+    <ul class="pm">
+      <li>System 2 outside the per-event path.</li>
+      <li>Raw evidence kept beside explicit, revocable repairs.</li>
+      <li>Forecasts that earn trust through recorded outcomes.</li>
+    </ul>
+  </div>
+</section>
+
+
+<section id="lineage">
+  <div class="prose">
+    <div class="eyebrow">Project history</div>
+    <h2>From "turn on predictions" to a world model</h2>
+    <p><strong>The EventStore idea.</strong> It started at EventStore with a simple wish: you should be able to switch on predictions for an event store the way you switch on a projection, and start getting a stream of predicted events alongside the real ones. The same would work for any database through its write-ahead log.</p>
+    <p><strong>PredictStream.</strong> The first build was a pipeline of phases (ingest, identify, predict, act), each with pluggable, configurable agents, some LLM-based and some not. Identify mattered most: domain agents guessed what the stream was about and elaborated each event with meaning, which made everything downstream better. Act turned out to matter as much as predict, because you could subscribe to a predicted event (<code>CartAbandoned</code>) exactly as you would to a real one (<code>AddressChanged</code>). The wall was speed: LLM agents in the pipeline were too slow for a stream.</p>
+    <p><strong>The insight that came out of it.</strong> The most interesting thing identify produced was not an enriched event. It was a model of the world behind the events. A stream is an interleaving of many entities' lives: every cart, customer and order emitting events on its own schedule. Predicting the next event from the raw sequence is like predicting the next word in a room where a hundred conversations overlap: possible, but most of the signal is buried. Untangle the stream into entities with state and relationships, and the question changes from "what comes next in this stream?" to "what does this cart do next, given that it holds three items, has been idle ten minutes, and belongs to a customer who usually buys on the second visit?" That question is smaller, far more data-efficient, explainable, and it can use neighbours: a delayed shipment makes its customer's next support ticket likelier. Next-event prediction gets better because the world model supplies the context the raw sequence hides.</p>
+    <p><strong>Many worlds.</strong> Once there was a world model, predictions stopped looking like events and started looking like alternative futures of that world. One world is the current best view of reality; each prediction forks another. Streamed longer, joined with other streams, supplemented asynchronously, the world model became the thing that was actually interesting: a projection of reality at a point in time that you could rewind, fast-forward and branch. It was called the many-worlds project for a while. Timely Dataflow looked like the right engine for many projections, but its programming model was hard to work with while the requirements were still being discovered.</p>
+    <p><strong>Three Rust prototypes, then S2W.</strong> worldcraft, timely_worlds and strema each explored one piece. Stream2Worlds (September 2026) puts them together, with System 1 and System 2 in place of the too-slow pipeline and a visualization-first view in place of an abstraction nobody could picture.</p>
+  </div>
+  <div class="lineage">
+    <div><span class="nm">predictstream</span> <span class="lang">Python · several versions · predictstream.ai</span><p>Phased pipeline of pluggable agents. Carries forward domain elaboration and subscribing to predicted events as if they were real.</p></div>
+    <div><span class="nm">worldcraft</span> <span class="lang">Rust · Differential Dataflow</span><p>Finds entities and relationships in a raw Kafka stream and keeps a living graph, with human approval. Carries forward discovery heuristics and the approve step.</p></div>
+    <div><span class="nm">timely_worlds</span> <span class="lang">Rust · Timely</span><p>Predicted futures as branches over a base world, with beam and depth limits and "true in any scenario" subscriptions. Carries forward the fork idea, now as forecasts drawn as worlds.</p></div>
+    <div><span class="nm">strema</span> <span class="lang">Rust</span><p>A world graph built from a token stream, with structural surprise detection. Carries forward surprise as a System 1 signal and the "externalize the world model" framing.</p></div>
+  </div>
+  <footer>Status: an experiment, held lightly. Open source if it flies. A hobby-slot project under the September life pivot.</footer>
+</section>
+</div>
+
+<script>
+(function(){
+"use strict";
+const RAW = [
+ ['CustomerRegistered','customer-ana',{customer_id:'ana',email:'ana@example.com'}],
+ ['SessionStarted','session-9a1',{customer_id:'ana'}],
+ ['ItemAddedToCart','cart-a1',{cart_id:'a1',customer_id:'ana',sku:'TEA-OOLONG',qty:2}],
+ ['CustomerRegistered','customer-ben',{customer_id:'ben'}],
+ ['ItemAddedToCart','cart-a1',{cart_id:'a1',customer_id:'ana',sku:'KETTLE-GOOSENECK',qty:1}],
+ ['SessionStarted','session-9b2',{customer_id:'ben'}],
+ ['ItemAddedToCart','cart-b2',{cart_id:'b2',customer_id:'ben',sku:'MUG-STONE',qty:2}],
+ ['CheckoutStarted','cart-a1',{cart_id:'a1',customer_id:'ana'}],
+ ['OrderPlaced','order-1001',{order_id:'1001',cart_id:'a1',customer_id:'ana',total:89.00}],
+ ['PaymentCaptured','payment-7731',{order_id:'1001',amount:89.00},null,{raw:{amount:89.00,currency:'USD',ts:'10:02:41Z'},note:'order_id missing; linked to #1001 by amount and time',conf:0.88,key:'link'}],
+ ['CustomerRegistered','customer-chioma',{customer_id:'chioma'}],
+ ['ItemAddedToCart','cart-c3',{cart_id:'c3',customer_id:'chioma',sku:'TEA-SENCHA',qty:1}],
+ ['DomainProposed','slow-loop',{domain:'retail e-commerce',confidence:0.91},'2.8 s'],
+ ['ItemAddedToCart','cart-b2',{cart_id:'b2',customer_id:'ben',sku:'TEA-OOLONG',qty:1}],
+ ['SessionStarted','session-9d4',{customer_id:'dev'}],
+ ['ItemAddedToCart','cart-d4',{cart_id:'d4',customer_id:'dev',sku:'SCALE-01',qty:1}],
+ ['EntityTypesProposed','slow-loop',{Customer:'customer_id',Cart:'cart_id',Product:'sku',Order:'order_id'},'4.1 s'],
+ ['ItemAddedToCart','cart-c3',{cart_id:'c3',customer_id:'chioma',sku:'MUG-STONE',qty:1},null,{raw:{cartId:'c3',customer:'chioma',sku:'MUG-STONE',qty:1},note:'field aliases cartId → cart_id, customer → customer_id',conf:0.97,key:'alias'}],
+ ['CustomerRegistered','customer-ema',{customer_id:'ema'}],
+ ['SessionStarted','session-9e5',{customer_id:'ema'}],
+ ['PredictorCompiled','slow-loop',{name:'CartAbandoned',rule:'items > 0 and idle >= 4 and no checkout'},'6.3 s'],
+ ['ItemAddedToCart','cart-e5',{cart_id:'e5',customer_id:'ema',sku:'KETTLE-GOOSENECK',qty:1}],
+ ['ItemAddedToCart','cart-d4',{cart_id:'d4',customer_id:'dev',sku:'TEA-SENCHA',qty:1}],
+ ['CheckoutStarted','cart-c3',{cart_id:'c3',customer_id:'chioma'}],
+ ['OrderPlaced','order-1002',{order_id:'1002',cart_id:'c3',customer_id:'chioma',total:41.50}],
+ ['ModelExtended','slow-loop',{entity:'Address',from:'address_id',relation:'Customer ships_to Address',predictor:'DeliveryException'},'5.2 s'],
+ ['PaymentCaptured','order-1002',{order_id:'1002',amount:41.50}],
+ ['SessionEnded','session-9b2',{customer_id:'ben',reason:'timeout'}],
+ ['CheckoutStarted','cart-d4',{cart_id:'d4',customer_id:'dev'}],
+ ['OrderPlaced','order-1003',{order_id:'1003',cart_id:'d4',customer_id:'dev',total:64.00}],
+ ['AddressChanged','customer-ana',{customer_id:'ana',address_id:'ana-2',city:'Oro Valley'}],
+ ['PaymentCaptured','order-1003',{order_id:'1003',amount:64.00}],
+ ['SessionEnded','session-9e5',{customer_id:'ema',reason:'timeout'}],
+ ['OrderShipped','order-1001',{order_id:'1001',address_id:'ana-2',carrier:'UPS'}],
+ ['CustomerRegistered','customer-farah',{customer_id:'farah'}],
+ ['SessionStarted','session-9f6',{customer_id:'farah'}],
+ ['ItemAddedToCart','cart-f6',{cart_id:'f6',customer_id:'farah',sku:'TEA-OOLONG',qty:3}],
+ ['SessionStarted','session-9b7',{customer_id:'ben',utm:'winback'}],
+ ['CheckoutStarted','cart-b2',{cart_id:'b2',customer_id:'ben'}],
+ ['OrderPlaced','order-1004',{order_id:'1004',cart_id:'b2',customer_id:'ben',total:61.50}],
+ ['OrderShipped','shipments',{order_id:'1002',address_id:'chioma-1',carrier:'USPS'},null,{rawType:'shipment.created',raw:{ref:'1002',to:'chioma-1',carrier:'USPS'},note:'new source: type shipment.created → OrderShipped; ref → order_id, to → address_id',conf:0.93,key:'map'}],
+ ['ItemAddedToCart','cart-f6',{cart_id:'f6',customer_id:'farah',sku:'SCALE-01',qty:1}],
+ ['PaymentCaptured','order-1004',{order_id:'1004',amount:61.50}],
+ ['OrderShipped','shipments',{order_id:'1003',address_id:'dev-1',carrier:'UPS'},null,{rawType:'shipment.created',raw:{ref:'1003',to:'dev-1',carrier:'UPS'},note:'same mapping, learned at #0040',conf:0.93,key:'map'}],
+ ['CustomerRegistered','customer-gus',{customer_id:'gus'}],
+ ['SessionStarted','session-9g7',{customer_id:'gus'}],
+ ['ItemAddedToCart','cart-g7',{cart_id:'g7',customer_id:'gus',sku:'MUG-STONE',qty:1}]
+];
+const EV = RAW.map((r,i)=>({i, type:r[0], stream:r[1], data:r[2], slow:!!r[3], lat:r[3]||null, rep:r[4]||null}));
+const PRICE = {'TEA-OOLONG':13.50,'KETTLE-GOOSENECK':62.00,'MUG-STONE':24.00,'TEA-SENCHA':17.50,'SCALE-01':46.50};
+const UI = {catalog:false, stripe:false, mapOk:false};
+const N = EV.length;
+const PRODUCT = {'TEA-OOLONG':'Oolong','KETTLE-GOOSENECK':'Gooseneck kettle','MUG-STONE':'Stone mug','TEA-SENCHA':'Sencha','SCALE-01':'Brew scale'};
+const T_TYPES = 16, T_PRED = 20, T_EXT = 25, T_DOMAIN = 12;
+const REL = {'Customer|Cart':'owns','Cart|Product':'contains','Cart|Order':'became','Customer|Order':'placed','Customer|Address':'ships to','Order|Address':'ships to'};
+const pad4 = i => '#'+String(i).padStart(4,'0');
+const cap = s => s.charAt(0).toUpperCase()+s.slice(1);
+
+function fieldType(f, n){
+  if (n >= T_TYPES){
+    if (f==='customer_id') return 'Customer';
+    if (f==='cart_id') return 'Cart';
+    if (f==='order_id') return 'Order';
+    if (f==='sku') return 'Product';
+  }
+  if (n >= T_EXT && f==='address_id') return 'Address';
+  return null;
+}
+function isEntityField(f, n){ return !!fieldType(f,n) || /_id$/.test(f); }
+function relFor(ta, tb){ return REL[ta+'|'+tb] || REL[tb+'|'+ta] || null; }
+function labelFor(type, v){
+  if (type==='Customer') return cap(v);
+  if (type==='Cart') return 'cart '+v;
+  if (type==='Order') return '#'+v;
+  if (type==='Product') return UI.catalog ? (PRODUCT[v]||v)+' $'+PRICE[v].toFixed(2) : v;
+  return v;
+}
+function fastLat(i){ return (0.18 + ((i*37)%29)/70).toFixed(1)+' ms'; }
+
+let customSubs = [];
+
+// ---------- the fold: world at offset n is a pure function of events 0..n ----------
+function compute(n){
+  const nodes = new Map(), edges = new Map();
+  const carts = {}, orders = {}, custs = {};
+  const forks = [], fired = [], effects = {};
+  const openCA = {};
+  let domain = null;
+  const fx = (i, cls, txt) => { (effects[i] = effects[i] || []).push([cls, txt]); };
+  const node = k => nodes.get(k);
+  const setState = (k, s) => { const nd = node(k); if (nd) nd.state = s; };
+  const cartOf = id => carts[id] || (carts[id] = {id, items:0, lastAct:0, checkout:false, abandoned:false, customer:null});
+  const custOf = id => custs[id] || (custs[id] = {id, session:false, address:null});
+  const fire = (i, sub, text) => { fired.push({i, sub, text}); fx(i,'fx-sub','→ '+sub+': '+text); };
+  const resolve = (f, status, i, note) => {
+    if (f.status !== 'open') return;
+    f.status = status; f.by = i; f.note = note;
+    const sym = status==='confirmed' ? '✓' : status==='refuted' ? '✗' : '○';
+    fx(i, status==='confirmed'?'fx-ok':status==='refuted'?'fx-bad':'', sym+' '+f.id+' '+f.kind+' '+status);
+    if (status !== 'confirmed') forks.filter(c => c.parent===f.id && c.status==='open').forEach(c => resolve(c,'pruned',i,'parent '+status));
+  };
+  const spawn = (i, kind, target, p, parent, extra) => {
+    const f = Object.assign({id:'w'+(forks.length+1), kind, target, p, spawn:i, parent:parent||null, status:'open', by:null, pHist:[[i,p]], depth: parent ? 2 : 1}, extra||{});
+    forks.push(f);
+    fx(i,'fx-fork','⑂ '+f.id+' '+kind+' p '+p.toFixed(2));
+    customSubs.forEach(cs => { if (cs.scope==='fork' && cs.key===target && i > cs.from) fire(i, cs.name, kind+' predicted on '+cs.label); });
+    return f;
+  };
+
+  for (let i=0; i<=n; i++){
+    const e = EV[i], d = e.data;
+    if (e.slow){
+      if (e.type==='DomainProposed') domain = d;
+      fx(i,'', 'proposal accepted');
+      continue;
+    }
+    // entities + relationships (typed as of n: a model change re-projects history)
+    const keys = [];
+    for (const [f, v] of Object.entries(d)){
+      if (!isEntityField(f, n)) continue;
+      const k = f+':'+v; keys.push(k);
+      let nd = nodes.get(k);
+      if (!nd){ const t = fieldType(f,n); nd = {key:k, field:f, value:v, type:t, label: labelFor(t,v), first:i, last:i, count:0, state:'', events:[]}; nodes.set(k, nd); }
+      nd.last = i; nd.count++; nd.events.push(i);
+    }
+    for (let a=0; a<keys.length; a++) for (let b=a+1; b<keys.length; b++){
+      const na = node(keys[a]), nb = node(keys[b]);
+      let rel = '';
+      if (na.type && nb.type){ rel = relFor(na.type, nb.type); if (!rel) continue; }
+      const ek = keys[a] < keys[b] ? keys[a]+'~'+keys[b] : keys[b]+'~'+keys[a];
+      if (!edges.has(ek)) edges.set(ek, {a:keys[a], b:keys[b], rel, first:i});
+    }
+    // custom actual-scope subscriptions
+    customSubs.forEach(cs => { if (cs.scope==='actual' && keys.includes(cs.key) && i > cs.from) fire(i, cs.name, e.type+' on '+cs.label); });
+
+    const ck = d.customer_id ? 'customer_id:'+d.customer_id : null;
+    const kk = d.cart_id ? 'cart_id:'+d.cart_id : null;
+    const ok = d.order_id ? 'order_id:'+d.order_id : null;
+    switch (e.type){
+      case 'CustomerRegistered': custOf(d.customer_id); setState(ck,'registered'); break;
+      case 'SessionStarted': custOf(d.customer_id).session = true; setState(ck, d.utm ? 'browsing (via '+d.utm+')' : 'browsing'); break;
+      case 'SessionEnded': {
+        custOf(d.customer_id).session = false; setState(ck,'away');
+        Object.values(carts).forEach(c => {
+          if (c.customer===d.customer_id && c.items>0 && !c.checkout && !c.abandoned){
+            c.abandoned = true; setState('cart_id:'+c.id,'abandoned');
+            if (openCA[c.id]){ resolve(openCA[c.id],'confirmed',i,'session ended with items in cart'); delete openCA[c.id]; }
+          }
+        });
+        break;
+      }
+      case 'ItemAddedToCart': {
+        const c = cartOf(d.cart_id); c.items += d.qty||1; c.lastAct = i; c.customer = d.customer_id;
+        setState(kk, 'open · '+c.items+' item'+(c.items>1?'s':''));
+        if (openCA[c.id]){ resolve(openCA[c.id],'pruned',i,'activity resumed'); delete openCA[c.id]; }
+        break;
+      }
+      case 'CheckoutStarted': {
+        const c = cartOf(d.cart_id); const was = c.abandoned; c.checkout = true; c.lastAct = i;
+        setState(kk, was ? 'checkout (recovered)' : 'checkout');
+        if (openCA[c.id]){ resolve(openCA[c.id],'refuted',i,'checkout started'); delete openCA[c.id]; }
+        forks.filter(f => f.kind==='WinBackRecovers' && f.target===kk && f.status==='open').forEach(f => {
+          const par = forks.find(p => p.id===f.parent);
+          if (par && par.status==='confirmed') resolve(f,'confirmed',i,'customer returned and checked out');
+        });
+        break;
+      }
+      case 'OrderPlaced': orders[d.order_id] = {id:d.order_id, status:'placed', customer:d.customer_id, cart:d.cart_id, total:d.total};
+        setState(ok,'placed · $'+d.total.toFixed(2)); setState(kk,'ordered');
+        fire(i,'sub-3','post to #orders: #'+d.order_id+' $'+d.total.toFixed(2)); break;
+      case 'PaymentCaptured': if (orders[d.order_id]) orders[d.order_id].status='paid'; setState(ok,'paid · $'+d.amount.toFixed(2)); break;
+      case 'OrderShipped': {
+        const o = orders[d.order_id]; if (o){ o.status='shipped'; o.address=d.address_id; }
+        setState(ok,'shipped · '+d.carrier);
+        forks.filter(f => f.kind==='DeliveryException' && f.target===ok && f.status==='open').forEach(f => {
+          resolve(f, d.address_id===f.expect ? 'refuted' : 'confirmed', i, d.address_id===f.expect ? 'shipped to the new address' : 'shipped to the old address');
+        });
+        break;
+      }
+      case 'AddressChanged': {
+        custOf(d.customer_id).address = d.address_id; setState(ck,'moved to '+d.city);
+        fire(i,'sub-2','re-quote shipping for '+cap(d.customer_id));
+        if (i >= T_EXT){
+          Object.values(orders).forEach(o => { if (o.customer===d.customer_id && o.status!=='shipped') spawn(i,'DeliveryException','order_id:'+o.id,0.34,null,{expect:d.address_id}); });
+        }
+        break;
+      }
+    }
+    // predictors (compiled by System 2 at #0020)
+    if (i >= T_PRED){
+      Object.values(carts).forEach(c => {
+        if (c.items===0 || c.checkout || c.abandoned) return;
+        const idle = i - c.lastAct;
+        let f = openCA[c.id];
+        const p = Math.min(0.92, 0.35 + 0.08*(idle-4));
+        if (!f && idle >= 4){ f = openCA[c.id] = spawn(i,'CartAbandoned','cart_id:'+c.id,p); }
+        else if (f && f.spawn !== i){ f.p = p; }
+        if (f && f.p >= 0.6 && !f.subFired){
+          f.subFired = true;
+          fire(i,'sub-1','queue win-back email to '+cap(c.customer)+' (p '+f.p.toFixed(2)+')');
+          spawn(i,'WinBackRecovers','cart_id:'+c.id, 0.30*f.p, f.id, {pc:0.30});
+        }
+      });
+    }
+    // child worlds track their parent
+    forks.forEach(f => {
+      if (f.parent && f.status==='open'){
+        const par = forks.find(p => p.id===f.parent);
+        f.p = par.status==='open' ? f.pc*par.p : f.pc;
+      }
+      if (f.status==='open' && f.pHist[f.pHist.length-1][0] !== i) f.pHist.push([i, f.p]);
+      else if (f.status==='open') f.pHist[f.pHist.length-1][1] = f.p;
+    });
+  }
+  return {n, nodes, edges, forks, fired, effects, domain};
+}
+
+// ---------- state + UI ----------
+const reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let cur = reduced ? 33 : 23;
+let S = compute(cur);
+let playing = !reduced;
+let speed = 1;
+let showForks = true;
+let selected = null; // {kind:'node'|'fork', id}
+let dirty = true;
+
+const $ = id => document.getElementById(id);
+const canvas = $('world'), ctx = canvas.getContext('2d');
+const pos = new Map();
+let W = 600, H = 440, dpr = 1;
+let ghostHits = [];
+
+function hash(s){ let h=2166136261; for (let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619);} return (h>>>0)/4294967295; }
+
+function ensurePos(){
+  S.nodes.forEach((nd, k) => {
+    if (pos.has(k)) return;
+    let ax = W/2, ay = H/2;
+    for (const e of S.edges.values()){
+      const o = e.a===k ? e.b : e.b===k ? e.a : null;
+      if (o && pos.has(o)){ ax = pos.get(o).x; ay = pos.get(o).y; break; }
+    }
+    const a = hash(k)*Math.PI*2, r = 30 + hash(k+'r')*30;
+    pos.set(k, {x: ax + Math.cos(a)*r, y: ay + Math.sin(a)*r, vx:0, vy:0});
+  });
+}
+function simulate(steps){
+  const keys = [...S.nodes.keys()];
+  const edgesArr = [...S.edges.values()].filter(e => S.nodes.has(e.a) && S.nodes.has(e.b));
+  const padX = 50, padY = 36;
+  for (let s=0; s<steps; s++){
+    for (let a=0; a<keys.length; a++){
+      const pa = pos.get(keys[a]);
+      for (let b=a+1; b<keys.length; b++){
+        const pb = pos.get(keys[b]);
+        let dx = pa.x-pb.x, dy = pa.y-pb.y; let d2 = dx*dx+dy*dy; if (d2 < 1){ dx = hash(keys[a]+keys[b])-0.5; dy = 0.5; d2 = 1; }
+        const f = Math.min(8, 2600/d2); const d = Math.sqrt(d2);
+        pa.vx += dx/d*f; pa.vy += dy/d*f; pb.vx -= dx/d*f; pb.vy -= dy/d*f;
+      }
+    }
+    edgesArr.forEach(e => {
+      const pa = pos.get(e.a), pb = pos.get(e.b);
+      const dx = pb.x-pa.x, dy = pb.y-pa.y, d = Math.sqrt(dx*dx+dy*dy)||1;
+      const f = (d-72)*0.018;
+      pa.vx += dx/d*f; pa.vy += dy/d*f; pb.vx -= dx/d*f; pb.vy -= dy/d*f;
+    });
+    keys.forEach(k => {
+      const p = pos.get(k);
+      p.vx += (W/2-p.x)*0.0035; p.vy += (H/2-p.y)*0.005;
+      p.vx *= 0.82; p.vy *= 0.82;
+      p.x += Math.max(-6, Math.min(6, p.vx)); p.y += Math.max(-6, Math.min(6, p.vy));
+      p.x = Math.max(padX, Math.min(W-padX, p.x)); p.y = Math.max(padY, Math.min(H-padY-10, p.y));
+    });
+  }
+}
+
+function tokens(){
+  const cs = getComputedStyle(document.documentElement);
+  const g = n => cs.getPropertyValue(n).trim();
+  return {surface:g('--surface'), ink:g('--ink'), muted:g('--muted'), faint:g('--faint'), line:g('--line'), lineStrong:g('--line-strong'),
+    fork:g('--fork'), ok:g('--ok'), bad:g('--bad'), prune:g('--prune'), actual:g('--actual'),
+    types:{Customer:g('--t-customer'),Cart:g('--t-cart'),Product:g('--t-product'),Order:g('--t-order'),Address:g('--t-address')}, none:g('--t-none'),
+    display: getComputedStyle(document.body).getPropertyValue('--display') || 'sans-serif'};
+}
+function alpha(hex, a){
+  const h = hex.replace('#',''); if (h.length!==6) return hex;
+  return 'rgba('+parseInt(h.slice(0,2),16)+','+parseInt(h.slice(2,4),16)+','+parseInt(h.slice(4,6),16)+','+a+')';
+}
+
+function draw(){
+  const T = tokens();
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = T.surface; ctx.fillRect(0,0,W,H);
+  const font = '"Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif';
+  const selKey = selected && selected.kind==='node' ? selected.id : null;
+  const selFork = selected && selected.kind==='fork' ? S.forks.find(f=>f.id===selected.id) : null;
+  // edges
+  S.edges.forEach(e => {
+    const pa = pos.get(e.a), pb = pos.get(e.b); if (!pa||!pb) return;
+    const hot = selKey && (e.a===selKey || e.b===selKey);
+    ctx.strokeStyle = hot ? T.actual : T.lineStrong; ctx.lineWidth = hot ? 1.8 : 1.1; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+    if (hot && e.rel){
+      ctx.font = '500 10.5px '+font; ctx.fillStyle = T.muted; ctx.textAlign='center';
+      ctx.fillText(e.rel, (pa.x+pb.x)/2, (pa.y+pb.y)/2 - 4);
+    }
+  });
+  // centroid for ghost direction
+  let cx=0, cy=0, cnt=0; S.nodes.forEach((nd,k)=>{ const p=pos.get(k); if(p){cx+=p.x;cy+=p.y;cnt++;} }); if (cnt){cx/=cnt;cy/=cnt;}
+  // nodes
+  S.nodes.forEach((nd, k) => {
+    const p = pos.get(k); if (!p) return;
+    const col = nd.type ? T.types[nd.type] : T.none;
+    const r = 8 + Math.min(6, nd.count*0.7);
+    const age = S.n - nd.last;
+    if (age <= 1 && !reduced){ ctx.beginPath(); ctx.arc(p.x,p.y,r+7,0,Math.PI*2); ctx.fillStyle = alpha(col, age===0?0.28:0.14); ctx.fill(); }
+    else if (age === 0){ ctx.beginPath(); ctx.arc(p.x,p.y,r+6,0,Math.PI*2); ctx.fillStyle = alpha(col,0.22); ctx.fill(); }
+    ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    const hollow = nd.state==='abandoned';
+    if (hollow){ ctx.fillStyle = T.surface; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2.2; ctx.stroke(); }
+    else { ctx.fillStyle = col; ctx.fill(); ctx.strokeStyle = T.surface; ctx.lineWidth = 2; ctx.stroke(); }
+    if (k===selKey){ ctx.beginPath(); ctx.arc(p.x,p.y,r+4,0,Math.PI*2); ctx.strokeStyle = T.ink; ctx.lineWidth = 1.5; ctx.stroke(); }
+    ctx.font = (nd.type ? '600 ' : '500 ')+'11.5px '+(nd.type ? font : '"JetBrains Mono", monospace'); ctx.fillStyle = nd.type ? T.ink : T.muted; ctx.textAlign='center';
+    ctx.fillText(nd.label, p.x, p.y + r + 13);
+  });
+  // possible worlds
+  ghostHits = [];
+  if (showForks){
+    const gpos = {};
+    const visible = S.forks.filter(f => f.status==='open' || (S.n - f.by) <= 2);
+    const perTarget = {};
+    visible.forEach(f => {
+      const tp = pos.get(f.target); if (!tp) return;
+      let bx = tp.x, by = tp.y, ang;
+      if (f.parent && gpos[f.parent]){ bx = gpos[f.parent].x; by = gpos[f.parent].y; ang = gpos[f.parent].ang + 0.5; }
+      else { const slot = perTarget[f.target] = (perTarget[f.target]||0) + 1; ang = Math.atan2(tp.y-cy, tp.x-cx) + (slot-1)*0.7; if (!isFinite(ang)) ang = -Math.PI/2; }
+      const dist = f.parent ? 58 : 66;
+      let gx = bx + Math.cos(ang)*dist, gy = by + Math.sin(ang)*dist;
+      gx = Math.max(60, Math.min(W-60, gx)); gy = Math.max(24, Math.min(H-30, gy));
+      gpos[f.id] = {x:gx, y:gy, ang};
+      const open = f.status==='open';
+      const col = open ? T.fork : f.status==='confirmed' ? T.ok : f.status==='refuted' ? T.bad : T.prune;
+      const a = open ? 0.4 + 0.6*f.p : 1;
+      const isSel = selFork && selFork.id===f.id;
+      ctx.setLineDash(open ? [5,4] : []);
+      ctx.strokeStyle = alpha(col, a); ctx.lineWidth = isSel ? 2.2 : 1.4;
+      ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(gx,gy); ctx.stroke();
+      if (!f.parent){ ctx.beginPath(); ctx.arc(tp.x,tp.y, 8+Math.min(6,(S.nodes.get(f.target)||{count:1}).count*0.7)+9, 0, Math.PI*2); ctx.stroke(); }
+      const gr = 6 + 8*f.p;
+      ctx.beginPath(); ctx.arc(gx,gy,gr,0,Math.PI*2);
+      ctx.fillStyle = alpha(col, open ? 0.12 : 0.18); ctx.fill(); ctx.stroke();
+      ctx.setLineDash([]);
+      const sym = open ? '' : f.status==='confirmed' ? '✓ ' : f.status==='refuted' ? '✗ ' : '○ ';
+      const nm = f.kind==='CartAbandoned' ? 'abandoned' : f.kind==='WinBackRecovers' ? 'win-back recovers' : 'delivery exception';
+      ctx.font = '600 11px '+font; ctx.fillStyle = col; ctx.textAlign = 'center';
+      ctx.fillText(sym + nm, gx, gy - gr - 12);
+      ctx.font = '500 10.5px "JetBrains Mono", monospace';
+      ctx.fillText(open ? 'p '+f.p.toFixed(2) : f.status, gx, gy - gr - 1);
+      ghostHits.push({id:f.id, x:gx, y:gy, r:gr+10});
+    });
+  }
+  if (S.nodes.size===0){
+    ctx.font = '500 14px '+font; ctx.fillStyle = T.muted; ctx.textAlign='center';
+    ctx.fillText('Waiting for the first event…', W/2, H/2);
+  }
+}
+
+function resize(){
+  const r = canvas.getBoundingClientRect();
+  const oldW = W, oldH = H;
+  W = Math.max(280, r.width); H = Math.max(260, r.height);
+  dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(W*dpr); canvas.height = Math.round(H*dpr);
+  if (oldW && (Math.abs(oldW-W) > 1 || Math.abs(oldH-H) > 1)){
+    pos.forEach(p => { p.x = p.x/oldW*W; p.y = p.y/oldH*H; });
+  }
+  dirty = true; renderLanes();
+}
+
+// ---------- panels ----------
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function compactData(d){ return '{'+Object.entries(d).map(([k,v]) => k+':'+(typeof v==='string' ? '"'+v+'"' : v)).join(', ')+'}'; }
+function enrichment(i){
+  const e = EV[i];
+  if (e.slow) return '';
+  const parts = [];
+  for (const [f,v] of Object.entries(e.data)){
+    if (!isEntityField(f, i)) continue;
+    const t = fieldType(f, i);
+    parts.push(t ? t+' '+labelFor(t,v) : f+'='+v);
+  }
+  return parts.join(' · ');
+}
+function repairView(e){
+  const k = e.rep.key;
+  if (k==='link' && UI.stripe) return {tag:'repaired · 1.00 · Stripe', note:'linked to #1001 exactly via Stripe charge metadata'};
+  if (k==='map' && UI.mapOk) return {tag:'repaired · approved by you', note:e.rep.note};
+  const auto = e.rep.conf >= 0.95;
+  return {tag:'repaired · '+e.rep.conf.toFixed(2)+(auto ? ' · auto' : ' · applied, in inbox'), note:e.rep.note};
+}
+function renderHealth(){
+  const n = S.n;
+  const nonSlow = EV.slice(0, n+1).filter(e => !e.slow);
+  const typed = [...S.nodes.values()].filter(nd => nd.type).length;
+  const repairs = nonSlow.filter(e => e.rep).length;
+  const items = [];
+  if (n >= 9){
+    items.push(UI.stripe
+      ? {who:'source · connected', html:'<span class="done">Stripe connected.</span> Payments now link to orders exactly; the inferred link at #0009 was replaced.'}
+      : {who:'System 2 suggests a source', html:'A payment arrived with no order_id. It was linked by amount and time (0.88). Its ids look like Stripe charges.', btn:['stripe','Connect Stripe (sample)']});
+  }
+  if (n >= T_TYPES){
+    const nP = [...S.nodes.values()].filter(nd => nd.type==='Product').length;
+    items.push(UI.catalog
+      ? {who:'source · connected', html:'<span class="done">Product catalog connected.</span> Products now carry names and prices, and order totals reconcile.'}
+      : {who:'gap · System 2 suggests a source', html:nP+' products are known only by SKU, with no names or prices. A catalog (CSV, Shopify, or a Postgres table) would fill them.', btn:['catalog','Connect catalog (sample)']});
+  }
+  if (n >= 40){
+    items.push(UI.mapOk
+      ? {who:'mapping · approved', html:'<span class="done">You approved the shipment.created mapping.</span> It now applies without review.'}
+      : {who:'needs your review', html:'A second system started sending <code>shipment.created</code>. Mapped to OrderShipped (0.93) and applied, pending your approval.', btn:['mapOk','Approve mapping']});
+  }
+  const open = items.filter(x => x.btn).length;
+  $('health').innerHTML = '<div><b>'+typed+'/'+S.nodes.size+'</b><span>entities typed</span></div><div><b>'+repairs+'</b><span>events repaired</span></div><div><b>'+open+'</b><span>open items</span></div>';
+  $('inbox').innerHTML = items.length ? items.slice().reverse().map(x => '<li><span class="who">'+x.who+'</span><span>'+x.html+'</span>'+(x.btn ? '<button data-ui="'+x.btn[0]+'">'+x.btn[1]+'</button>' : '')+'</li>').join('') : '<li><span>Watching the stream. Nothing to review yet.</span></li>';
+  $('inbox').querySelectorAll('button[data-ui]').forEach(b => b.addEventListener('click', () => { UI[b.getAttribute('data-ui')] = true; S = compute(cur); renderAll(); }));
+}
+function renderTicker(){
+  const ul = $('ticker'); let h = '';
+  for (let i = S.n; i >= Math.max(0, S.n-15); i--){
+    const e = EV[i];
+    const fxs = (S.effects[i]||[]).filter(x => !(e.slow && x[1]==='proposal accepted'));
+    const fxHtml = fxs.map(x => '<div class="'+x[0]+'">'+esc(x[1])+'</div>').join('');
+    if (e.slow){
+      h += '<li class="slow'+(i===S.n?' now':'')+'"><div class="ev-top"><span class="ev-off">'+pad4(i)+'</span><span class="ev-type">'+e.type+'</span><span class="tag slow">System 2 · LLM · '+e.lat+'</span></div>'
+        + '<div class="ev-data">'+esc(compactData(e.data))+'</div><div class="ev-enr">proposal accepted, written to the log, taught to System 1'+fxHtml+'</div></li>';
+    } else {
+      const r = e.rep ? repairView(e) : null;
+      h += '<li'+(i===S.n?' class="now"':'')+'><div class="ev-top"><span class="ev-off">'+pad4(i)+'</span><span class="ev-type">'+(e.rep && e.rep.rawType ? e.rep.rawType : e.type)+'</span><span class="ev-stream">'+e.stream+'</span></div>'
+        + (r ? '<div class="ev-asrec">as received</div><div class="ev-data">'+esc(compactData(e.rep.raw))+'</div><div class="ev-rep"><span class="tag rep">'+esc(r.tag)+'</span> '+esc(r.note)+'</div>' : '<div class="ev-data">'+esc(compactData(e.data))+'</div>')
+        + '<div class="ev-enr"><span class="tag">System 1 · '+fastLat(i)+'</span> '+esc(enrichment(i))+fxHtml+'</div></li>';
+    }
+  }
+  ul.innerHTML = h;
+}
+const SUBS = [
+  {id:'sub-1', scope:'fork', scopeTxt:'any world · p ≥ 0.60', cond:'CartAbandoned predicted', act:'queue win-back email'},
+  {id:'sub-2', scope:'actual', scopeTxt:'actual world', cond:'AddressChanged', act:'re-quote shipping'},
+  {id:'sub-3', scope:'raw', scopeTxt:'raw stream', cond:'OrderPlaced', act:'post to #orders'}
+];
+function renderSubs(){
+  const all = SUBS.concat(customSubs.map(c => ({id:c.name, scope:c.scope, scopeTxt: c.scope==='fork' ? 'any world · p ≥ 0.50' : 'actual world', cond: c.scope==='fork' ? 'any prediction on '+c.label : 'any change to '+c.label, act:'notify (mockup)'})));
+  $('subs').innerHTML = all.map(s => '<li><span class="scope '+s.scope+'">'+s.id+' · '+esc(s.scopeTxt)+'</span><span>'+esc(s.cond)+' → '+esc(s.act)+'</span></li>').join('');
+  const fl = S.fired.slice().reverse();
+  $('fired').innerHTML = fl.length ? fl.map(f => '<li>'+pad4(f.i)+' <b>'+esc(f.sub)+'</b> '+esc(f.text)+'</li>').join('') : '<li>Nothing has fired yet.</li>';
+}
+function renderScore(){
+  const kinds = ['CartAbandoned','WinBackRecovers','DeliveryException'];
+  let h = '<tr><th>Predictor</th><th class="c-ok">✓</th><th class="c-bad">✗</th><th class="c-pr">○</th><th class="c-open">open</th></tr>';
+  kinds.forEach(k => {
+    const fs = S.forks.filter(f => f.kind===k);
+    const c = s => fs.filter(f => f.status===s).length;
+    h += '<tr><td>'+k+'</td><td class="c-ok">'+c('confirmed')+'</td><td class="c-bad">'+c('refuted')+'</td><td class="c-pr">'+c('pruned')+'</td><td class="c-open">'+c('open')+'</td></tr>';
+  });
+  $('score').innerHTML = h;
+}
+function spark(f){
+  const w = 220, h = 40, i0 = f.spawn, i1 = Math.max(i0+1, f.by!=null ? f.by : S.n);
+  const pts = f.pHist.map(([i,p]) => ((i-i0)/(i1-i0)*(w-8)+4).toFixed(1)+','+(h-4-p*(h-8)).toFixed(1)).join(' ');
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" style="display:block;max-width:100%"><line x1="4" x2="'+(w-4)+'" y1="'+(h-4)+'" y2="'+(h-4)+'" style="stroke:var(--line)"/><polyline points="'+pts+'" style="fill:none;stroke:var(--fork)" stroke-width="1.8"/></svg>';
+}
+function renderInspector(){
+  const box = $('inspector');
+  if (selected && selected.kind==='node' && S.nodes.has(selected.id)){
+    const nd = S.nodes.get(selected.id);
+    const rels = [...S.edges.values()].filter(e => e.a===nd.key || e.b===nd.key).map(e => { const o = S.nodes.get(e.a===nd.key ? e.b : e.a); return (e.rel ? e.rel+' ' : '')+(o ? o.label : '?'); });
+    const nf = S.forks.filter(f => f.target===nd.key && f.status==='open');
+    const col = nd.type ? 'var(--t-'+nd.type.toLowerCase()+')' : 'var(--t-none)';
+    box.innerHTML = '<h3><span class="typebadge" style="background:'+col+'"></span>'+esc(nd.label)+'</h3>'
+      + '<dl class="kv"><dt>type</dt><dd>'+(nd.type || '<span style="color:var(--muted)">unknown (raw '+esc(nd.field)+')</span>')+'</dd>'
+      + '<dt>state</dt><dd>'+esc(nd.state || '·')+'</dd>'
+      + '<dt>events</dt><dd>'+nd.count+' · first '+pad4(nd.first)+' · last '+pad4(nd.last)+'</dd>'
+      + '<dt>links</dt><dd>'+esc(rels.join(', ') || 'none')+'</dd>'
+      + '<dt>worlds</dt><dd>'+(nf.length ? nf.map(f => f.id+' '+f.kind+' p '+f.p.toFixed(2)).join('<br>') : 'no open forks')+'</dd></dl>'
+      + '<div class="btns"><button data-sub="actual">Subscribe · actual</button><button data-sub="fork">Subscribe · any world</button></div>';
+    box.querySelectorAll('button[data-sub]').forEach(b => b.addEventListener('click', () => {
+      const scope = b.getAttribute('data-sub');
+      if (customSubs.some(c => c.key===nd.key && c.scope===scope)) return;
+      customSubs.push({name:'sub-'+(4+customSubs.length), key:nd.key, label:nd.label, scope, from:S.n});
+      S = compute(cur); renderAll();
+    }));
+    return;
+  }
+  if (selected && selected.kind==='fork'){
+    const f = S.forks.find(x => x.id===selected.id);
+    if (f){
+      const tn = S.nodes.get(f.target);
+      const diff = f.kind==='CartAbandoned' ? (tn?tn.label:'cart')+' → abandoned, items never purchased'
+        : f.kind==='WinBackRecovers' ? (tn?tn.label:'cart')+' → checkout after the win-back email'
+        : (tn?tn.label:'order')+' → DeliveryException (shipped to the old address)';
+      const byEv = f.by!=null ? EV[f.by] : null;
+      box.innerHTML = '<h3 style="color:var(--fork)">World '+f.id+' · '+f.kind+'</h3>'
+        + '<dl class="kv"><dt>parent</dt><dd>'+(f.parent ? 'world '+f.parent+' (depth 2)' : 'actual world')+'</dd>'
+        + '<dt>forked at</dt><dd>'+pad4(f.spawn)+'</dd>'
+        + '<dt>in this world</dt><dd>'+esc(diff)+'</dd>'
+        + '<dt>p now</dt><dd>'+f.p.toFixed(2)+'</dd>'
+        + '<dt>status</dt><dd class="'+(f.status==='confirmed'?'c-ok':f.status==='refuted'?'c-bad':f.status==='pruned'?'c-pr':'c-open')+'">'+f.status+(byEv ? ' at '+pad4(f.by)+' by '+byEv.type : '')+'</dd>'
+        + (f.note ? '<dt>why</dt><dd>'+esc(f.note)+'</dd>' : '')
+        + '</dl>' + spark(f) + '<p class="hint" style="margin-top:8px">Every verdict is a label for '+f.kind+"'s calibration.</p>";
+      return;
+    }
+  }
+  box.innerHTML = '<p class="hint">Click an entity to see its state and subscribe to it. Click a dashed world, or a row below, to see what that world adds.</p>';
+}
+function renderLanes(){
+  const box = $('lanesBox');
+  const fs = S.forks;
+  const w = Math.max(560, box.clientWidth || 800);
+  const L = w < 700 ? 150 : 200, R = 14, top = 22, rowH = 20;
+  const x = i => L + (i/(N-1))*(w-L-R);
+  const h = top + Math.max(1, fs.length)*rowH + 8;
+  let s = '<svg id="lanes" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="Possible worlds over time">';
+  s += '<rect class="axisHit" x="'+L+'" y="0" width="'+(w-L-R)+'" height="'+top+'" fill="transparent" style="cursor:pointer"/>';
+  for (let i=0; i<N; i+=5){ s += '<line x1="'+x(i)+'" x2="'+x(i)+'" y1="'+(top-4)+'" y2="'+h+'" style="stroke:var(--line)" stroke-width="1"/><text class="axis" x="'+x(i)+'" y="'+(top-8)+'" text-anchor="middle">'+pad4(i)+'</text>'; }
+  [[T_DOMAIN,'domain'],[T_TYPES,'types'],[T_PRED,'predictor'],[T_EXT,'model+']].forEach(([i]) => { if (i<=S.n) s += '<line x1="'+x(i)+'" x2="'+x(i)+'" y1="'+top+'" y2="'+h+'" style="stroke:var(--slow)" stroke-dasharray="2 3" stroke-width="1"/>'; });
+  fs.forEach((f, r) => {
+    const y = top + r*rowH + rowH/2;
+    const end = f.by!=null ? f.by : S.n;
+    const col = f.status==='open' ? 'var(--fork)' : f.status==='confirmed' ? 'var(--ok)' : f.status==='refuted' ? 'var(--bad)' : 'var(--prune)';
+    const tn = S.nodes.get(f.target);
+    const sel = selected && selected.kind==='fork' && selected.id===f.id;
+    s += '<g class="row" data-fork="'+f.id+'" style="cursor:pointer"><rect class="hit" x="0" y="'+(y-rowH/2)+'" width="'+w+'" height="'+rowH+'" fill="transparent"/>';
+    s += '<text class="lbl" x="'+(f.parent ? 14 : 2)+'" y="'+(y+4)+'" style="fill:'+(sel?'var(--ink)':'var(--muted)')+';font-weight:'+(sel?600:400)+'">'+(f.parent?'└ ':'')+f.id+' '+(f.kind==='CartAbandoned'?'abandoned':f.kind==='WinBackRecovers'?'win-back':'delivery ex.')+' · '+esc(tn?tn.label:'')+'</text>';
+    if (f.parent){ const par = fs.find(p => p.id===f.parent); const pr = fs.indexOf(par); if (pr>=0) s += '<path d="M'+x(f.spawn)+','+(top+pr*rowH+rowH/2)+' L'+x(f.spawn)+','+y+'" style="stroke:'+col+';fill:none" stroke-width="1.2" stroke-dasharray="2 2"/>'; }
+    s += '<line x1="'+x(f.spawn)+'" x2="'+Math.max(x(f.spawn)+3, x(end))+'" y1="'+y+'" y2="'+y+'" style="stroke:'+col+'" stroke-width="'+(sel?6:4)+'" stroke-linecap="round"'+(f.status==='open'?' stroke-dasharray="5 3"':'')+'/>';
+    if (f.status!=='open'){ const sym = f.status==='confirmed'?'✓':f.status==='refuted'?'✗':'○'; s += '<text x="'+(x(end)+8)+'" y="'+(y+4)+'" style="fill:'+col+';font-size:11px;font-weight:600">'+sym+'</text>'; }
+    else s += '<text x="'+(x(end)+8)+'" y="'+(y+4)+'" style="fill:var(--fork);font-size:10.5px;font-family:var(--mono)">'+f.p.toFixed(2)+'</text>';
+    s += '</g>';
+  });
+  if (!fs.length) s += '<text x="'+L+'" y="'+(top+14)+'" style="fill:var(--muted);font-size:12.5px">No possible worlds yet. The CartAbandoned predictor is compiled by System 2 at #0020.</text>';
+  s += '<line x1="'+x(S.n)+'" x2="'+x(S.n)+'" y1="'+(top-6)+'" y2="'+h+'" style="stroke:var(--actual)" stroke-width="1.6"/>';
+  s += '</svg>';
+  box.innerHTML = s;
+  const svg = box.querySelector('svg');
+  svg.querySelectorAll('g.row').forEach(g => g.addEventListener('click', () => { selected = {kind:'fork', id:g.getAttribute('data-fork')}; renderInspector(); renderLanes(); dirty = true; }));
+  const ah = svg.querySelector('.axisHit');
+  ah.addEventListener('click', ev => {
+    const rect = svg.getBoundingClientRect(); const px = (ev.clientX - rect.left) * (w/rect.width);
+    setCur(Math.round((px-L)/(w-L-R)*(N-1)));
+    setPlaying(false);
+  });
+}
+function renderStats(){
+  $('stOff').textContent = pad4(S.n); $('offRead').textContent = pad4(S.n);
+  $('stEnt').textContent = S.nodes.size; $('stRel').textContent = S.edges.size;
+  $('stFork').textContent = S.forks.filter(f => f.status==='open').length;
+  const dc = $('domainChip');
+  if (S.domain){ dc.className = 'chip'; dc.textContent = 'domain: '+S.domain.domain+' · '+S.domain.confidence.toFixed(2); }
+  else { dc.className = 'chip unknown'; dc.textContent = 'domain: unknown'; }
+  $('scrub').value = S.n;
+}
+function renderAll(){ renderStats(); renderTicker(); renderHealth(); renderSubs(); renderScore(); renderInspector(); renderLanes(); dirty = true; }
+
+function setCur(n){
+  cur = Math.max(0, Math.min(N-1, n));
+  S = compute(cur);
+  if (selected && selected.kind==='fork' && !S.forks.some(f => f.id===selected.id)) selected = null;
+  ensurePos();
+  if (reduced) simulate(300);
+  renderAll();
+}
+function setPlaying(p){ playing = p; $('btnPlay').textContent = p ? 'Pause' : 'Play'; }
+
+// controls
+$('btnPlay').addEventListener('click', () => { if (!playing && cur >= N-1) setCur(0); setPlaying(!playing); acc = 0; });
+$('btnBack').addEventListener('click', () => { setPlaying(false); setCur(cur-1); });
+$('btnFwd').addEventListener('click', () => { setPlaying(false); setCur(cur+1); });
+$('scrub').addEventListener('input', e => { setPlaying(false); setCur(+e.target.value); });
+$('btnSpeed').addEventListener('click', () => { speed = speed===1 ? 2 : speed===2 ? 4 : 1; $('btnSpeed').textContent = speed+'×'; });
+$('togForks').addEventListener('change', e => { showForks = e.target.checked; dirty = true; });
+document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => {
+  setPlaying(false); setCur(+b.getAttribute('data-jump'));
+  const j = +b.getAttribute('data-jump');
+  if (j===21){ const f = S.forks.find(x => x.kind==='CartAbandoned' && x.target==='cart_id:b2'); if (f) selected = {kind:'fork', id:f.id}; }
+  else if (j===30){ const f = S.forks.find(x => x.kind==='DeliveryException'); if (f) selected = {kind:'fork', id:f.id}; }
+  else if (j===38){ const f = S.forks.find(x => x.kind==='WinBackRecovers' && x.target==='cart_id:b2'); if (f) selected = {kind:'fork', id:f.id}; }
+  else if (j===16){ selected = {kind:'node', id:'cart_id:b2'}; }
+  else selected = null;
+  renderInspector(); renderLanes(); dirty = true;
+  $('mockup').scrollIntoView({behavior: reduced ? 'auto' : 'smooth', block:'start'});
+}));
+canvas.addEventListener('click', ev => {
+  const r = canvas.getBoundingClientRect(); const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  for (const g of ghostHits){ if ((mx-g.x)**2 + (my-g.y)**2 <= g.r*g.r){ selected = {kind:'fork', id:g.id}; renderInspector(); renderLanes(); dirty = true; return; } }
+  let best = null, bd = 22*22;
+  S.nodes.forEach((nd,k) => { const p = pos.get(k); if (!p) return; const d = (mx-p.x)**2 + (my-p.y)**2; if (d < bd){ bd = d; best = k; } });
+  selected = best ? {kind:'node', id:best} : null;
+  renderInspector(); renderLanes(); dirty = true;
+});
+
+// loop
+let last = performance.now(), acc = 0, endHold = 0;
+function frame(t){
+  const dt = Math.min(100, t - last); last = t;
+  if (playing){
+    if (cur >= N-1){ endHold += dt; if (endHold > 3500){ endHold = 0; setCur(0); } }
+    else { acc += dt; if (acc >= 1150/speed){ acc = 0; setCur(cur+1); } }
+  }
+  if (!reduced){ simulate(1); draw(); }
+  else if (dirty){ draw(); dirty = false; }
+  requestAnimationFrame(frame);
+}
+
+if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas); else window.addEventListener('resize', resize);
+resize();
+ensurePos(); simulate(450);
+renderAll(); draw();
+if (window.matchMedia){ const mq = window.matchMedia('(prefers-color-scheme: dark)'); if (mq.addEventListener) mq.addEventListener('change', () => { dirty = true; renderLanes(); }); }
+new MutationObserver(() => { dirty = true; }).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+requestAnimationFrame(frame);
+})();
+</script>
