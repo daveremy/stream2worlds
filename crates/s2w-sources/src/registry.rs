@@ -1,8 +1,12 @@
 //! Resolves a `s2w watch` URI to a [`Source`]: the one place that knows every adapter and
 //! preset.
 
+use std::sync::Arc;
+
 use crate::kafka::KafkaAdapter;
+use crate::presets::preset;
 use crate::source::{Source, SourceError};
+use crate::sse::{Opaque, SseConfig, SseSource, USER_AGENT};
 use crate::stdin::StdinSource;
 
 /// The forms [`resolve`] accepts, for usage messages.
@@ -34,13 +38,59 @@ pub fn resolve(uri: &str) -> Result<Box<dyn Source>, ResolveError> {
     if uri == "-" {
         return Ok(Box::new(StdinSource::from_stdin()));
     }
+    if let Some(source) = preset(uri) {
+        return Ok(source);
+    }
     match uri.split_once("://") {
         Some(("kafka", _)) => Ok(Box::new(KafkaAdapter::parse(uri)?)),
+        Some(("sse", rest)) => Ok(Box::new(sse(format!("https://{rest}"))?)),
+        Some(("https" | "http", _)) => Ok(Box::new(sse(uri.to_owned())?)),
         _ => Err(ResolveError::Unknown {
             uri: uri.to_owned(),
             forms: FORMS,
         }),
     }
+}
+
+/// A generic SSE source for `url` with the [`Opaque`] dialect, filed under
+/// `sse.<host>[_<port>].<path>`.
+fn sse(url: String) -> Result<SseSource, SourceError> {
+    let invalid = |reason: String| SourceError::InvalidTarget {
+        name: "sse",
+        uri: url.clone(),
+        reason,
+    };
+    let parsed = reqwest::Url::parse(&url).map_err(|error| invalid(error.to_string()))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| invalid("the URL has no host".to_owned()))?;
+    let mut id = format!("sse.{host}");
+    if let Some(port) = parsed.port() {
+        id.push_str(&format!("_{port}"));
+    }
+    let path = parsed.path().trim_matches('/');
+    if !path.is_empty() {
+        id.push('.');
+        id.push_str(path);
+    }
+    let source_id: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(128)
+        .collect();
+    Ok(SseSource::new(SseConfig {
+        name: "sse",
+        url,
+        dialect: Arc::new(Opaque),
+        source_id,
+        user_agent: USER_AGENT,
+    }))
 }
 
 #[cfg(test)]
@@ -65,6 +115,37 @@ mod tests {
             Err(message) => assert!(message.contains("invalid target"), "{message}"),
             Ok(other) => panic!("a topicless kafka URI must be refused, got {other}"),
         }
+    }
+
+    #[test]
+    fn presets_resolve_by_exact_name() {
+        assert_eq!(name("wikipedia"), Ok("wikipedia"));
+    }
+
+    #[test]
+    fn sse_schemes_are_the_generic_sse_adapter() {
+        for uri in [
+            "sse://stream.example.org/v2/recent",
+            "https://stream.example.org/v2/recent",
+            "http://localhost:8080/events",
+        ] {
+            assert_eq!(name(uri), Ok("sse"), "{uri}");
+        }
+    }
+
+    #[test]
+    fn sse_source_ids_are_derived_from_host_and_path() {
+        let id = |uri: &str| super::sse(uri.to_owned()).map(|source| source.source_id().to_owned());
+        assert_eq!(
+            id("https://stream.example.org/v2/recent%20changes").ok(),
+            Some("sse.stream.example.org.v2_recent_20changes".to_owned())
+        );
+        assert_eq!(
+            id("http://localhost:8080/").ok(),
+            Some("sse.localhost_8080".to_owned())
+        );
+        let long = format!("https://h/{}", "p".repeat(300));
+        assert_eq!(id(&long).ok().map(|id| id.len()), Some(128));
     }
 
     #[test]
