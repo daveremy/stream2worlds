@@ -37,19 +37,11 @@ loop). ⛔ Never run a second sprint loop here.
 - lifeos def edit `1e585357` (doc scrub at S2W sprint wrap + 60 h cap).
 
 ## Research in flight (sagan subagents, launched 07:48-07:53) — status UNKNOWN after a /clear
-- **0001 prior art: WRITTEN** at `/tmp/claude-1000/-home-dave-lifeos/058d8576-1408-449c-9d01-beddd4dabaae/scratchpad/sagan-prior-art.md`
-  (60 KB, 08:18). Copy to `research/0001-prior-art.md`, add the header block and a Design
-  implications section. Implications seen so far (disposition each):
-  1. Biggest threat **Zep/Graphiti** (arXiv 2501.13956): name it ourselves in README/launch; the
-     real differences are LLM off the hot path, discovered identity keys, replay, forecasts,
-     obfuscation test.
-  2. **"Possible worlds"** collides with probabilistic-database semantics (Dalvi & Suciu): keep in
-     the pitch, define in one sentence, use "sampled future worlds" for the mechanism.
-  3. **Export OCEL 2.0** (object-centric process-mining standard): adopt its vocabulary (object
-     type, E2O, O2O) in s2w-model; decision record.
-  4. **Rebmann et al. BPM 2022** (discovers object types/relations from flat logs): add as a
-     gate-3 comparison or cite as the closest academic prior art; contract amendment if added.
-  5. Claim the intersection and the evaluation; attribute every component.
+- **0001 prior art: FILED** as `research/0001-prior-art.md` (d21740c) with 7 Design implications;
+  #5 adopted, the rest **pending disposition** — do those first (Graphiti positioning, "possible
+  worlds" definition, OCEL 2.0 export + vocabulary, Rebmann 2022 as gate-3 comparison, Murphy
+  decomposition / right-censoring / signed pre-registration tag, DEBS 2027). Sagan measured a ~3%
+  base rate independently (matches pilot 3.8%); revert-risk label has no time window (A10 updated).
 - **0002 structure discovery without LLMs** → `research/0002-structure-discovery-without-llms.md`
   (check it exists). Feeds the gate-3 heuristics arm.
 - **0003 Rust substrate** → `research/0003-rust-substrate.md` (check it exists). Feeds decision
