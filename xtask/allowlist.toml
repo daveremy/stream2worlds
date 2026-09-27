@@ -17,7 +17,7 @@ normal = ["s2w-model", "rusqlite"]
 normal = ["s2w-model", "reqwest", "rskafka", "tokio", "serde_json", "tokio-stream", "thiserror"]
 
 [crates.s2w-system1]
-normal = ["s2w-model"]
+normal = ["s2w-model", "serde", "serde_json", "thiserror"]
 
 [crates.s2w-system2]
 normal = ["s2w-model"]
