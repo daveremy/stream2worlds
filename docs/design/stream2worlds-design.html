@@ -773,6 +773,12 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
     </tbody>
   </table>
   </div>
+  <div class="prose"><p><strong>System 1 note, 2026-09-27:</strong> the two engines that shipped
+  behind the trait are rules (Wikimedia page changes) and JSON claims (a payload that already is
+  a claim), per <a href="../decisions/0011-system1-bridge.md">decision 0011</a>. Local embeddings come next, after the verdict log (<a href="https://github.com/daveremy/stream2worlds/issues/63">#63</a>,
+  <a href="https://github.com/daveremy/stream2worlds/issues/64">#64</a>): a model file is an input
+  the log does not capture. Jev and similar models come after them. The workspace diagram's "verdicts logged" is not met yet either: no
+  verdict is persisted until #63. The row above and the "System 1 engines" row below stand as written.</p></div>
   <div class="tbl" style="margin-top:18px">
   <table class="q">
     <thead><tr><th>Fitness function</th><th>What it checks</th><th>When</th></tr></thead>

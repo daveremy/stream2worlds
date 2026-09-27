@@ -580,3 +580,12 @@ contains, and the disposition of Rebmann, Rehse and van der Aa (BPM 2022) as a c
 rather than a fourth arm, is fixed in [decision 0010](decisions/0010-gate3-h-arm.md). Reason: the
 arm needed a concrete definition before anyone builds it (s2w#4). This note changes no arm, metric,
 threshold or stream; B1's text stands as signed.
+
+### 2026-09-27: gate-3 obfuscation, the `wiki` field (pointer, no change in meaning)
+
+B2 lists identifier domains as "page, user, revision and so on" and leaves the answer-key questions
+of research 0002 §9 to s2w#17. Dave's ruling on #17 (2026-09-27): the `wiki` field is folded into
+the title and revision hash domains of the obfuscated stream, which protects B4's no-waiver floor;
+cross-wiki composite-key discovery is reported as its own **unfloored** sub-metric on the obfuscated
+and plain streams, beside B3's scored metrics. This note changes no arm, threshold or stream, and
+adds no floor; B2 and B3 stand as signed.
