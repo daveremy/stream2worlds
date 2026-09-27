@@ -17,3 +17,16 @@ PR; never commit to `main` directly after the bootstrap commit.
 - Adapters depend only on `s2w-model`; never on the core or on each other.
 - Every crate has an `AGENTS.md` with its allowed dependencies and invariants. Read it before editing the crate.
 - Golden replay files are human-owned: never regenerate one to make a test pass; flag it instead.
+
+## Documentation: the README is the user manual
+The README is the user documentation, so it must describe what the code does today. **Every
+sprint ends with a doc scrub** (Dave, 2026-09-27), run before the sprint report:
+1. README: interface examples, the Technical architecture table's statuses, the Evaluation
+   section, and the Roadmap checkboxes match what merged this sprint.
+2. `docs/evaluation-contract.md`: nothing built this sprint contradicts it. A contradiction is
+   either a code bug or a dated amendment, never a quiet edit.
+3. The design page: claims overtaken by decisions get a dated note.
+4. Every crate's `AGENTS.md` still matches its dependencies and invariants.
+5. Links and commands in the README still resolve and run.
+The sprint report carries one line: `doc scrub: clean` or what changed. Once the workspace
+exists, the mechanical parts (table vs `cargo metadata`, link check) run in `cargo xtask check`.

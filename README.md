@@ -87,8 +87,8 @@ A forecast you cannot check is an opinion. `s2w` grades its own predictions agai
 
 Stream outcomes are awkward to grade, and the ledger is built around that:
 
-- **Outcomes arrive late.** A revert can be tagged minutes or weeks after an edit. Labels are provisional, then final, and a correction is appended rather than overwriting the first label.
-- **Some outcomes are never observable.** A deleted page or a gap in the stream makes the outcome censored, not wrong, and censoring is reported per predictor so no one gains from it.
+- **Outcomes arrive late.** Each question fixes a deadline for deciding its outcome. Anything learned after that deadline is recorded as an audit and never rewrites the label.
+- **Some outcomes are never observable.** A deleted page or an unrecoverable gap in the stream makes the outcome censored, not wrong. The evaluator, not the predictor, decides what is censored, and every result carries a worst-case check: would it survive if every censored case had gone against it?
 - **Forecasts cannot be rewritten.** A forecast is fixed when it is issued. Replays, repairs and restarts never change it, and pruning a branch from the view never removes it from the score.
 - **Abstaining never raises a score.** A predictor may decline to answer; for the headline score, its abstentions count as base-rate guesses.
 
