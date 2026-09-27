@@ -18,7 +18,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 - `main.rs`: CLI, metadata, dependency and workspace checks.
 - `golden.rs`: deterministic golden replay.
-- `module_size.rs`: AST module traversal, calibration, dep-info backstop and exemption ratchet.
+- `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
+  - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
+  - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.
+  - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer.
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual
 counts; it never raises them. Ordinary cap and exemption-shape findings are report-only until
