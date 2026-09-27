@@ -57,6 +57,28 @@ Resolved: preserve a byte-for-byte live capture, including IDs, with its UTC tim
 `curl` command in comments at the top. Keep hand-written poison, partial, canary, and
 `examplewiki` frames in a separately named synthetic fixture.
 
+Two fixtures live under `crates/s2w-sources/testdata/`: `wikipedia-page-change.raw.sse` (the
+live capture, 4.6MB / 1615 frames, no canary/`examplewiki` frames) and
+`wikipedia-malformed.synthetic.sse` (hand-written: canary, `examplewiki`, partial, and
+malformed-ID frames). A frame with a malformed `Last-Event-ID` is tolerated up to
+`MALFORMED_ID_LIMIT = 3` consecutive occurrences before the source surfaces
+`WikipediaSourceError::InvalidLastEventId` and forces a fresh connection.
+
+## Redelivery/dedup on `--since` resume is deferred to the log, not this source
+
+The real capture's cursors are timestamp-based for the `eqiad` partition (`codfw` carries
+`offset: -1`), and 12 timestamps in the capture are shared by two events. A Kafka
+timestamp-seek on resume can therefore redeliver the last-seen event (inclusive seek) or skip a
+same-millisecond sibling (exclusive seek) — this source cannot fix that on its own, because a
+timestamp alone does not identify an event.
+
+The issue's "no gap, no duplicate" acceptance criterion is a system-level guarantee (source +
+log), not a per-source one: the append-only log (#8) is SQLite-backed and can dedupe on a
+primary key derived from the event's identity, which is the layer that actually has enough
+information to do so. This source's job is to never silently drop an event across a reconnect;
+a rare duplicate on `--since` resume is the log's job to collapse. Tracked as a named follow-up:
+[#25](https://github.com/daveremy/stream2worlds/issues/25).
+
 ## Revisit when
 
 A second SSE source can share enough parsing and reconnection policy to justify a generic client,

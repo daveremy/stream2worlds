@@ -174,6 +174,10 @@ impl WikipediaSource {
     /// # Errors
     ///
     /// Returns [`WikipediaSourceError::Initialization`] if reqwest cannot construct its client.
+    ///
+    /// # Panics
+    ///
+    /// Panics (via [`tokio::spawn`], through [`Self::spawn`]) if called outside a Tokio runtime.
     pub fn new(since: Option<String>) -> Result<Self, WikipediaSourceError> {
         let connector = ReqwestConnect::new()?;
         let (source, task) = Self::spawn(connector, since, Backoff::production());
@@ -181,6 +185,9 @@ impl WikipediaSource {
         Ok(source)
     }
 
+    /// # Panics
+    ///
+    /// Panics if called outside a Tokio runtime — it calls [`tokio::spawn`] directly.
     fn spawn<C: Connect>(
         connector: C,
         since: Option<String>,
@@ -663,6 +670,7 @@ mod tests {
                 Action::stream(None, Some(first_cursor), vec![bytes[boundary..].to_vec()]),
                 Action::pending_connect(None, expected.last().map(|frame| frame.0.clone())),
             ]);
+            let observer = connector.clone();
             let (mut source, _task) =
                 WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
 
@@ -679,6 +687,7 @@ mod tests {
                 }
             }
             assert_eq!(actual, expected);
+            observer.assert_no_mismatches();
         }
     );
 
@@ -699,11 +708,13 @@ mod tests {
                 ),
                 Action::pending_connect(None, Some(FIRST_ID.to_owned())),
             ]);
+            let observer = connector.clone();
             let (mut source, _task) =
                 WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
             let event = next_ok(&mut source).await;
             assert_eq!(event.payload, NORMAL_DATA);
             assert_eq!(event.cursor.as_header_value(), FIRST_ID);
+            observer.assert_no_mismatches();
         }
     });
 
@@ -719,12 +730,14 @@ mod tests {
             ),
             Action::pending_connect(None, Some(FIRST_ID.to_owned())),
         ]);
+        let observer = connector.clone();
         let (mut source, _task) = WikipediaSource::spawn(
             connector,
             Some(since.to_owned()),
             Backoff::fixed(Duration::from_millis(0)),
         );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+        observer.assert_no_mismatches();
     });
 
     async_test!(partial_frame_is_discarded_and_does_not_advance_cursor, {
@@ -739,12 +752,14 @@ mod tests {
             Action::stream(None, Some(FIRST_ID.to_owned()), vec![second]),
             Action::pending_connect(None, Some(SECOND_ID.to_owned())),
         ]);
+        let observer = connector.clone();
         let (mut source, _task) =
             WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
         let first = next_ok(&mut source).await;
         let second = next_ok(&mut source).await;
         assert_eq!(first.cursor.as_header_value(), FIRST_ID);
         assert_eq!(second.cursor.as_header_value(), SECOND_ID);
+        observer.assert_no_mismatches();
     });
 
     async_test!(
@@ -778,6 +793,7 @@ mod tests {
                 ));
             }
             observer.wait_until_all_actions_started().await;
+            observer.assert_no_mismatches();
         }
     );
 
@@ -798,9 +814,11 @@ mod tests {
             ),
             Action::pending_connect(None, Some(FIRST_ID.to_owned())),
         ]);
+        let observer = connector.clone();
         let (mut source, _task) =
             WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+        observer.assert_no_mismatches();
     });
 
     async_test!(bare_cr_at_disconnect_dispatches_a_complete_frame, {
@@ -809,9 +827,11 @@ mod tests {
             Action::stream(None, None, vec![complete.into_bytes()]),
             Action::pending_connect(None, Some(FIRST_ID.to_owned())),
         ]);
+        let observer = connector.clone();
         let (mut source, _task) =
             WikipediaSource::spawn(connector, None, Backoff::fixed(Duration::from_millis(0)));
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+        observer.assert_no_mismatches();
     });
 
     async_test!(status_and_transport_errors_both_retry, {
@@ -825,12 +845,14 @@ mod tests {
             ),
             Action::pending_connect(None, Some(FIRST_ID.to_owned())),
         ]);
+        let observer = connector.clone();
         let (mut source, _task) = WikipediaSource::spawn(
             connector,
             Some("123".to_owned()),
             Backoff::fixed(Duration::from_millis(0)),
         );
         assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+        observer.assert_no_mismatches();
     });
 
     #[test]
@@ -969,6 +991,14 @@ mod tests {
     struct FakeConnect {
         actions: Arc<Mutex<VecDeque<Action>>>,
         idle_senders: IdleSenders,
+        // A background task calls `connect()`, so a mismatch discovered there
+        // can't fail the test by panicking in place (lifeos#844 review, opus
+        // BLOCK #2): the spawned task's JoinHandle is discarded in every test
+        // (`let (mut source, _task) = ...`), so a panic inside it never
+        // surfaces. Recording mismatches here and asserting on them from the
+        // test's own thread (`assert_no_mismatches`) makes a wrong
+        // since/last_event_id actually fail the test.
+        mismatches: Arc<Mutex<Vec<String>>>,
     }
 
     impl FakeConnect {
@@ -976,6 +1006,7 @@ mod tests {
             Self {
                 actions: Arc::new(Mutex::new(actions.into())),
                 idle_senders: Arc::new(Mutex::new(Vec::new())),
+                mismatches: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
@@ -999,6 +1030,27 @@ mod tests {
                 "source did not start the expected reconnect"
             );
         }
+
+        fn record_mismatch(&self, message: String) {
+            match self.mismatches.lock() {
+                Ok(mut mismatches) => mismatches.push(message),
+                Err(error) => panic!("fake mismatch lock poisoned: {error}"),
+            }
+        }
+
+        /// Call from the test's own thread (never from inside the spawned
+        /// background task) after the test has consumed enough events that
+        /// every relevant `connect()` call has happened.
+        fn assert_no_mismatches(&self) {
+            let mismatches = match self.mismatches.lock() {
+                Ok(mismatches) => mismatches.clone(),
+                Err(error) => panic!("fake mismatch lock poisoned: {error}"),
+            };
+            assert!(
+                mismatches.is_empty(),
+                "FakeConnect::connect() saw unexpected since/last_event_id: {mismatches:?}"
+            );
+        }
     }
 
     impl Connect for FakeConnect {
@@ -1014,8 +1066,18 @@ mod tests {
             let Some(action) = action else {
                 return future::pending().await;
             };
-            assert_eq!(since, action.since.as_deref());
-            assert_eq!(last_event_id, action.last_event_id.as_deref());
+            if since != action.since.as_deref() {
+                self.record_mismatch(format!(
+                    "since: expected {:?}, got {:?}",
+                    action.since, since
+                ));
+            }
+            if last_event_id != action.last_event_id.as_deref() {
+                self.record_mismatch(format!(
+                    "last_event_id: expected {:?}, got {:?}",
+                    action.last_event_id, last_event_id
+                ));
+            }
             match action.outcome {
                 Outcome::Stream(chunks) => {
                     Ok(Box::pin(tokio_stream::iter(chunks.into_iter().map(Ok))) as ByteStream)
