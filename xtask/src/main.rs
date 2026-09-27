@@ -14,7 +14,7 @@
 //! 4. **Lint inheritance:** every crate manifest has `[lints] workspace = true`, so the
 //!    workspace's forbidden and denied lints apply.
 //! 5. **No dependency overrides:** no `[patch]` or `[replace]` in the workspace manifest, and no
-//!    `[patch]` or `paths` in `.cargo/config.toml`. An override would swap a checked crates.io
+//!    `[patch]` or `paths` in `.cargo/config.toml` or the older `.cargo/config`. An override would swap a checked crates.io
 //!    dependency for another source without changing its declared identity.
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
@@ -232,6 +232,7 @@ fn overrides(root: &Path) -> Vec<String> {
     for (file, banned) in [
         ("Cargo.toml", &["patch", "replace"][..]),
         (".cargo/config.toml", &["patch", "paths"][..]),
+        (".cargo/config", &["patch", "paths"][..]),
     ] {
         let path = root.join(file);
         let Ok(text) = fs::read_to_string(&path) else {

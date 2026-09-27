@@ -34,8 +34,9 @@ xtask: the fitness functions
    coding agents doing the work will read them.
 4. **Lint inheritance:** every crate manifest has `[lints] workspace = true`.
 5. **No dependency overrides:** no `[patch]` or `[replace]` in the workspace manifest and no
-   `[patch]` or `paths` in `.cargo/config.toml`, since an override changes a dependency's
-   resolved source without changing its declared identity.
+   `[patch]` or `paths` in `.cargo/config.toml` or `.cargo/config`, since an override changes a dependency's
+   resolved source without changing its declared identity. Configuration outside the repository
+   (a user's `~/.cargo/config.toml`) is out of scope; CI runs in a clean environment.
 
 The compiler enforces the rest. Workspace lints **forbid** `unsafe_code`, `unreachable_pub`,
 `unwrap_used`, `expect_used`, `todo`, `unimplemented` and `dbg_macro`; no attribute, inner or
