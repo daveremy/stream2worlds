@@ -18,8 +18,8 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
-use super::diff::diff;
-use super::timeline::{TimedEvent, Timeline};
+use super::diff::{WorldDiff, diff};
+use super::timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 use super::view::{ACTUAL_BRANCH, Lod, ViewParams, world_view};
 
 /// Shared server state: the timeline and a head-offset signal that wakes SSE subscribers.
@@ -57,6 +57,67 @@ impl QueryState {
     fn read<T>(&self, f: impl FnOnce(&Timeline) -> Result<T, QueryError>) -> Result<T, QueryError> {
         f(&*self.timeline.read().map_err(|_| QueryError::Unavailable)?)
     }
+
+    /// The world at `at`, or at the head when `at` is absent.
+    ///
+    /// # Errors
+    /// Whatever [`Timeline::world_at`] returns, or [`QueryError::Unavailable`] if the lock was
+    /// poisoned.
+    pub fn world_at(&self, at: Option<u64>) -> Result<World, QueryError> {
+        self.read(|t| t.world_at(at.unwrap_or_else(|| t.head())))
+    }
+
+    /// The one branch served, with its head and fold version.
+    ///
+    /// # Errors
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn branches(&self) -> Result<Vec<Branch>, QueryError> {
+        self.read(|t| {
+            Ok(vec![Branch {
+                name: ACTUAL_BRANCH,
+                world_id: 0,
+                head: t.head(),
+                fold_version: FOLD_VERSION,
+                hub_in_degree_cap: t.hub_cap(),
+            }])
+        })
+    }
+
+    /// The entity's history up to `to`, or up to the head when `to` is absent.
+    ///
+    /// # Errors
+    /// Whatever [`Timeline::history`] returns, or [`QueryError::Unavailable`] if the lock was
+    /// poisoned.
+    pub fn history(&self, id: u64, to: Option<u64>) -> Result<Vec<HistoryEntry>, QueryError> {
+        self.read(|t| t.history(id, to.unwrap_or_else(|| t.head())))
+    }
+
+    /// What changed between `from` and `to`, or the head when `to` is absent.
+    ///
+    /// # Errors
+    /// [`QueryError::OffsetBeyondHead`] past the head, or [`QueryError::Unavailable`] if the
+    /// lock was poisoned.
+    pub fn diff(&self, from: u64, to: Option<u64>) -> Result<WorldDiff, QueryError> {
+        self.world_at(Some(from))
+            .and_then(|a| self.world_at(to).map(|b| (a, b)))
+            .and_then(|(a, b)| diff(&a, &b))
+    }
+
+    /// The time index at `ts`, or its whole range when `ts` is absent.
+    ///
+    /// # Errors
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn time(&self, ts: Option<i64>) -> Result<TimeResult, QueryError> {
+        self.read(|t| {
+            Ok(match ts {
+                Some(ts) => TimeResult::At(TimeAt {
+                    ts,
+                    offset: t.offset_at(Timestamp::from_millis(ts)),
+                }),
+                None => TimeResult::Range(t.time_range()),
+            })
+        })
+    }
 }
 
 impl IntoResponse for QueryError {
@@ -67,8 +128,7 @@ impl IntoResponse for QueryError {
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
         };
-        let body = serde_json::json!({ "error": self.code(), "message": self.to_string() });
-        (status, Json(body)).into_response()
+        (status, Json(self.json_body())).into_response()
     }
 }
 
@@ -113,7 +173,7 @@ where
     .transpose()
 }
 
-fn check_branch(branch: Option<&str>) -> Result<(), QueryError> {
+pub(crate) fn check_branch(branch: Option<&str>) -> Result<(), QueryError> {
     match branch {
         None => Ok(()),
         Some(b) if b == ACTUAL_BRANCH => Ok(()),
@@ -123,7 +183,7 @@ fn check_branch(branch: Option<&str>) -> Result<(), QueryError> {
     }
 }
 
-fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
+pub(crate) fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
     match raw {
         None | Some("entity") => Ok(Lod::Entity),
         Some("type") => Ok(Lod::Type),
@@ -137,10 +197,6 @@ fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
     }
 }
 
-fn world_at(state: &QueryState, at: Option<u64>) -> Result<World, QueryError> {
-    state.read(|t| t.world_at(at.unwrap_or_else(|| t.head())))
-}
-
 async fn world(State(state): State<QueryState>, Query(p): Query<Params>) -> Response {
     let run = || -> Result<_, QueryError> {
         check_branch(p.branch.as_deref())?;
@@ -150,33 +206,28 @@ async fn world(State(state): State<QueryState>, Query(p): Query<Params>) -> Resp
             hops: parse("hops", p.hops.as_deref())?.unwrap_or(1),
         };
         let at = parse("at", p.at.as_deref())?;
-        world_view(&world_at(&state, at)?, &params)
+        world_view(&state.world_at(at)?, &params)
     };
     run().map(Json).into_response()
 }
 
+/// One served world branch.
 #[derive(Serialize)]
-struct Branch {
-    name: &'static str,
-    world_id: u64,
-    head: u64,
-    fold_version: u32,
-    hub_in_degree_cap: u64,
+pub struct Branch {
+    /// The branch's name; only `actual` exists.
+    pub name: &'static str,
+    /// The world the branch folds; always 0 today.
+    pub world_id: u64,
+    /// The branch's latest offset.
+    pub head: u64,
+    /// The fold version that produced the world.
+    pub fold_version: u32,
+    /// The in-degree cap the world was folded under.
+    pub hub_in_degree_cap: u64,
 }
 
 async fn branches(State(state): State<QueryState>) -> Response {
-    state
-        .read(|t| {
-            Ok(vec![Branch {
-                name: ACTUAL_BRANCH,
-                world_id: 0,
-                head: t.head(),
-                fold_version: FOLD_VERSION,
-                hub_in_degree_cap: t.hub_cap(),
-            }])
-        })
-        .map(Json)
-        .into_response()
+    state.branches().map(Json).into_response()
 }
 
 async fn world_diff(State(state): State<QueryState>, Query(p): Query<Params>) -> Response {
@@ -184,7 +235,7 @@ async fn world_diff(State(state): State<QueryState>, Query(p): Query<Params>) ->
         check_branch(p.branch.as_deref())?;
         let from = parse("from", p.from.as_deref())?.unwrap_or(0);
         let to = parse("to", p.to.as_deref())?;
-        diff(&world_at(&state, Some(from))?, &world_at(&state, to)?)
+        state.diff(from, to)
     };
     run().map(Json).into_response()
 }
@@ -201,34 +252,37 @@ async fn history(
             reason: format!("'{id}': {e}"),
         })?;
         let to = parse("to", p.to.as_deref())?;
-        state.read(|t| t.history(id, to.unwrap_or_else(|| t.head())))
+        state.history(id, to)
     };
     run().map(Json).into_response()
 }
 
+/// `/time`'s answer at one timestamp.
 #[derive(Serialize)]
-struct TimeAt {
-    ts: i64,
-    offset: u64,
+pub struct TimeAt {
+    /// The timestamp asked about, in milliseconds.
+    pub ts: i64,
+    /// The largest offset whose events were received at or before `ts`.
+    pub offset: u64,
+}
+
+/// `/time`'s answer: one timestamp's offset, or the whole range when no `ts` was given. The two
+/// shapes serialize flat, exactly as the two HTTP responses always did.
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum TimeResult {
+    /// The offset at a timestamp.
+    At(TimeAt),
+    /// The time index's range.
+    Range(TimeRange),
 }
 
 async fn time(State(state): State<QueryState>, Query(p): Query<Params>) -> Response {
-    if let Err(e) = check_branch(p.branch.as_deref()) {
-        return e.into_response();
-    }
-    match parse::<i64>("ts", p.ts.as_deref()) {
-        Err(e) => e.into_response(),
-        Ok(Some(ts)) => state
-            .read(|t| {
-                Ok(TimeAt {
-                    ts,
-                    offset: t.offset_at(Timestamp::from_millis(ts)),
-                })
-            })
-            .map(Json)
-            .into_response(),
-        Ok(None) => state.read(|t| Ok(t.time_range())).map(Json).into_response(),
-    }
+    let run = || -> Result<_, QueryError> {
+        check_branch(p.branch.as_deref())?;
+        state.time(parse("ts", p.ts.as_deref())?)
+    };
+    run().map(Json).into_response()
 }
 
 #[derive(Serialize)]

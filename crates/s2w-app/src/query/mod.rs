@@ -16,7 +16,7 @@ use thiserror::Error;
 
 pub use delta::{Delta, fold_with_delta};
 pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
-pub use http::{QueryState, router};
+pub use http::{Branch, QueryState, TimeAt, TimeResult, router};
 pub use timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
@@ -85,5 +85,13 @@ impl QueryError {
             Self::HopsTooLarge { .. } => "hops_too_large",
             Self::Unavailable => "unavailable",
         }
+    }
+
+    /// The error body every surface serves: `{"error": <code>, "message": <text>}`. HTTP puts
+    /// it in the response with a status code; MCP puts it in an error tool result's text. One
+    /// constructor, so the two can never drift.
+    #[must_use]
+    pub(crate) fn json_body(&self) -> serde_json::Value {
+        serde_json::json!({ "error": self.code(), "message": self.to_string() })
     }
 }
