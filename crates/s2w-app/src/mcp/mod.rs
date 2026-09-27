@@ -6,10 +6,16 @@
 
 mod tools;
 
+pub use tools::{EntityHistoryArgs, TimeArgs, WorldDiffArgs, WorldViewArgs};
+
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
+use rmcp::handler::server::tool::ToolCallContext;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, Implementation, ServerCapabilities, ServerConfig,
+};
+use rmcp::service::RequestContext;
 use rmcp::transport::stdio;
-use rmcp::{ServerHandler, ServiceExt, tool_handler};
+use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool_handler};
 
 use crate::AppError;
 use crate::query::QueryState;
@@ -38,6 +44,22 @@ impl WorldMcp {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for WorldMcp {
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        // rmcp 3.4.1's ToolRouter::call converts deserialization errors to tool content.
+        // Invoke the generated route directly to preserve our protocol-level param errors.
+        // This server has a fixed tool set; no routes are dynamically disabled.
+        let route = self
+            .tool_router
+            .map
+            .get(request.name.as_ref())
+            .ok_or_else(|| ErrorData::invalid_params("tool not found", None))?;
+        (route.call)(ToolCallContext::new(self, request, context)).await
+    }
+
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("s2w", env!("CARGO_PKG_VERSION")))
@@ -70,11 +92,7 @@ pub fn run_mcp(state: QueryState) -> Result<(), AppError> {
             .serve(stdio())
             .await
             .map_err(mcp_error)?;
-        service
-            .waiting()
-            .await
-            .map(|_| ())
-            .map_err(mcp_error)?;
+        service.waiting().await.map(|_| ()).map_err(mcp_error)?;
         Ok(())
     })
 }

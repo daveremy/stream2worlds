@@ -118,6 +118,21 @@ fn run_watch(args: WatchArgs) -> ExitCode {
     }
 }
 
+/// Serves the read-only query tools over stdio until the MCP client disconnects.
+fn run_mcp() -> ExitCode {
+    let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP));
+    match s2w_app::mcp::run_mcp(state) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("s2w: {error}");
+            match error {
+                AppError::Usage(_) => ExitCode::from(2),
+                _ => ExitCode::FAILURE,
+            }
+        }
+    }
+}
+
 /// Prints one usage message and returns the usage exit code.
 fn usage_error(message: String) -> ExitCode {
     eprintln!("s2w: {message}");
