@@ -1,9 +1,10 @@
 # Evaluation contract (gate 1)
 
-Status: **DRAFT v3, 2026-09-27.** Reviewed twice by Codex (gpt-6-astra): v1 "revise"
-([round 1](reviews/gate1-contract-round1-codex.md)), v2 "revise" ([round 2](reviews/gate1-contract-round2-codex.md)).
-v3 answers round 2; the change log at the end maps each finding. Items marked **⟨Dave⟩** are
-his to set. Everything else is a proposal he can overrule.
+Status: **DRAFT v4, 2026-09-27.** Reviewed three times by Codex (gpt-6-astra), each "revise",
+on a narrowing list: [round 1](reviews/gate1-contract-round1-codex.md) (17 findings),
+[round 2](reviews/gate1-contract-round2-codex.md) (10), [round 3](reviews/gate1-contract-round3-codex.md)
+(5 blockers, plus cheaper equivalents for this 60-hour scope, which v4 adopts). The change log at
+the end maps each finding. Items marked **⟨Dave⟩** are his to set.
 
 Once signed, this file is frozen. A change after sign-off is a new dated section with its reason,
 never an edit in place. No gate-3 or gate-4 result counts unless it was measured under the
@@ -90,25 +91,31 @@ first.
 
 - **Ingress recorder:** a separate process that records every raw stream event with its receipt
   time before any predictor sees it. A duplicate event (same event id) keeps its first receipt.
+  It also archives every event it receives, so audits never depend on Wikimedia's retention.
+- **Clock:** the recorder's clock is synchronized by NTP and its offset logged every minute. An
+  hour in which the offset exceeds 1 second counts as recorder downtime.
 - **Provisional candidates:** every edit matching A2 that arrived within **60 seconds** of T.
   Every predictor must forecast every provisional candidate.
 - **Commitment:** predictors send each probability to the **commitment receiver**, a part of the
   evaluator process that records its own receipt time and rejects anything received after C. A
   rejected or absent forecast is replaced by the fallback (A6). The commitment receiver is the
-  proof of timeliness. Its trust assumption is the evaluator's (see the trust model above). A
-  digest of commitments is pushed to a public repository **every minute**; that shows the log
-  was not rewritten later, not that each forecast met its deadline.
+  proof of timeliness, under the trust model above. A digest of the append-only commitment log
+  is pushed to a public repository **every hour**; that shows the log was not rewritten later.
 - **Final eligibility** is decided at ascertainment (A4), using everything received by then.
   - A provisional candidate becomes **ineligible** if a revert of it has `R.rev_dt ≤ C`, even if
     that revert arrived after C. Late evidence can make an edit ineligible; it never makes one
     eligible.
-  - If survival to C cannot be established, the edit is censored, never assumed to survive.
+  - If survival to C cannot be established, the edit's **eligibility is unknown**, and it is
+    handled by A4's censoring rules, never assumed to survive.
 - So the question is conditional: risk among edits that survived unreverted to their cutoff.
   ClueBot NG often reverts within seconds, so this removes many of the easiest positives. The
   contract states it rather than hiding it.
-- **Coverage of the window.** The recorder's uptime and the share of edits arriving later than
-  60 seconds are reported per hour. **The run is unmeasurable if the recorder is up less than
-  95% of the scheduled window, or if more than 5% of A2 edits arrive late.**
+- **Coverage of the window.** The **scheduled population** is every A2 edit with T inside the test
+  window, whether or not it arrived live, reconstructed from the live recorder plus the 24-hour
+  replay (A4). Reported per hour: recorder uptime, and the share of the scheduled population that
+  arrived late (more than 60 seconds after T) or never arrived live. **The run is unmeasurable if
+  the recorder is up less than 95% of the window, or if more than 5% of the scheduled population
+  arrived late or never arrived.**
 - **Exactly one issuance per edit per predictor**, immutable: question, edit, issue time,
   horizon, probability, predictor and version, evidence cutoff (recorder offset). Repairs,
   replays and restarts never change it.
@@ -120,28 +127,34 @@ first.
 - **Ascertainment deadline: T + 24 hours.** Scores are computed after the whole test window has
   been ascertained, so nothing is gained by labelling sooner. Before the deadline, the evaluator
   replays from the stream every interval in which the recorder had a gap or its lag (receipt −
-  `rev_dt`) exceeded 5 minutes. EventStreams supports replay by timestamp. A gap that replay
-  cannot fill censors the edits whose horizons it overlaps.
-- **Late-provenance audit at T + 7 days.** The evaluator replays the test window's provenance
-  again and counts reverts with `R.rev_dt` inside a horizon that were not received by the
-  deadline. **If they would flip more than 1% of positive labels, the run is unmeasurable.** Tags
-  are checked in the same pass, restricted to reverts inside the horizon. Tags come from the same
-  MediaWiki system, so agreement shows consistent delivery, not truth. Disagreements are reported
-  by kind and change no label.
+  `rev_dt`) exceeded 5 minutes. EventStreams supports replay by timestamp, with 7 to 31 days of
+  retention depending on the stream. A gap that replay cannot fill censors the edits whose horizons
+  it overlaps.
+- **Late-provenance audit at T + 72 hours** (inside the shortest retention, with margin). The
+  evaluator replays the provenance again and counts every eligible edit whose **label or
+  eligibility** would change: a revert inside the horizon, or before C, that was not received by
+  the deadline. **If changes exceed 1% of eligible edits, the run is unmeasurable.** Below that,
+  labels stay as ascertained and the changes are published. Tags are checked in the same pass,
+  restricted to reverts inside the horizon; they come from the same MediaWiki system, so agreement
+  shows consistent delivery, not truth, and disagreements change no label.
 - **Censoring is owned by the evaluator**, decided from the recorder log and page state, never
   from forecasts. An edit is censored when the page or revision is deleted or hidden before its
   label can be established, when replay cannot fill a gap over its horizon, or when A1 cannot
-  establish order or survival.
-- **Censoring sensitivity, per claim.** For each comparison a gate rests on (predictor vs B0,
-  predictor vs B1), the evaluator relabels the censored edits in the way that most reduces the
-  predictor's advantage. Per case, the Brier contrast is
-  `(p − y)² − (b − y)² = (p − b)(p + b − 2y)`, so choose y ∈ {0, 1} to maximize it, keeping any
-  label already fixed by evidence. It then recomputes the gate.
-  - If the gate survives, the pass is unqualified.
-  - If it reverses, the result is reported as **"pass, sensitive to censoring"**, which does not
-    count as a pass for gate 4.
-- **The run is unmeasurable if more than 2% of eligible edits are censored**, and that check comes
-  first.
+  establish order, survival or eligibility. The censoring rate's denominator is **all provisional
+  candidates**, so edits of unknown eligibility are counted rather than presumed either way.
+- **The run is unmeasurable if more than 2% of provisional candidates are censored**, and that
+  check comes first.
+- **Censoring sensitivity, per claim.** For each skill comparison a gate rests on (predictor vs
+  B0, predictor vs B1), the evaluator assigns every censored candidate the treatment that most
+  reduces the predictor's advantage, consistent with the evidence:
+  - a candidate of unknown eligibility may be included or excluded;
+  - an included candidate gets y = 0 when p > b and y = 1 when p < b, since the per-case Brier
+    contrast is `(p − y)² − (b − y)² = (p − b)(p + b − 2y)`.
+
+  It then recomputes the gate. If the gate survives, the pass stands. If it reverses, the result
+  is **"pass, sensitive to censoring"**, which does not count as a pass for gate 4. For
+  calibration (A9), the evaluator computes the smallest and largest observed-positive totals the
+  evidence allows, and the calibration check must hold at both.
 - Censored and ineligible counts are broken down by hour, page activity, predictor score range and
   editor type.
 
@@ -175,16 +188,19 @@ answered.
   answers alone.
 - **Primary metric: Brier skill score against B0,**
   `BSS = 1 − Σ(pᵢ − yᵢ)² / Σ(bᵢ − yᵢ)²`, over the same edits.
-- **Primary interval:** a multiway ("pigeonhole") bootstrap that resamples pages, editors and days
-  jointly (Owen 2007; Bakshy and Eckles 2013): 2,000 replicates, percentile 95% interval. The
-  bootstrap is paired: every predictor is scored on the same resampled edits, and both sums are
+- **The one interval that decides:** a multiway ("pigeonhole") bootstrap that resamples pages,
+  editors and days jointly, each case weighted by the product of its three independently drawn
+  factor weights (Owen and Eckles, arXiv 1106.2125): 2,000 replicates, percentile 95% interval.
+  It is paired: every predictor is scored on the same resampled weights, and both sums are
   recomputed in each replicate. Fitted predictors stay fixed.
-- **Validation before the freeze:** on development data, run the procedure under the null (a
-  predictor equal to B0 plus noise) and check that its 95% intervals exclude zero in no more than
-  7% of repeats. If they exclude it more often, the method is replaced before the freeze.
-- **Sensitivity intervals:** one-way bootstraps by page, by editor and by day. A gate needs the
-  primary interval **and every sensitivity interval** to clear it. Disagreement fails the gate
-  rather than being resolved in our favour.
+- **Sanity check before the freeze.** A simulation with page, editor and day effects sized from
+  development data compares **two predictors of equal expected Brier score** (a known zero
+  contrast), 500 repeats. The interval should exclude zero, on either side, in no more than 7% of
+  repeats. If it does worse, the method is replaced before the freeze. The simulation settings are
+  frozen with the contract. This is a sanity check, not a proof of coverage.
+- **Diagnostics, not gates:** one-way bootstraps by page, by editor and by day, published beside
+  the primary interval. A large disagreement is reported and explained, but only the primary
+  interval decides a gate.
 - **Secondary metrics:**
   - log loss;
   - area under the precision–recall curve (discrimination, reported apart from BSS);
@@ -211,17 +227,19 @@ answered.
 - **Development window:** explicit start and end dates, recorded at the freeze. Build, tune and
   fit here, using only labels ascertained before the freeze. Historical features are
   reconstructed as they stood at each edit's cutoff, never from later API state.
-- **Power:** before the freeze, estimate from development data (using the A6 primary bootstrap)
-  how many test days give **80% power to detect a BSS of 0.02 over B0**. The test length is that
-  number, at least 7 days. **If more than 21 days are needed, the question is changed before the
-  freeze** (for example a longer horizon or a wider population), not run underpowered.
+- **Test length:** before the freeze, estimate from development data (using the A6 primary
+  bootstrap) how many test days give **80% power to detect a BSS of 0.02 over B0**, and check the
+  same window expects at least 20 positives for calibration. The test length is that number, at
+  least 7 days, **fixed at the freeze and never extended**. If more than 21 days would be needed,
+  the question is changed before the freeze (for example a longer horizon or a wider
+  population), not run underpowered.
 - **The freeze records:**
   - the exact test start and end, which start at least 24 hours after the freeze;
   - commit hash and config hash;
   - prompts, model identifiers and versions, preprocessing, calibrators, the fallback policy and
     the scoring code;
   - the B0 to B2 fits and the matcher fixtures' results;
-  - the bootstrap validation result;
+  - the bootstrap sanity-check settings and result;
   - the archived Automoderator and bot configuration;
   - the two non-English wikis for the later re-run.
 - **Models that change underneath us.** Hosted models are called by their most specific
@@ -236,18 +254,19 @@ answered.
 
 ### A9. Gate-4 pass thresholds (Dave, 2026-09-27: report B2, don't require it)
 
-1. **Skill over prevalence.** BSS against B0 > 0 by the A6 intervals (primary and every
-   sensitivity lower bound > 0).
-2. **More than the obvious features.** BSS against B1 > 0 on the point estimate. The stronger
-   claim "reliably beats B1" is made only if its intervals also exclude 0.
+1. **Skill over prevalence.** The lower end of the primary 95% interval for BSS against B0 is
+   above 0.
+2. **More than the obvious features.** BSS against B1 > 0 on the point estimate; this condition
+   uses no interval. The stronger claim "reliably beats B1" is made only if its primary interval
+   also excludes 0.
 3. **Calibrated overall (Dave, 2026-09-27).** The 90% interval for the ratio of observed to
-   expected positives lies **entirely inside [0.8, 1.25]**, an equivalence test. The interval uses
-   the A6 primary bootstrap. If fewer than 20 positives are expected, the run is underpowered for
-   this check and is extended per A8.
+   expected positives, from the primary bootstrap, lies **entirely inside [0.8, 1.25]**, an
+   equivalence test. It must hold at both censoring extremes (A4). If fewer than 20 positives are
+   expected in the fixed window, the calibration check is **inconclusive**, and so is gate 4.
 4. **B2 is reported, not required.** The gap to Wikimedia's model is published as measured.
 
-Pass requires 1, 2 and 3, and no "sensitive to censoring" qualifier on 1 or 2. An unmeasurable run
-(A3, A4, A8) is neither a pass nor a fail.
+Pass requires 1, 2 and 3, and no "sensitive to censoring" qualifier on 1 or 2. An unmeasurable or
+inconclusive run is neither a pass nor a fail.
 
 ### A10. Pilot and open checks (filled before sign-off)
 
@@ -282,19 +301,19 @@ key.
 
 - the harness that executes a mapping;
 - the output schema and its limits;
-- the retry policy;
+- the retry policy, and a rule that counts a failed execution as that replicate's result;
 - any execution assistance (for example, telling the model that its mapping failed to parse).
 
 **Budget accounting** covers every model call, including preprocessing and retries.
 
-Each System 2 provider is run and reported separately: a hosted API, and a local model or the
-client agent via MCP sampling. Each run:
+**One System 2 provider is evaluated first:** a hosted API, called by a frozen model snapshot id.
+The second implementation (a local model, or the client agent via MCP sampling) is built in the
+slice and evaluated after it; claims are per provider. Each run:
 
-- uses a frozen model snapshot id;
 - starts in a clean session with no access to the lifeos repository, memory or prior
   conversations;
 - logs every call and retry;
-- reports dollars, tokens, latency and local compute time.
+- reports dollars, tokens and latency.
 
 ### B2. Streams
 
@@ -303,7 +322,8 @@ client agent via MCP sampling. Each run:
 2. **Wikipedia, obfuscated.** The rules are published with the result:
    - every field name becomes `f1…fN`, in a random order per replicate;
    - each identifier field is declared with an **identifier domain** (page, user, revision and so
-     on);
+     on). The domains are the transformer's private metadata: no arm ever sees them, and they are
+     published only after every mapping is committed;
    - values are replaced by a keyed hash **of domain and value**, so user 42 and page 42 differ
      while the same page id matches wherever it appears;
    - identifiers embedded in URLs and titles are extracted by published canonicalization rules
@@ -315,12 +335,18 @@ client agent via MCP sampling. Each run:
      its development and test windows.
 
    Relationships the transformation destroys are marked **unobservable** in the answer key and
-   are not scored.
+   are not scored. Hashing by domain does reveal that two values in the same domain are equal, which
+   is exactly what the real stream reveals through its field semantics.
 3. **A private stream: the lifeos dev-worker and sprint log** (legs, issues, pull requests,
    review seats, merges; from the status database and git). This is a default chosen
    2026-09-27, and Dave may swap it. The claim is **non-public provenance**: the events have
    never been published, and the evaluation session cannot read the repository or memory they
    come from. It is not a claim that no model knows what an issue or a pull request is.
+
+   The test corpus is **bounded and frozen**: a fixed held-out span of events. Its answer key is
+   generated from the source systems' own identifiers where possible (issue and pull-request
+   numbers, commit hashes, leg ids), then a sample is inspected by hand. The claim is limited to
+   that corpus.
 
    *Why a private stream when `s2w` is open source:* the question is what the model has already
    read, not whether our code is public. Wikipedia's streams and schemas are in LLM training
@@ -337,55 +363,71 @@ streams in general needs a stream from an independent owner, planned for after t
 **Answer key**, written, adjudicated and committed before the test window opens:
 
 - **Mentions:** every `(record, field path)` whose value identifies an entity, with the entity's
-  type and identity. Every mention of an entity, in any field, is listed.
+  identity. Every mention of an entity, in any field, is listed. Each entity has a type.
 - Ambiguous or unobservable parts are marked as such and are not scored.
-- Equivalent identity rules are all accepted; the key scores the clusters a rule produces, not
-  which rule produced them.
+- Equivalent identity rules are all accepted: the scorer compares the clusters a mapping
+  produces, never which rule produced them.
 - Scored up to renaming: the obfuscated stream is graded on structure, never on real names.
 
-**Executing a mapping.** The frozen harness applies each committed mapping to the test window's
-records. The result is predicted mentions with a predicted type and cluster, plus predicted
-relationship instances.
+**Executing a mapping.** The frozen harness applies each committed mapping to the test corpus.
+The result is **predicted mentions**, each placed in a predicted cluster (an entity), and
+**predicted relationship edges** between clusters.
 
-**Type alignment.** Each predicted type is matched to at most one key type, maximizing shared
-mentions (Hungarian assignment). A predicted type left unmatched counts entirely as error: its
-mentions are false positives. A key type left unmatched scores zero recall.
+**Identity, primary: B-cubed F1** over mentions, as defined by Bagga and Baldwin (1998), with
+Cai and Strube's (2010) handling of mentions that appear in only one of key and prediction.
 
-**Identity (primary): B-cubed precision, recall and F1** per key type over its mentions, then
-**macro-averaged across key types**, so every type weighs the same and one heavily repeated
-entity cannot dominate.
-
+- Every key mention counts in recall and every predicted mention counts in precision, singletons
+  included. A key mention the mapping missed scores zero recall. A predicted mention not in the key
+  is spurious and scores zero precision.
+- Averaged over all mentions (micro). Clusters are compared as sets of mentions, so a cluster
+  mixing two types, or two real entities, is a false merge whatever it is called. No type
+  alignment is involved in this metric.
 - **False-merge rate:** 1 − B-cubed precision.
-- A mapping that makes every mention its own entity has perfect precision and low recall
-  wherever true repeats exist.
-- A key type with no repeated entity is reported but excluded from the macro average, since its
-  recall is undefined.
+- B-cubed weighs every mention equally, so large entities count in proportion to their mentions.
+  That is intended; the entity-level floor in B4 guards the other side.
 
-**Relationships:** typed and directed instances, scored by precision, recall and F1. An instance
-matches when its type aligns and both endpoint mentions fall in the correct key clusters.
-A relationship holds from the record that asserts it until a later record ends it, if the key
-defines an end. Extra predicted relationship types count as errors.
+**Entity recovery, the floor metric:** the share of key entities with at least two mentions that
+are **recovered**: some predicted cluster holds at least 90% of the entity's mentions, and at least
+90% of that cluster's mentions belong to the entity. Each entity counts once, whatever its size,
+so a mapping that links nothing scores 0 and one huge entity cannot carry the score.
+
+**Relationships:** the unit is a unique typed, directed edge between two key entities within the
+test corpus.
+
+- A predicted edge's endpoints are mapped to key entities by majority: a predicted cluster maps to
+  the key entity holding more than half of its mentions. A cluster with no majority entity cannot
+  match anything, so any edge touching it is false.
+- Predicted relationship types are aligned to key types one-to-one, maximizing matched edges
+  (Hungarian assignment; ties broken by the lexicographic order of type names). Edges of an
+  unaligned predicted type are all false. Edges of an unaligned key type are all missed.
+- Scored as precision, recall and F1 over edges, micro-averaged.
 
 **Field roles:** accuracy averaged per field, so abundant easy fields do not dominate.
 
 **Abstention:** the share of fields, types and relationships each arm declined to map. An
-abstained mention simply has no prediction: it lowers recall and cannot lower precision.
+abstained mention is simply missing: it lowers recall and cannot lower precision.
 
-**Repair operations (secondary):** starting from each committed mapping, the number of weighted
-edits needed to reach the key. The weights are frozen in advance: 1 per field-role fix, 3 per
-identity-rule fix, 2 per relationship fix. Reported as a **repair-operation count, not human
-minutes**. A claim about human time needs a small blinded study, planned for after the slice.
+**Degenerate outputs:** an empty or unparseable mapping scores 0 on every metric. A metric whose
+denominator is zero for a given replicate is reported as undefined, and any gate condition using
+it fails for that replicate.
+
+**Reference scorer and fixtures, committed before the test.** The scorer is code in the repo, run
+identically on every arm. Its fixtures show, at minimum, that: an extra spurious type lowers
+precision; an omitted type lowers recall; a false merge lowers precision whatever the mapping
+calls the merged cluster; an all-singletons mapping scores 0 entity recovery; a
+relationship edge touching a merged cluster does not count as correct.
 
 **No answer-key feedback into any mapping during the test.** Development-window keys may guide
 development, identically for every arm, and are disclosed.
 
-### B4. Gate-3 pass thresholds (Dave, 2026-09-27: accepted as proposed)
+### B4. Gate-3 pass thresholds (Dave, 2026-09-27; v4 defect fixes to confirm)
 
-Each provider is judged separately, and **the obfuscated stream and the private stream
-must each pass on their own.** Each stream runs **5 replicates** (a fresh obfuscation key and
-field order for the obfuscated stream, a fresh model seed for all). All arms share a replicate.
-Five replicates show variability; they are not a formal significance test, so the rule below
-asks for consistency across all of them rather than a confidence interval.
+Each provider is judged separately, and **the obfuscated stream and the private stream must each
+pass on their own.** Each stream runs **5 replicates** (a fresh obfuscation key and field order for
+the obfuscated stream, a fresh model seed for all). All arms share a replicate. A failed execution
+counts as that replicate's result. Five replicates show variability; they are not a formal
+significance test, so the rule asks for consistency across all of them, and the safety results
+describe those five runs, not a guaranteed rate.
 
 1. **Primary:** H+S2's identity F1 exceeds H's by at least 0.10 on the mean over replicates, and
    is higher than H's in **all 5** replicates.
@@ -393,16 +435,15 @@ asks for consistency across all of them rather than a confidence interval.
    - H+S2's false-merge rate is at most 0.05 in every replicate;
    - it is no more than 0.02 above H's on the mean;
    - relationship F1 is no more than 0.05 below H's on the mean.
-3. **Absolute floor:** H+S2's identity F1 is at least 0.60 on the mean. Beating weak baselines is
-   not enough.
+3. **Absolute floor:** H+S2 recovers at least 60% of repeated entities (entity recovery, B3) on
+   the mean. Beating weak baselines is not enough.
 4. **Beats the raw-sample baseline:** H+S2's identity F1 exceeds B3's by at least 0.05 on the
    mean, and is higher in at least 4 of 5 replicates.
-5. **Budget:** within $5 of API spend per stream per replicate, or 30 minutes of local compute
-   for a local model.
+5. **Budget:** within $5 of API spend per stream per replicate.
 
-If H already scores above 0.90, the 0.10 margin in 1 is impossible to meet; in that case the gate
-is judged on 2 to 5 alone and the report says so. A provider that passes earns a claim for that
-provider only.
+There is no waiver. If H's identity F1 is so high that 0.10 of headroom does not exist, the result
+is reported as **"insufficient headroom to show added value"**, which is not a pass. A provider
+that passes earns a claim for that provider only.
 
 ---
 
@@ -420,11 +461,12 @@ provider only.
 Published with any result:
 
 - the scoring code and the public-data manifest;
-- every issuance, with the minute digests;
+- every issuance, with the hourly digests;
 - the eligibility manifest, exclusions, censoring with its sensitivity analysis, and full
   denominators;
 - every registered run, failed and unmeasurable ones included;
-- the matcher fixtures, the obfuscation and canonicalization rules;
+- the matcher fixtures, the reference scorer and its fixtures, the obfuscation and
+  canonicalization rules, and the identifier domains;
 - sanitized private-stream fixtures.
 
 ## Sign-off
@@ -434,11 +476,31 @@ Published with any result:
 | Eligible population (A2) | English Wikipedia, with a multilingual re-run after the slice | Dave, 2026-09-27 |
 | Gate-4 thresholds (A9) | Wikimedia's model reported, not required; calibration by equivalence test, the 90% interval for observed/expected positives inside [0.8, 1.25] | Dave, 2026-09-27 |
 | Private stream (B2.3) | lifeos dev-worker and sprint log (default; swappable) | karpathy default, 2026-09-27 |
-| Gate-3 thresholds and budget (B4) | As proposed: +0.10 identity F1 over H in all 5 replicates, +0.05 over B3, false merges ≤ 0.05 per replicate, identity F1 ≥ 0.60, $5 per stream per replicate | Dave, 2026-09-27 |
+| Gate-3 thresholds and budget (B4) | As proposed: +0.10 identity F1 over H in all 5 replicates, +0.05 over B3, false merges ≤ 0.05 per replicate, $5 per stream per replicate. v4 fixes two defects found in review (round 3): the floor now uses entity recovery ≥ 60% instead of identity F1 ≥ 0.60, and the high-baseline waiver is removed. **Dave to confirm** | Dave, 2026-09-27 (v4 fixes pending) |
 | Overall hours cap | 60 hours of sprint time | Dave, 2026-09-27 |
 | Pilot and open checks (A10) | ⟨pending⟩ | |
 
 ## Change log
+
+**v4 (2026-09-27)**, answering the Codex round-3 review and adopting its cheaper equivalents for a
+60-hour scope.
+
+| Round-3 item | Change |
+|---|---|
+| B-cubed semantics wrong; singletons; unmatched types | B3: standard B-cubed (Bagga–Baldwin, Cai–Strube for twinless mentions), micro over mentions, no type alignment for identity; degenerate outputs; reference scorer with fixtures |
+| All-singletons scores 0.667 and clears the 0.60 floor | B3/B4: floor moved to entity recovery (each repeated entity counts once; all-singletons scores 0) |
+| One large entity can dominate within a type | B3: stated as intended for B-cubed; entity recovery guards the other side |
+| Relationship unit and endpoints undefined | B3: unique typed directed edges, majority endpoint mapping, deterministic type alignment |
+| Bootstrap null was not zero skill | A6: simulation of two equal-skill predictors, frozen settings, sanity check only |
+| Power ignored the interval vetoes | A6: one deciding interval; one-way intervals become diagnostics |
+| Calibration extension undefined | A8: fixed length, never extended; A9: fewer than 20 expected positives is inconclusive |
+| B1 point estimate caught by the interval rule | A9: condition 2 explicitly uses no interval |
+| Unknown eligibility and calibration not in sensitivity | A4: include/exclude treatment for unknown eligibility; calibration at both censoring extremes |
+| Audit missed eligibility changes; retention | A4: audit at T+72 h counts label and eligibility changes against all eligible edits; the recorder archives everything |
+| Coverage denominator; clock skew | A3: scheduled population includes edits never received live; offset over 1 s counts as downtime |
+| B4 waiver could pass a regression | B4: waiver removed; "insufficient headroom" is not a pass |
+| Identifier domains could leak structure | B2: domains are private to the transformer, published after commitment |
+| Proportionality | Hourly digests; one deciding interval; one provider evaluated first; bounded private corpus keyed from source ids; repair-operation metric dropped |
 
 **v3 (2026-09-27)**, answering the Codex round-2 review (numbers are round-2 finding numbers).
 
