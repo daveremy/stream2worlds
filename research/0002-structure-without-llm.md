@@ -386,7 +386,7 @@ ID attribute" paper, Zhang et al. 2010's full text, and SortingHat's names-off a
 
 1. H is an integration of published methods; §6's seven-stage design, exact hash sets for
    containment, and abstaining name embeddings on the obfuscated stream.
-   → decided: [decision 0007](../docs/decisions/0007-gate3-h-arm.md) (2026-09-27); H-min build
+   → decided: [decision 0010](../docs/decisions/0010-gate3-h-arm.md) (2026-09-27); H-min build
    and measurement: stream2worlds#56
 2. Build H first and measure it on the development window before building System 2.
    → adopted: gate-3 epic stream2worlds#13 sequencing (2026-09-27)

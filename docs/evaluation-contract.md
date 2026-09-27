@@ -306,7 +306,7 @@ Same streams, same replicates, same development event pool, same output schema:
 
 - **H:** heuristics alone (System 1 rules and local embeddings). What "System 1 rules" contains,
   and Rebmann, Rehse and van der Aa (BPM 2022)'s disposition as a component of H rather than a
-  fourth arm: [decision 0007](decisions/0007-gate3-h-arm.md) (2026-09-27).
+  fourth arm: [decision 0010](decisions/0010-gate3-h-arm.md) (2026-09-27).
 - **H+S2:** the same heuristics plus **one budget-capped System 2 pass**.
 - **B3, the raw-sample LLM baseline:** the same model, prompted competently for the same task.
   It receives raw events from the same development pool, sampled by a frozen rule, up to the same

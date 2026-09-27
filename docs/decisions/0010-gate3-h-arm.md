@@ -1,6 +1,6 @@
-# 0007: Gate 3 arm H — what it contains, and Rebmann 2022's disposition
+# 0010: Gate 3 arm H — what it contains, and Rebmann 2022's disposition
 
-Date: 2026-09-27 · Status: accepted (pending Dave) · Gate 3 · Issue #4 · Research [0002](../../research/0002-structure-without-llm.md), [0006](../../research/0006-scaling.md)
+Date: 2026-09-27 · Status: accepted · Gate 3 · Issue #4 · Research [0002](../../research/0002-structure-without-llm.md), [0006](../../research/0006-scaling.md)
 
 ## Decision
 
@@ -18,9 +18,10 @@ a citation.** Two independent reasons:
    this record does not propose one.
 2. The method has two halves. Its case-object candidates come from a BERT tagger reading
    attribute *names* — that half has no input on the obfuscated stream (`f1…fN`, contract B2.2)
-   and is exactly what obfuscation is designed to disable. Its other half — uniqueness-across-
-   cases ≥0.9 as an entity-id signature, and its cardinality/alias rule — is already research
-   0002 §3 (entity-id signature) and §4 (cardinality and alias rule), which H already contains.
+   and is exactly what obfuscation is designed to disable. Its other half — the entity-id
+   signature of research 0002 §3, and the cardinality/alias rule of §4, with the ≥0.9
+   uniqueness threshold attributed to Rebmann's public code in §5's table — is already what H
+   contains.
 
 **What H takes from Rebmann 2022:** the ≥0.9 uniqueness threshold as a starting value for H's
 role-classification tuning, and its cardinality rule for H's relate stage. **What H does not
@@ -63,9 +64,12 @@ inside that definition rather than debated separately every time it comes up.
 
 ## Alternatives considered
 
-- **Rebmann as a fourth arm.** Rejected: contradicts contract B1's fixed arm set; the paper's own
-  novel contribution (the name tagger) doesn't survive obfuscation, so a fourth arm would only
-  ever run on the plain stream, which the contract already reports but never counts.
+- **Rebmann as a fourth arm.** Rejected: contradicts contract B1's fixed arm set. Its novel
+  contribution — the BERT name tagger — only has input where field names are readable (the plain
+  and private streams, contract B2.1/B2.3; research 0002 §"Where local embeddings fit"); on those
+  streams its signal occupies the slot H's own local name embeddings already fill, so a fourth
+  arm would duplicate B1's H rather than add a distinct method. On the obfuscated stream (B2.2)
+  it has no input at all.
 - **Rebmann as citation only.** Rejected: its uniqueness threshold and cardinality rule are
   concrete inputs H's tuning can start from, not background reading — the "0.9 rule" is more use
   than a footnote.
