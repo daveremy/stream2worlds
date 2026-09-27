@@ -570,3 +570,13 @@ simulation must use two different predictors; the B4 sign-off row states the act
 | 15 | Bot slice is not a bound | A6: additive decomposition, labelled descriptive |
 | 16 | Obfuscation and "unseen" claims | B2: exact rules; the claim becomes non-public provenance |
 | 17 | Pilot claim, B1 wording, publication | A1/A10: inception-cohort pilot; A9: B1 claim wording; Publication section |
+
+## Dated notes after sign-off
+
+### 2026-09-27: what arm H contains (pointer, no change in meaning)
+
+B1 defines **H** as "heuristics alone (System 1 rules and local embeddings)". What "System 1 rules"
+contains, and the disposition of Rebmann, Rehse and van der Aa (BPM 2022) as a component of H
+rather than a fourth arm, is fixed in [decision 0010](decisions/0010-gate3-h-arm.md). Reason: the
+arm needed a concrete definition before anyone builds it (s2w#4). This note changes no arm, metric,
+threshold or stream; B1's text stands as signed.
