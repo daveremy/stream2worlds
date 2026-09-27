@@ -36,27 +36,14 @@ loop). ⛔ Never run a second sprint loop here.
 - Issue daveremy/stream2worlds#1 (paper, after gate 4) with positioning comment.
 - lifeos def edit `1e585357` (doc scrub at S2W sprint wrap + 60 h cap).
 
-## Research in flight (sagan subagents, launched 07:48-07:53) — status UNKNOWN after a /clear
-- **0001 prior art: FILED** as `research/0001-prior-art.md` (d21740c) with 7 Design implications;
-  #5 adopted, the rest **pending disposition** — do those first (Graphiti positioning, "possible
-  worlds" definition, OCEL 2.0 export + vocabulary, Rebmann 2022 as gate-3 comparison, Murphy
-  decomposition / right-censoring / signed pre-registration tag, DEBS 2027). Sagan measured a ~3%
-  base rate independently (matches pilot 3.8%); revert-risk label has no time window (A10 updated).
-- **0002 structure discovery without LLMs** → `research/0002-structure-discovery-without-llms.md`
-  (check it exists). Feeds the gate-3 heuristics arm.
-- **0003 Rust substrate** → `research/0003-rust-substrate.md` (check it exists). Feeds decision
-  records 0002+ (Kafka client, SSE, log storage, MCP, web view, deterministic testing).
-- If a file is missing and no agent is running, relaunch that sagan brief (they are in this
-  session's transcript; the briefs' questions are also summarised in `research/README.md`).
-
-## Next
-1. Research 0001-0003 → notes in `research/` with dispositioned implications → decision records,
-   README (name Graphiti; "possible worlds" definition), design page, contract amendments if any.
-2. Gate 2 proper: sources (SSE with reconnect/replay per research/scripts, Kafka assign +
-   offsetsForTimes, stdin), the log, the pure fold with golden replay (replay-determinism fitness
-   function), evidence table + graph view, `--json`, read-only MCP. Demo every sprint.
-3. Design page artifact: carry the contract corrections, the ratchet removal, "possible worlds"
-   wording, and the Graphiti positioning.
+## Handed to the main sprint loop (2026-09-27 ~08:35)
+- Research 0001-0004 all filed and dispositioned. Deferrals are issues.
+- Roadmap: milestones 1-4 = Gate 2, Gate 3 (due 2026-10-11, the re-decide date), Gate 4, Launch;
+  epics #12-#15; gate-2 children #6-#10, #16, #2; gate-3 #4, #17; gate-4 #5; launch #3, #1.
+- PR #11 merges this branch into `main`. From then on S2W work is issue-driven in the main
+  `karpathy` window; this pair branch is done.
+- ⚠️ Gate-3 risk for Dave (research 0002): H may exceed 0.90 identity F1 on Wikipedia, making B4's
+  0.10 margin unreachable. Build and measure H first (#4); re-decide the margin before the freeze.
 
 ## Standing decisions (from the earlier handoff, still true)
 Foundation in pair mode here, then S2W becomes the primary track in the main sprint loop; NL every
