@@ -30,3 +30,8 @@ unimplemented = "forbid"
 dbg_macro = "forbid"
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+
+# Limited debuginfo (line tables, no variable/type info): backtraces keep file:line and a
+# cold build is ~9% faster than the default full debuginfo (lifeos#1113, s2w#41).
+[profile.dev]
+debug = 1
