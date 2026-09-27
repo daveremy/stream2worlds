@@ -1,0 +1,8 @@
+enforce = false # report-only until a later PR flips this
+cap = 400
+# Keys use Rust module paths, e.g. "s2w_app::query::view", never filesystem paths.
+# [[exempt]]
+# module = "s2w_app::query::view"
+# lines = 0
+# reason = "..."
+# issue = "s2w#NN"

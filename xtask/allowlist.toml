@@ -33,7 +33,7 @@ normal = ["s2w-app"]
 normal = ["s2w-model", "s2w-log"]
 
 [crates.xtask]
-normal = ["serde", "serde_json", "toml", "s2w-core"]
+normal = ["serde", "serde_json", "toml", "s2w-core", "syn", "proc-macro2"]
 
 # Every external dependency names the README "Technical architecture" row that explains it.
 [external.serde]
@@ -77,3 +77,9 @@ readme_row = "Property & snapshot testing"
 
 [external.insta]
 readme_row = "Property & snapshot testing"
+
+[external.syn]
+readme_row = "Fitness functions"
+
+[external.proc-macro2]
+readme_row = "Fitness functions"
