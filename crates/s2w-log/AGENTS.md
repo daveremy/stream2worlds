@@ -25,6 +25,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Never depends on the core or on another adapter.
 - The public seam is `EventLog`, with durable `SqliteEventLog`, fixture-friendly
   `InMemoryEventLog`, and storage-neutral `LogError` implementations.
+- `LogReader` is the read-only seam (the System 1 bridge reads through it). Every `EventLog`
+  implements it; a lockless second-process reader is deferred until #10 decides process topology.
 - The only expected caller is `s2w-app`; `s2w-sources` never depends on this crate.
 - Append-only behavior is enforced by both the Rust API and SQLite triggers. SQLite's
   `recursive_triggers` setting is per connection, so a separate raw connection must enable it
