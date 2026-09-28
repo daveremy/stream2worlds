@@ -28,7 +28,8 @@ impl Engine for JsonClaimsEngine {
         "json_claims"
     }
     fn version(&self) -> u32 {
-        1
+        // v2 (s2w#74): confidence outside 0-65535 now abstains `Insufficient`, not `NotMine`.
+        2
     }
     fn evaluate(&self, event: &RawEvent) -> Verdict {
         let value: Value = match serde_json::from_slice(&event.payload) {
@@ -39,20 +40,35 @@ impl Engine for JsonClaimsEngine {
                 };
             }
         };
-        if let Ok(envelope) = Envelope::deserialize(&value) {
-            let confidence = match envelope.confidence {
-                None | Some(10_000) => Ok(Confidence::CERTAIN),
-                Some(bp) => Confidence::try_from(bp),
-            };
-            return match confidence {
-                Ok(confidence) => Verdict::Propose {
-                    claims: vec![envelope.event],
-                    confidence,
-                },
-                Err(error) => Verdict::Abstain {
-                    reason: AbstainReason::Insufficient(error.to_string()),
-                },
-            };
+        match Envelope::deserialize(&value) {
+            Ok(envelope) => {
+                let confidence = match envelope.confidence {
+                    None | Some(10_000) => Ok(Confidence::CERTAIN),
+                    Some(bp) => Confidence::try_from(bp),
+                };
+                return match confidence {
+                    Ok(confidence) => Verdict::Propose {
+                        claims: vec![envelope.event],
+                        confidence,
+                    },
+                    Err(error) => Verdict::Abstain {
+                        reason: AbstainReason::Insufficient(error.to_string()),
+                    },
+                };
+            }
+            // A `confidence` outside `u16` (0-65535) fails `Envelope::deserialize` outright
+            // rather than reaching `Confidence::try_from`'s own 0-10_000 basis-point check — an
+            // envelope shape ("has an `event` field") with a malformed `confidence` is still
+            // this engine's input, just incomplete, so it must abstain `Insufficient`, not fall
+            // through to the bare-`WorldEvent` path and report `NotMine` (s2w#74).
+            Err(_) if value.get("event").is_some() => {
+                return Verdict::Abstain {
+                    reason: AbstainReason::Insufficient(
+                        "confidence must be a basis-point value between 0 and 65535".into(),
+                    ),
+                };
+            }
+            Err(_) => {}
         }
         match serde_json::from_value::<WorldEvent>(value) {
             Ok(event) => Verdict::Propose {
@@ -142,6 +158,30 @@ mod tests {
         let over = raw(format!(r#"{{"confidence":20000,"event":{MERGE}}}"#).as_bytes())?;
         assert!(matches!(
             JsonClaimsEngine.evaluate(&over),
+            Verdict::Abstain {
+                reason: AbstainReason::Insufficient(_)
+            }
+        ));
+        Ok(())
+    }
+
+    /// A `confidence` that doesn't even fit in `u16` (0-65535) fails `Envelope::deserialize`
+    /// outright, before `Confidence::try_from`'s 0-10_000 basis-point check ever runs. An
+    /// envelope shape (an `event` field is present) with that malformed confidence is still
+    /// this engine's input, just incomplete — it must abstain `Insufficient`, not fall through
+    /// to the bare-`WorldEvent` path and report `NotMine` (s2w#74).
+    #[test]
+    fn confidence_outside_u16_is_insufficient_not_not_mine() -> TestResult {
+        let too_big = raw(format!(r#"{{"confidence":70000,"event":{MERGE}}}"#).as_bytes())?;
+        assert!(matches!(
+            JsonClaimsEngine.evaluate(&too_big),
+            Verdict::Abstain {
+                reason: AbstainReason::Insufficient(_)
+            }
+        ));
+        let negative = raw(format!(r#"{{"confidence":-1,"event":{MERGE}}}"#).as_bytes())?;
+        assert!(matches!(
+            JsonClaimsEngine.evaluate(&negative),
             Verdict::Abstain {
                 reason: AbstainReason::Insufficient(_)
             }

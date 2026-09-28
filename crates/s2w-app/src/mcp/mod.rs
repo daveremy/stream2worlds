@@ -6,7 +6,7 @@
 
 mod tools;
 
-pub use tools::{EntityHistoryArgs, TimeArgs, WorldDiffArgs, WorldViewArgs};
+pub use tools::{BranchesArgs, EntityHistoryArgs, TimeArgs, WorldDiffArgs, WorldViewArgs};
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -69,9 +69,9 @@ impl ServerHandler for WorldMcp {
             .with_server_info(Implementation::new("s2w", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "Read-only view of the s2w world model. Every tool returns the same JSON as the \
-                 matching s2w query API route; errors come back as {\"error\", \"message\"} \
-                 objects with stable codes. Until the live event-log bridge lands, the server \
-                 serves an empty world.",
+                 matching s2w query API route and requires world: \"default\"; errors come back \
+                 as {\"error\", \"message\"} objects with stable codes. Until the live event-log \
+                 bridge lands, the server serves an empty world.",
             )
     }
 }

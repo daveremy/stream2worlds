@@ -7,7 +7,7 @@ s2w: wikipedia: 15.8 events/s, 79 total, last event 29.2ms ago
 s2w: wikipedia: 16.2 events/s, 160 total, last event 3.1ms ago
 s2w: wikipedia: 17.0 events/s, 245 total, last event 69.0ms ago
 
-== world summary (curl http://127.0.0.1:43379/world | jq) ==
+== world summary (curl http://127.0.0.1:43379/worlds/default/world | jq) ==
 {
   "nodes": 272,
   "links": 215

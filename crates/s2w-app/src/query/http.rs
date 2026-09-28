@@ -27,6 +27,7 @@ use super::view::{ACTUAL_BRANCH, Lod, ViewParams, world_view};
 pub struct QueryState {
     timeline: Arc<RwLock<Timeline>>,
     head: Arc<watch::Sender<u64>>,
+    world: Arc<str>,
 }
 
 impl QueryState {
@@ -37,7 +38,21 @@ impl QueryState {
         Self {
             timeline: Arc::new(RwLock::new(timeline)),
             head: Arc::new(head),
+            world: Arc::from("default"),
         }
+    }
+
+    /// Configures the string identifier this process serves.
+    #[must_use]
+    pub fn with_world(mut self, world: impl Into<Arc<str>>) -> Self {
+        self.world = world.into();
+        self
+    }
+
+    /// The string identifier of the world this process serves.
+    #[must_use]
+    pub fn world(&self) -> &str {
+        &self.world
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
@@ -123,7 +138,9 @@ impl QueryState {
 impl IntoResponse for QueryError {
     fn into_response(self) -> Response {
         let status = match self {
-            Self::OffsetBeyondHead { .. } | Self::UnknownEntity { .. } => StatusCode::NOT_FOUND,
+            Self::OffsetBeyondHead { .. }
+            | Self::UnknownEntity { .. }
+            | Self::UnknownWorld { .. } => StatusCode::NOT_FOUND,
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
@@ -135,12 +152,13 @@ impl IntoResponse for QueryError {
 /// The query API's routes over `state`.
 pub fn router(state: QueryState) -> Router {
     Router::new()
-        .route("/world", get(world))
-        .route("/events", get(events))
-        .route("/branches", get(branches))
-        .route("/diff", get(world_diff))
-        .route("/entity/{id}/history", get(history))
-        .route("/time", get(time))
+        .route("/worlds", get(list_worlds))
+        .route("/worlds/{world}/world", get(world))
+        .route("/worlds/{world}/events", get(events))
+        .route("/worlds/{world}/branches", get(branches))
+        .route("/worlds/{world}/diff", get(world_diff))
+        .route("/worlds/{world}/entity/{id}/history", get(history))
+        .route("/worlds/{world}/time", get(time))
         .with_state(state)
 }
 
@@ -183,6 +201,16 @@ pub(crate) fn check_branch(branch: Option<&str>) -> Result<(), QueryError> {
     }
 }
 
+pub(crate) fn check_world(state: &QueryState, world: &str) -> Result<(), QueryError> {
+    if world == state.world() {
+        Ok(())
+    } else {
+        Err(QueryError::UnknownWorld {
+            world: world.to_owned(),
+        })
+    }
+}
+
 pub(crate) fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
     match raw {
         None | Some("entity") => Ok(Lod::Entity),
@@ -197,8 +225,13 @@ pub(crate) fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
     }
 }
 
-async fn world(State(state): State<QueryState>, Query(p): Query<Params>) -> Response {
+async fn world(
+    State(state): State<QueryState>,
+    Path(world): Path<String>,
+    Query(p): Query<Params>,
+) -> Response {
     let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
         let params = ViewParams {
             lod: parse_lod(p.lod.as_deref())?,
@@ -207,6 +240,38 @@ async fn world(State(state): State<QueryState>, Query(p): Query<Params>) -> Resp
         };
         let at = parse("at", p.at.as_deref())?;
         world_view(&state.world_at(at)?, &params)
+    };
+    run().map(Json).into_response()
+}
+
+/// One world served by this process.
+#[derive(Serialize)]
+pub struct WorldSummary {
+    /// The world's string identifier.
+    pub world: String,
+    /// The world's display name. Until manifests exist, this deliberately reuses `world`.
+    pub name: String,
+    /// The world's latest fold offset.
+    pub head: u64,
+}
+
+#[derive(Serialize)]
+struct Worlds {
+    worlds: Vec<WorldSummary>,
+}
+
+async fn list_worlds(State(state): State<QueryState>) -> Response {
+    let run = || -> Result<_, QueryError> {
+        state.read(|timeline| {
+            let world = state.world().to_owned();
+            Ok(Worlds {
+                worlds: vec![WorldSummary {
+                    name: world.clone(),
+                    world,
+                    head: timeline.head(),
+                }],
+            })
+        })
     };
     run().map(Json).into_response()
 }
@@ -226,12 +291,21 @@ pub struct Branch {
     pub hub_in_degree_cap: u64,
 }
 
-async fn branches(State(state): State<QueryState>) -> Response {
-    state.branches().map(Json).into_response()
+async fn branches(State(state): State<QueryState>, Path(world): Path<String>) -> Response {
+    let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
+        state.branches()
+    };
+    run().map(Json).into_response()
 }
 
-async fn world_diff(State(state): State<QueryState>, Query(p): Query<Params>) -> Response {
+async fn world_diff(
+    State(state): State<QueryState>,
+    Path(world): Path<String>,
+    Query(p): Query<Params>,
+) -> Response {
     let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
         let from = parse("from", p.from.as_deref())?.unwrap_or(0);
         let to = parse("to", p.to.as_deref())?;
@@ -240,12 +314,19 @@ async fn world_diff(State(state): State<QueryState>, Query(p): Query<Params>) ->
     run().map(Json).into_response()
 }
 
+#[derive(Deserialize)]
+struct HistoryPath {
+    world: String,
+    id: String,
+}
+
 async fn history(
     State(state): State<QueryState>,
-    Path(id): Path<String>,
+    Path(HistoryPath { world, id }): Path<HistoryPath>,
     Query(p): Query<Params>,
 ) -> Response {
     let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
         let id = id.parse::<u64>().map_err(|e| QueryError::BadParameter {
             name: "id",
@@ -257,7 +338,7 @@ async fn history(
     run().map(Json).into_response()
 }
 
-/// `/time`'s answer at one timestamp.
+/// `/worlds/{world}/time`'s answer at one timestamp.
 #[derive(Serialize)]
 pub struct TimeAt {
     /// The timestamp asked about, in milliseconds.
@@ -266,8 +347,8 @@ pub struct TimeAt {
     pub offset: u64,
 }
 
-/// `/time`'s answer: one timestamp's offset, or the whole range when no `ts` was given. The two
-/// shapes serialize flat, exactly as the two HTTP responses always did.
+/// `/worlds/{world}/time`'s answer: one timestamp's offset, or the whole range when no `ts` was
+/// given. The two shapes serialize flat, exactly as the two HTTP responses always did.
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum TimeResult {
@@ -277,8 +358,13 @@ pub enum TimeResult {
     Range(TimeRange),
 }
 
-async fn time(State(state): State<QueryState>, Query(p): Query<Params>) -> Response {
+async fn time(
+    State(state): State<QueryState>,
+    Path(world): Path<String>,
+    Query(p): Query<Params>,
+) -> Response {
     let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
         state.time(parse("ts", p.ts.as_deref())?)
     };
@@ -307,6 +393,7 @@ fn sse_event(offset: u64, delta: &Delta) -> Event {
 /// follows appends. Each message's `id:` is the offset after its event.
 async fn events(
     State(state): State<QueryState>,
+    Path(world): Path<String>,
     headers: HeaderMap,
     Query(p): Query<Params>,
 ) -> Response {
@@ -315,6 +402,7 @@ async fn events(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let start = || -> Result<(u64, World), QueryError> {
+        check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
         let from = match last_event_id.as_deref() {
             Some(id) => parse("Last-Event-ID", Some(id))?,

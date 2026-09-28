@@ -16,15 +16,15 @@ use thiserror::Error;
 
 pub use delta::{Delta, fold_with_delta};
 pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
-pub use http::{Branch, QueryState, TimeAt, TimeResult, router};
+pub use http::{Branch, QueryState, TimeAt, TimeResult, WorldSummary, router};
 pub use timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };
 
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
-// never disagree about what a valid `branch` or `lod` is.
-pub(crate) use http::{check_branch, parse_lod};
+// never disagree about what a valid `world`, `branch` or `lod` is.
+pub(crate) use http::{check_branch, check_world, parse_lod};
 
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -65,6 +65,12 @@ pub enum QueryError {
         /// The requested id.
         id: u64,
     },
+    /// This process does not serve the requested world.
+    #[error("world '{world}' is not served by this process")]
+    UnknownWorld {
+        /// The requested world identifier.
+        world: String,
+    },
     /// `hops` is past [`MAX_HOPS`].
     #[error("hops {hops} is more than the maximum of {max}", max = MAX_HOPS)]
     HopsTooLarge {
@@ -86,6 +92,7 @@ impl QueryError {
             Self::LodNotYet { .. } => "lod_not_yet",
             Self::BadParameter { .. } => "bad_parameter",
             Self::UnknownEntity { .. } => "unknown_entity",
+            Self::UnknownWorld { .. } => "unknown_world",
             Self::HopsTooLarge { .. } => "hops_too_large",
             Self::Unavailable => "unavailable",
         }
