@@ -445,6 +445,99 @@ fn shared_log_ingestion_and_bridge_feed_the_http_router_without_sockets() {
 }
 
 #[test]
+fn world_routing_serves_the_shell_for_a_matching_world_and_404s_a_mismatch() {
+    run(false, async {
+        let full_app = app(state().with_world("foo"));
+        let (status, headers, _) = web_response(&full_app, "/w/foo/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(axum::http::header::CONTENT_TYPE)
+                .is_some_and(|value| value.to_str().unwrap_or_default().contains("html")),
+            "expected the SPA shell's content-type, got {headers:?}"
+        );
+        let (status, _, _) = web_response(&full_app, "/w/nope/").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    });
+}
+
+#[test]
+fn world_routing_redirects_the_no_slash_and_legacy_query_forms() {
+    run(false, async {
+        let full_app = app(state().with_world("foo"));
+        let (status, headers, _) = web_response(&full_app, "/w/foo").await;
+        assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            headers.get(axum::http::header::LOCATION).unwrap(),
+            "/w/foo/"
+        );
+        let (status, headers, _) = web_response(&full_app, "/?world=foo&at=5").await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers.get(axum::http::header::LOCATION).unwrap(),
+            "/w/foo/?at=5"
+        );
+    });
+}
+
+async fn web_response(
+    app: &Router,
+    uri: &str,
+) -> (StatusCode, axum::http::HeaderMap, axum::body::Bytes) {
+    let response = app
+        .clone()
+        .oneshot(web_request(uri))
+        .await
+        .expect("response");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    (status, headers, bytes)
+}
+
+#[test]
+fn presentation_endpoint_serves_the_default_record_and_404s_a_wrong_world() {
+    run(false, async {
+        let bare_app = router(state().with_world("foo"));
+        let response = bare_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/worlds/foo/presentation")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "title": null, "tagline": null, "description": null,
+                "palette_light": null, "palette_dark": null, "typefaces": null
+            })
+        );
+        let response = bare_app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/worlds/nope/presentation")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    });
+}
+
+#[test]
 fn configured_world_is_the_only_world_served() {
     run(false, async {
         let app = router(state().with_world("foo"));
