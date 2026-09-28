@@ -11,6 +11,9 @@ export class Force2D implements GraphRenderer {
   private degreeMap = new Map<string, number>();
   private keyByType = new Map<string, string | undefined>();
   private labelById = new Map<string, string>();
+  private label(node: GraphNode): string {
+    return this.labelById.get(node.id) ?? labelFor(node, this.keyByType);
+  }
   mount(element: HTMLElement, state: ViewState): void {
     this.graph = new ForceGraph<GraphNode, Link>(element).backgroundColor('#101c2b')
       .nodeColor((node: GraphNode) => typeColor(node.entity_type))
@@ -21,14 +24,14 @@ export class Force2D implements GraphRenderer {
         const fontSize = 11 / globalScale;
         context.font = `${fontSize}px system-ui, sans-serif`;
         context.textAlign = 'center'; context.textBaseline = 'top'; context.fillStyle = '#e3edf6';
-        context.fillText(this.labelById.get(node.id) ?? labelFor(node, this.keyByType), node.x, node.y + 5 / globalScale);
+        context.fillText(this.label(node), node.x, node.y + 5 / globalScale);
       })
       .linkColor(link => linkColor(link.kind)).linkDirectionalArrowLength(4)
       .nodeLabel((node: GraphNode) => {
         // Tooltip libraries accept HTML strings: return a text-only element for stream data.
         const label = document.createElement('span');
         label.textContent = node.kind === 'type' ? `${node.entity_type} (${node.count})` :
-          `${this.labelById.get(node.id) ?? labelFor(node, this.keyByType)} · ${node.entity_type}${node.kind === 'hub' ? ` · hub (${node.in_degree})` : ''}`;
+          `${this.label(node)} · ${node.entity_type}${node.kind === 'hub' ? ` · hub (${node.in_degree})` : ''}`;
         return label;
       });
     this.resize = new ResizeObserver(() => {
