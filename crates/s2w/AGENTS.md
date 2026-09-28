@@ -11,7 +11,7 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 ## Invariants
 
 - Every command is non-interactive and idempotent. Every one-shot command has `--json`.
-  Exception (2026-09-27, #39): `watch` is streaming, so its NDJSON progress design is deferred
-  to #79; `mcp` is already JSON-RPC over stdio; `serve` is a long-running HTTP server without `--json`.
+  `watch --json` (#79) streams NDJSON progress instead of the human eprintln lines; `mcp` is
+  already JSON-RPC over stdio; `serve` is a long-running HTTP server with no `--json` yet.
 - Errors say what to try next.
 - No logic here beyond argument parsing and output formatting.

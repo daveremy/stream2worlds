@@ -13,6 +13,35 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 64 — NDJSON watch progress (2026-09-27, 21:00–22:50)
+
+The follow-up #39 deferred: `s2w watch --json` ([#79](https://github.com/daveremy/stream2worlds/issues/79)).
+
+**Shipped**
+- `s2w watch <source> --json`: one NDJSON object per flush on stdout
+  (`{"appended","duplicates","reconnects","cursor","at"}`), and `{"error","fatal"}` lines on
+  stderr for source errors and the one fatal error that stops the pump — a clean machine-readable
+  stream alongside the existing human progress lines, never both at once.
+- `crates/s2w-app/src/group_commit.rs` gained a `Reporter` trait (`HumanReporter` reproduces
+  today's eprintln lines exactly; `JsonReporter` is the new NDJSON path) so `pump`/`pump_events`
+  route through one seam instead of hardcoded `eprintln!`. `serve` keeps `HumanReporter` —
+  `serve --json` is out of scope for this issue.
+- `crates/s2w/AGENTS.md`'s dated exception (2026-09-27, #39) is resolved: `watch` now has
+  `--json`; only `serve` still lacks one.
+
+**Learned**
+- `Reporter` needs an explicit `Send` bound: `pump`'s background flush task crosses
+  `tokio::spawn`, which requires every value held across an `.await` in that future — including
+  `&mut dyn Reporter` — to be `Send`. `dyn Trait` isn't `Send` by default.
+- `"at"` is epoch milliseconds (`i64`), not an RFC3339 string, matching this codebase's existing
+  convention (`query/timeline.rs`'s `first_ts`/`last_ts`) rather than the issue's original sketch
+  — there's no RFC3339-rendering helper anywhere in the workspace to reuse.
+
+**Next**
+- `serve --json` progress, if a future issue asks for it — explicitly out of scope here.
+
+---
+
 ## Sprint 63 — local embeddings (2026-09-27, 19:00–20:50)
 
 A third System 1 engine ([#64](https://github.com/daveremy/stream2worlds/issues/64)), following
