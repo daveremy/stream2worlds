@@ -30,7 +30,7 @@ impl Timestamp {
     }
 }
 
-/// The name of one configured source, such as `wikipedia.recentchange` or `kafka.orders`.
+/// The name of one configured source, such as `wikipedia.recentchange` or `kafka.orders`. <!-- vocabulary: allow -->
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct SourceId(String);

@@ -56,3 +56,4 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   engine evaluated through here": a newly registered engine stores rows below it.
 - There is no foreign key to the events table; the bridge checks `cursor <= log head` and each
   replayed row's `event_hash` against the event, and a mismatch is loud.
+- No domain knowledge in this crate; see decision 0018.

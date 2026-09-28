@@ -47,30 +47,18 @@ fn state() -> QueryState {
 }
 
 #[test]
-fn startup_notes_preserve_source_and_full_wiki_scope_text() {
+fn startup_notes_preserve_the_source_name() {
     let mut reporter = TestReporter::default();
-    let args = ServeArgs {
-        uri: "wikipedia".to_owned(),
-        world: "default".to_owned(),
-        log_dir: PathBuf::from("chosen-data"),
-        port: 0,
-        wiki: Some("enwiki".to_owned()),
-    };
     report_source_start(
         &mut reporter,
         "wikipedia",
         &["no stored cursor; starting fresh".to_owned()],
-        &args,
     );
     assert_eq!(
         reporter.reports,
-        [
-            Report::Note("wikipedia: no stored cursor; starting fresh".to_owned()),
-            Report::Note(
-                "wikipedia: --wiki \"enwiki\" filters new ingestion only; events already in chosen-data from other wikis are unaffected"
-                    .to_owned()
-            )
-        ]
+        [Report::Note(
+            "wikipedia: no stored cursor; starting fresh".to_owned()
+        )]
     );
 }
 
@@ -116,7 +104,6 @@ fn both_writer_locks_map_to_usage_and_release() {
         world: "default".to_owned(),
         log_dir: dir.path().to_owned(),
         port: 0,
-        wiki: None,
     };
     let log = SqliteEventLog::open(dir.path()).expect("first event log opens");
     let error = run_serve(state(), args.clone(), &mut TestReporter::default())
@@ -738,7 +725,7 @@ fn serving_start_gate_bootstraps_and_preserves_removal() {
         let mut log = SqliteEventLog::open(dir.path()).unwrap();
         let source = SourceId::new("stdin").unwrap();
         log.record_source_removed(&source).unwrap();
-        let started = resolve("-", None)
+        let started = resolve("-")
             .unwrap()
             .start(None, &ServingCursors(RefCell::new(&mut log)))
             .await
@@ -748,7 +735,7 @@ fn serving_start_gate_bootstraps_and_preserves_removal() {
         assert!(started.notes[0].contains("removed"));
         assert_eq!(log.membership_history().unwrap().len(), 1);
         // SSE's start gate runs before connecting, and uses the adapter's real hashed ID.
-        let started = resolve("http://127.0.0.1:1/events", None)
+        let started = resolve("http://127.0.0.1:1/events")
             .unwrap()
             .start(None, &ServingCursors(RefCell::new(&mut log)))
             .await
@@ -756,7 +743,7 @@ fn serving_start_gate_bootstraps_and_preserves_removal() {
         let source = started.sources[0].clone();
         drop(started);
         log.record_source_removed(&source).unwrap();
-        let restarted = resolve("http://127.0.0.1:1/events", None)
+        let restarted = resolve("http://127.0.0.1:1/events")
             .unwrap()
             .start(None, &ServingCursors(RefCell::new(&mut log)))
             .await

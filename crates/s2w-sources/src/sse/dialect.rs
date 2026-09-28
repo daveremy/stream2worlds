@@ -66,11 +66,10 @@ pub(crate) trait SseDialect: Send + Sync + 'static {
     /// The bytes stored in the log for one accepted frame, given its cursor and `data:` text.
     ///
     /// Default: the byte-deterministic `{"data":…,"id":…}` envelope
-    /// (`super::envelope::envelope`) — see its doc for why a generic stream needs the cursor
-    /// folded into the stored bytes. Override to store `data` verbatim when the payload
-    /// already carries stream-unique identity on its own (Wikimedia's `meta.id`) — changing
-    /// those stored bytes would break dedupe against logs already written under the old,
-    /// unenveloped format, and the fold that parses the payload as JSON.
+    /// (`super::envelope::envelope`) — see its doc for why the cursor is folded into the
+    /// stored bytes. An override storing `data` verbatim would need the payload to carry
+    /// stream-unique identity of its own, and would break dedupe against logs already
+    /// written under the enveloped format; no dialect overrides it today.
     fn store(&self, cursor: &str, data: &str) -> Vec<u8> {
         super::envelope::envelope(cursor, data).into_bytes()
     }

@@ -20,9 +20,15 @@
 //!    split point. The fixture must use every `WorldEvent` variant and trip the hub cap.
 //!
 //! 7. **Module sizes** (`module_size.rs`): report-only AST spans and blocking exemption growth.
-//! 8. **Version-history append-only** (`version_history.rs`): `VERSION_HISTORY` in
-//!    `s2w-system1/src/embedding.rs` may only grow — no row already on `origin/main` may be
-//!    edited, reordered, or removed.
+//! 9. **Domain vocabulary** (`vocabulary.rs`, terms in `xtask/vocabulary-denylist.txt`): no
+//!    crate's `src/` tree — xtask's own included — nor the web view's TypeScript names the
+//!    retired domain's terms (decision 0018: no compiled domain code). The denylist is data read
+//!    at run time; an entry matches a contiguous run of tokens, so one term catches every
+//!    spelling, and test code plus `// vocabulary: allow` are the only exemptions.
+//! 10. **Obfuscation replay** (`obfuscation.rs`): the golden fixture folds to the same world
+//!     whether or not its claim data (identifiers, attribute names, string values) is renamed
+//!     and hashed first — a regression guard on the one layer (`s2w-core`'s fold) known clean
+//!     today against code that reads a specific name or value instead of just shape.
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -37,7 +43,8 @@ use serde::Deserialize;
 
 mod golden;
 mod module_size;
-mod version_history;
+mod obfuscation;
+mod vocabulary;
 
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
@@ -198,7 +205,8 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(overrides(root));
     problems.extend(golden::check(root));
     problems.extend(module_size::check(root, &meta, tighten));
-    problems.extend(version_history::check(root));
+    problems.extend(vocabulary::check(root));
+    problems.extend(obfuscation::check(root));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -233,7 +241,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))

@@ -1,7 +1,7 @@
 //! The seam every adapter implements: [`Source`] starts a stream of [`RawEvent`]s after
 //! resolving any stored cursor against `--since`.
 //!
-//! Adapters (`kafka`, `sse`, `stdin`) are transports; presets (`wikipedia`) are data over an
+//! Adapters (`kafka`, `sse`, `stdin`) are transports; presets (`wikipedia`) are data over an <!-- vocabulary: allow -->
 //! adapter. The app composes a source with the log without knowing which one it has.
 
 use std::future::Future;
@@ -66,7 +66,7 @@ pub enum Ending {
 
 /// A stream source, resolved from a URI by [`crate::registry::resolve`].
 pub trait Source {
-    /// Human name for messages: "wikipedia", "kafka", "stdin", "sse".
+    /// Human name for messages: "wikipedia", "kafka", "stdin", "sse". <!-- vocabulary: allow -->
     fn name(&self) -> &'static str;
 
     /// Resolves stored cursors against `since`, connects, and returns the running stream.

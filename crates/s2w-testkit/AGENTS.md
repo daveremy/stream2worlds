@@ -13,3 +13,4 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Used only as a dev-dependency.
 - Golden files are human-owned; the testkit reads them, never rewrites them.
 - `in_memory_log()` is the event-log fixture for tests in other crates.
+- No domain knowledge in this crate; see decision 0018.

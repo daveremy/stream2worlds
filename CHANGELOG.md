@@ -13,6 +13,35 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## No compiled domain code — #119 (2026-09-28)
+
+**Shipped:** retired the Wikimedia-bound compiled engines (`WikimediaPageChangeEngine`, the
+local-embeddings engine and its `model2vec-rs` dependency), the `Wikimedia` SSE dialect, and
+the `--wiki` flag; the `wikipedia` preset is now URL+settings data over the generic `sse`
+transport, with no domain-named dialect behind it (decision 0018). Two new `cargo xtask check`
+fitness functions enforce the rule going forward: a vocabulary scan (`xtask/src/vocabulary.rs`)
+that denylists domain terms across every crate's `src/` tree and the web view's TypeScript, and
+an obfuscation-replay check (`xtask/src/obfuscation.rs`) that folds the golden event log twice —
+once plain, once with every claim identifier/attribute-key/string value renamed and hashed —
+and fails if the two folded worlds differ, catching code that reads a specific name or value
+instead of just shape. Also retired the now-dormant version-history append-only check
+(`xtask/src/version_history.rs`), a vestige of the deleted embeddings engine.
+
+**Learned:** the token-boundary design for the vocabulary scan (a denylist entry matches a
+contiguous run of tokens, so `wiki_id` and `wikiId` both hit a `wiki` entry) is what makes one
+entry catch every spelling convention, at the cost of needing an explicit `// vocabulary: allow`
+escape hatch for legitimate data (e.g. the `wikipedia` preset's own name and URL).
+
+**Changed course:** domain-pack crates (this issue's original design) were superseded same-day
+by Dave's ruling that no compiled code for a domain should exist at all — see decision 0018 and
+the issue's superseding comment.
+
+**Next:** a generic, data-driven field filter (`--filter <json-path>=<value>`) to replace what
+`--wiki` provided, plus obfuscation-replay coverage for the System 1 bridge/engines layer —
+[#131](https://github.com/daveremy/stream2worlds/issues/131).
+
+---
+
 ## Read-only MCP over an on-disk world — #115 (2026-09-28)
 
 **Shipped:** `s2w mcp --log-dir PATH [--world NAME]` opens the event and verdict SQLite

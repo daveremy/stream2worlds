@@ -38,11 +38,6 @@ pub struct ServeArgs {
     pub log_dir: PathBuf,
     /// Loopback HTTP port; zero asks the OS for an available port.
     pub port: u16,
-    /// Restricts ingestion to one wiki (e.g. `enwiki`); only the `wikipedia` preset accepts
-    /// it (`s2w_sources::registry::resolve`'s `ResolveError::WikiNotApplicable` otherwise).
-    /// Filters new ingestion only — it does not purge a `--log-dir` already populated from
-    /// other wikis.
-    pub wiki: Option<String>,
 }
 
 /// Ingests and serves until Ctrl-C, source completion or a fatal failure.
@@ -67,8 +62,7 @@ async fn run_serve_async(
     args: ServeArgs,
     reporter: &mut dyn Reporter,
 ) -> Result<(), AppError> {
-    let source = resolve(&args.uri, args.wiki.as_deref())
-        .map_err(|error| AppError::Usage(error.to_string()))?;
+    let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let verdicts = SqliteVerdictStore::open(&args.log_dir)
@@ -94,7 +88,7 @@ async fn run_serve_async(
     let state = state
         .with_world(args.world.clone())
         .with_metadata(Some(manifest), log.membership_history()?);
-    report_source_start(reporter, name, &started.notes, &args);
+    report_source_start(reporter, name, &started.notes);
     let listener = TcpListener::bind(("127.0.0.1", args.port))
         .await
         .map_err(|error| {
@@ -116,22 +110,9 @@ async fn run_serve_async(
     .await
 }
 
-fn report_source_start(
-    reporter: &mut dyn Reporter,
-    name: &str,
-    notes: &[String],
-    args: &ServeArgs,
-) {
+fn report_source_start(reporter: &mut dyn Reporter, name: &str, notes: &[String]) {
     for note in notes {
         reporter.note(&format!("{name}: {note}"));
-    }
-    if let Some(wiki) = &args.wiki {
-        // The filter only ever applies to events not yet stored (s2w#101): it never
-        // retroactively purges a `--log-dir` already populated from other wikis.
-        reporter.note(&format!(
-            "{name}: --wiki {wiki:?} filters new ingestion only; events already in {} from other wikis are unaffected",
-            args.log_dir.display()
-        ));
     }
 }
 

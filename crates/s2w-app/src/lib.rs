@@ -52,9 +52,9 @@ pub enum AppError {
     /// An on-disk world could not be reconstructed for read-only MCP serving.
     #[error("{0}")]
     ReadOnlyWorld(#[from] mcp::replay::ReadOnlyWorldError),
-    /// A live source's stream ended. Wikipedia and Kafka keep their streams open (Wikipedia
-    /// drops it only to reconnect it), so an ended stream means something is wrong, not that
-    /// the work is done.
+    /// A live source's stream ended. Live sources keep their streams open (an SSE server
+    /// drops a connection only for the client to reconnect it), so an ended stream means
+    /// something is wrong, not that the work is done.
     #[error("the {0} source stream ended unexpectedly; it should keep running until stopped")]
     StreamEnded(&'static str),
     /// The command cannot run as given, and says what to try instead. The binary maps this to
@@ -98,7 +98,7 @@ pub fn watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError>
 ///
 /// As [`watch`].
 pub async fn run_watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError> {
-    let source = resolve(&args.uri, None).map_err(|error| AppError::Usage(error.to_string()))?;
+    let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let name = source.name();
@@ -316,9 +316,11 @@ mod tests {
     }
 
     #[test]
-    fn a_stored_cursor_that_does_not_parse_is_a_loud_error() {
-        let directory = TestDirectory::new("cursor-unparseable");
-        seed(directory.path(), WIKIPEDIA_SOURCE, b"not a last-event-id");
+    fn a_stored_cursor_that_cannot_be_a_header_value_is_a_loud_error() {
+        // The preset dialect now treats the id as an opaque string, so any UTF-8 text is a
+        // valid cursor; only bytes that can never travel back as `Last-Event-ID` are refused.
+        let directory = TestDirectory::new("cursor-unusable");
+        seed(directory.path(), WIKIPEDIA_SOURCE, b"line1\r\nline2");
         let outcome = watch(
             WatchArgs {
                 uri: "wikipedia".to_owned(),
@@ -333,7 +335,7 @@ mod tests {
                 outcome,
                 Err(AppError::Source(SourceError::StoredCursor { .. }))
             ),
-            "an unparseable cursor must never fall back to a fresh start, got {outcome:?}"
+            "an unusable cursor must never fall back to a fresh start, got {outcome:?}"
         );
     }
 
@@ -473,7 +475,7 @@ mod tests {
             });
 
             let mut log = SqliteEventLog::open(directory.path()).expect("log should reopen");
-            let source = resolve(&uri, None).expect("loopback URL should resolve");
+            let source = resolve(&uri).expect("loopback URL should resolve");
             let started = source
                 .start(None, &LogCursors(&log))
                 .await

@@ -18,3 +18,4 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   progress stream because stdout is reserved for JSON-RPC once serving.
 - Errors say what to try next.
 - No logic here beyond argument parsing and output formatting.
+- No domain knowledge in this crate; see decision 0018.

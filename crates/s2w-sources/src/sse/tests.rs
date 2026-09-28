@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::*;
-use crate::presets::wikimedia::{ENDPOINT, LastEventId, SOURCE_ID, Wikimedia};
 use crate::sse::envelope;
 use crate::sse::start::StartPlan;
 
@@ -22,11 +21,16 @@ fn text(event: RawEvent) -> (String, String) {
     )
 }
 
+/// The `wikipedia` preset's endpoint and source id, as local test constants: the preset table
+/// itself is data in `presets`, and these tests exercise the transport, not the table.
+const ENDPOINT: &str = "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1";
+const SOURCE_ID: &str = "wikipedia.page_change";
+
 /// The read loop with the `wikipedia` preset's dialect and source id.
 fn wikipedia<C: Connect>(
     connector: C,
     since: Option<String>,
-    initial_cursor: Option<LastEventId>,
+    initial_cursor: Option<String>,
     backoff: Backoff,
 ) -> (SseStream, JoinHandle<()>) {
     let source_id = match SourceId::new(SOURCE_ID) {
@@ -36,15 +40,9 @@ fn wikipedia<C: Connect>(
     let state = StreamState {
         name: "wikipedia",
         source_id,
-        dialect: Arc::new(Wikimedia::new()),
+        dialect: Arc::new(SinceQueryParam { param: "since" }),
     };
-    spawn(
-        connector,
-        state,
-        since,
-        initial_cursor.map(|cursor| cursor.as_header_value().to_owned()),
-        backoff,
-    )
+    spawn(connector, state, since, initial_cursor, backoff)
 }
 
 /// The read loop with the generic `Opaque` dialect (no preset), for a bare `sse://`/`https://`
@@ -115,22 +113,24 @@ async_test!(
     }
 );
 
-async_test!(canary_and_examplewiki_frames_are_each_filtered, {
+async_test!(every_payload_is_kept_the_preset_dialect_filters_nothing, {
+    // Decision 0018 retired the built-in payload filter: which events matter is discovered
+    // data, not compiled code, so the preset's dialect now keeps every well-formed frame —
+    // including the synthetic stream's test events, previously dropped by name — until a
+    // data-driven filter exists (the accepted regression recorded in that decision).
     let synthetic = include_str!("../../testdata/wikipedia-malformed.synthetic.sse");
     for marker in [r#""domain":"canary""#, r#""wiki_id":"examplewiki""#] {
-        let filtered = frame_containing(synthetic, marker);
-        let filtered_id = match filtered.lines().find_map(|line| line.strip_prefix("id: ")) {
-            Some(id) => id.to_owned(),
-            None => panic!("filtered fixture frame should have an id"),
+        let kept = frame_containing(synthetic, marker);
+        let (kept_id, kept_data) = match (
+            kept.lines().find_map(|line| line.strip_prefix("id: ")),
+            kept.lines().find_map(|line| line.strip_prefix("data: ")),
+        ) {
+            (Some(id), Some(data)) => (id.to_owned(), data.to_owned()),
+            _ => panic!("kept fixture frame should have an id and data"),
         };
         let connector = FakeConnect::new(vec![
-            Action::stream(None, None, vec![filtered.as_bytes().to_vec()]),
-            Action::stream(
-                None,
-                Some(filtered_id),
-                vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()],
-            ),
-            Action::pending_connect(None, Some(FIRST_ID.to_owned())),
+            Action::stream(None, None, vec![kept.as_bytes().to_vec()]),
+            Action::pending_connect(None, Some(kept_id.clone())),
         ]);
         let observer = connector.clone();
         let (mut source, _task) = wikipedia(
@@ -140,8 +140,8 @@ async_test!(canary_and_examplewiki_frames_are_each_filtered, {
             Backoff::fixed(Duration::from_millis(0)),
         );
         let event = next_ok(&mut source).await;
-        assert_eq!(event.payload, NORMAL_DATA);
-        assert_eq!(event.cursor, FIRST_ID);
+        assert_eq!(event.cursor, kept_id.clone());
+        assert_eq!(event.payload, envelope::envelope(&kept_id, &kept_data));
         observer.assert_no_mismatches().await;
     }
 });
@@ -171,15 +171,14 @@ async_test!(since_survives_failures_until_a_cursor_exists, {
             .await
             .contains("before delivering a frame")
     );
-    assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+    assert_eq!(
+        next_ok(&mut source).await.payload,
+        envelope::envelope(FIRST_ID, NORMAL_DATA)
+    );
     observer.assert_no_mismatches().await;
 });
 
 async_test!(resume_cursor_is_sent_first_and_since_is_never_sent, {
-    let resume = match LastEventId::parse(SECOND_ID) {
-        Ok(resume) => resume,
-        Err(error) => panic!("resume cursor should parse: {error}"),
-    };
     let connector = FakeConnect::new(vec![
         Action::stream(
             None,
@@ -192,10 +191,13 @@ async_test!(resume_cursor_is_sent_first_and_since_is_never_sent, {
     let (mut source, _task) = wikipedia(
         connector,
         None,
-        Some(resume),
+        Some(SECOND_ID.to_owned()),
         Backoff::fixed(Duration::from_millis(0)),
     );
-    assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+    assert_eq!(
+        next_ok(&mut source).await.payload,
+        envelope::envelope(FIRST_ID, NORMAL_DATA)
+    );
     observer.assert_no_mismatches().await;
 });
 
@@ -228,10 +230,9 @@ async_test!(partial_frame_is_discarded_and_does_not_advance_cursor, {
 async_test!(
     malformed_ids_surface_errors_then_force_a_fresh_connection,
     {
-        let poison = frame_containing(
-            include_str!("../../testdata/wikipedia-malformed.synthetic.sse"),
-            "id: not-json",
-        );
+        // The id is an opaque string now, so the poison is one no HTTP header can carry
+        // (a control character), not one that fails a format parse.
+        let poison = frame("x\u{1}y", NORMAL_DATA);
         let bytes = format!(
             "{}{poison}{poison}{poison}{poison}",
             frame(FIRST_ID, NORMAL_DATA)
@@ -307,7 +308,10 @@ async_test!(crlf_split_between_chunks_is_one_line_ending, {
         None,
         Backoff::fixed(Duration::from_millis(0)),
     );
-    assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+    assert_eq!(
+        next_ok(&mut source).await.payload,
+        envelope::envelope(FIRST_ID, NORMAL_DATA)
+    );
     observer.assert_no_mismatches().await;
 });
 
@@ -324,7 +328,10 @@ async_test!(bare_cr_at_disconnect_dispatches_a_complete_frame, {
         None,
         Backoff::fixed(Duration::from_millis(0)),
     );
-    assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+    assert_eq!(
+        next_ok(&mut source).await.payload,
+        envelope::envelope(FIRST_ID, NORMAL_DATA)
+    );
     observer.assert_no_mismatches().await;
 });
 
@@ -348,7 +355,10 @@ async_test!(status_and_transport_errors_both_retry, {
     );
     assert!(next_retrying(&mut source).await.contains("attempt 1"));
     assert!(next_retrying(&mut source).await.contains("attempt 2"));
-    assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
+    assert_eq!(
+        next_ok(&mut source).await.payload,
+        envelope::envelope(FIRST_ID, NORMAL_DATA)
+    );
     observer.assert_no_mismatches().await;
 });
 
@@ -412,7 +422,7 @@ fn choose_start_resumes_from_a_stored_cursor() {
     let stored = Cursor::new(FIRST_ID.as_bytes().to_vec()).expect("valid cursor");
     let plan = start::choose(
         "wikipedia",
-        &Wikimedia::new(),
+        &SinceQueryParam { param: "since" },
         &url,
         &source,
         Some(&stored),
@@ -435,7 +445,7 @@ fn choose_start_accepts_a_valid_since_for_a_fresh_log() {
     let since = "2026-09-27T12:00:00Z";
     let plan = start::choose(
         "wikipedia",
-        &Wikimedia::new(),
+        &SinceQueryParam { param: "since" },
         &url,
         &source,
         None,
@@ -458,7 +468,7 @@ fn choose_start_rejects_an_invalid_since() {
     assert!(matches!(
         start::choose(
             "wikipedia",
-            &Wikimedia::new(),
+            &SinceQueryParam { param: "since" },
             &url,
             &source,
             None,
@@ -486,7 +496,7 @@ fn choose_start_prioritizes_stored_cursor_conflict_over_invalid_since() {
     assert!(matches!(
         start::choose(
             "wikipedia",
-            &Wikimedia::new(),
+            &SinceQueryParam { param: "since" },
             &url,
             &source,
             Some(&stored),
@@ -532,27 +542,28 @@ async_test!(
     }
 );
 
-async_test!(
-    wikipedia_dialect_stores_the_raw_data_field_byte_identical,
-    {
-        // Wikimedia's payload already carries a stream-unique `meta.id`, so it is stored verbatim
-        // (never enveloped): the stored bytes must match dedupe against logs written by the
-        // pre-envelope build, and the fold parses this payload as Wikimedia's own JSON shape.
-        let connector = FakeConnect::new(vec![
-            Action::stream(None, None, vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()]),
-            Action::pending_connect(None, Some(FIRST_ID.to_owned())),
-        ]);
-        let observer = connector.clone();
-        let (mut source, _task) = wikipedia(
-            connector,
-            None,
-            None,
-            Backoff::fixed(Duration::from_millis(0)),
-        );
-        assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
-        observer.assert_no_mismatches().await;
-    }
-);
+async_test!(preset_dialect_envelopes_like_the_generic_one, {
+    // Since decision 0018 the preset is data over the generic dialect, so its stored bytes
+    // are the envelope like any opaque stream's (the retired domain dialect once stored the
+    // raw payload; the log dedupes on (source, content_hash) of the stored bytes, so this
+    // changes what gets hashed, not the dedupe mechanism itself).
+    let connector = FakeConnect::new(vec![
+        Action::stream(None, None, vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()]),
+        Action::pending_connect(None, Some(FIRST_ID.to_owned())),
+    ]);
+    let observer = connector.clone();
+    let (mut source, _task) = wikipedia(
+        connector,
+        None,
+        None,
+        Backoff::fixed(Duration::from_millis(0)),
+    );
+    assert_eq!(
+        next_ok(&mut source).await.payload,
+        envelope::envelope(FIRST_ID, NORMAL_DATA)
+    );
+    observer.assert_no_mismatches().await;
+});
 
 #[test]
 fn reqwest_request_has_exact_url_and_resume_header() {
@@ -560,7 +571,11 @@ fn reqwest_request_has_exact_url_and_resume_header() {
         Ok(url) => url,
         Err(error) => panic!("endpoint should parse: {error}"),
     };
-    let connector = match ReqwestConnect::new(url, USER_AGENT, Arc::new(Wikimedia::new())) {
+    let connector = match ReqwestConnect::new(
+        url,
+        USER_AGENT,
+        Arc::new(SinceQueryParam { param: "since" }),
+    ) {
         Ok(connector) => connector,
         Err(error) => panic!("client should initialize: {error}"),
     };
@@ -674,7 +689,7 @@ fn fixture_frames(bytes: &[u8]) -> Vec<(String, String)> {
         .filter_map(|block| {
             let id = block.lines().find_map(|line| line.strip_prefix("id: "))?;
             let data = block.lines().find_map(|line| line.strip_prefix("data: "))?;
-            Some((id.to_owned(), data.to_owned()))
+            Some((id.to_owned(), envelope::envelope(id, data)))
         })
         .collect()
 }

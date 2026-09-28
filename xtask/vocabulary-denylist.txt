@@ -1,0 +1,13 @@
+wiki
+wiki_id
+enwiki
+wikipedia
+wikimedia
+mediawiki
+page_id
+revision
+revert
+adsb
+callsign
+ads_b
+call_sign
