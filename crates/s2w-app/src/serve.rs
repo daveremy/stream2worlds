@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::future::{Future, IntoFuture};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use tokio::sync::{oneshot, watch};
 
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
 use crate::query::{QueryState, router};
-use crate::{AppError, LogCursors, current_thread_runtime, group_commit};
+use crate::{AppError, LogCursors, current_thread_runtime, group_commit, open_error};
 
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -78,16 +78,6 @@ async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppEr
         tokio::signal::ctrl_c().await.map_err(AppError::Serve)
     })
     .await
-}
-
-fn open_error(error: LogError, directory: &Path, store: &str) -> AppError {
-    match error {
-        LogError::Locked => AppError::Usage(format!(
-            "the {store} at {} is already open by another process (run `s2w watch`/`s2w serve` only once per --log-dir)",
-            directory.display()
-        )),
-        other => AppError::Log(other),
-    }
 }
 
 struct SharedLogReader {

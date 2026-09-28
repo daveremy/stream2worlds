@@ -10,9 +10,9 @@ pub mod serve;
 /// MCP server's empty world without depending on the core itself.
 pub use s2w_core::DEFAULT_HUB_IN_DEGREE_CAP;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use s2w_log::{EventLog, SqliteEventLog};
+use s2w_log::{EventLog, LogError, SqliteEventLog};
 use s2w_model::{Cursor, SourceId};
 use s2w_sources::registry::resolve;
 use s2w_sources::source::{CursorLookup, Ending, SourceError};
@@ -83,7 +83,8 @@ pub fn watch(args: WatchArgs) -> Result<(), AppError> {
 /// As [`watch`].
 pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
     let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
-    let mut log = SqliteEventLog::open(&args.log_dir)?;
+    let mut log = SqliteEventLog::open(&args.log_dir)
+        .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let name = source.name();
     let started = source
         .start(args.since.as_deref(), &LogCursors(&log))
@@ -106,6 +107,18 @@ pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
     match started.ends {
         Ending::AtEndOfInput => Ok(()),
         Ending::Never => Err(AppError::StreamEnded(name)),
+    }
+}
+
+/// Maps a held writer lock to a usage error naming which lock blocked (`watch` and `serve`
+/// share this so a second invocation of either against the same `--log-dir` exits 2, not 1).
+pub(crate) fn open_error(error: LogError, directory: &Path, store: &str) -> AppError {
+    match error {
+        LogError::Locked => AppError::Usage(format!(
+            "the {store} at {} is already open by another process (run `s2w watch`/`s2w serve` only once per --log-dir)",
+            directory.display()
+        )),
+        other => AppError::Log(other),
     }
 }
 
@@ -141,6 +154,25 @@ mod tests {
     use tokio_stream::StreamExt;
 
     use super::{AppError, LogCursors, WatchArgs, watch};
+
+    #[test]
+    fn watch_lock_conflict_maps_to_usage_and_releases() {
+        let directory = TestDirectory::new("watch-lock");
+        let log = SqliteEventLog::open(directory.path()).expect("first event log opens");
+        let error = watch(WatchArgs {
+            uri: "-".to_owned(),
+            since: None,
+            log_dir: directory.path().to_path_buf(),
+        })
+        .expect_err("a second open against the same --log-dir must fail");
+        assert!(
+            matches!(&error, AppError::Usage(message)
+                if message.contains("the event log at") && message.contains("only once per --log-dir")),
+            "unexpected error: {error:?}"
+        );
+        drop(log);
+        SqliteEventLog::open(directory.path()).expect("event lock released after watch's error");
+    }
 
     const WIKIPEDIA_SOURCE: &str = "wikipedia.page_change";
 
