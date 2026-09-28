@@ -1,6 +1,10 @@
 # 0006: The world query API
 
-Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §6](../../research/0003-rust-substrate.md), [0005](../../research/0005-3d-exploration.md), [0006](../../research/0006-scaling.md)
+Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §6](../../research/0003-rust-substrate.md), [0005](../../research/0005-3d-exploration.md), [0006](../../research/0006-scaling.md) · Amended by [0015](0015-named-worlds.md)
+
+> **Amended by 0015 (2026-09-27):** every route below moves under `/worlds/{world}/…`; the
+> unscoped paths in this record are removed, not aliased. The endpoint semantics, error codes
+> and contract details below are otherwise unchanged.
 
 ## Decision
 

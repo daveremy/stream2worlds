@@ -1,6 +1,9 @@
 # 0009: The read-only MCP server
 
-Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #52 · Research [0003 §5](../../research/0003-rust-substrate.md)
+Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #52 · Research [0003 §5](../../research/0003-rust-substrate.md) · Amended by [0015](0015-named-worlds.md)
+
+> **Amended by 0015 (2026-09-27):** every tool below gains a required `world` string
+> parameter. Tool names, return shapes and error channels below are otherwise unchanged.
 
 ## Decision
 

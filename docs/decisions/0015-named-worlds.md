@@ -39,7 +39,7 @@ source has no notion of which worlds consume it.
 
 ## Why a manifest plus a separate membership log, not one mutable file
 
-The manifest (world id, display name, created-at, engine set, policy set) is small,
+The manifest (`world`, display name, created-at, engine set, policy set) is small,
 whole-file-replaceable identity — nothing here needs history. Membership is exactly the kind
 of fact this codebase already refuses to store as a mutable row: 0002 and the `s2w-log`
 AGENTS.md invariants exist because "what happened, in order, permanently" is cheaper to answer
@@ -69,11 +69,27 @@ below), not "which events count."
 
 Each row: source id, `Added { effective_from } | Removed`, the **world offset** at which the
 row itself was appended (the same offset space 0006 defines — a fold offset, not a raw log
-position; the writer reads the current head offset in the same transaction, no extra fold
-needed since it already holds the log open to append), and a monotonic sequence number breaking
-ties between rows recorded at the same offset. Membership at offset N is derived by folding
-these rows **by that recorded offset**, up to and including N; a row's own recorded offset is
-never revised by a later fact, so the past never changes retroactively.
+position), and a monotonic sequence number breaking ties between rows recorded at the same
+offset. Membership at offset N is derived by folding these rows **by that recorded offset**, up
+to and including N; a row's own recorded offset is never revised by a later fact, so the past
+never changes retroactively.
+
+Only the process serving the world writes membership rows — 0014 already puts one process in
+sole possession of the event log's, the verdict store's and (by extension) the world's writer
+locks, so an admin action (add/remove a source) is routed to that process, never applied
+directly by an external tool against a directory the server holds open. That process already
+maintains the live fold state to answer queries (0006's `QueryState`/`Timeline`), so it reads
+its own current fold offset directly when it writes a membership row; it does not need a fresh
+fold pass, and it does not need the raw log-position-to-fold-offset mapping 0006 defers to #33
+— that mapping is only needed by a reader with the log but no already-running fold, which the
+serving process is not.
+
+**Membership enforcement lives in the same write path as ingestion, not beside it.** The
+group-commit pump (0002's amendment, 0014) checks current membership before assembling each
+batch: it never starts a fetch against a removed source, and a batch already being assembled
+when a `Removed` row lands is truncated at that row's offset — no event from that source is
+appended at or after its `Removed` row's recorded offset. This is what makes "future stops"
+true of the log's actual contents, not only of the membership log's claim about them.
 
 `effective_from` on `Added` answers a different question and is never confused with the row's
 recorded offset: it names a position in the *source's own stream* (a Kafka partition offset, an
@@ -91,15 +107,21 @@ recorded offset — there is no retroactive removal, matching the append-only ru
 
 A re-added source after removal is a new `Added` row, never a revived one — its prior history
 stays exactly where it was, under its own membership span. Re-adding reuses the same
-`SourceId`, so it inherits that id's stored ingestion cursor and the log's `(source, content
-hash)` dedupe (`s2w-log` AGENTS.md). This is deliberate, not a gap: `effective_from` on the new
-`Added` row is the explicit, administrator-supplied instruction for where re-ingestion should
-resume, and setting it is the one case allowed to override a stored cursor (the existing
-invariant — "a stored cursor beats `--since`; passing both is a usage error" — governs the
-default `watch`/`serve` path, not this explicit administrative action). Re-ingesting a stream
-position already stored during the source's earlier membership span dedupes exactly as any
-other repeat read would; that is the log behaving correctly, not losing data, since the
-payload is already durable from the earlier span.
+`SourceId`, so it shares that id's `(source, content hash)` dedupe history (`s2w-log`
+AGENTS.md): re-ingesting a stream position already stored during the source's earlier
+membership span dedupes exactly as any other repeat read would, which is correct — the payload
+is already durable from the earlier span, not lost.
+
+It does **not** inherit the stored cursor as-is. `effective_from` on the new `Added` row is the
+explicit, administrator-supplied instruction for where re-ingestion resumes, and resolving it
+writes the source's stored cursor to match, in the same transaction as the `Added` row itself —
+the one case allowed to override a stored cursor (the existing invariant, "a stored cursor
+beats `--since`; passing both is a usage error", governs the default `watch`/`serve` path, not
+this explicit administrative action). Doing this atomically with the `Added` row matters: if
+the resolved cursor were written later, or only in memory, a process restart between re-add and
+the source's first new event would resume ingestion from the stale pre-removal cursor under the
+ordinary "restarts resume from cursors" path — silently backfilling the removed span into
+what `Now` promised was a clean restart.
 
 ## World-scoped API
 
@@ -178,8 +200,9 @@ future multi-world process would dispatch on.
 - Multi-world-per-process serving is needed (a demonstrated cost or operational reason to share
   one process across worlds, per the cloud-offering note above) — tracked by a follow-up issue
   (below), not built speculatively.
-- The membership log's storage location (new store vs. new table in an existing one) is
-  decided at implementation time; this record settles the semantics, not the schema.
+- The membership log's exact table shape, inside the event-log database this record fixes as
+  its home (above), is decided at implementation time; this record settles the semantics and
+  the transactional home, not the schema.
 - Cross-world queries (a join or diff across two worlds) are asked for; nothing here defines
   one, and `/diff` remains scoped to a single `world`.
 
