@@ -18,8 +18,15 @@ fn palette(prefix: &str) -> Palette {
 }
 
 fn make_world(log: &mut SqliteEventLog, world: &str) -> Result<(), LogError> {
-    WorldManifest::create_if_absent(log, world, "test world", Timestamp::from_millis(1), &[], &[])
-        .map(|_| ())
+    WorldManifest::create_if_absent(
+        log,
+        world,
+        "test world",
+        Timestamp::from_millis(1),
+        &[],
+        &[],
+    )
+    .map(|_| ())
 }
 
 #[test]
@@ -236,7 +243,10 @@ fn append_only_triggers_refuse_update_and_delete() -> TestResult {
     )?;
     assert!(
         log.connection
-            .execute("UPDATE world_presentation SET data='{}' WHERE world='w1'", [])
+            .execute(
+                "UPDATE world_presentation SET data='{}' WHERE world='w1'",
+                []
+            )
             .is_err()
     );
     assert!(
