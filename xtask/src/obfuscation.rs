@@ -45,13 +45,28 @@ pub(crate) fn replay(log_text: &str) -> Vec<String> {
         Ok(v) => v,
         Err(e) => return vec![format!("{LOG}: not a JSON array of WorldEvents: {e}")],
     };
+    replay_events(&events_json, &events, |events| {
+        let world = fold(World::with_hub_cap(HUB_CAP), events);
+        serde_json::to_value(world).map_err(|e| e.to_string())
+    })
+}
 
-    let (key_map, value_map, mut problems) = build_maps(&events_json);
+/// `replay`'s wiring — build the maps, obfuscate the event log, fold both, transform pass A's
+/// output, compare — parameterized over the fold so a test can substitute a toy fold that reads
+/// a domain field name instead of `s2w_core::fold`'s real one. Proves this function's own
+/// plumbing surfaces a mismatch, not just [`compare`] called directly on hand-built values (as
+/// the tests above already do): production (`replay`) always passes the real fold.
+fn replay_events(
+    events_json: &Value,
+    events: &[WorldEvent],
+    fold_to_json: impl Fn(&[WorldEvent]) -> Result<Value, String>,
+) -> Vec<String> {
+    let (key_map, value_map, mut problems) = build_maps(events_json);
     if !problems.is_empty() {
         return problems;
     }
 
-    let obfuscated_json = transform(&events_json, &key_map, &value_map);
+    let obfuscated_json = transform(events_json, &key_map, &value_map);
     let obfuscated_events: Vec<WorldEvent> = match serde_json::from_value(obfuscated_json) {
         Ok(v) => v,
         Err(e) => {
@@ -61,11 +76,7 @@ pub(crate) fn replay(log_text: &str) -> Vec<String> {
         }
     };
 
-    let start = || World::with_hub_cap(HUB_CAP);
-    let world_a = fold(start(), &events);
-    let world_b = fold(start(), &obfuscated_events);
-
-    let a_json = match serde_json::to_value(&world_a) {
+    let a_json = match fold_to_json(events) {
         Ok(v) => v,
         Err(e) => {
             return vec![format!(
@@ -73,7 +84,7 @@ pub(crate) fn replay(log_text: &str) -> Vec<String> {
             )];
         }
     };
-    let b_json = match serde_json::to_value(&world_b) {
+    let b_json = match fold_to_json(&obfuscated_events) {
         Ok(v) => v,
         Err(e) => {
             return vec![format!(
@@ -365,6 +376,36 @@ mod tests {
         let transformed_straight = transform(&straight_result, &key_map, &value_map);
         let problems = compare(&transformed_straight, &obfuscated_result);
         assert_eq!(problems.len(), 1, "{problems:?}");
+    }
+
+    #[test]
+    fn replay_itself_catches_a_domain_keyed_fold_not_just_the_comparator() {
+        // The test above proves `compare` catches a domain-keyed read when called directly on
+        // hand-built values — but nothing yet exercised `replay`'s own plumbing (build_maps,
+        // transform, running the fold twice) end to end with a fold that can actually fail.
+        // `replay`/`check` always pass the real `s2w_core::fold`, which is domain-agnostic
+        // today, so this substitutes a toy fold keyed on a domain field name through
+        // `replay_events` — the exact function `replay` itself calls — and requires it to
+        // report the mismatch through the real entry point, not a hand-assembled comparison.
+        let events_json: Value = serde_json::from_str(
+            r#"[{"EntityObserved": {"key": "e1", "entity_type": "t", "attrs": {"wiki_id": {"Str": "123"}}}}]"#,
+        )
+        .unwrap();
+        let events: Vec<WorldEvent> = serde_json::from_value(events_json.clone()).unwrap();
+
+        let problems = replay_events(&events_json, &events, |events| {
+            let mut hit = false;
+            for event in events {
+                if let WorldEvent::EntityObserved { attrs, .. } = event
+                    && attrs.contains_key("wiki_id")
+                {
+                    hit = true;
+                }
+            }
+            Ok(serde_json::json!({ "hardcoded_wiki_id_seen": hit }))
+        });
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("different world"), "{}", problems[0]);
     }
 
     #[test]

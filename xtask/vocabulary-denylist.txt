@@ -7,3 +7,5 @@ mediawiki
 page_id
 revision
 revert
+adsb
+callsign

@@ -12,6 +12,16 @@
 //! Test code is exempt (`#[test]`, `#[cfg(test)]`, and files that exist only as a test-gated
 //! `mod x;`), and a line carrying `// vocabulary: allow` is exempt whole — preset data, or a
 //! word in its ordinary engineering sense, gets a per-line opt-out rather than a rename.
+//!
+//! A known, accepted gap: tokenizing splits only on non-alphanumeric characters and a
+//! lowercase→uppercase boundary, so an all-lowercase compound with no separator (a made-up
+//! two-letter country prefix glued directly onto the retired encyclopedia's name, no
+//! underscore or case change) never tokenizes down to a standalone entry — the same design
+//! that keeps a near-miss like `x_other_y` from false-positiving on `x_y` (see the contiguity
+//! test below) also means a fused compound needs its own denylist entry to be caught. This
+//! check trades recall for precision on that one shape; it is not a vocabulary-scan bypass an
+//! attacker gains anything from, since the obfuscation replay (`obfuscation.rs`) covers the
+//! case a scan can't: it fails on ANY fold that keys on a specific string, spelled however.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -263,6 +273,22 @@ impl<'ast, 'a> Visit<'ast> for Walker<'a> {
     fn visit_lit_str(&mut self, lit: &'ast syn::LitStr) {
         if !self.hidden {
             self.note(&lit.value(), lit.span());
+        }
+    }
+
+    /// A byte-string literal is a distinct `syn::Lit` variant from `LitStr` — engines take
+    /// `&[u8]` payloads, so this is a real position to smuggle a domain term through, not just
+    /// a theoretical gap.
+    fn visit_lit_byte_str(&mut self, lit: &'ast syn::LitByteStr) {
+        if !self.hidden {
+            self.note(&String::from_utf8_lossy(&lit.value()), lit.span());
+        }
+    }
+
+    /// A C-string literal, the same gap as the byte-string case above.
+    fn visit_lit_cstr(&mut self, lit: &'ast syn::LitCStr) {
+        if !self.hidden {
+            self.note(&lit.value().to_string_lossy(), lit.span());
         }
     }
 
@@ -638,6 +664,29 @@ mod tests {
         assert!(rust("struct Foo { site: String }\n").is_empty());
         let problems =
             rust("struct Foo {\n    #[serde(rename = \"wiki_id\")]\n    site: String,\n}\n");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("matched denylist entry 'wiki_id'"),
+            "{}",
+            problems[0]
+        );
+    }
+
+    #[test]
+    fn byte_string_and_c_string_literals_hit_like_any_other_string() {
+        // `syn::Lit::ByteStr`/`::CStr` are distinct variants from `LitStr`, each with their own
+        // no-op default `Visit` method — a bare `visit_lit_str` override alone misses both.
+        // Engines take `&[u8]` payloads, so `b"..."` is a real smuggling position, not a
+        // theoretical one.
+        let problems = rust("fn f() { let _ = b\"wiki_id\"; }\n");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("matched denylist entry 'wiki_id'"),
+            "{}",
+            problems[0]
+        );
+
+        let problems = rust("fn f() { let _ = c\"wiki_id\"; }\n");
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
             problems[0].contains("matched denylist entry 'wiki_id'"),
