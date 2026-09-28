@@ -143,7 +143,7 @@ that worker until restart. Past events remain in the world.
 
 If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log ([decision 0007](docs/decisions/0007-kafka-client.md)).
 
-To connect an MCP client, configure it to launch `s2w mcp` (for example, `claude mcp add s2w -- s2w mcp`). It exposes `world_view`, `world_diff`, `entity_history`, `branches`, and `time`; each requires `world` (use `"default"` for `s2w mcp`) and returns the same JSON as its HTTP query route. MCP currently serves a separate empty world; `s2w serve <source>` runs the live bridge for HTTP ([decision 0014](docs/decisions/0014-serve-topology.md)). Stdout carries only MCP messages. See [decision 0009](docs/decisions/0009-mcp-server.md).
+To connect an MCP client, configure it to launch `s2w mcp` (for example, `claude mcp add s2w -- s2w mcp`). It exposes `world_view`, `world_diff`, `entity_history`, `branches`, and `time`; each requires `world` (use `"default"` for `s2w mcp`) and returns the same JSON as its HTTP query route. MCP currently serves a separate empty world; `s2w serve <source>` runs the live bridge for HTTP ([decision 0014](docs/decisions/0014-serve-topology.md)). Prefix either command with `--json` (`s2w --json serve ...`, `s2w --json mcp`) for structured stderr notes/errors; MCP only applies it to startup/usage errors because stdout carries JSON-RPC messages exclusively once serving. The flag is prefix-only for these commands. See [decision 0009](docs/decisions/0009-mcp-server.md).
 
 ## Planned interface
 
