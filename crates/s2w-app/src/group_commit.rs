@@ -5,12 +5,14 @@
 //! most the unflushed buffer; Kafka re-fetches it from the stored per-partition cursors, stdin
 //! cannot replay it.
 
+use std::cell::Cell;
+use std::rc::Rc;
 use std::time::Duration;
 
 use s2w_log::{AppendOutcome, EventLog};
 use s2w_model::RawEvent;
 use s2w_sources::source::{EventStream, SourceError};
-use tokio::time::Instant;
+use tokio::time::{Instant, MissedTickBehavior};
 use tokio_stream::{Stream, StreamExt};
 
 use crate::AppError;
@@ -20,6 +22,10 @@ pub(crate) const MAX_BATCH: usize = 100;
 
 /// The longest an event waits in the buffer before a flush.
 pub(crate) const MAX_DELAY: Duration = Duration::from_millis(50);
+
+/// How often the progress line prints on stderr while a source is healthy (s2w#87: a running
+/// `watch` or `serve` prints nothing else, which reads as a hang to a viewer).
+pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Consumes `source` into `log` with group commit until the stream ends.
 ///
@@ -79,7 +85,9 @@ where
     }
 }
 
-/// Consumes a started source's stream into `log` with group commit until it ends.
+/// Consumes a started source's stream into `log` with group commit until it ends, printing a
+/// periodic progress line on stderr (`name` identifies the source in that line) so a healthy
+/// run is not silent.
 ///
 /// A [`SourceError::Skipped`] item is reported on stderr and the stream continues; any other
 /// error stops the pump after the buffer is flushed.
@@ -90,16 +98,53 @@ where
 pub(crate) async fn pump_events<L: EventLog>(
     log: &mut L,
     stream: EventStream,
+    name: &str,
 ) -> Result<(), AppError> {
-    pump(log, stream, Ok, |error: SourceError| {
+    let total = Rc::new(Cell::new(0_u64));
+    let last_event_at = Rc::new(Cell::new(Instant::now()));
+    let convert = {
+        let total = Rc::clone(&total);
+        let last_event_at = Rc::clone(&last_event_at);
+        move |event: RawEvent| {
+            total.set(total.get() + 1);
+            last_event_at.set(Instant::now());
+            Ok(event)
+        }
+    };
+    let pump_future = pump(log, stream, convert, |error: SourceError| {
         if error.is_fatal() {
             Err(AppError::Source(error))
         } else {
             eprintln!("s2w: {error}");
             Ok(())
         }
-    })
-    .await
+    });
+    tokio::select! {
+        result = pump_future => result,
+        () = report_progress(name, &total, &last_event_at) => {
+            unreachable!("the progress ticker runs forever and never resolves")
+        }
+    }
+}
+
+/// Prints `name`'s throughput, running total and time since the last event every
+/// [`PROGRESS_INTERVAL`], forever — the caller races it against the pump and drops it once the
+/// pump finishes.
+async fn report_progress(name: &str, total: &Cell<u64>, last_event_at: &Cell<Instant>) -> ! {
+    let mut ticker = tokio::time::interval(PROGRESS_INTERVAL);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    ticker.tick().await; // the first tick fires immediately; nothing to report yet
+    let mut previous = total.get();
+    loop {
+        ticker.tick().await;
+        let current = total.get();
+        let rate = current.saturating_sub(previous) as f64 / PROGRESS_INTERVAL.as_secs_f64();
+        previous = current;
+        eprintln!(
+            "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago",
+            last_event_at.get().elapsed()
+        );
+    }
 }
 
 /// Writes the buffer as one batch and reports collapsed redeliveries on stderr.
