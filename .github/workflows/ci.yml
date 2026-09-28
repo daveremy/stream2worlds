@@ -35,3 +35,21 @@ jobs:
         with:
           rust-version: "1.98"
           command: check licenses advisories bans
+  bundle:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/s2w-app/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: crates/s2w-app/web/.nvmrc
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - name: committed bundle matches clean build (including untracked files)
+        run: test -z "$(git status --porcelain -- dist)"
+      - run: npm run licenses
+      - run: npm run test:licence-gate

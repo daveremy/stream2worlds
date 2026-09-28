@@ -28,6 +28,7 @@ pub struct QueryState {
     timeline: Arc<RwLock<Timeline>>,
     head: Arc<watch::Sender<u64>>,
     world: Arc<str>,
+    sse_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl QueryState {
@@ -39,6 +40,7 @@ impl QueryState {
             timeline: Arc::new(RwLock::new(timeline)),
             head: Arc::new(head),
             world: Arc::from("default"),
+            sse_slots: Arc::new(tokio::sync::Semaphore::new(32)),
         }
     }
 
@@ -143,7 +145,7 @@ impl IntoResponse for QueryError {
             | Self::UnknownWorld { .. } => StatusCode::NOT_FOUND,
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
-            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::StreamLimit => StatusCode::SERVICE_UNAVAILABLE,
         };
         (status, Json(self.json_body())).into_response()
     }
@@ -389,7 +391,8 @@ fn sse_event(offset: u64, delta: &Delta) -> Event {
     }
 }
 
-/// SSE: replays one delta per offset from `from` (or `Last-Event-ID`) to the head, then
+/// SSE: replays strictly after `from` (or `Last-Event-ID`) through `at` and closes, or
+/// through the head when `at` is absent, then
 /// follows appends. Each message's `id:` is the offset after its event.
 async fn events(
     State(state): State<QueryState>,
@@ -401,7 +404,7 @@ async fn events(
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
-    let start = || -> Result<(u64, World), QueryError> {
+    let start = || -> Result<(u64, World, Option<u64>), QueryError> {
         check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
         let from = match last_event_id.as_deref() {
@@ -409,21 +412,49 @@ async fn events(
             None => parse("from", p.from.as_deref())?,
         }
         .unwrap_or(0);
-        Ok((from, state.read(|t| t.world_at(from))?))
+        let at = parse("at", p.at.as_deref())?;
+        let world = state.read(|t| {
+            if let Some(at) = at {
+                if at < from {
+                    return Err(QueryError::BadParameter {
+                        name: "at",
+                        reason: "must be at least from".to_owned(),
+                    });
+                }
+                // Validate the bound without folding a second snapshot.
+                if at > t.head() {
+                    return Err(QueryError::OffsetBeyondHead { at, head: t.head() });
+                }
+            }
+            t.world_at(from)
+        })?;
+        Ok((from, world, at))
     };
-    let (from, world) = match start() {
+    // Acquire the stream-cap permit BEFORE folding any history (round-1 review finding): a
+    // request arriving over the cap should pay only the semaphore check, not the full fold
+    // `start()` does under the read lock. The permit is dropped (freeing the slot) if `start()`
+    // then fails validation — no slot is held past this function returning an error response.
+    let permit = match crate::serve::sse_cap_guard(state.sse_slots.clone()) {
+        Ok(permit) => permit,
+        Err(error) => return error.into_response(),
+    };
+    let (from, world, at) = match start() {
         Ok(ok) => ok,
         Err(e) => return e.into_response(),
     };
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
-    tokio::spawn(follow(state, from, world, tx));
+    tokio::spawn(follow(state, from, world, at, tx));
     let headers = [(
         HeaderName::from_static("x-accel-buffering"),
         HeaderValue::from_static("no"),
     )];
     (
         headers,
-        Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default()),
+        Sse::new(CappedStream {
+            inner: ReceiverStream::new(rx),
+            _permit: permit,
+        })
+        .keep_alive(KeepAlive::default()),
     )
         .into_response()
 }
@@ -432,6 +463,7 @@ async fn follow(
     state: QueryState,
     from: u64,
     mut world: World,
+    at: Option<u64>,
     tx: mpsc::Sender<Result<Event, Infallible>>,
 ) {
     let mut head = state.head.subscribe();
@@ -441,7 +473,10 @@ async fn follow(
         let batch: Vec<TimedEvent> = match state.read(|t| {
             Ok(usize::try_from(pos)
                 .ok()
-                .and_then(|p| t.events().get(p..))
+                .and_then(|p| {
+                    t.events()
+                        .get(p..usize::try_from(at.unwrap_or_else(|| t.head())).ok()?)
+                })
                 .map(<[TimedEvent]>::to_vec)
                 .unwrap_or_default())
         }) {
@@ -456,9 +491,29 @@ async fn follow(
                 return;
             }
         }
+        if at.is_some_and(|at| pos >= at) {
+            return;
+        }
         tokio::select! {
             changed = head.changed() => if changed.is_err() { return },
             () = tx.closed() => return,
         }
+    }
+}
+
+// The response body owns the slot, even before its first poll and after headers are sent.
+struct CappedStream {
+    inner: ReceiverStream<Result<Event, Infallible>>,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl tokio_stream::Stream for CappedStream {
+    type Item = Result<Event, Infallible>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_next(cx)
     }
 }

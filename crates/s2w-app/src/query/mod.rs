@@ -80,6 +80,12 @@ pub enum QueryError {
     /// The shared timeline's lock was poisoned by a panicking writer.
     #[error("the timeline is unavailable (a writer panicked); restart the server")]
     Unavailable,
+    /// The concurrent `/events` stream cap is full — transient, unlike every other 503-shaped
+    /// case above; the client should back off and retry rather than treat this like a poisoned
+    /// lock (round-1 review finding: reusing `Unavailable` here showed a misleading "a writer
+    /// panicked" message for an ordinary "too many tabs open" condition).
+    #[error("too many concurrent event streams; retry shortly")]
+    StreamLimit,
 }
 
 impl QueryError {
@@ -95,6 +101,7 @@ impl QueryError {
             Self::UnknownWorld { .. } => "unknown_world",
             Self::HopsTooLarge { .. } => "hops_too_large",
             Self::Unavailable => "unavailable",
+            Self::StreamLimit => "stream_limit",
         }
     }
 

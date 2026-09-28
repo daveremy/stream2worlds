@@ -6,6 +6,8 @@ Runtime wiring: composes sources, the log, the core and the engines; read-only M
 
 - every `s2w-*` library crate; `tokio`, `tokio-stream`, `thiserror`; further runtime, MCP and
   HTTP libraries chosen in decision records
+- `memory-serve` at runtime and build time for the committed web bundle (decision 0016);
+  Node is a frontend development/CI tool only, never part of a Rust build or runtime
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 

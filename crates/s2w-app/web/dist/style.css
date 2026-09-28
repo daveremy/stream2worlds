@@ -1,0 +1,15 @@
+:root { color-scheme: dark; font: 15px/1.5 system-ui, sans-serif; background: #0a1320; color: #e3edf6; }
+body { margin: 0 auto; max-width: 1600px; padding: 24px; }
+h1 { margin: 0; font-size: 28px; } header p, small, footer { color: #9cb1c7; }
+#controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+label { display: grid; gap: 4px; font-size: 13px; } input, select, button { font: inherit; padding: 8px;
+  border: 1px solid #40566e; border-radius: 5px; background: #142337; color: inherit; }
+input { width: 115px; } button { cursor: pointer; } button:hover { background: #284462; }
+:focus-visible { outline: 2px solid #70c9ee; outline-offset: 3px; }
+#status { color: #ffc77d; min-height: 1.5em; } #position { color: #9cb1c7; }
+#graph { height: 48vh; min-height: 260px; overflow: hidden; border: 1px solid #33485d; border-radius: 8px; }
+h2 { font-size: 18px; } small { font-size: 13px; font-weight: normal; margin-left: 12px; }
+.table-scroll { max-height: 42vh; overflow: auto; } table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { position: sticky; top: 0; background: #17283b; text-align: left; } td, th { padding: 8px 12px; border-bottom: 1px solid #28394d; }
+td:last-child { overflow-wrap: anywhere; } td:first-child { font-variant-numeric: tabular-nums; }
+footer { margin-top: 20px; font-size: 13px; } a { color: #70c9ee; }

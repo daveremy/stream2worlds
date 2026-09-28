@@ -13,6 +13,33 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Gate 2 — the local web view (2026-09-27)
+
+**Shipped:** `s2w serve` now serves a web view on its loopback port: a 2D entity graph and an
+evidence table of the newest 500 deltas, fed by Server-Sent Events. The URL holds the whole
+view (`world`, `at`, `branch`, `lod`, `focus`, `hops`), so a pinned `?at=` link reopens the
+exact moment. The TypeScript bundle is committed and embedded in the binary with `memory-serve`,
+so a Rust build never runs Node. A CI `bundle` job rebuilds it from scratch and fails on any
+drift, and a licence gate rejects anything outside MIT, Apache-2.0, ISC, BSD and 0BSD. A fixture
+proves the gate rejects GPL-3.0 and CC-BY-NC-4.0 packages. This closes Gate 2's last item.
+[Decision 0016](docs/decisions/0016-web-delivery.md)
+
+**Learned:** Entity deltas cannot patch a graph that shows hubs and type aggregates, so the
+graph never applies a delta: any change triggers at most one snapshot refetch per second.
+Deltas feed only the evidence table, seeded from a bounded `/events?from=&at=` replay so a
+pinned view's table and graph agree on "as of when". Embedding the view costs
+1.7 MB of stripped binary (48.2 MB to 49.9 MB) and 14 new crates, measured, not estimated.
+
+**Changed course:** Two carried-over items from `s2w serve` became requirements before a
+browser could connect: a cap of 32 concurrent event streams, whose slot the stream itself holds
+until the client disconnects, and an `Origin` allowlist alongside the existing Host allowlist.
+Loopback plus both allowlists is the whole boundary; there is still no authentication.
+
+**Next:** The 3D world explorer ([#21](https://github.com/daveremy/stream2worlds/issues/21))
+replaces only the graph renderer behind the same interface.
+
+---
+
 ## Sprint 64 — NDJSON watch progress (2026-09-27, 21:00–22:50)
 
 The follow-up #39 deferred: `s2w watch --json` ([#79](https://github.com/daveremy/stream2worlds/issues/79)).
@@ -57,6 +84,9 @@ The follow-up #39 deferred: `s2w watch --json` ([#79](https://github.com/daverem
 
 **Next**
 - `serve --json` progress, if a future issue asks for it — explicitly out of scope here.
+
+---
+
 ## Sprint 64 — world-scoped query APIs (2026-09-27)
 
 **Shipped:** Every HTTP query is now scoped as `/worlds/{world}/…`, `GET /worlds` discovers

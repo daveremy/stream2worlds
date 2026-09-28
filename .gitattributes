@@ -1,0 +1,2 @@
+crates/s2w-app/web/dist/** linguist-generated=true diff=generated
+crates/s2w-app/web/package-lock.json linguist-generated=true

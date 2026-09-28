@@ -1,0 +1,4 @@
+{
+  "name": "bad-licence-fixture", "version": "1.0.0", "private": true,
+  "dependencies": { "bad-pkg": "1.0.0", "bad-pkg-2": "1.0.0" }
+}
