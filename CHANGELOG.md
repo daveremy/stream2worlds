@@ -13,7 +13,7 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
-## World membership implementation — #95 (2026-09-27, pending review)
+## World membership implementation — #95 (2026-09-28)
 
 **Shipped in the working branch:** persistent world identity, an append-only source membership
 history, atomic v2 migration, generation-bound ingestion, and the source-history read endpoint.
