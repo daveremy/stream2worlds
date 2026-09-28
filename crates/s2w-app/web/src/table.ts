@@ -14,7 +14,38 @@ type RenderedTable = {
 
 const renderedTables = new WeakMap<HTMLTableElement, RenderedTable>();
 
+/// Renders each unrouted source's most recent raw events (bridge-capped, newest first) as
+/// unjudged rows. Returns false (and leaves `table` untouched) when there is nothing to show,
+/// so the caller falls through to the normal empty-table path.
+function renderRawEvidence(table: HTMLTableElement, state: ViewState): boolean {
+  const rows = state.sources
+    .flatMap(source => source.recent_unrouted.map(raw => ({ ...raw, source: source.source })))
+    .sort((a, b) => b.offset - a.offset);
+  if (rows.length === 0) return false;
+  const head = document.createElement('thead');
+  const header = head.insertRow();
+  for (const name of ['Offset', 'Source', 'Raw event (unjudged — no engine routed, #71)']) {
+    const cell = document.createElement('th'); cell.textContent = name; header.append(cell);
+  }
+  const body = document.createElement('tbody');
+  for (const row of rows) {
+    const tr = body.insertRow();
+    for (const value of [String(row.offset), row.source, JSON.stringify(row.payload)]) {
+      tr.insertCell().textContent = value;
+    }
+  }
+  table.replaceChildren(head, body);
+  return true;
+}
+
 export function renderTable(table: HTMLTableElement, state: ViewState): void {
+  // No claim has been judged yet: show the raw log instead of an empty body, so a viewer with
+  // an unrouted source sees the stream is alive (#143). Falls through to the normal judged
+  // path — and clears any stale raw-render cache — the moment evidence starts arriving.
+  if (state.evidence.length === 0) {
+    if (renderRawEvidence(table, state)) { renderedTables.delete(table); return; }
+    renderedTables.delete(table);
+  }
   const timestamp = state.evidence.some(row => row.ts !== undefined);
   const rendered = renderedTables.get(table);
   const stableBase = rendered !== undefined && rendered.state === state && rendered.labels === state.labels &&

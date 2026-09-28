@@ -1,6 +1,6 @@
-import { ApiError, evidence, eventsUrl, kinds, snapshot, streamStatus, worlds } from './api';
+import { ApiError, evidence, eventsUrl, kinds, snapshot, sources as fetchSources, streamStatus, worlds } from './api';
 import type { Message } from './api';
-import { ViewState } from './state';
+import { ViewState, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
 import { activeNow, linkColor, typeColor } from './profile';
@@ -107,8 +107,16 @@ async function start(): Promise<void> {
       if (signal.aborted) return;
       state.snapshot(view); seed.forEach(message => state.apply(message));
       state.lastAppliedOffset = view.offset;
+      // Empty live view only: learn whether the log has unrouted traffic so the page can name
+      // that state instead of reading as broken (#143). Best-effort — a failed fetch here
+      // must not block the graph itself; it just leaves the idle copy in place.
+      if (view.nodes.length === 0 && !params.has('at')) {
+        try { state.sources = await fetchSources(params, signal); } catch { /* non-essential */ }
+        if (signal.aborted) return;
+      }
       renderer.mount(graph, state); paint();
-      status.textContent = view.nodes.length ? '' : params.has('at') ? 'No data at this offset' : 'Waiting for events';
+      status.textContent = view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
+        (unroutedStatus(state.sources) ?? 'Waiting for events');
       if (!params.has('at')) open();
     } catch (error) {
       if (signal.aborted) return;
