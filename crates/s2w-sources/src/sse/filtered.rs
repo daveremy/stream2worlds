@@ -77,7 +77,14 @@ impl SseDialect for FilteredDialect {
 
     fn accept(&self, data: &str) -> Result<bool, String> {
         let inner_ok = self.inner.accept(data)?;
-        let matched = inner_ok && apply_all(&self.filters, data.as_bytes());
+        if !inner_ok {
+            // `inner`'s own accept()=false is not a filter miss — never count it toward the
+            // stall streak, or a future dialect that rejects some frames would silently
+            // misattribute its own drops as "the filter matched nothing" (round-1 code
+            // review, s2w#131).
+            return Ok(false);
+        }
+        let matched = apply_all(&self.filters, data.as_bytes());
         self.track_stall(matched);
         Ok(matched)
     }

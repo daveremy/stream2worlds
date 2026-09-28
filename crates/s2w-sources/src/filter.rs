@@ -54,32 +54,51 @@ impl FieldFilter {
     /// Whether `payload`, parsed as JSON, matches this filter. An unparseable payload, or a
     /// payload missing the path, looks up as [`None`]: an `Eq` filter fails, a `Ne` filter
     /// passes.
+    ///
+    /// Test-only: production code goes through [`apply_all`], which parses `payload` once and
+    /// reuses it across every filter via [`Self::matches_value`].
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn matches(&self, payload: &[u8]) -> bool {
-        let found = serde_json::from_slice::<serde_json::Value>(payload)
-            .ok()
-            .and_then(|value| self.walk(&value));
+        self.matches_value(
+            serde_json::from_slice::<serde_json::Value>(payload)
+                .ok()
+                .as_ref(),
+        )
+    }
+
+    /// Same as [`Self::matches`], but against an already-parsed payload — [`apply_all`] parses
+    /// once and reuses it across every filter instead of re-parsing per filter.
+    fn matches_value(&self, value: Option<&serde_json::Value>) -> bool {
+        let found = value.and_then(|value| self.walk(value));
         match (&self.op, found) {
-            (FilterOp::Eq, Some(found)) => found == self.value,
+            (FilterOp::Eq, Some(found)) => *found == self.value,
             (FilterOp::Eq, None) => false,
-            (FilterOp::Ne, Some(found)) => found != self.value,
+            (FilterOp::Ne, Some(found)) => *found != self.value,
             (FilterOp::Ne, None) => true,
         }
     }
 
-    fn walk(&self, value: &serde_json::Value) -> Option<serde_json::Value> {
+    fn walk<'a>(&self, value: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
         let mut current = value;
         for segment in &self.path {
             current = current.get(segment)?;
         }
-        Some(current.clone())
+        Some(current)
     }
 }
 
 /// Whether `payload` matches every filter in `filters` (AND). An empty list always matches.
+/// Parses `payload` once and reuses it across every filter, rather than re-parsing per filter.
 #[must_use]
 pub(crate) fn apply_all(filters: &[FieldFilter], payload: &[u8]) -> bool {
-    filters.iter().all(|filter| filter.matches(payload))
+    if filters.is_empty() {
+        return true;
+    }
+    let parsed = serde_json::from_slice::<serde_json::Value>(payload).ok();
+    filters
+        .iter()
+        .all(|filter| filter.matches_value(parsed.as_ref()))
 }
 
 #[cfg(test)]

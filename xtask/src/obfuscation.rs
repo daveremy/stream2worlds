@@ -19,8 +19,8 @@
 //! Scope: replays `s2w-core`'s fold and, via [`engine_replay`], `s2w-system1`'s engines
 //! (`JsonClaimsEngine` today — the vec is iterated, so a future engine is covered
 //! automatically). It does not yet run through the bridge registry (`s2w-app::Bridge`/
-//! `EngineRegistry`), where domain-keyed logic could plausibly return — see the PR's Deferred
-//! concerns. `Route::Exact("stdin")` is the only default route today, so the registry carries
+//! `EngineRegistry`) — tracked as [stream2worlds#135](https://github.com/daveremy/stream2worlds/issues/135).
+//! `Route::Exact("stdin")` is the only default route today, so the registry carries
 //! materially less domain-keying risk than the engine layer this check now covers.
 
 use std::collections::BTreeMap;

@@ -41,7 +41,8 @@ test above.
 
 **Next:** Kafka/stdin `--filter` support (today they refuse loudly instead) —
 [#134](https://github.com/daveremy/stream2worlds/issues/134). Obfuscation-replay coverage for
-the bridge registry (`s2w-app::Bridge`/`EngineRegistry`) remains a documented gap.
+the bridge registry (`s2w-app::Bridge`/`EngineRegistry`) remains a documented gap —
+[#135](https://github.com/daveremy/stream2worlds/issues/135).
 
 ---
 
