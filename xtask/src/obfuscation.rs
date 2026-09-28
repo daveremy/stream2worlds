@@ -16,7 +16,7 @@
 //! event log (`{"key": "site-a", ...}`) but a key in the folded world (`"keys": {"site-a": 0}`),
 //! which is exactly the role a naive by-JSON-position transform would get wrong.
 //!
-//! Scope: replays `s2w-core`'s fold and, via [`engine_check`], `s2w-system1`'s engines
+//! Scope: replays `s2w-core`'s fold and, via [`engine_replay`], `s2w-system1`'s engines
 //! (`JsonClaimsEngine` today — the vec is iterated, so a future engine is covered
 //! automatically). It does not yet run through the bridge registry (`s2w-app::Bridge`/
 //! `EngineRegistry`), where domain-keyed logic could plausibly return — see the PR's Deferred
