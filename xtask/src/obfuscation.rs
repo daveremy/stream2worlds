@@ -1,0 +1,396 @@
+//! Check 10, obfuscation replay: the fold does not branch on what a string means, only on its
+//! shape (decision 0018 — code knows protocols and formats, never what a stream is about).
+//!
+//! Builds two maps from the golden fixture's own events, by structural role: a **key-rename
+//! map** for attribute names (`attrs`' JSON object keys — the one place a claim names its own
+//! fields) and a **value-hash map** for every opaque identifier/string value the fold treats as
+//! data (`NaturalKey`s, `entity_type`, relationship `kind`, and `AttrValue::Str` contents).
+//! Neither map ever holds a `WorldEvent`/`World` schema field name (`key`, `attrs`, `kind`,
+//! `entities`, ...) — those never enter the maps because [`build_maps`] only walks the payload
+//! positions decision 0018 calls "claim structure", never the envelope.
+//!
+//! Folds the fixture straight (pass A) and again after applying the maps to its events (pass
+//! B), applies the SAME maps to pass A's folded output, and asserts the two folded worlds are
+//! structurally identical. The maps are keyed by original string regardless of whether that
+//! string later appears as a JSON object key or a JSON value — a `NaturalKey` is a value in the
+//! event log (`{"key": "site-a", ...}`) but a key in the folded world (`"keys": {"site-a": 0}`),
+//! which is exactly the role a naive by-JSON-position transform would get wrong.
+//!
+//! Scope: this replays only `s2w-core`'s fold, the one layer decision 0018's "measured today"
+//! note says is clean. It does not yet run through the bridge registry or `s2w-system1`'s
+//! engines, where domain-keyed logic could plausibly return — see the PR's Deferred concerns.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
+
+use s2w_core::{World, WorldEvent, fold};
+use serde_json::Value;
+
+use crate::golden::{HUB_CAP, LOG};
+
+pub(crate) fn check(root: &Path) -> Vec<String> {
+    match fs::read_to_string(root.join(LOG)) {
+        Ok(text) => replay(&text),
+        Err(e) => vec![format!("{LOG}: {e}")],
+    }
+}
+
+pub(crate) fn replay(log_text: &str) -> Vec<String> {
+    let events_json: Value = match serde_json::from_str(log_text) {
+        Ok(v) => v,
+        Err(e) => return vec![format!("{LOG}: not JSON: {e}")],
+    };
+    let events: Vec<WorldEvent> = match serde_json::from_value(events_json.clone()) {
+        Ok(v) => v,
+        Err(e) => return vec![format!("{LOG}: not a JSON array of WorldEvents: {e}")],
+    };
+
+    let (key_map, value_map, mut problems) = build_maps(&events_json);
+    if !problems.is_empty() {
+        return problems;
+    }
+
+    let obfuscated_json = transform(&events_json, &key_map, &value_map);
+    let obfuscated_events: Vec<WorldEvent> = match serde_json::from_value(obfuscated_json) {
+        Ok(v) => v,
+        Err(e) => {
+            return vec![format!(
+                "obfuscation replay: the transformed event log no longer deserializes as WorldEvents: {e}. The transform touched a schema field, not just claim data."
+            )];
+        }
+    };
+
+    let start = || World::with_hub_cap(HUB_CAP);
+    let world_a = fold(start(), &events);
+    let world_b = fold(start(), &obfuscated_events);
+
+    let a_json = match serde_json::to_value(&world_a) {
+        Ok(v) => v,
+        Err(e) => {
+            return vec![format!(
+                "obfuscation replay: pass A world will not serialize: {e}"
+            )];
+        }
+    };
+    let b_json = match serde_json::to_value(&world_b) {
+        Ok(v) => v,
+        Err(e) => {
+            return vec![format!(
+                "obfuscation replay: pass B world will not serialize: {e}"
+            )];
+        }
+    };
+
+    let transformed_a = transform(&a_json, &key_map, &value_map);
+    problems.extend(compare(&transformed_a, &b_json));
+    problems
+}
+
+// ---------- the two maps, built from the event log's own claim data ----------
+
+/// `attrs` keys get a stable `f<n>`, assigned in the order each new one is first seen — the
+/// event log's own claim-attribute names, never the fold's schema field names.
+fn build_maps(
+    events: &Value,
+) -> (
+    BTreeMap<String, String>,
+    BTreeMap<String, String>,
+    Vec<String>,
+) {
+    let mut key_map = BTreeMap::new();
+    let mut value_map = BTreeMap::new();
+    let mut next = 1u32;
+    let mut problems = Vec::new();
+
+    let Value::Array(events) = events else {
+        return (key_map, value_map, problems);
+    };
+    for event in events {
+        let Value::Object(wrapper) = event else {
+            continue;
+        };
+        for (variant, payload) in wrapper {
+            let Value::Object(fields) = payload else {
+                continue;
+            };
+            match variant.as_str() {
+                "EntityObserved" => {
+                    note_value(&mut value_map, &mut problems, fields, "key");
+                    note_value(&mut value_map, &mut problems, fields, "entity_type");
+                    if let Some(Value::Object(attrs)) = fields.get("attrs") {
+                        for (attr_name, attr_value) in attrs {
+                            note_key(&mut key_map, &mut problems, attr_name, &mut next);
+                            if let Value::Object(tagged) = attr_value {
+                                note_value(&mut value_map, &mut problems, tagged, "Str");
+                            }
+                        }
+                    }
+                }
+                "RelationshipObserved" => {
+                    for field in ["from", "to", "kind"] {
+                        note_value(&mut value_map, &mut problems, fields, field);
+                    }
+                }
+                "EntitiesMerged" | "MergeRevoked" => {
+                    for field in ["survivor", "absorbed"] {
+                        note_value(&mut value_map, &mut problems, fields, field);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    (key_map, value_map, problems)
+}
+
+/// Records `fields[field]`, a string, in the value-hash map: a claim's opaque identifier or
+/// text, hashed to a fixed-width hex string so pass B never sees the original.
+fn note_value(
+    map: &mut BTreeMap<String, String>,
+    problems: &mut Vec<String>,
+    fields: &serde_json::Map<String, Value>,
+    field: &str,
+) {
+    let Some(Value::String(s)) = fields.get(field) else {
+        return;
+    };
+    let hashed = format!("h{}", fnv1a64_hex(s.as_bytes()));
+    match map.get(s) {
+        Some(existing) if existing != &hashed => {
+            // Unreachable in practice (FNV-1a/64 over this fixture's few dozen strings), but a
+            // real collision must fail closed rather than silently merge two identities.
+            problems.push(format!(
+                "obfuscation replay: value-hash collision — '{s}' already maps to '{existing}', now computed '{hashed}'"
+            ));
+        }
+        _ => {
+            map.insert(s.clone(), hashed);
+        }
+    }
+}
+
+/// Records an `attrs` key in the key-rename map, `f1`, `f2`, ... in first-seen order.
+fn note_key(
+    map: &mut BTreeMap<String, String>,
+    problems: &mut Vec<String>,
+    name: &str,
+    next: &mut u32,
+) {
+    if map.contains_key(name) {
+        return;
+    }
+    let renamed = format!("f{next}");
+    *next += 1;
+    if map.values().any(|v| v == &renamed) {
+        problems.push(format!(
+            "obfuscation replay: key-rename collision on '{renamed}' — should be unreachable, the counter only grows"
+        ));
+        return;
+    }
+    map.insert(name.to_owned(), renamed);
+}
+
+// ---------- the transform: role-driven, not JSON-position-driven ----------
+
+/// Renames every object key found in `key_map`, then (whichever map matched or not) hashes every
+/// string found in `value_map` — by membership in the maps, not by whether the JSON position is
+/// a key or a value, so the same map applies unchanged to the event log and the folded world.
+/// A schema field name (`"key"`, `"kind"`, `"entities"`, ...) is in neither map, so it always
+/// passes through untouched.
+fn transform(
+    v: &Value,
+    key_map: &BTreeMap<String, String>,
+    value_map: &BTreeMap<String, String>,
+) -> Value {
+    match v {
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(k, val)| {
+                    let renamed = key_map
+                        .get(k)
+                        .or_else(|| value_map.get(k))
+                        .cloned()
+                        .unwrap_or_else(|| k.clone());
+                    (renamed, transform(val, key_map, value_map))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|x| transform(x, key_map, value_map))
+                .collect(),
+        ),
+        Value::String(s) => value_map
+            .get(s)
+            .map(|h| Value::String(h.clone()))
+            .unwrap_or_else(|| v.clone()),
+        _ => v.clone(),
+    }
+}
+
+// ---------- the comparator ----------
+
+/// Structural equality — `serde_json::Value`'s `Object` compares by content, not key order, so
+/// only genuinely order-carrying JSON (an array) needs normalizing first; [`normalize`] handles
+/// the one array in this shape whose order depends on a value the transform changes.
+fn compare(a: &Value, b: &Value) -> Vec<String> {
+    let (a, b) = (normalize(a.clone()), normalize(b.clone()));
+    if a == b {
+        Vec::new()
+    } else {
+        vec![format!(
+            "obfuscation replay: {LOG} folds to a different world once its claim data is renamed and hashed. The fold (or something it calls) is reading a specific name or value, not just shape. transformed pass A: {a}\npass B: {b}"
+        )]
+    }
+}
+
+/// `relationships` serializes as a `Vec<(Relationship, count)>` (`BTreeMap` order), and
+/// `Relationship`'s `Ord` includes `kind` — a value the transform hashes — so pass A's array,
+/// transformed in place, is not guaranteed to land in the same order pass B's own fold produced
+/// natively. Sort both sides by their own serialized text; every other array in this shape holds
+/// only entity ids, which the transform never touches, so their order is unaffected either way.
+fn normalize(mut v: Value) -> Value {
+    if let Value::Object(map) = &mut v
+        && let Some(Value::Array(rels)) = map.get_mut("relationships")
+    {
+        rels.sort_by_key(ToString::to_string);
+    }
+    v
+}
+
+// ---------- FNV-1a, 64-bit ----------
+//
+// xtask cannot depend on s2w-sources (its own dependency allowlist forbids it — this check
+// enforces exactly that kind of edge on every other crate); this is the same algorithm as
+// `s2w_sources::hash::fnv1a64_hex`, kept in sync by inspection, not by sharing code.
+
+fn fnv1a64_hex(bytes: &[u8]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LOG_TEXT: &str = include_str!("../../crates/s2w-core/tests/fixtures/golden-fold-v1.json");
+
+    #[test]
+    fn the_committed_fixture_replays_clean() {
+        assert_eq!(replay(LOG_TEXT), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_dropped_entity_in_pass_b_is_caught() {
+        let events_json: Value = serde_json::from_str(LOG_TEXT).unwrap();
+        let events: Vec<WorldEvent> = serde_json::from_value(events_json.clone()).unwrap();
+        let (key_map, value_map, problems) = build_maps(&events_json);
+        assert!(problems.is_empty(), "{problems:?}");
+
+        let start = || World::with_hub_cap(HUB_CAP);
+        let world_a = fold(start(), &events);
+        let transformed_a = transform(
+            &serde_json::to_value(&world_a).unwrap(),
+            &key_map,
+            &value_map,
+        );
+
+        let mut corrupted_b = serde_json::to_value(&world_a).unwrap();
+        if let Value::Object(map) = &mut corrupted_b
+            && let Some(Value::Object(entities)) = map.get_mut("entities")
+        {
+            let key = entities.keys().next().cloned().unwrap();
+            entities.remove(&key);
+        }
+        let problems = compare(&transformed_a, &corrupted_b);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("different world"), "{}", problems[0]);
+    }
+
+    /// A toy "engine" that reads the literal attrs key `"wiki_id"` directly off the raw event
+    /// JSON — exactly the domain-keyed read this check exists to catch. It is never wired into
+    /// production; it stands in for a real engine that could regress the same way.
+    fn toy_domain_keyed_read(events: &Value) -> Value {
+        let mut hit = false;
+        if let Value::Array(events) = events {
+            for event in events {
+                if let Some(Value::Object(fields)) = event.get("EntityObserved")
+                    && let Some(Value::Object(attrs)) = fields.get("attrs")
+                {
+                    hit |= attrs.contains_key("wiki_id");
+                }
+            }
+        }
+        serde_json::json!({ "hardcoded_wiki_id_seen": hit })
+    }
+
+    #[test]
+    fn a_domain_keyed_read_is_caught_by_the_real_comparator() {
+        let events_json: Value = serde_json::from_str(
+            r#"[{"EntityObserved": {"key": "e1", "entity_type": "t", "attrs": {"wiki_id": {"Str": "123"}}}}]"#,
+        )
+        .unwrap();
+        let (key_map, value_map, problems) = build_maps(&events_json);
+        assert!(problems.is_empty(), "{problems:?}");
+        // The attrs key `wiki_id` was observed, so it is in the key-rename map — this fixture
+        // exists to prove that, not just assume it.
+        assert!(key_map.contains_key("wiki_id"), "{key_map:?}");
+
+        let obfuscated = transform(&events_json, &key_map, &value_map);
+
+        let straight_result = toy_domain_keyed_read(&events_json);
+        let obfuscated_result = toy_domain_keyed_read(&obfuscated);
+
+        // The real comparator: transform the straight run's output with the same maps, then
+        // require it to match the obfuscated run's output exactly as `check` does.
+        let transformed_straight = transform(&straight_result, &key_map, &value_map);
+        let problems = compare(&transformed_straight, &obfuscated_result);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+    }
+
+    #[test]
+    fn a_legitimate_fold_commutes_with_the_transform() {
+        // Folding the obfuscated fixture and transforming the straight fold's output must agree
+        // on the real, unmodified fixture — the positive case a broken transform could still
+        // pass if this test only ever ran against corrupted data.
+        assert_eq!(replay(LOG_TEXT), Vec::<String>::new());
+    }
+
+    #[test]
+    fn transform_never_touches_schema_field_names() {
+        let events_json: Value = serde_json::from_str(LOG_TEXT).unwrap();
+        let (key_map, value_map) = {
+            let (k, v, problems) = build_maps(&events_json);
+            assert!(problems.is_empty(), "{problems:?}");
+            (k, v)
+        };
+        for schema in [
+            "EntityObserved",
+            "RelationshipObserved",
+            "EntitiesMerged",
+            "MergeRevoked",
+            "key",
+            "entity_type",
+            "attrs",
+            "from",
+            "to",
+            "kind",
+            "survivor",
+            "absorbed",
+            "Str",
+            "Int",
+            "Bool",
+        ] {
+            assert!(
+                !key_map.contains_key(schema) && !value_map.contains_key(schema),
+                "schema field '{schema}' leaked into a transform map"
+            );
+        }
+    }
+}
