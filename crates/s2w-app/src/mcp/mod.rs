@@ -196,8 +196,50 @@ fn spawn_refresh(
             let stop = Arc::clone(&stop);
             move || refresh_loop(state, live, &stop)
         })
-        .expect("spawning the s2w-mcp-refresh thread");
+        .unwrap_or_else(|error| panic!("spawning the s2w-mcp-refresh thread: {error}"));
     (stop, handle)
+}
+
+/// The pure retry/backoff/warn-cadence decision logic [`refresh_loop`] runs on each poll
+/// outcome, pulled out so it is directly unit-testable without a real SQLite lock
+/// (stream2worlds#128 leg D) — mirroring how [`replay::classify_cursor_update`] was pulled out
+/// of [`replay::LiveReadOnlyWorld::refresh_checking_stop`] for the same reason. A real
+/// `SQLITE_BUSY`/locked repro under WAL mode proved too unreliable to construct cheaply for an
+/// integration test; this exercises the same state machine `refresh_loop` drives.
+struct RefreshBackoff {
+    interval: Duration,
+    consecutive_failures: u32,
+}
+
+impl RefreshBackoff {
+    fn new() -> Self {
+        Self {
+            interval: REFRESH_INTERVAL,
+            consecutive_failures: 0,
+        }
+    }
+
+    /// Records a retryable failure. Returns the interval to sleep before the next poll, and
+    /// whether this failure should be logged (the first one, then every
+    /// [`WARN_EVERY_N_FAILURES`]th).
+    fn on_retryable_failure(&mut self) -> (Duration, bool) {
+        self.consecutive_failures += 1;
+        let should_warn = self.consecutive_failures == 1
+            || self
+                .consecutive_failures
+                .is_multiple_of(WARN_EVERY_N_FAILURES);
+        self.interval = (self.interval * 2).min(MAX_REFRESH_BACKOFF);
+        (self.interval, should_warn)
+    }
+
+    /// Records a success. Returns the number of consecutive failures just recovered from (0 if
+    /// the previous poll already succeeded, so the caller can skip logging a "recovered" note).
+    fn on_success(&mut self) -> u32 {
+        let recovered_from = self.consecutive_failures;
+        self.consecutive_failures = 0;
+        self.interval = REFRESH_INTERVAL;
+        recovered_from
+    }
 }
 
 /// Polls `live` every [`REFRESH_INTERVAL`] (backing off on repeated `Io` failures, capped at
@@ -205,10 +247,9 @@ fn spawn_refresh(
 /// non-`Io` error freezes the loop. See [`run_mcp_live`] for the full shutdown/crash/error
 /// contract this implements.
 fn refresh_loop(state: QueryState, mut live: LiveReadOnlyWorld, stop: &AtomicBool) {
-    let mut interval = REFRESH_INTERVAL;
-    let mut consecutive_io_failures: u32 = 0;
+    let mut backoff = RefreshBackoff::new();
     loop {
-        std::thread::sleep(interval);
+        std::thread::sleep(backoff.interval);
         if stop.load(Ordering::Relaxed) {
             return;
         }
@@ -234,25 +275,19 @@ fn refresh_loop(state: QueryState, mut live: LiveReadOnlyWorld, stop: &AtomicBoo
 
         match result {
             Ok(_) => {
-                if consecutive_io_failures > 0 {
-                    eprintln!(
-                        "s2w mcp: refresh recovered after {consecutive_io_failures} failed poll(s)"
-                    );
+                let recovered_from = backoff.on_success();
+                if recovered_from > 0 {
+                    eprintln!("s2w mcp: refresh recovered after {recovered_from} failed poll(s)");
                 }
-                consecutive_io_failures = 0;
-                interval = REFRESH_INTERVAL;
             }
             Err(error) if error.is_retryable() => {
-                consecutive_io_failures += 1;
-                if consecutive_io_failures == 1
-                    || consecutive_io_failures % WARN_EVERY_N_FAILURES == 0
-                {
+                let (_interval, should_warn) = backoff.on_retryable_failure();
+                if should_warn {
                     eprintln!(
-                        "s2w mcp: refresh poll failed ({consecutive_io_failures} consecutive): \
-                         {error}"
+                        "s2w mcp: refresh poll failed ({} consecutive): {error}",
+                        backoff.consecutive_failures
                     );
                 }
-                interval = (interval * 2).min(MAX_REFRESH_BACKOFF);
             }
             Err(error) => {
                 eprintln!(
@@ -280,4 +315,214 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
 /// Wraps an rmcp or tokio serving failure for [`AppError::Mcp`].
 fn mcp_error(error: impl std::error::Error + Send + Sync + 'static) -> AppError {
     AppError::Mcp(Box::new(error))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
+    use std::sync::mpsc;
+
+    use s2w_log::{
+        AppendOutcome, EventLog, SqliteEventLog, SqliteVerdictStore, StoredVerdict, VerdictStore,
+    };
+    use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
+    use s2w_system1::{Confidence, Verdict};
+
+    use super::{
+        AtomicBool, Duration, MAX_REFRESH_BACKOFF, REFRESH_INTERVAL, RefreshBackoff,
+        WARN_EVERY_N_FAILURES, refresh_loop,
+    };
+    use crate::mcp::replay::LiveReadOnlyWorld;
+    use crate::query::QueryState;
+
+    static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            loop {
+                let sequence = NEXT_DIRECTORY.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let path = env::temp_dir().join(format!(
+                    "s2w-app-mcp-mod-{label}-{}-{sequence}",
+                    std::process::id()
+                ));
+                match fs::create_dir(&path) {
+                    Ok(()) => return Self(path),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => panic!("creating test directory: {error}"),
+                }
+            }
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            drop(fs::remove_dir_all(&self.0));
+        }
+    }
+
+    fn raw(index: u8) -> RawEvent {
+        RawEvent {
+            source: SourceId::new("test.mcp-mod").unwrap(),
+            cursor: Cursor::new(vec![index]).unwrap(),
+            received_at: Timestamp::from_millis(1_000 + i64::from(index)),
+            payload: vec![index],
+        }
+    }
+
+    /// Commits one event plus a matching verdict for it — same shape as `replay::tests::commit`,
+    /// duplicated locally rather than shared across a `#[cfg(test)]` boundary between modules.
+    fn commit(log: &mut SqliteEventLog, verdicts: &mut SqliteVerdictStore, index: u8, key: &str) {
+        let position = match log.append(raw(index)).unwrap() {
+            AppendOutcome::Inserted(position) => position,
+            other => panic!("unexpected append outcome: {other:?}"),
+        };
+        let stored = log
+            .replay(None)
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|event| event.position == position)
+            .expect("the just-inserted event replays back");
+        let encoded = serde_json::to_vec(&Verdict::Propose {
+            claims: vec![s2w_core::WorldEvent::EntityObserved {
+                key: s2w_core::NaturalKey::new(key),
+                entity_type: "fixture".to_owned(),
+                attrs: std::collections::BTreeMap::new(),
+            }],
+            confidence: Confidence::CERTAIN,
+        })
+        .unwrap();
+        verdicts
+            .commit_batch(
+                &[StoredVerdict {
+                    position,
+                    event_hash: stored.content_hash,
+                    engine: "fixture".to_owned(),
+                    version: 1,
+                    verdict: encoded,
+                    provenance: None,
+                }],
+                position,
+            )
+            .unwrap();
+    }
+
+    fn world_json(state: &QueryState) -> String {
+        serde_json::to_string(&state.world_at(None).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn refresh_backoff_doubles_on_failure_caps_at_max_warns_on_first_and_every_nth_and_resets_on_success()
+     {
+        let mut backoff = RefreshBackoff::new();
+
+        let (interval, should_warn) = backoff.on_retryable_failure();
+        assert_eq!(interval, REFRESH_INTERVAL * 2);
+        assert!(should_warn, "the first failure always warns");
+
+        for expected_warn_at in 2..=WARN_EVERY_N_FAILURES {
+            let (_interval, should_warn) = backoff.on_retryable_failure();
+            assert_eq!(
+                should_warn,
+                expected_warn_at == WARN_EVERY_N_FAILURES,
+                "failure #{expected_warn_at}"
+            );
+        }
+        assert_eq!(backoff.consecutive_failures, WARN_EVERY_N_FAILURES);
+
+        // Enough further failures to have doubled well past the cap.
+        for _ in 0..20 {
+            let (interval, _should_warn) = backoff.on_retryable_failure();
+            assert!(interval <= MAX_REFRESH_BACKOFF);
+        }
+        assert_eq!(backoff.interval, MAX_REFRESH_BACKOFF);
+
+        let recovered_from = backoff.on_success();
+        assert_eq!(recovered_from, WARN_EVERY_N_FAILURES + 20);
+        assert_eq!(backoff.consecutive_failures, 0);
+        assert_eq!(backoff.interval, REFRESH_INTERVAL);
+
+        // A success with no prior failure reports nothing recovered.
+        assert_eq!(backoff.on_success(), 0);
+    }
+
+    /// A non-`Io` (structural) error must stop `refresh_loop` outright rather than retrying —
+    /// karpathy ruling, stream2worlds#128. Forces the real `catch_up` "cursor advanced past what
+    /// the event log holds" corruption check by committing a verdict batch that names a log
+    /// position minted from an unrelated, throwaway event log (so it is a real `LogPosition`
+    /// value, but this test's own event log has no event there) — no private-field poking, only
+    /// the same public store APIs a real writer would use.
+    ///
+    /// Verifying the loop's `eprintln!` text would need capturing this test binary's real
+    /// stderr (no stable in-process API for that); this test instead asserts the functional
+    /// contract the log line documents: the thread actually returns (never spins forever) and
+    /// `state` is left exactly as it was before the corrupt poll, never partially updated.
+    #[test]
+    fn refresh_loop_stops_and_freezes_the_snapshot_on_a_non_retryable_error() {
+        let mint = TestDirectory::new("mint-position");
+        let mut mint_log = SqliteEventLog::open(mint.path()).unwrap();
+        mint_log.append(raw(1)).unwrap();
+        let bogus_position = match mint_log.append(raw(2)).unwrap() {
+            AppendOutcome::Inserted(position) => position,
+            other => panic!("unexpected append outcome: {other:?}"),
+        };
+
+        let directory = TestDirectory::new("refresh-loop-stop");
+        let mut log = SqliteEventLog::open(directory.path()).unwrap();
+        let mut verdicts = SqliteVerdictStore::open(directory.path()).unwrap();
+        commit(&mut log, &mut verdicts, 1, "seen-at-open");
+
+        let (state, live) = LiveReadOnlyWorld::open(directory.path(), "default", 10_000).unwrap();
+        assert!(world_json(&state).contains("seen-at-open"));
+        let before = world_json(&state);
+
+        // This directory's event log only has position 1; `bogus_position` (minted from `mint`,
+        // above) does not exist here, so the refresh loop's catch-up will find the cursor
+        // advanced with nothing to replay — the real "cursor moved past the event log" defect.
+        verdicts
+            .commit_batch(
+                &[StoredVerdict {
+                    position: bogus_position,
+                    event_hash: 0,
+                    engine: "fixture".to_owned(),
+                    version: 1,
+                    verdict: serde_json::to_vec(&Verdict::Propose {
+                        claims: vec![],
+                        confidence: Confidence::CERTAIN,
+                    })
+                    .unwrap(),
+                    provenance: None,
+                }],
+                bogus_position,
+            )
+            .unwrap();
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = std::thread::spawn({
+            let stop = Arc::clone(&stop);
+            move || {
+                refresh_loop(state.clone(), live, &stop);
+                let _ignored = done_tx.send(world_json(&state));
+            }
+        });
+
+        let after = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("refresh_loop must return on a non-retryable error, not spin forever");
+        handle.join().expect("refresh thread must not panic");
+        assert_eq!(
+            after, before,
+            "state must be frozen, never partially updated"
+        );
+    }
 }

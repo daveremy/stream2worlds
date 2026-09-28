@@ -443,15 +443,15 @@ mod tests {
         assert!(world_json(&state).contains("seen-at-open"));
 
         // Nothing new yet: refresh is a cheap no-op.
-        assert_eq!(live.refresh(&state).unwrap(), false);
+        assert!(!live.refresh(&state).unwrap());
 
         // A second process (here, the same test process) commits a new claim.
         commit(&mut log, &mut verdicts, 2, "seen-after-refresh");
-        assert_eq!(live.refresh(&state).unwrap(), true);
+        assert!(live.refresh(&state).unwrap());
         assert!(world_json(&state).contains("seen-after-refresh"));
 
         // Immediately calling refresh again with nothing new returns false.
-        assert_eq!(live.refresh(&state).unwrap(), false);
+        assert!(!live.refresh(&state).unwrap());
     }
 
     /// The cursor-regression guard is a pure classification (round-2 review, both reviewers) —
