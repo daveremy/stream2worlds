@@ -18,6 +18,12 @@ PR; never commit to `main` directly after the bootstrap commit.
 - Every crate has an `AGENTS.md` with its allowed dependencies and invariants. Read it before editing the crate.
 - Golden replay files are human-owned: never regenerate one to make a test pass; flag it instead.
 
+## Three surfaces per gate (Dave, 2026-09-28; decision 0017)
+Visualization and agent use are first class. Every gate ships the core capability, the view that
+shows it to a person, and the MCP surface that shows it to an agent. A capability without both
+surfaces is not done unless the PR names the issue that adds the missing one. The renderer stays
+domain-free: anything domain-specific belongs in a view spec, never in renderer code.
+
 ## Documentation: the README is the user manual
 The README is the user documentation, so it must describe what the code does today. **Every
 sprint ends with a doc scrub** (Dave, 2026-09-27), run before the sprint report:
