@@ -8,6 +8,15 @@ import type { Force2D } from './renderers/force2d';
 const root = document.documentElement;
 const media = matchMedia('(prefers-color-scheme: light)');
 const paletteTokens = ['ground', 'ink', 'accent', 'success', 'warning', 'danger'] as const;
+// Neutral chrome (control fill/border, panel borders) has no palette slot of its own, so it is
+// derived from the palette instead of hardcoded: a light palette gets light chrome. Set only
+// while a palette applies; with none, style.css falls back to its original dark literals.
+const derivedTokens: Record<string, string> = {
+  '--s2w-line': 'color-mix(in srgb, var(--s2w-ink) 25%, var(--s2w-ground))',
+  '--s2w-line-soft': 'color-mix(in srgb, var(--s2w-ink) 14%, var(--s2w-ground))',
+  '--s2w-control': 'color-mix(in srgb, var(--s2w-ink) 8%, var(--s2w-ground))',
+  '--s2w-control-hover': 'color-mix(in srgb, var(--s2w-accent) 30%, var(--s2w-ground))',
+};
 const fontTokens: Record<'display' | 'body' | 'mono', string> = {
   display: '--s2w-font-display', body: '--s2w-font-body', mono: '--s2w-font-mono',
 };
@@ -35,8 +44,10 @@ function applyColors(): void {
   const palette = resolvePalette(current, media.matches);
   if (palette) {
     for (const token of paletteTokens) root.style.setProperty(`--s2w-${token}`, palette[token]);
+    for (const [name, value] of Object.entries(derivedTokens)) root.style.setProperty(name, value);
   } else {
     for (const token of paletteTokens) root.style.removeProperty(`--s2w-${token}`);
+    for (const name of Object.keys(derivedTokens)) root.style.removeProperty(name);
   }
   // Native scrollbars/form controls follow only when a light palette is actually applied; reset
   // back to dark otherwise (round-2 review finding — this must go both ways).
