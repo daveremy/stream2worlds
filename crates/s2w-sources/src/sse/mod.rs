@@ -132,6 +132,8 @@ impl Source for SseSource {
     }
 }
 
+/// Thin re-export so `sse::tests` (a sibling module of `start`, not a child) can call the
+/// pure decision function without `start::choose` needing wider visibility than `pub(super)`.
 fn choose_start(
     name: &'static str,
     dialect: &dyn SseDialect,
