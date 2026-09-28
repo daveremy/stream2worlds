@@ -87,16 +87,11 @@ fn exit_code(error: AppError, format: Format) -> ExitCode {
 
 fn state(args: McpArgs) -> Result<QueryState, AppError> {
     match args.log_dir {
-        Some(log_dir) => {
-            let hub_cap = usize::try_from(DEFAULT_HUB_IN_DEGREE_CAP).map_err(|error| {
-                AppError::Usage(format!(
-                    "the default hub cap does not fit this platform: {error}"
-                ))
-            })?;
-            Ok(s2w_app::mcp::replay::read_only_world(
-                &log_dir, args.world, hub_cap,
-            )?)
-        }
+        Some(log_dir) => Ok(s2w_app::mcp::replay::read_only_world(
+            &log_dir,
+            args.world,
+            DEFAULT_HUB_IN_DEGREE_CAP,
+        )?),
         None => {
             Ok(QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP)).with_world(args.world))
         }

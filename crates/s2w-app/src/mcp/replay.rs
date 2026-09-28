@@ -50,13 +50,13 @@ pub enum ReadOnlyWorldError {
 pub fn read_only_world(
     log_dir: &Path,
     world: impl Into<Arc<str>>,
-    hub_cap: usize,
+    hub_cap: u64,
 ) -> Result<QueryState, ReadOnlyWorldError> {
     let reader = ReadOnlySqliteEventLog::open(log_dir).map_err(|source| open(log_dir, source))?;
     let verdicts =
         ReadOnlySqliteVerdictStore::open(log_dir).map_err(|source| open(log_dir, source))?;
     let snapshot_end = verdicts.cursor()?;
-    let state = QueryState::new(Timeline::new(hub_cap as u64)).with_world(world);
+    let state = QueryState::new(Timeline::new(hub_cap)).with_world(world);
     let Some(snapshot_end) = snapshot_end else {
         return Ok(state);
     };
