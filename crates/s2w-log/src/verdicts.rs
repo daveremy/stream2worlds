@@ -20,7 +20,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior, params};
 
-use crate::{LogError, LogPosition, map_sqlite, open_sqlite_store};
+use crate::{LogError, LogPosition, map_sqlite, open_sqlite_store, open_sqlite_store_read_only};
 
 const DATABASE_FILE: &str = "verdicts.sqlite3";
 const LOCK_FILE: &str = "VERDICTS_LOCK";
@@ -173,6 +173,54 @@ pub struct SqliteVerdictStore {
     _lock: File,
 }
 
+/// A lockless, read-only handle to an initialized SQLite verdict store.
+pub struct ReadOnlySqliteVerdictStore {
+    connection: Connection,
+}
+
+impl fmt::Debug for ReadOnlySqliteVerdictStore {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadOnlySqliteVerdictStore")
+            .finish_non_exhaustive()
+    }
+}
+
+impl ReadOnlySqliteVerdictStore {
+    /// Opens an existing verdict store without taking the writer lock or changing its schema.
+    ///
+    /// # Errors
+    /// Returns a storage error when the database cannot be opened and corruption when its
+    /// schema is absent or unsupported.
+    pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
+        let connection = open_sqlite_store_read_only(
+            directory.as_ref(),
+            DATABASE_FILE,
+            SCHEMA_VERSION,
+            |version| {
+                format!(
+                    "unsupported verdict store schema version {version}; expected {SCHEMA_VERSION}"
+                )
+            },
+        )?;
+        Ok(Self { connection })
+    }
+
+    /// The highest position durably consumed by the writer bridge.
+    pub fn cursor(&self) -> Result<Option<LogPosition>, LogError> {
+        cursor_from(&self.connection)
+    }
+
+    /// Verdict rows in `(after, through]`, ordered by position and write sequence.
+    pub fn read_range(
+        &self,
+        after: Option<LogPosition>,
+        through: LogPosition,
+    ) -> Result<Vec<StoredVerdict>, LogError> {
+        read_range_from(&self.connection, after, through)
+    }
+}
+
 impl fmt::Debug for SqliteVerdictStore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -263,16 +311,7 @@ impl SqliteVerdictStore {
 
 impl VerdictStore for SqliteVerdictStore {
     fn cursor(&self) -> Result<Option<LogPosition>, LogError> {
-        let position: Option<i64> = self
-            .connection
-            .query_row(
-                "SELECT position FROM bridge_cursor WHERE id = 1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(map_sqlite)?;
-        position.map(LogPosition::from_sql).transpose()
+        cursor_from(&self.connection)
     }
 
     fn read_range(
@@ -280,33 +319,7 @@ impl VerdictStore for SqliteVerdictStore {
         after: Option<LogPosition>,
         through: LogPosition,
     ) -> Result<Vec<StoredVerdict>, LogError> {
-        let after = after.map_or(Ok(0), LogPosition::to_sql)?;
-        let mut statement = self
-            .connection
-            .prepare(
-                "SELECT position, event_hash, engine, version, verdict, provenance
-                 FROM verdicts
-                 WHERE position > ?1 AND position <= ?2
-                 ORDER BY position, seq",
-            )
-            .map_err(map_sqlite)?;
-        let mut rows = statement
-            .query(params![after, through.to_sql()?])
-            .map_err(map_sqlite)?;
-        let mut verdicts = Vec::new();
-        while let Some(row) = rows.next().map_err(map_sqlite)? {
-            let version: i64 = row.get(3).map_err(map_sqlite)?;
-            verdicts.push(StoredVerdict {
-                position: LogPosition::from_sql(row.get(0).map_err(map_sqlite)?)?,
-                event_hash: row.get(1).map_err(map_sqlite)?,
-                engine: row.get(2).map_err(map_sqlite)?,
-                version: u32::try_from(version)
-                    .map_err(|_| LogError::Corrupt(format!("verdict version {version}")))?,
-                verdict: row.get(4).map_err(map_sqlite)?,
-                provenance: row.get(5).map_err(map_sqlite)?,
-            });
-        }
-        Ok(verdicts)
+        read_range_from(&self.connection, after, through)
     }
 
     fn commit_batch(
@@ -316,6 +329,51 @@ impl VerdictStore for SqliteVerdictStore {
     ) -> Result<(), LogError> {
         self.commit_batch_with(rows, through, || Ok(()))
     }
+}
+
+fn cursor_from(connection: &Connection) -> Result<Option<LogPosition>, LogError> {
+    let position: Option<i64> = connection
+        .query_row(
+            "SELECT position FROM bridge_cursor WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sqlite)?;
+    position.map(LogPosition::from_sql).transpose()
+}
+
+fn read_range_from(
+    connection: &Connection,
+    after: Option<LogPosition>,
+    through: LogPosition,
+) -> Result<Vec<StoredVerdict>, LogError> {
+    let after = after.map_or(Ok(0), LogPosition::to_sql)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT position, event_hash, engine, version, verdict, provenance
+                 FROM verdicts
+                 WHERE position > ?1 AND position <= ?2
+                 ORDER BY position, seq",
+        )
+        .map_err(map_sqlite)?;
+    let mut rows = statement
+        .query(params![after, through.to_sql()?])
+        .map_err(map_sqlite)?;
+    let mut verdicts = Vec::new();
+    while let Some(row) = rows.next().map_err(map_sqlite)? {
+        let version: i64 = row.get(3).map_err(map_sqlite)?;
+        verdicts.push(StoredVerdict {
+            position: LogPosition::from_sql(row.get(0).map_err(map_sqlite)?)?,
+            event_hash: row.get(1).map_err(map_sqlite)?,
+            engine: row.get(2).map_err(map_sqlite)?,
+            version: u32::try_from(version)
+                .map_err(|_| LogError::Corrupt(format!("verdict version {version}")))?,
+            verdict: row.get(4).map_err(map_sqlite)?,
+            provenance: row.get(5).map_err(map_sqlite)?,
+        });
+    }
+    Ok(verdicts)
 }
 
 fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {

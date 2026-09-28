@@ -11,7 +11,7 @@ use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
 
 mod manifest;
@@ -22,7 +22,10 @@ mod verdicts;
 pub use manifest::WorldManifest;
 pub use membership::{EffectiveFrom, MembershipRow, members_at};
 pub use reader::LogReader;
-pub use verdicts::{InMemoryVerdictStore, SqliteVerdictStore, StoredVerdict, VerdictStore};
+pub use verdicts::{
+    InMemoryVerdictStore, ReadOnlySqliteVerdictStore, SqliteVerdictStore, StoredVerdict,
+    VerdictStore,
+};
 
 const DATABASE_FILE: &str = "events.sqlite3";
 const LOCK_FILE: &str = "LOCK";
@@ -91,6 +94,36 @@ fn open_sqlite_store(
     }
 
     Ok((connection, lock))
+}
+
+/// Opens an already-initialized SQLite store without creating a directory or taking its writer
+/// lock. Read-only handles can coexist with the process that owns the append path.
+fn open_sqlite_store_read_only(
+    directory: &Path,
+    database_file: &str,
+    schema_version: i64,
+    schema_mismatch: impl FnOnce(i64) -> String,
+) -> Result<Connection, LogError> {
+    let connection = Connection::open_with_flags(
+        directory.join(database_file),
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .map_err(map_sqlite)?;
+    connection
+        .busy_timeout(Duration::from_secs(3))
+        .map_err(map_sqlite)?;
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(map_sqlite)?;
+    if version == 0 {
+        return Err(LogError::Corrupt(format!(
+            "no schema in {database_file}; nothing has been written yet"
+        )));
+    }
+    if version != schema_version {
+        return Err(LogError::Corrupt(schema_mismatch(version)));
+    }
+    Ok(connection)
 }
 
 /// Rejects a payload before any write is attempted, shared by every [`EventLog`] impl.
@@ -377,6 +410,49 @@ pub struct SqliteEventLog {
     _lock: File,
 }
 
+/// A lockless, read-only handle to an initialized SQLite event log.
+pub struct ReadOnlySqliteEventLog {
+    connection: Connection,
+}
+
+impl fmt::Debug for ReadOnlySqliteEventLog {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadOnlySqliteEventLog")
+            .finish_non_exhaustive()
+    }
+}
+
+impl ReadOnlySqliteEventLog {
+    /// Opens an existing event log without taking the writer lock or changing its schema.
+    ///
+    /// # Errors
+    /// Returns a storage error when the database cannot be opened and corruption when its
+    /// schema is absent or unsupported.
+    pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
+        let connection = open_sqlite_store_read_only(
+            directory.as_ref(),
+            DATABASE_FILE,
+            SCHEMA_VERSION,
+            |version| {
+                format!(
+                    "unsupported schema version {version}; expected {SCHEMA_VERSION}. this version cannot migrate that schema"
+                )
+            },
+        )?;
+        Ok(Self { connection })
+    }
+}
+
+impl LogReader for ReadOnlySqliteEventLog {
+    fn read_after(
+        &self,
+        from: Option<LogPosition>,
+    ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
+        replay_from(&self.connection, from)
+    }
+}
+
 impl fmt::Debug for SqliteEventLog {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -466,16 +542,23 @@ impl EventLog for SqliteEventLog {
         &self,
         from: Option<LogPosition>,
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
-        let last_seen = from.map_or(0, LogPosition::as_u64);
-        let mut replay = Replay {
-            connection: &self.connection,
-            last_seen,
-            buffer: VecDeque::new(),
-            finished: false,
-        };
-        replay.refill()?;
-        Ok(Box::new(replay))
+        replay_from(&self.connection, from)
     }
+}
+
+fn replay_from(
+    connection: &Connection,
+    from: Option<LogPosition>,
+) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
+    let last_seen = from.map_or(0, LogPosition::as_u64);
+    let mut replay = Replay {
+        connection,
+        last_seen,
+        buffer: VecDeque::new(),
+        finished: false,
+    };
+    replay.refill()?;
+    Ok(Box::new(replay))
 }
 
 /// Inserts one event inside an open transaction and advances its source cursor there.
@@ -698,7 +781,9 @@ mod tests {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::time::Duration;
 
     use super::*;
 
@@ -1306,6 +1391,49 @@ mod tests {
         );
         drop(first);
         assert!(retry_until_unlocked(|| SqliteEventLog::open(directory.path())).is_ok());
+        Ok(())
+    }
+
+    #[test]
+    fn read_only_sqlite_log_coexists_with_an_active_writer() -> TestResult {
+        let directory = TestDirectory::new("read-only-coexistence")?;
+        // Initialize the database before the reader races the append loop.
+        drop(SqliteEventLog::open(directory.path())?);
+        let path = directory.path().to_owned();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let writer_stopped = Arc::clone(&stopped);
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || -> Result<(), String> {
+            let mut log = retry_until_unlocked(|| SqliteEventLog::open(&path))
+                .map_err(|error| error.to_string())?;
+            let mut index = 1_u8;
+            log.append(event(index).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+            index = index.saturating_add(1);
+            ready_tx.send(()).map_err(|error| error.to_string())?;
+            while !writer_stopped.load(Ordering::Acquire) {
+                log.append(event(index).map_err(|error| error.to_string())?)
+                    .map_err(|error| error.to_string())?;
+                index = index.saturating_add(1);
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Ok(())
+        });
+        ready_rx.recv()?;
+
+        assert_eq!(
+            SqliteEventLog::open(directory.path()).err(),
+            Some(LogError::Locked)
+        );
+        let reader = ReadOnlySqliteEventLog::open(directory.path())?;
+        let stored = reader.read_after(None)?.collect::<Result<Vec<_>, _>>()?;
+        assert!(!stored.is_empty());
+        for (expected, stored) in (1_u8..).zip(&stored) {
+            assert_eq!(stored.event, event(expected)?);
+        }
+
+        stopped.store(true, Ordering::Release);
+        writer.join().map_err(|_| "writer thread panicked")??;
         Ok(())
     }
 

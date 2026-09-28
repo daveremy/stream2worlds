@@ -4,6 +4,7 @@
 //! Stdout is the JSON-RPC channel, so nothing on this path writes to it; the only failure that
 //! stops the server is the transport itself ending.
 
+pub mod replay;
 mod tools;
 
 pub use tools::{BranchesArgs, EntityHistoryArgs, TimeArgs, WorldDiffArgs, WorldViewArgs};
@@ -69,9 +70,10 @@ impl ServerHandler for WorldMcp {
             .with_server_info(Implementation::new("s2w", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "Read-only view of the s2w world model. Every tool returns the same JSON as the \
-                 matching s2w query API route and requires world: \"default\"; errors come back \
-                 as {\"error\", \"message\"} objects with stable codes. Until the live event-log \
-                 bridge lands, the server serves an empty world.",
+                 matching s2w query API route and requires the tool call's world parameter to \
+                 match the server's configured world id; errors come back as {\"error\", \
+                 \"message\"} objects with stable codes. An on-disk replay serves the first \
+                 stored verdict per engine, including historic verdicts from retired engines.",
             )
     }
 }

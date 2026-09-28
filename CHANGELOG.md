@@ -13,6 +13,27 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Read-only MCP over an on-disk world — #115 (2026-09-28)
+
+**Shipped:** `s2w mcp --log-dir PATH [--world NAME]` opens the event and verdict SQLite
+databases without either writer lock, reconstructs a bounded one-shot timeline from durably
+stored verdicts, and serves it through the existing five MCP tools while another process can
+keep writing.
+
+**Learned:** the verdict cursor must be captured once to give replay an explicit upper bound,
+and multiple stored versions from one engine must collapse to the first-written row or their
+claims are served twice.
+
+**Changed course:** read-only replay does not run engines and does not load manifest or
+membership metadata. Without an engine registry it serves the first stored verdict for every
+historic engine, including retired ones.
+
+**Next:** add live snapshot refresh ([#128](https://github.com/daveremy/stream2worlds/issues/128))
+and read-only manifest/membership loading ([#129](https://github.com/daveremy/stream2worlds/issues/129));
+decide whether `mcp --log-dir` should gain an engine-policy configuration surface.
+
+---
+
 ## Domain as data — decisions 0017/0018, readable view, research 0008 (2026-09-28)
 
 **Shipped:** [Decision 0017](docs/decisions/0017-view-and-agents-first-class.md) makes
@@ -43,7 +64,7 @@ retired per 0018; a new stream shows raw identifiers and inferred shapes until t
 land, which is the honest state of the product rather than a regression to hide.
 
 **Next:** the H heuristics (research 0002 §6's seven domain-free stages) that make a new
-stream typed without any domain code; #115 (read-only MCP over a real world).
+stream typed without any domain code.
 
 ---
 

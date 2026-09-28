@@ -9,7 +9,7 @@ use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, HumanReporter};
 
 use crate::output::Format;
 use crate::reporter::JsonReporter;
-use crate::{DEFAULT_LOG_DIR, output, usage_error};
+use crate::{DEFAULT_LOG_DIR, output, usage_error, valid_world_name};
 
 pub(super) fn dispatch(args: &[String], format: Format) -> ExitCode {
     match parse(args) {
@@ -81,10 +81,7 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
         index += 2;
     }
     let world = world.unwrap_or_else(|| "default".to_owned());
-    if !world
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-    {
+    if !valid_world_name(&world) {
         return Err("--world must contain only ASCII letters, digits, '.', '_' or '-'".to_owned());
     }
     Ok(ServeArgs {

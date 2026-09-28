@@ -7,9 +7,8 @@ use crate::{EventLog, LogError, LogPosition, StoredEvent};
 /// The method is not named `replay`, so a scope importing both traits (as `s2w-log`'s own
 /// tests do) never has an ambiguous call.
 ///
-/// A second, lockless implementation (a query-only SQLite connection that a process other than
-/// the writer can open) is deferred until `s2w serve`'s process topology is decided; this trait
-/// is the seam it will fill.
+/// [`crate::ReadOnlySqliteEventLog`] is the lockless implementation a process other than the
+/// writer can open while the writer continues appending.
 pub trait LogReader {
     /// Same as [`EventLog::replay`]: events strictly after `from`, or the entire log when it
     /// is `None`.

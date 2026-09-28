@@ -49,6 +49,9 @@ pub enum AppError {
     /// rmcp's error is large and would bloat every `Result<_, AppError>` in the crate.
     #[error("mcp server: {0}")]
     Mcp(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// An on-disk world could not be reconstructed for read-only MCP serving.
+    #[error("{0}")]
+    ReadOnlyWorld(#[from] mcp::replay::ReadOnlyWorldError),
     /// A live source's stream ended. Wikipedia and Kafka keep their streams open (Wikipedia
     /// drops it only to reconnect it), so an ended stream means something is wrong, not that
     /// the work is done.
