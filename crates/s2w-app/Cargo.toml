@@ -12,6 +12,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+memory-serve = "=2.4.0"
 s2w-model = { path = "../s2w-model" }
 s2w-core = { path = "../s2w-core" }
 s2w-log = { path = "../s2w-log" }
@@ -41,3 +42,6 @@ rskafka = "=0.6.0"
 # time-mocking in the group-commit / kafka-cursor tests.
 tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
 tower = { version = "0.5", features = ["util"] }
+
+[build-dependencies]
+memory-serve = "=2.4.0"

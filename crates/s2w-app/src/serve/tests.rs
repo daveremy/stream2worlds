@@ -311,3 +311,255 @@ fn configured_world_is_the_only_world_served() {
         }
     });
 }
+
+fn web_request(uri: &str) -> Request {
+    Request::builder()
+        .uri(uri)
+        .header(HOST, "localhost:4310")
+        .body(Body::empty())
+        .expect("request")
+}
+
+fn append_entity(state: &QueryState, key: &str) {
+    state
+        .append(
+            Timestamp::from_millis(1),
+            s2w_core::WorldEvent::EntityObserved {
+                key: s2w_core::NaturalKey::new(key),
+                entity_type: "thing".to_owned(),
+                attrs: Default::default(),
+            },
+        )
+        .expect("append");
+}
+
+#[test]
+fn web_assets_and_api_share_the_host_boundary() {
+    run(false, async {
+        let app = app(state());
+        for uri in ["/main.js", "/", "/worlds/default/world"] {
+            let mut request = web_request(uri);
+            request
+                .headers_mut()
+                .insert(HOST, "evil.example".parse().expect("header"));
+            let response = app.clone().oneshot(request).await.expect("response");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{uri}");
+        }
+        // The committed bundle, served from the binary's embed: an embedded asset carries a
+        // content-hash ETag (a disk-loaded one does not) and its bytes are the committed file's.
+        for (uri, file, content_type) in [
+            ("/", "index.html", "text/html"),
+            ("/main.js", "main.js", "javascript"),
+        ] {
+            let response = app.clone().oneshot(web_request(uri)).await.expect("asset");
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let headers = response.headers();
+            assert!(
+                headers["content-type"]
+                    .to_str()
+                    .expect("type")
+                    .contains(content_type),
+                "{uri}"
+            );
+            assert!(
+                headers.get("etag").is_some_and(|etag| !etag.is_empty()),
+                "{uri} is embedded"
+            );
+            let body = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024)
+                .await
+                .expect("body");
+            let committed = std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("web/dist")
+                    .join(file),
+            )
+            .expect("committed bundle");
+            assert!(!committed.is_empty() && body == committed, "{uri}");
+        }
+        assert_eq!(
+            app.oneshot(web_request("/missing-asset.js"))
+                .await
+                .expect("404")
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    });
+}
+
+#[test]
+fn web_origin_guard_checks_scheme_authority_and_port() {
+    run(false, async {
+        let app = app(state());
+        for (host, origin, valid) in [
+            ("localhost:4310", None, true),
+            ("localhost:4310", Some("http://localhost:4310"), true),
+            ("127.0.0.1:4310", Some("http://127.0.0.1:4310"), true),
+            ("[::1]:4310", Some("http://[::1]:4310"), true),
+            // Any literal loopback name on the served port: the page may be opened by either.
+            ("localhost:4310", Some("http://127.0.0.1:4310"), true),
+            ("127.0.0.1:4310", Some("http://[::1]:4310"), true),
+            ("localhost", Some("http://localhost"), true),
+            ("localhost:4310", Some("http://localhost"), false),
+            ("localhost", Some("http://localhost:4310"), false),
+            ("localhost:4310", Some("http://localhost.evil:4310"), false),
+            ("localhost:4310", Some("http://evil.example:4310"), false),
+            ("localhost:4310", Some("http://localhost:4311"), false),
+            ("localhost:4310", Some("https://localhost:4310"), false),
+            ("localhost:4310", Some("http://localhost:4310/"), false),
+            ("localhost:4310", Some("null"), false),
+        ] {
+            let mut request = web_request("/worlds/default/events?at=0");
+            request
+                .headers_mut()
+                .insert(HOST, host.parse().expect("host"));
+            if let Some(origin) = origin {
+                request
+                    .headers_mut()
+                    .insert("origin", origin.parse().expect("origin"));
+            }
+            let response = app.clone().oneshot(request).await.expect("response");
+            assert_eq!(
+                response.status(),
+                if valid {
+                    StatusCode::OK
+                } else {
+                    StatusCode::FORBIDDEN
+                },
+                "{origin:?}"
+            );
+        }
+        let request = Request::builder()
+            .uri("/worlds/default/events")
+            .header(HOST, "localhost:4310")
+            .header("origin", "http://localhost:4310")
+            .header("origin", "http://localhost:4310")
+            .body(Body::empty())
+            .expect("request");
+        assert_eq!(
+            app.oneshot(request).await.expect("response").status(),
+            StatusCode::FORBIDDEN
+        );
+    });
+}
+
+#[test]
+fn web_sse_cap_lives_until_response_body_is_dropped() {
+    run(false, async {
+        let app = app(state());
+        let mut open = Vec::new();
+        // Keep bodies completely unpolled: owning headers is sufficient to consume a slot.
+        for _ in 0..32 {
+            let response = app
+                .clone()
+                .oneshot(web_request("/worlds/default/events"))
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK);
+            open.push(response);
+        }
+        let response = app
+            .clone()
+            .oneshot(web_request("/worlds/default/events"))
+            .await
+            .expect("cap");
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .expect("body");
+        let error: serde_json::Value = serde_json::from_slice(&body).expect("JSON error");
+        assert!(error["error"].is_string() && error["message"].is_string());
+        drop(open.pop());
+        assert_eq!(
+            app.oneshot(web_request("/worlds/default/events"))
+                .await
+                .expect("freed slot")
+                .status(),
+            StatusCode::OK
+        );
+    });
+}
+
+#[test]
+fn web_pinned_evidence_is_seeded_and_from_is_exclusive() {
+    run(false, async {
+        let state = state();
+        for key in ["first", "second", "third"] {
+            append_entity(&state, key);
+        }
+        let app = app(state);
+        let response = app
+            .clone()
+            .oneshot(web_request("/worlds/default/events?from=1&at=2"))
+            .await
+            .expect("seed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = tokio::time::timeout(
+            Duration::from_secs(1),
+            axum::body::to_bytes(response.into_body(), 8192),
+        )
+        .await
+        .expect("bounded stream closes")
+        .expect("body");
+        let text = String::from_utf8(body.to_vec()).expect("text");
+        let messages: Vec<serde_json::Value> = text
+            .lines()
+            .filter_map(|line| line.strip_prefix("data: "))
+            .map(|data| serde_json::from_str(data).expect("delta"))
+            .collect();
+        assert_eq!(
+            messages.len(),
+            1,
+            "pinned evidence must be nonempty and bounded"
+        );
+        assert_eq!(messages[0]["offset"], 2, "from is exclusive");
+        assert_eq!(messages[0]["type"], "entity");
+        let response = app
+            .clone()
+            .oneshot(web_request("/worlds/default/world?at=2"))
+            .await
+            .expect("snapshot");
+        let body = axum::body::to_bytes(response.into_body(), 8192)
+            .await
+            .expect("body");
+        let view: serde_json::Value = serde_json::from_slice(&body).expect("snapshot JSON");
+        assert_eq!(view["offset"], messages[0]["offset"]);
+        assert_eq!(view["nodes"].as_array().expect("nodes").len(), 2);
+        for (query, status) in [
+            ("from=2&at=1", StatusCode::BAD_REQUEST),
+            ("at=4", StatusCode::NOT_FOUND),
+        ] {
+            assert_eq!(
+                app.clone()
+                    .oneshot(web_request(&format!("/worlds/default/events?{query}")))
+                    .await
+                    .expect("error")
+                    .status(),
+                status
+            );
+        }
+    });
+}
+
+#[test]
+fn web_live_sse_observes_an_append_after_opening() {
+    use tokio_stream::StreamExt;
+    run(false, async {
+        let state = state();
+        append_entity(&state, "first");
+        let response = app(state.clone())
+            .oneshot(web_request("/worlds/default/events?from=1"))
+            .await
+            .expect("open");
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut stream = response.into_body().into_data_stream();
+        append_entity(&state, "second");
+        let chunk = tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .expect("live delta")
+            .expect("chunk")
+            .expect("bytes");
+        let text = String::from_utf8(chunk.to_vec()).expect("text");
+        assert!(text.contains("id: 2\n"), "{text}");
+        assert!(!text.contains("id: 1\n"), "exclusive resume: {text}");
+    });
+}

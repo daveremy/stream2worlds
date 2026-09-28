@@ -195,7 +195,7 @@ async fn serve_live(
     let mut writer = SharedLogWriter(shared);
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let app = router(state).layer(middleware::from_fn(host_allowlist));
+    let app = app(state);
     let server = async {
         // First replay batch gets a head start, but a large history cannot postpone HTTP
         // indefinitely. A synchronous SQLite poll itself cannot be preempted by this timer.
@@ -266,23 +266,77 @@ async fn shutdown_signal(mut shutdown: watch::Receiver<bool>) {
     }
 }
 
+// Assemble every route and fallback before applying the Host boundary.
+fn app(state: QueryState) -> axum::Router {
+    router(state)
+        .route_layer(middleware::from_fn(origin_guard))
+        .fallback_service(crate::assets::asset_router())
+        .layer(middleware::from_fn(host_allowlist))
+}
+
+// An `Origin` is optional (top-level navigation omits it), but when present it must be exactly
+// `http://<loopback>[:<port>]` with the Host header's port: scheme, host and port all compared.
+async fn origin_guard(request: Request, next: Next) -> Response {
+    let mut origins = request.headers().get_all(axum::http::header::ORIGIN).iter();
+    if let Some(origin) = origins.next() {
+        let host_port = request
+            .headers()
+            .get(HOST)
+            .and_then(|h| h.to_str().ok())
+            .and_then(loopback_port);
+        let allowed = origin
+            .to_str()
+            .ok()
+            .and_then(|origin| origin.strip_prefix("http://"))
+            .and_then(loopback_port)
+            .is_some_and(|port| host_port == Some(port));
+        if !allowed || origins.next().is_some() {
+            return (
+                StatusCode::FORBIDDEN,
+                axum::Json(serde_json::json!({
+                    "error": "origin_rejected",
+                    "message": "Origin must be http://localhost, 127.0.0.1 or [::1] on this port",
+                })),
+            )
+                .into_response();
+        }
+    }
+    next.run(request).await
+}
+
+pub(crate) fn sse_cap_guard(
+    slots: std::sync::Arc<tokio::sync::Semaphore>,
+) -> Result<tokio::sync::OwnedSemaphorePermit, crate::query::QueryError> {
+    slots
+        .try_acquire_owned()
+        .map_err(|_| crate::query::QueryError::Unavailable)
+}
+
+// A literal loopback authority's port (`None` when absent), or `None` for anything else.
+fn loopback_port(authority: &str) -> Option<Option<&str>> {
+    ["localhost", "127.0.0.1", "[::1]"]
+        .iter()
+        .find_map(|allowed| authority.strip_prefix(allowed))
+        .and_then(|suffix| match suffix.strip_prefix(':') {
+            None if suffix.is_empty() => Some(None),
+            Some(port)
+                if !port.is_empty()
+                    && port.bytes().all(|b| b.is_ascii_digit())
+                    && port.parse::<u16>().is_ok() =>
+            {
+                Some(Some(port))
+            }
+            _ => None,
+        })
+}
+
 async fn host_allowlist(request: Request, next: Next) -> Response {
     let mut hosts = request.headers().get_all(HOST).iter();
     let allowed = hosts
         .next()
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|host| {
-            ["localhost", "127.0.0.1", "[::1]"].iter().any(|allowed| {
-                host.strip_prefix(allowed).is_some_and(|suffix| {
-                    suffix.is_empty()
-                        || suffix.strip_prefix(':').is_some_and(|port| {
-                            !port.is_empty()
-                                && port.bytes().all(|b| b.is_ascii_digit())
-                                && port.parse::<u16>().is_ok()
-                        })
-                })
-            })
-        });
+        .and_then(loopback_port)
+        .is_some();
     if !allowed || hosts.next().is_some() {
         return (
             StatusCode::BAD_REQUEST,
