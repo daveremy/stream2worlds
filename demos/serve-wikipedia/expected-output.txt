@@ -1,15 +1,16 @@
 == stream2worlds: serve-wikipedia demo ==
-server: http://127.0.0.1:45227
+server: http://127.0.0.1:43379
 ingesting for 15s...
-s2w: serving on http://127.0.0.1:45227
-s2w: wikipedia: 15.6 events/s, 78 total, last event 52.3ms ago
-s2w: wikipedia: 15.0 events/s, 153 total, last event 173.6ms ago
-s2w: wikipedia: 18.4 events/s, 245 total, last event 20.4ms ago
+s2w: wikipedia: no stored cursor; starting fresh
+s2w: serving on http://127.0.0.1:43379
+s2w: wikipedia: 15.8 events/s, 79 total, last event 29.2ms ago
+s2w: wikipedia: 16.2 events/s, 160 total, last event 3.1ms ago
+s2w: wikipedia: 17.0 events/s, 245 total, last event 69.0ms ago
 
-== world summary (curl http://127.0.0.1:45227/world | jq) ==
+== world summary (curl http://127.0.0.1:43379/world | jq) ==
 {
-  "nodes": 288,
-  "links": 209
+  "nodes": 272,
+  "links": 215
 }
 
 == done ==

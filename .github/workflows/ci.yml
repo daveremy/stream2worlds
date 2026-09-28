@@ -28,7 +28,7 @@ jobs:
           shopt -s nullglob
           scripts=(demos/*/run.sh)
           [ "${#scripts[@]}" -gt 0 ]
-          bash -n "${scripts[@]}"
+          for script in "${scripts[@]}"; do bash -n "$script"; done
           shellcheck --severity=error "${scripts[@]}"
       - name: licenses and advisories
         uses: EmbarkStudios/cargo-deny-action@v2

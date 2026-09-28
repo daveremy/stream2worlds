@@ -19,15 +19,26 @@ fi
 DATA_DIR=".demo-data/serve-wikipedia-$$"
 mkdir -p "$DATA_DIR"
 LOG_FILE="$DATA_DIR/serve.log"
+
+# Bounded shutdown: send the signal, then poll for exit instead of `wait`ing indefinitely --
+# a process that ignores the signal must not hang the demo forever. Escalates to SIGKILL after
+# a 5s grace period.
+stop_pid() {
+  local pid=$1 waited=0
+  kill "$pid" 2>/dev/null || return 0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [[ "$waited" -ge 50 ]]; then
+      kill -9 "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  wait "$pid" 2>/dev/null || true
+}
 cleanup() {
-  if [[ -n "${TAIL_PID:-}" ]]; then
-    kill "$TAIL_PID" 2>/dev/null || true
-    wait "$TAIL_PID" 2>/dev/null || true
-  fi
-  if [[ -n "${PID:-}" ]]; then
-    kill "$PID" 2>/dev/null || true
-    wait "$PID" 2>/dev/null || true
-  fi
+  [[ -n "${TAIL_PID:-}" ]] && stop_pid "$TAIL_PID"
+  [[ -n "${PID:-}" ]] && stop_pid "$PID"
   rm -rf "$DATA_DIR"
 }
 trap cleanup EXIT
@@ -61,13 +72,12 @@ TAIL_PID=$!
 echo "ingesting for 15s..."
 sleep 15
 
-kill "$TAIL_PID" 2>/dev/null || true
-wait "$TAIL_PID" 2>/dev/null || true
+stop_pid "$TAIL_PID"
 TAIL_PID=""
 
 echo
 echo "== world summary (curl $URL/world | jq) =="
-curl -sf "$URL/world" | jq '{nodes: (.nodes | length), links: (.links | length)}'
+curl -sf --max-time 10 "$URL/world" | jq '{nodes: (.nodes | length), links: (.links | length)}'
 
 echo
 echo "== done =="
