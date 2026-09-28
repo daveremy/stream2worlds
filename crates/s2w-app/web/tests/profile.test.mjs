@@ -18,17 +18,35 @@ test('pickLabelKeys chooses the higher-cardinality string attribute', () => {
   assert.equal(pickLabelKeys(nodes).get('record'), 'alpha');
 });
 
-test('pickLabelKeys is invariant under bijective attribute-key renaming', () => {
+// A 32-bit FNV-1a hash, kept local to the test (profile.ts's own `hash()` is unexported) so the
+// fixture's ids look like real hashed identifiers, not small sequential integers a production
+// stream would never produce.
+function hashId(seed) {
+  let result = 0x811c9dc5;
+  for (const char of seed) { result ^= char.codePointAt(0); result = Math.imul(result, 0x01000193); }
+  return result >>> 0;
+}
+
+test('pickLabelKeys is invariant under key-renaming AND id-hashing (decision 0018 obfuscation replay)', () => {
+  // Mirrors the obfuscation replay decision 0018 requires at the Rust level: every field
+  // renamed AND every id hashed. Entity ids below are hashed (not sequential 1/2/3/4), and no
+  // two candidate keys tie on score/whitespace/distinct, so the assertion below proves the
+  // SCORING (not a tie-break rule) survives both transformations.
   const nodes = [
-    entity(482910, { title: { Str: 'Amber Stone' }, category: { Str: 'Group North' } }),
-    entity(9123055, { title: { Str: 'Birch Field' }, category: { Str: 'Group North' } }),
-    entity(7301842, { title: { Str: 'Cobalt Lake' }, category: { Str: 'Group South' } }),
-    entity(6059271, { title: { Str: 'Dune Ridge' }, category: { Str: 'Group South' } }),
+    entity(hashId('alpha'), { title: { Str: 'Amber Stone' }, category: { Str: 'Group North' } }),
+    entity(hashId('beta'), { title: { Str: 'Birch Field' }, category: { Str: 'Group North' } }),
+    entity(hashId('gamma'), { title: { Str: 'Cobalt Lake' }, category: { Str: 'Group South' } }),
+    entity(hashId('delta'), { title: { Str: 'Dune Ridge' }, category: { Str: 'Group South' } }),
   ];
+  // Confirm the fixture actually has hash-shaped ids, not an accident of small seed strings.
+  for (const node of nodes) assert.ok(node.entity > 0xffff, `expected a hash-sized id, got ${node.entity}`);
   const rename = key => `renamed_${[...key].reverse().join('')}`;
-  const renamed = nodes.map(node => ({ ...node, attrs: Object.fromEntries(
-    Object.entries(node.attrs).map(([key, value]) => [rename(key), value]),
-  ) }));
+  const renamed = nodes.map((node, index) => ({
+    ...node,
+    entity: hashId(`renamed-${index}`), id: `entity:${hashId(`renamed-${index}`)}`,
+    keys: [`key-${hashId(`renamed-${index}`)}`],
+    attrs: Object.fromEntries(Object.entries(node.attrs).map(([key, value]) => [rename(key), value])),
+  }));
   const expected = new Map([...pickLabelKeys(nodes)].map(([entityType, key]) =>
     [entityType, key === undefined ? undefined : rename(key)]));
   assert.deepEqual(pickLabelKeys(renamed), expected);
