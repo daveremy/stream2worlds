@@ -69,12 +69,13 @@ impl Engine for JsonClaimsEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::WikimediaPageChangeEngine;
     use crate::raw;
+    use crate::{LocalEmbeddingsEngine, WikimediaPageChangeEngine};
     use s2w_model::NaturalKey;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
     const SAMPLE: &[u8] = include_bytes!("../../testdata/page-change-sample.json");
+    const ENWIKI_SAMPLE: &[u8] = include_bytes!("../../testdata/page-change-sample-enwiki.json");
     const MERGE: &str = r#"{"EntitiesMerged":{"survivor":"a:page:1","absorbed":"a:page:2"}}"#;
 
     #[test]
@@ -148,17 +149,24 @@ mod tests {
         Ok(())
     }
 
-    /// The two-implementations check: both engines behind one `Box<dyn Engine>` list, each
-    /// payload understood by exactly one of them.
+    /// The three-implementations check: every engine behind one `Box<dyn Engine>` list. On the
+    /// `enwiki` fixture, both wikimedia engines propose on the same page key — additive claims,
+    /// not a conflict — while `json_claims` abstains; on every other fixture, exactly the
+    /// engine named applies.
     #[test]
-    fn both_engines_behind_the_trait_propose_once_each() -> TestResult {
+    fn three_engines_behind_the_trait_propose_as_expected() -> TestResult {
         let engines: Vec<Box<dyn Engine>> = vec![
             Box::new(WikimediaPageChangeEngine),
+            Box::new(LocalEmbeddingsEngine::new()),
             Box::new(JsonClaimsEngine),
         ];
-        for (payload, expected_name) in [
-            (SAMPLE.to_vec(), "wikimedia.page_change"),
-            (MERGE.as_bytes().to_vec(), "json_claims"),
+        for (payload, expected_names) in [
+            (SAMPLE.to_vec(), vec!["wikimedia.page_change"]),
+            (MERGE.as_bytes().to_vec(), vec!["json_claims"]),
+            (
+                ENWIKI_SAMPLE.to_vec(),
+                vec!["wikimedia.page_change", "wikimedia.local_embeddings"],
+            ),
         ] {
             let event = raw(&payload)?;
             let proposing = engines
@@ -166,8 +174,41 @@ mod tests {
                 .filter(|engine| matches!(engine.evaluate(&event), Verdict::Propose { .. }))
                 .map(|engine| engine.name())
                 .collect::<Vec<_>>();
-            assert_eq!(proposing, [expected_name]);
+            assert_eq!(proposing, expected_names);
         }
+
+        // Both proposals on the `enwiki` fixture land on the same page key, additively: the
+        // rules engine's structural attrs and the embeddings engine's category attrs coexist.
+        let event = raw(ENWIKI_SAMPLE)?;
+        let page_key = NaturalKey::new("enwiki:page:736");
+        let rules_attrs = match WikimediaPageChangeEngine.evaluate(&event) {
+            Verdict::Propose { claims, .. } => claims
+                .into_iter()
+                .find_map(|claim| match claim {
+                    WorldEvent::EntityObserved { key, attrs, .. } if key == page_key => {
+                        Some(attrs)
+                    }
+                    _ => None,
+                })
+                .ok_or("rules engine's page claim")?,
+            other => return Err(format!("expected Propose, got {other:?}").into()),
+        };
+        let embeddings_attrs = match LocalEmbeddingsEngine::new().evaluate(&event) {
+            Verdict::Propose { claims, .. } => claims
+                .into_iter()
+                .find_map(|claim| match claim {
+                    WorldEvent::EntityObserved { key, attrs, .. } if key == page_key => {
+                        Some(attrs)
+                    }
+                    _ => None,
+                })
+                .ok_or("embeddings engine's page claim")?,
+            other => return Err(format!("expected Propose, got {other:?}").into()),
+        };
+        assert!(rules_attrs.contains_key("last_rev_id"));
+        assert!(!rules_attrs.contains_key("last_edit_category"));
+        assert!(embeddings_attrs.contains_key("last_edit_category"));
+        assert!(embeddings_attrs.contains_key("last_edit_category_rev_id"));
         Ok(())
     }
 }

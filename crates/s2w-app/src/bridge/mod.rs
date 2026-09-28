@@ -58,6 +58,10 @@ pub struct AbstainCounts {
     pub unparseable: u64,
     /// [`AbstainReason::Insufficient`].
     pub insufficient: u64,
+    /// [`AbstainReason::BelowThreshold`].
+    pub below_threshold: u64,
+    /// [`AbstainReason::Ambiguous`].
+    pub ambiguous: u64,
 }
 
 /// What the bridge did. Each consumed event and each verdict increments exactly one counter
@@ -95,6 +99,8 @@ impl BridgeStats {
         self.abstained.not_mine += other.abstained.not_mine;
         self.abstained.unparseable += other.abstained.unparseable;
         self.abstained.insufficient += other.abstained.insufficient;
+        self.abstained.below_threshold += other.abstained.below_threshold;
+        self.abstained.ambiguous += other.abstained.ambiguous;
         self.unrouted += other.unrouted;
         self.engine_panics += other.engine_panics;
         self.replayed += other.replayed;
@@ -173,7 +179,7 @@ fn evaluate_one(stored: &StoredEvent, engine: &dyn Engine) -> VerdictRecord {
         engine: engine.name(),
         version: engine.version(),
         verdict,
-        provenance: None,
+        provenance: engine.provenance(),
     }
 }
 

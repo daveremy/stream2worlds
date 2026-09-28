@@ -3,7 +3,7 @@
 //! payloads to engines.
 
 use s2w_model::SourceId;
-use s2w_system1::{Engine, JsonClaimsEngine, WikimediaPageChangeEngine};
+use s2w_system1::{Engine, JsonClaimsEngine, LocalEmbeddingsEngine, WikimediaPageChangeEngine};
 
 /// Which source ids a registered engine runs on. Names are compared as text, so routing a name
 /// no source ever produces is not an error; it just never matches.
@@ -58,16 +58,20 @@ impl EngineRegistry {
         Self::default()
     }
 
-    /// The first-slice routing: Wikimedia page changes to the rules engine, `stdin` to the
-    /// JSON-claims engine.
+    /// The first-slice routing: Wikimedia page changes to the rules engine and the local
+    /// embeddings engine (decision 0013), `stdin` to the JSON-claims engine.
     #[must_use]
     pub fn with_defaults() -> Self {
-        // Two distinct names, so `register`'s version check cannot fire.
+        // Three distinct names, so `register`'s version check cannot fire.
         Self {
             routes: vec![
                 (
                     Route::Prefix("wikipedia."),
                     Box::new(WikimediaPageChangeEngine),
+                ),
+                (
+                    Route::Prefix("wikipedia."),
+                    Box::new(LocalEmbeddingsEngine::new()),
                 ),
                 (Route::Exact("stdin"), Box::new(JsonClaimsEngine)),
             ],
@@ -171,7 +175,7 @@ mod tests {
         let registry = EngineRegistry::with_defaults();
         assert_eq!(
             names(&registry, "wikipedia.page_change")?,
-            ["wikimedia.page_change"]
+            ["wikimedia.page_change", "wikimedia.local_embeddings"]
         );
         assert_eq!(names(&registry, "stdin")?, ["json_claims"]);
         assert!(names(&registry, "kafka.orders")?.is_empty());
