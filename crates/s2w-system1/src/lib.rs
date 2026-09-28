@@ -10,7 +10,7 @@ use s2w_model::RawEvent;
 
 /// A payload-only mapping. Without persisted verdicts, engines must be deterministic.
 pub trait Engine: Send + Sync {
-    /// Stable identifier persisted with each verdict in the future verdict log.
+    /// Stable identifier persisted with each verdict in the verdict log (decision 0012).
     fn name(&self) -> &'static str;
     /// Mapping version; bump whenever the payload-to-verdict mapping changes.
     fn version(&self) -> u32;
