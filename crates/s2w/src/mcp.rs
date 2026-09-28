@@ -54,13 +54,23 @@ pub(crate) fn parse(args: &[String]) -> Result<McpArgs, String> {
     })
 }
 
-/// Parses, constructs the selected snapshot, and serves it over stdio.
+/// Parses, constructs the selected snapshot, and serves it over stdio — live-refreshing when
+/// `--log-dir` names a directory (stream2worlds#128), a fixed one-shot snapshot otherwise.
 pub(crate) fn dispatch(args: &[String], format: Format) -> ExitCode {
     let args = match parse(args) {
         Ok(args) => args,
         Err(message) => return usage_error(format, message),
     };
-    match state(args).and_then(s2w_app::mcp::run_mcp) {
+    let outcome = match args.log_dir {
+        Some(log_dir) => open_live(&log_dir, args.world, DEFAULT_HUB_IN_DEGREE_CAP)
+            .and_then(|(state, live)| s2w_app::mcp::run_mcp_live(state, live)),
+        None => {
+            let state =
+                QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP)).with_world(args.world);
+            s2w_app::mcp::run_mcp(state)
+        }
+    };
+    match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => exit_code(error, format),
     }
@@ -85,17 +95,16 @@ fn exit_code(error: AppError, format: Format) -> ExitCode {
     }
 }
 
-fn state(args: McpArgs) -> Result<QueryState, AppError> {
-    match args.log_dir {
-        Some(log_dir) => Ok(s2w_app::mcp::replay::read_only_world(
-            &log_dir,
-            args.world,
-            DEFAULT_HUB_IN_DEGREE_CAP,
-        )?),
-        None => {
-            Ok(QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP)).with_world(args.world))
-        }
-    }
+/// Opens the read-only stores at `log_dir` and folds every verdict committed so far, returning
+/// both the snapshot and the handle `run_mcp_live` polls to keep it current.
+fn open_live(
+    log_dir: &std::path::Path,
+    world: String,
+    hub_cap: u64,
+) -> Result<(QueryState, s2w_app::mcp::replay::LiveReadOnlyWorld), AppError> {
+    Ok(s2w_app::mcp::replay::LiveReadOnlyWorld::open(
+        log_dir, world, hub_cap,
+    )?)
 }
 
 #[cfg(test)]
@@ -150,12 +159,9 @@ mod tests {
             "s2w-mcp-missing-{}-definitely-absent",
             std::process::id()
         ));
-        let error = state(McpArgs {
-            log_dir: Some(missing.clone()),
-            world: "default".to_owned(),
-        })
-        .err()
-        .expect("a missing read-only world must fail");
+        let error = open_live(&missing, "default".to_owned(), DEFAULT_HUB_IN_DEGREE_CAP)
+            .err()
+            .expect("a missing read-only world must fail");
         let message = error.to_string();
         assert!(
             message.contains(&missing.display().to_string()),
