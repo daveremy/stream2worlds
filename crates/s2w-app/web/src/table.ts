@@ -17,13 +17,21 @@ const renderedTables = new WeakMap<HTMLTableElement, RenderedTable>();
 export function renderTable(table: HTMLTableElement, state: ViewState): void {
   const timestamp = state.evidence.some(row => row.ts !== undefined);
   const rendered = renderedTables.get(table);
-  const incremental = rendered !== undefined && rendered.state === state && rendered.labels === state.labels &&
-    rendered.timestamp === timestamp && state.evidence.length === rendered.evidenceLength + 1 &&
-    (rendered.evidenceLength === 0 || state.evidence[rendered.evidenceLength - 1] === rendered.lastEvidence);
-  if (incremental) {
-    insertEvidenceRow(rendered.body, state.evidence[state.evidence.length - 1], state, timestamp, 0);
-    rendered.evidenceLength = state.evidence.length;
-    rendered.lastEvidence = state.evidence[state.evidence.length - 1];
+  const stableBase = rendered !== undefined && rendered.state === state && rendered.labels === state.labels &&
+    rendered.timestamp === timestamp && rendered.evidenceLength > 0;
+  const newLen = state.evidence.length;
+  // Below the 500-row cap: exactly one row was pushed and nothing evicted.
+  const appendedOnly = stableBase && newLen === rendered!.evidenceLength + 1 &&
+    state.evidence[rendered!.evidenceLength - 1] === rendered!.lastEvidence;
+  // At the 500-row cap (state.ts evicts the oldest row as soon as a new one pushes past it):
+  // length is unchanged, but the item that used to be newest is now second-newest.
+  const appendedAndEvictedOldest = stableBase && newLen === rendered!.evidenceLength &&
+    newLen >= 2 && state.evidence[newLen - 2] === rendered!.lastEvidence;
+  if (appendedOnly || appendedAndEvictedOldest) {
+    insertEvidenceRow(rendered!.body, state.evidence[newLen - 1], state, timestamp, 0);
+    if (appendedAndEvictedOldest) rendered!.body.deleteRow(rendered!.body.rows.length - 1);
+    rendered!.evidenceLength = newLen;
+    rendered!.lastEvidence = state.evidence[newLen - 1];
     return;
   }
 
