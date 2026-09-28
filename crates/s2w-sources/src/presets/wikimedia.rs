@@ -5,7 +5,7 @@
 //! unchanged (#29). `since=` asks for a start time. Canary and `examplewiki` events are dropped
 //! after their cursor advances.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use s2w_model::Cursor;
 
@@ -159,11 +159,10 @@ fn parse_position(value: &serde_json::Value) -> Result<StreamPosition, String> {
 pub(crate) struct Wikimedia {
     wiki: Option<String>,
     /// Consecutive real events seen since the last match; only tracked when `wiki` is `Some`.
-    /// Interior mutability because [`SseDialect::accept`] takes `&self`.
+    /// Interior mutability because [`SseDialect::accept`] takes `&self`. Reset to 0 on every
+    /// match, so it equals [`STALL_WARNING_THRESHOLD`] exactly once per stall streak — that
+    /// equality alone gates the warning below, with nothing further needed to fire it once.
     unmatched_since_last: AtomicU64,
-    /// Set once the stall warning has fired for the current streak; cleared on a match so a
-    /// later stall can warn again instead of firing only once per process.
-    warned: AtomicBool,
 }
 
 impl Wikimedia {
@@ -172,7 +171,6 @@ impl Wikimedia {
         Self {
             wiki: None,
             unmatched_since_last: AtomicU64::new(0),
-            warned: AtomicBool::new(false),
         }
     }
 
@@ -181,7 +179,6 @@ impl Wikimedia {
         Self {
             wiki: Some(wiki),
             unmatched_since_last: AtomicU64::new(0),
-            warned: AtomicBool::new(false),
         }
     }
 
@@ -194,11 +191,10 @@ impl Wikimedia {
         };
         if matched {
             self.unmatched_since_last.store(0, Ordering::Relaxed);
-            self.warned.store(false, Ordering::Relaxed);
             return;
         }
         let count = self.unmatched_since_last.fetch_add(1, Ordering::Relaxed) + 1;
-        if count == STALL_WARNING_THRESHOLD && !self.warned.swap(true, Ordering::Relaxed) {
+        if count == STALL_WARNING_THRESHOLD {
             eprintln!(
                 "s2w: wikipedia: --wiki {wiki:?} has matched none of the last {STALL_WARNING_THRESHOLD} events; check it against the stream's wiki_id values"
             );
@@ -209,12 +205,6 @@ impl Wikimedia {
     #[cfg(test)]
     fn unmatched_since_last(&self) -> u64 {
         self.unmatched_since_last.load(Ordering::Relaxed)
-    }
-
-    /// Whether the stall warning has fired for the current streak; test-only.
-    #[cfg(test)]
-    fn has_warned(&self) -> bool {
-        self.warned.load(Ordering::Relaxed)
     }
 }
 
@@ -370,13 +360,12 @@ mod tests {
 
     #[test]
     fn no_filter_never_tracks_a_stall() {
-        // Without `--wiki` there is nothing to stall against; the counters must stay inert.
+        // Without `--wiki` there is nothing to stall against; the counter must stay inert.
         let dialect = Wikimedia::new();
         for _ in 0..STALL_WARNING_THRESHOLD {
             assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(true));
         }
         assert_eq!(dialect.unmatched_since_last(), 0);
-        assert!(!dialect.has_warned());
     }
 
     #[test]
@@ -394,24 +383,22 @@ mod tests {
     }
 
     #[test]
-    fn wiki_filter_warns_once_per_stall_streak_and_a_match_resets_it() {
+    fn wiki_filter_stall_count_reaches_the_threshold_exactly_once_per_streak() {
+        // `unmatched_since_last` strictly increments on every unmatched event and only
+        // resets on a match, so it equals `STALL_WARNING_THRESHOLD` — the warning's only
+        // trigger condition — at exactly one point per streak, never again until a match
+        // starts a new one.
         let dialect = Wikimedia::filtered("enwiki".to_owned());
-        for i in 1..STALL_WARNING_THRESHOLD {
+        for i in 1..=STALL_WARNING_THRESHOLD * 2 {
             assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(false));
             assert_eq!(dialect.unmatched_since_last(), i);
-            assert!(!dialect.has_warned(), "must not warn before the threshold");
         }
-        assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(false));
-        assert_eq!(dialect.unmatched_since_last(), STALL_WARNING_THRESHOLD);
-        assert!(
-            dialect.has_warned(),
-            "must warn once the threshold is reached"
-        );
 
-        // A match resets the streak so a later, separate stall can warn again.
+        // A match resets the streak so a later, separate stall reaches the threshold again.
         assert_eq!(dialect.accept(ENWIKI_SAMPLE), Ok(true));
         assert_eq!(dialect.unmatched_since_last(), 0);
-        assert!(!dialect.has_warned());
+        assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(false));
+        assert_eq!(dialect.unmatched_since_last(), 1);
     }
 
     #[test]
