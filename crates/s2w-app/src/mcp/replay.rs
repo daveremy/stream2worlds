@@ -190,10 +190,12 @@ fn classify_cursor_update(previous: Option<LogPosition>, new: Option<LogPosition
 /// full before any claim is appended to `state`, so a read failure mid-batch never leaves a
 /// partial append behind to duplicate on retry).
 ///
-/// The final batch advances `*from` to `through` itself (the cursor value), not merely the
-/// last replayed event's position, so a caller's `new_cursor == *from` check matches on the
-/// next poll when nothing has changed; a batch with zero events still advances `*from` to its
-/// upper bound so the loop cannot spin rerunning an empty catch-up forever.
+/// `batch_end` is always the position of the last event actually read in the batch (never a
+/// synthetic `through` value — the verdict cursor always names a real event position, so the
+/// final batch's last event position and `through` coincide once caught up). A batch that reads
+/// zero events is `Corrupt`, not a silent no-op: the verdict cursor named a position the event
+/// log has nothing at, which cannot happen on a healthy log and would otherwise spin the loop
+/// rerunning an empty catch-up forever.
 ///
 /// If `stop` is set and observed true between batches, returns early leaving `*from` at
 /// whatever batch was last fully applied — safe to resume from on the next call.
@@ -239,10 +241,9 @@ fn catch_up(
         // Everything fallible above already happened; the append step itself cannot fail on
         // I/O, only on a structural decode/corruption error — never retried regardless.
         replay_batch(state, &events, &stored)?;
-        // `batch_end` is `through` itself whenever this batch's read stopped because the next
-        // item's position exceeded `through` (the common "caught up" case) — matching
-        // `refresh`'s `new_cursor == *from` cursor-value comparison exactly, not merely the
-        // last replayed event's position.
+        // `batch_end` equals `through` exactly once this batch reaches the last event at or
+        // before `through` (the common "caught up" case), matching `refresh`'s
+        // `new_cursor == *from` cursor-value comparison — both name the same real event position.
         *from = Some(batch_end);
     }
     Ok(())
@@ -332,7 +333,9 @@ mod tests {
     use std::sync::atomic::AtomicU64;
 
     use s2w_core::{AttrValue, NaturalKey, WorldEvent};
-    use s2w_log::{AppendOutcome, EventLog, SqliteEventLog, SqliteVerdictStore, VerdictStore};
+    use s2w_log::{
+        AppendOutcome, EventLog, LogError, SqliteEventLog, SqliteVerdictStore, VerdictStore,
+    };
     use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
     use s2w_system1::{Confidence, Verdict};
 
@@ -516,5 +519,19 @@ mod tests {
             let error = ReadOnlyWorldError::Corrupt(message);
             assert!(!error.is_retryable());
         }
+    }
+
+    /// The live refresh loop treats exactly `Log(LogError::Io(_))` as retryable —
+    /// `is_retryable`'s own doc comment cites `s2w_log::map_sqlite`, which maps
+    /// `SQLITE_BUSY`/locked into this variant. Only the negative `Corrupt` case was ever
+    /// asserted (see the test above); round-1 code review (both reviewers, stream2worlds#128
+    /// leg E) flagged that the positive case — the one the ruling's guarantee actually rests
+    /// on — had no assertion of its own.
+    #[test]
+    fn an_io_error_is_retryable_but_corrupt_is_not() {
+        assert!(
+            ReadOnlyWorldError::Log(LogError::Io("database is locked".to_owned())).is_retryable()
+        );
+        assert!(!ReadOnlyWorldError::Corrupt("unrelated".to_owned()).is_retryable());
     }
 }

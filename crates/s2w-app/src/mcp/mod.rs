@@ -28,7 +28,7 @@ use rmcp::transport::stdio;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt, tool_handler};
 
 use crate::AppError;
-use crate::mcp::replay::LiveReadOnlyWorld;
+use crate::mcp::replay::{LiveReadOnlyWorld, ReadOnlyWorldError};
 use crate::query::QueryState;
 
 /// The fixed poll interval for the live refresh loop: a read-only SQLite cursor read is cheap
@@ -97,17 +97,19 @@ impl ServerHandler for WorldMcp {
                  match the server's configured world id; errors come back as {\"error\", \
                  \"message\"} objects with stable codes. An on-disk replay serves the first \
                  stored verdict per engine, including historic verdicts from retired engines. \
-                 When started against a directory an s2w serve/s2w watch process is actively \
-                 writing, the served world refreshes periodically (about every 500ms) as new \
-                 verdicts are committed, so results reflect live activity rather than a frozen \
-                 snapshot — unless a structural error freezes the refresh loop, in which case \
-                 the last good snapshot keeps being served (see stderr for the reason).",
+                 Any `--log-dir` refreshes the served world periodically (about every 500ms), \
+                 folding in new verdicts as an s2w serve/s2w watch process commits them — so \
+                 results reflect live activity rather than a frozen snapshot when a writer is \
+                 active, and simply see nothing new when one isn't — unless a structural error \
+                 freezes the refresh loop, in which case the last good snapshot keeps being \
+                 served (see stderr for the reason).",
             )
     }
 }
 
 /// Runs `s2w mcp` over stdio until the client disconnects, serving a fixed, never-refreshed
-/// snapshot (no `--log-dir`, or `--log-dir` on a directory nothing is actively writing).
+/// snapshot. Only reached when no `--log-dir` was given — any `--log-dir` goes through
+/// [`run_mcp_live`] instead, regardless of whether a writer is currently active against it.
 ///
 /// Builds a current-thread Tokio runtime (the same shape as [`crate::watch`]) from a
 /// plain sync entry point, so the CLI never nests runtimes. The serving future returns when the
@@ -137,12 +139,21 @@ pub fn run_mcp(state: QueryState) -> Result<(), AppError> {
 /// a large catch-up, not only once per poll cycle, so a big backlog can't stall shutdown for its
 /// whole duration, and [`sleep_checking_stop`] checks the flag every `STOP_CHECK_SLICE` rather
 /// than sleeping the full (possibly backed-off-to-`MAX_REFRESH_BACKOFF`) poll interval in one
-/// uninterruptible sleep.
+/// uninterruptible sleep. Each batch read can itself block up to the read-only connections'
+/// 3s `busy_timeout` under sustained contention, so the true bound under `SQLITE_BUSY` is one
+/// batch (up to ~3s) plus one `STOP_CHECK_SLICE`, not just the 100ms slice alone.
 ///
 /// **Crash contract:** if the refresh thread panics (e.g. inside `QueryState`'s write lock),
-/// the panic is caught at the thread's top level, logged to stderr, and the thread exits —
-/// `state`'s `std::sync::RwLock` is never poisoned this way, and the server keeps serving its
-/// last good snapshot rather than every later tool call panicking on a poisoned lock.
+/// the panic is caught at the thread's top level, logged to stderr, and the thread exits rather
+/// than taking the whole process down. `catch_unwind` does **not** prevent `state`'s
+/// `std::sync::RwLock` from being poisoned — a write guard dropped mid-unwind inside
+/// `QueryState::append` poisons the lock regardless of where the panic is later caught. So a
+/// panic while the write lock is held leaves `state` poisoned: every later tool call gets
+/// `QueryError::Unavailable` ("the timeline is unavailable (a writer panicked); restart the
+/// server") rather than the last good snapshot. That is loud (every call errors, rather than
+/// silently going stale), which is the actual guarantee this gives — not that reads keep
+/// working. A panic outside the write-lock critical section (e.g. inside `refresh_checking_stop`
+/// before any append) does leave `state` unpoisoned and the last good snapshot keeps serving.
 ///
 /// **Error contract:** only a `LogError::Io`-wrapped error is retried (with backoff, capped at
 /// [`MAX_REFRESH_BACKOFF`], reset on the next success); every other error stops the refresh
@@ -173,8 +184,8 @@ fn run(state: QueryState, live: Option<LiveReadOnlyWorld>) -> Result<(), AppErro
     });
     if let Some((stop, handle)) = refresh {
         stop.store(true, Ordering::Relaxed);
-        // The thread only reads `state`/`live` and never panics past `catch_unwind` inside
-        // `refresh_loop`, so a join failure here would mean the thread itself was killed
+        // `refresh_loop` catches its own panics via `catch_unwind` and returns normally
+        // afterward, so a join failure here would mean the thread itself was killed
         // externally — nothing this process can recover from; log and move on rather than
         // letting a `.unwrap()` mask the *real* result computed above.
         if handle.join().is_err() {
@@ -275,6 +286,21 @@ fn sleep_checking_stop(interval: Duration, stop: &AtomicBool) -> bool {
 /// [`STOP_CHECK_SLICE`] ([`sleep_checking_stop`]), so shutdown latency is bounded even while
 /// backed off to [`MAX_REFRESH_BACKOFF`].
 fn refresh_loop(state: QueryState, mut live: LiveReadOnlyWorld, stop: &AtomicBool) {
+    run_refresh_loop(stop, || live.refresh_checking_stop(&state, Some(stop)));
+}
+
+/// The retry/backoff/shutdown state machine [`refresh_loop`] runs, independent of where each
+/// poll's `Result` comes from. Production wires `poll` to
+/// [`replay::LiveReadOnlyWorld::refresh_checking_stop`]; tests drive it with a synthetic
+/// sequence of `Result`s (stream2worlds#128 leg E, round-1 code review: both reviewers found
+/// that [`RefreshBackoff`]'s own unit test exercises only the backoff arithmetic, never the
+/// `Err(error) if error.is_retryable()` arm itself — this lets a test do that without a real
+/// `SQLITE_BUSY` repro, which both reviewers separately confirmed the review prompt's suggested
+/// `busy_timeout=0`-on-a-second-connection recipe cannot produce under this store's forced WAL
+/// mode; a real BUSY repro needs `PRAGMA locking_mode=EXCLUSIVE`, deferred as a follow-up since
+/// this closes the same two links — `Io` classifies as retryable, and the loop keeps polling
+/// rather than stopping on it — that the guarantee actually depends on).
+fn run_refresh_loop(stop: &AtomicBool, mut poll: impl FnMut() -> Result<bool, ReadOnlyWorldError>) {
     let mut backoff = RefreshBackoff::new();
     loop {
         if sleep_checking_stop(backoff.interval, stop) {
@@ -282,11 +308,11 @@ fn refresh_loop(state: QueryState, mut live: LiveReadOnlyWorld, stop: &AtomicBoo
         }
 
         // Catch a panic (e.g. one raised while `state`'s write lock is held inside `append`)
-        // at this thread's top level so it can never poison `state`'s `std::sync::RwLock` for
-        // every later tool call on the main thread — see `run_mcp_live`'s crash contract.
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            live.refresh_checking_stop(&state, Some(stop))
-        }));
+        // at this thread's top level so the refresh thread exits cleanly instead of taking the
+        // whole process down. This does NOT prevent `state`'s `std::sync::RwLock` from being
+        // poisoned if the panic happened mid-append — see `run_mcp_live`'s crash contract for
+        // what actually happens to later tool calls in that case.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(&mut poll));
 
         let result = match outcome {
             Ok(result) => result,
@@ -359,11 +385,13 @@ mod tests {
     use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
     use s2w_system1::{Confidence, Verdict};
 
+    use s2w_log::LogError;
+
     use super::{
         AtomicBool, Duration, MAX_REFRESH_BACKOFF, REFRESH_INTERVAL, RefreshBackoff,
-        WARN_EVERY_N_FAILURES, refresh_loop,
+        WARN_EVERY_N_FAILURES, refresh_loop, run_refresh_loop,
     };
-    use crate::mcp::replay::LiveReadOnlyWorld;
+    use crate::mcp::replay::{LiveReadOnlyWorld, ReadOnlyWorldError};
     use crate::query::QueryState;
 
     static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -584,6 +612,48 @@ mod tests {
         assert_eq!(
             after, before,
             "state must be frozen, never partially updated"
+        );
+    }
+
+    /// The one arm `RefreshBackoff`'s own unit test never drives: `Err(error) if
+    /// error.is_retryable()`, the actual mechanism behind the ruling's core guarantee that a
+    /// BUSY/locked `Io` error is retried, not fatal (round-1 code review, both reviewers,
+    /// stream2worlds#128 leg E). Drives `run_refresh_loop` directly with an injected sequence
+    /// of `Result`s — `map_sqlite` (s2w-log) is what actually maps `SQLITE_BUSY`/locked into
+    /// `LogError::Io`, verified by reading its source and asserted positively in
+    /// `replay::tests::an_io_error_is_retryable_but_corrupt_is_not` — so this proves the loop
+    /// keeps polling across repeated `Io` failures and reaches the eventual success, without
+    /// needing a real SQLite lock (both reviewers independently confirmed the review prompt's
+    /// suggested `busy_timeout=0`-on-a-second-connection recipe cannot produce `SQLITE_BUSY`
+    /// under this store's forced WAL mode; a real repro needs `PRAGMA locking_mode=EXCLUSIVE`
+    /// on a raw connection, which would need a new `rusqlite` dev-dependency edge for
+    /// `s2w-app` — left as a follow-up rather than added under this leg's time budget).
+    #[test]
+    fn refresh_loop_retries_past_io_failures_and_keeps_running() {
+        let mut results: Vec<Result<bool, ReadOnlyWorldError>> = vec![
+            Err(ReadOnlyWorldError::Log(LogError::Io(
+                "database is locked".to_owned(),
+            ))),
+            Err(ReadOnlyWorldError::Log(LogError::Io(
+                "database is locked".to_owned(),
+            ))),
+            Ok(true),
+        ];
+        let stop = AtomicBool::new(false);
+        let mut polls = 0_u32;
+        run_refresh_loop(&stop, || {
+            polls += 1;
+            let outcome = results.remove(0);
+            if results.is_empty() {
+                // Nothing left to inject — tell the loop to stop after this poll's result is
+                // recorded, rather than looping forever waiting for a poll that never comes.
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            outcome
+        });
+        assert_eq!(
+            polls, 3,
+            "must retry past both Io failures rather than stopping on the first"
         );
     }
 }
