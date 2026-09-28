@@ -10,9 +10,9 @@ otherwise); no dialect is named after or bound to a particular stream (decision 
 `sse/` splits the transport from what a particular stream means: `sse/mod.rs` (the `Source`
 impl and the read loop), `sse/start.rs` (the pure stored-cursor versus `--since` decision),
 `sse/connect.rs` (the HTTP connection and reconnect backoff), `sse/frame.rs` (wire parsing),
-`sse/dialect.rs` (the `SseDialect` trait plus `Opaque`, the
-default dialect for a bare `sse://`/`https://`/`http://` target). `Wikimedia` lives under
-`presets/wikimedia.rs`, since it is a preset, not a transport.
+`sse/dialect.rs` (the `SseDialect` trait plus `Opaque`, the default dialect for a bare
+`sse://`/`https://`/`http://` target), `sse/since_param.rs` (`SinceQueryParam`, the one other
+dialect today — everything but `apply_since` delegates straight to `Opaque`).
 
 ## Allowed dependencies
 
@@ -30,14 +30,13 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Kafka payloads are the byte-deterministic envelope from `kafka::envelope` (offset inside), so
   the log's content-hash dedupe collapses redeliveries but never distinct records.
 - Whether an SSE payload is stored raw or enveloped is the dialect's call
-  (`SseDialect::store`), not the transport's: `Opaque` (the generic `sse://`/`https://` path)
-  envelopes `data:` with its cursor id (`sse::envelope`) because an arbitrary stream carries no
-  guarantee that `data:` alone is unique — without the cursor folded in, two distinct events
-  with identical `data:` would collapse under the log's `(source, payload)` dedupe. `Wikimedia`
-  overrides `store` to keep the raw `data:` bytes verbatim: its payload already carries a
-  stream-unique `meta.id`, and changing the stored bytes would break dedupe against logs
-  already written by the pre-envelope build and break the fold, which parses this payload as
-  Wikimedia's own JSON shape.
+  (`SseDialect::store`), with a default every dialect uses today: `data:` enveloped with its
+  cursor id (`sse::envelope`), because an arbitrary stream carries no guarantee that `data:`
+  alone is unique — without the cursor folded in, two distinct events with identical `data:`
+  would collapse under the log's `(source, payload)` dedupe. A dialect for a stream whose
+  payload already carries its own stream-unique id could override `store` to keep the raw
+  bytes verbatim instead; none does today, and doing so would need the fold on the other end
+  to parse that stream's own JSON shape, not this crate's job either way.
 - Every event leaves with its source cursor; reconnects resume from the cursor (SSE: the
   dialect's cursor, sent back as `Last-Event-ID`).
 - Every SSE request uses a descriptive `User-Agent` (Wikimedia's policy, applied to every

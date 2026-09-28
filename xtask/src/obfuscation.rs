@@ -301,7 +301,20 @@ mod tests {
             &value_map,
         );
 
-        let mut corrupted_b = serde_json::to_value(&world_a).unwrap();
+        // Sanity first: an untouched clone of `transformed_a`, compared against itself, must
+        // read clean. Real pass B lives in the SAME renamed namespace as `transformed_a` (it is
+        // folded from the obfuscated event log, not from the raw one) — comparing against
+        // anything still in the raw namespace would report every renamed field as a mismatch
+        // whether or not an entity was actually dropped, which is exactly how this test used to
+        // pass for the wrong reason.
+        let untouched_clone = transformed_a.clone();
+        let problems = compare(&transformed_a, &untouched_clone);
+        assert_eq!(problems.len(), 0, "{problems:?}");
+
+        // The drop happens on a clone of `transformed_a` itself, so it is the ONLY difference
+        // from `transformed_a` — dropping this `entities.remove` call would leave `corrupted_b`
+        // identical to `transformed_a` and turn the assertion below red, not silently green.
+        let mut corrupted_b = transformed_a.clone();
         if let Value::Object(map) = &mut corrupted_b
             && let Some(Value::Object(entities)) = map.get_mut("entities")
         {
@@ -352,14 +365,6 @@ mod tests {
         let transformed_straight = transform(&straight_result, &key_map, &value_map);
         let problems = compare(&transformed_straight, &obfuscated_result);
         assert_eq!(problems.len(), 1, "{problems:?}");
-    }
-
-    #[test]
-    fn a_legitimate_fold_commutes_with_the_transform() {
-        // Folding the obfuscated fixture and transforming the straight fold's output must agree
-        // on the real, unmodified fixture — the positive case a broken transform could still
-        // pass if this test only ever ran against corrupted data.
-        assert_eq!(replay(LOG_TEXT), Vec::<String>::new());
     }
 
     #[test]

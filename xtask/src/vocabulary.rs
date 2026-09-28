@@ -266,13 +266,16 @@ impl<'ast, 'a> Visit<'ast> for Walker<'a> {
         }
     }
 
-    /// Macro bodies are opaque token streams to `Visit`, so walk them by hand: the AST walker
-    /// alone would never see `some_macro!({"x_y": 1})`.
-    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+    /// `syn`'s default `visit_token_stream` is a no-op, so any opaque token stream — a macro
+    /// body (`some_macro!({"x_y": 1})`) and, just as much, an attribute's argument list
+    /// (`#[serde(rename = "x_y")]`, which `syn` parses as `Meta::List` and never descends
+    /// into) — would otherwise pass the scan untouched. Overriding this one method covers
+    /// both: `syn::visit::visit_macro` and `syn::visit::visit_meta_list` each already call
+    /// `visit_token_stream` on their tokens: see `syn`'s generated `gen/visit.rs`.
+    fn visit_token_stream(&mut self, stream: &'ast TokenStream) {
         if !self.hidden {
-            self.scan_tokens(mac.tokens.clone());
+            self.scan_tokens(stream.clone());
         }
-        syn::visit::visit_macro(self, mac);
     }
 }
 
@@ -614,9 +617,27 @@ mod tests {
 
     #[test]
     fn a_string_inside_a_macro_body_hits_through_the_token_walk() {
-        // `Visit` does not descend into a macro's token stream, so this one hit can only come
-        // from the hand walk in `visit_macro`; `json!` need not exist for `syn` to parse it.
+        // `Visit` does not descend into a macro's token stream on its own, so this one hit can
+        // only come from the hand walk in `visit_token_stream`; `json!` need not exist for
+        // `syn` to parse it.
         let problems = rust("fn f() { json!({ \"wiki_id\": 1 }); }\n");
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("matched denylist entry 'wiki_id'"),
+            "{}",
+            problems[0]
+        );
+    }
+
+    #[test]
+    fn a_serde_rename_argument_hits_through_the_attribute_token_walk() {
+        // `Meta::List` (`serde(...)`) is an opaque token stream to `syn::visit` too, exactly
+        // like a macro body — this is the position the retired Wikimedia engine itself used to
+        // carry the domain schema under a neutrally-named field. Prove the field name alone
+        // (`site`) does not trip the scan, so the hit below can only come from the rename arg.
+        assert!(rust("struct Foo { site: String }\n").is_empty());
+        let problems =
+            rust("struct Foo {\n    #[serde(rename = \"wiki_id\")]\n    site: String,\n}\n");
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
             problems[0].contains("matched denylist entry 'wiki_id'"),

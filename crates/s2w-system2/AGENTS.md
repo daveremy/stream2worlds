@@ -14,3 +14,4 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Stream text is untrusted: model workers hold no action credentials; proposals use a constrained, validated format.
 - Every model output is persisted; replay never re-runs an LLM.
 - Never depends on the core or on another adapter.
+- No domain knowledge in this crate; see decision 0018.

@@ -544,9 +544,9 @@ async_test!(
 
 async_test!(preset_dialect_envelopes_like_the_generic_one, {
     // Since decision 0018 the preset is data over the generic dialect, so its stored bytes
-    // are the envelope like any opaque stream's (the retired domain dialect once stored
-    // the raw payload; dedupe against logs written that way is cursor-based, not
-    // content-based, so this changes shape, not correctness).
+    // are the envelope like any opaque stream's (the retired domain dialect once stored the
+    // raw payload; the log dedupes on (source, content_hash) of the stored bytes, so this
+    // changes what gets hashed, not the dedupe mechanism itself).
     let connector = FakeConnect::new(vec![
         Action::stream(None, None, vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()]),
         Action::pending_connect(None, Some(FIRST_ID.to_owned())),

@@ -41,12 +41,13 @@ fn fixture_events() -> Result<Vec<RawEvent>, Box<dyn std::error::Error>> {
     let lines: Vec<&str> = FIXTURE.lines().collect();
     assert_eq!(lines.len(), 5, "fixture holds five page changes");
 
-    // Fail loudly if a fixture edit drops the coverage the assertions below rely on.
-    let parsed: Vec<serde_json::Value> = lines
+    // Fail loudly if a fixture edit drops the coverage the assertions below rely on: five
+    // parseable JSON lines. What shape each holds does not matter — since decision 0018 this
+    // traffic is unrouted and reaches no engine, so the bridge only ever treats it as bytes.
+    lines
         .iter()
-        .map(|line| serde_json::from_str(line))
-        .collect::<Result<_, _>>()?;
-    assert!(parsed.iter().all(|p| p["performer"].is_object()));
+        .map(|line| serde_json::from_str::<serde_json::Value>(line))
+        .collect::<Result<Vec<_>, _>>()?;
 
     let mut events = Vec::new();
     for (i, line) in (0u8..).zip(&lines) {

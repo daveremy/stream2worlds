@@ -1,5 +1,5 @@
 //! Stream sources. Adapters (`kafka`, `sse`, `stdin`) are transports that implement
-//! [`source::Source`]; presets (`wikipedia`) are data over an adapter; [`registry::resolve`] // vocabulary: allow
+//! [`source::Source`]; presets (`wikipedia`) are data over an adapter; [`registry::resolve`] <!-- vocabulary: allow -->
 //! maps a `s2w watch` URI to one. None joins a consumer group or commits offsets.
 
 mod hash;

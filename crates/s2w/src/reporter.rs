@@ -45,7 +45,7 @@ impl Reporter for JsonReporter {
 
 /// Writes one NDJSON line to stdout. Rust ignores `SIGPIPE` by default, so a `println!` here
 /// panics (exit 101, "failed printing to stdout") the moment a piped consumer closes stdout
-/// early (`s2w watch wikipedia --json | head -n 5`, s2w#105) — a `writeln!` on a lock lets us // vocabulary: allow
+/// early (`s2w watch wikipedia --json | head -n 5`, s2w#105) — a `writeln!` on a lock lets us <!-- vocabulary: allow -->
 /// see the write's `Result` and treat `BrokenPipe` as the reader simply going away rather than
 /// an unexpected failure. `wants_ticker` returning `false` for this reporter means this is the
 /// only stdout write `--json` mode makes, so there's nothing left to flush once the pipe is gone.

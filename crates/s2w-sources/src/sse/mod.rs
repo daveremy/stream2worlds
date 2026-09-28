@@ -1,5 +1,5 @@
 //! The generic SSE adapter: `sse://`, `https://` and `http://` URIs, and the transport under
-//! presets such as `wikipedia`. // vocabulary: allow
+//! presets such as `wikipedia`. <!-- vocabulary: allow -->
 //!
 //! Transport failures, non-success HTTP responses and server disconnects are retried with
 //! capped exponential backoff. Once a valid cursor has been seen, reconnects send it as
