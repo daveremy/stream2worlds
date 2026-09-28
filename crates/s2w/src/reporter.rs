@@ -5,6 +5,8 @@
 //! its only JSON-producing consumer has to live on this side and reuse `output.rs`'s existing
 //! rendering seam rather than a second JSON path.
 
+use std::io::{self, ErrorKind, Write};
+
 use s2w_app::Reporter;
 
 use crate::output;
@@ -18,10 +20,9 @@ pub(crate) struct JsonReporter;
 
 impl Reporter for JsonReporter {
     fn flushed(&mut self, appended: u64, duplicates: u64, reconnects: u64, cursor: Option<&str>) {
-        println!(
-            "{}",
-            output::render_progress_line(appended, duplicates, reconnects, cursor, at_millis())
-        );
+        let line =
+            output::render_progress_line(appended, duplicates, reconnects, cursor, at_millis());
+        write_line(&line);
     }
 
     fn duplicate(&mut self, _position: u64) {
@@ -40,6 +41,25 @@ impl Reporter for JsonReporter {
     fn wants_ticker(&self) -> bool {
         false
     }
+}
+
+/// Writes one NDJSON line to stdout. Rust ignores `SIGPIPE` by default, so a `println!` here
+/// panics (exit 101, "failed printing to stdout") the moment a piped consumer closes stdout
+/// early (`s2w watch wikipedia --json | head -n 5`, s2w#105) — a `writeln!` on a lock lets us
+/// see the write's `Result` and treat `BrokenPipe` as the reader simply going away rather than
+/// an unexpected failure. `wants_ticker` returning `false` for this reporter means this is the
+/// only stdout write `--json` mode makes, so there's nothing left to flush once the pipe is gone.
+fn write_line(line: &str) {
+    if let Err(error) = writeln!(io::stdout().lock(), "{line}") {
+        if is_broken_pipe(&error) {
+            std::process::exit(0);
+        }
+        panic!("failed printing to stdout: {error}");
+    }
+}
+
+fn is_broken_pipe(error: &io::Error) -> bool {
+    error.kind() == ErrorKind::BrokenPipe
 }
 
 /// Milliseconds since the Unix epoch, for a progress line's `at` field. Its own copy rather
@@ -71,5 +91,20 @@ mod tests {
         let mut reporter = JsonReporter;
         reporter.source_error("kafka: reset", true);
         reporter.source_error("kafka: benign skip", false);
+    }
+
+    #[test]
+    fn broken_pipe_is_recognized() {
+        assert!(is_broken_pipe(&io::Error::from(ErrorKind::BrokenPipe)));
+    }
+
+    #[test]
+    fn other_write_errors_are_not_treated_as_broken_pipe() {
+        // s2w#105: only BrokenPipe (a reader going away) is a clean stop; anything else
+        // (e.g. a genuinely full disk backing a redirected stdout) still panics loudly.
+        assert!(!is_broken_pipe(&io::Error::from(ErrorKind::WriteZero)));
+        assert!(!is_broken_pipe(&io::Error::from(
+            ErrorKind::PermissionDenied
+        )));
     }
 }
