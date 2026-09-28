@@ -589,3 +589,13 @@ the title and revision hash domains of the obfuscated stream, which protects B4'
 cross-wiki composite-key discovery is reported as its own **unfloored** sub-metric on the obfuscated
 and plain streams, beside B3's scored metrics. This note changes no arm, threshold or stream, and
 adds no floor; B2 and B3 stand as signed.
+
+### 2026-09-28: System 2 readiness rule is frozen with the arm (addition, no change in meaning)
+
+Research [0008](../research/0008-view-spec-and-surprise.md) §8 adds a readiness rule: System 1
+publishes domain-free signals that tell System 2 when it has seen enough to form an opinion. Dave's
+ruling (2026-09-28): in the H+S2 arm, that rule (its statistics and thresholds) is pre-registered
+and frozen before the evaluation window, exactly as mappings are. It may be tuned only on a
+development window. Separately, "the same view form on the obfuscated copy" is a **reported
+measurement** at gate 3, not a B1 pass condition; it is a pass condition of the dashboard feature
+(s2w#116) instead. This note changes no arm, metric, threshold or stream; B1 stands as signed.
