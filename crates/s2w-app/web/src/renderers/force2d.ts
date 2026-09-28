@@ -5,17 +5,34 @@ import { labelFor, linkColor, typeColor } from '../profile';
 import type { GraphRenderer } from '../renderer';
 import type { ViewState } from '../state';
 type GraphNode = Node & NodeObject;
+// Canvas draws (backgroundColor, label fillStyle) live outside CSS — custom properties never
+// reach them on their own (round-1 review finding). These are the pre-presentation defaults,
+// restored whenever `setColors` is called with no override for a given channel.
+const DEFAULT_GROUND = '#101c2b';
+const DEFAULT_INK = '#e3edf6';
 export class Force2D implements GraphRenderer {
   private graph?: ForceGraph<GraphNode, Link>;
   private resize?: ResizeObserver;
   private degreeMap = new Map<string, number>();
   private keyByType = new Map<string, string | undefined>();
   private labelById = new Map<string, string>();
+  private groundColor = DEFAULT_GROUND;
+  private inkColor = DEFAULT_INK;
   private label(node: GraphNode): string {
     return this.labelById.get(node.id) ?? labelFor(node, this.keyByType);
   }
+  /**
+   * Applies presentation-supplied colours to the canvas. Safe to call before `mount` (stores the
+   * values for the initial draw) or after (round-2 review finding: presentation fetches async and
+   * can resolve after `mount`, so this must update a live instance, not just a mount-time value).
+   */
+  setColors(colors: { ground?: string; ink?: string }): void {
+    this.groundColor = colors.ground || DEFAULT_GROUND;
+    this.inkColor = colors.ink || DEFAULT_INK;
+    this.graph?.backgroundColor(this.groundColor);
+  }
   mount(element: HTMLElement, state: ViewState): void {
-    this.graph = new ForceGraph<GraphNode, Link>(element).backgroundColor('#101c2b')
+    this.graph = new ForceGraph<GraphNode, Link>(element).backgroundColor(this.groundColor)
       .nodeColor((node: GraphNode) => typeColor(node.entity_type))
       .nodeVal((node: GraphNode) => sizeFor(node, this.degreeMap))
       .nodeCanvasObjectMode(() => 'after')
@@ -23,7 +40,7 @@ export class Force2D implements GraphRenderer {
         if (globalScale < 0.7 || node.x === undefined || node.y === undefined) return;
         const fontSize = 11 / globalScale;
         context.font = `${fontSize}px system-ui, sans-serif`;
-        context.textAlign = 'center'; context.textBaseline = 'top'; context.fillStyle = '#e3edf6';
+        context.textAlign = 'center'; context.textBaseline = 'top'; context.fillStyle = this.inkColor;
         context.fillText(this.label(node), node.x, node.y + 5 / globalScale);
       })
       .linkColor(link => linkColor(link.kind)).linkDirectionalArrowLength(4)

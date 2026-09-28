@@ -1,9 +1,14 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- `/w/<world>/` shifts the browser's relative-asset base; this makes every relative URL
+     (stylesheet, script, fetch) resolve against `/` regardless of path depth. Trade-off: this
+     breaks hosting behind a reverse-proxy path prefix — accepted for PR1. -->
+<base href="/">
 <title>Stream2Worlds · World view</title><link rel="stylesheet" href="/style.css"></head>
 <body>
-<header><h1>Stream2Worlds</h1><p>A living world, with its evidence in view.</p></header>
+<header><h1 id="world-title">Stream2Worlds</h1><p id="world-tagline">A living world, with its evidence in view.</p>
+<p id="world-description" hidden></p></header>
 <form id="controls">
 <label>World<input name="world" placeholder="default" required></label>
 <label>Branch<input name="branch" value="actual" required></label>

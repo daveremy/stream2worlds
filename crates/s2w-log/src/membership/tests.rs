@@ -251,7 +251,17 @@ fn migrates_v2_fixture_preserving_cursor_and_events() -> TestResult {
     assert_eq!(
         log.connection
             .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))?,
-        3
+        4
+    );
+    // The v2->v3 migration must chain straight into v3->v4 in one open() — a v2 database
+    // never stops at the intermediate version.
+    assert_eq!(
+        log.connection.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='world_presentation'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )?,
+        1
     );
     assert_eq!(log.replay(None)?.next().ok_or("missing event")??.event, raw);
     assert_eq!(log.cursor(&source()?)?, Some(cursor(1)?));
@@ -273,7 +283,7 @@ fn migrates_v2_fixture_preserving_cursor_and_events() -> TestResult {
     );
     drop(log);
     let conn = Connection::open(dir.path().join(crate::DATABASE_FILE))?;
-    conn.execute_batch("PRAGMA user_version=4")?;
+    conn.execute_batch("PRAGMA user_version=5")?;
     drop(conn);
     assert!(matches!(
         retry_until_unlocked(|| SqliteEventLog::open(dir.path())),

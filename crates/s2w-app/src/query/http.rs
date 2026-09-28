@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::convert::Infallible;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use axum::extract::{Path, Query, State};
@@ -12,7 +13,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use s2w_core::{FOLD_VERSION, World, WorldEvent};
-use s2w_log::{MembershipRow, WorldManifest, members_at};
+use s2w_log::{
+    MembershipRow, ReadOnlySqliteEventLog, WorldManifest, WorldPresentation, members_at,
+};
 use s2w_model::{SourceId, Timestamp};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
@@ -35,6 +38,9 @@ pub struct QueryState {
     manifest: Option<Arc<WorldManifest>>,
     membership: Arc<Vec<MembershipRow>>,
     source_stats: Arc<watch::Sender<BTreeMap<SourceId, SourceStats>>>,
+    /// The event-log directory, so presentation can be read fresh per request rather than
+    /// cached at startup — a live `s2w presentation set` is visible without a restart.
+    log_dir: Option<Arc<PathBuf>>,
 }
 
 impl QueryState {
@@ -51,6 +57,7 @@ impl QueryState {
             manifest: None,
             membership: Arc::new(Vec::new()),
             source_stats: Arc::new(source_stats),
+            log_dir: None,
         }
     }
 
@@ -73,10 +80,39 @@ impl QueryState {
         self
     }
 
+    /// Configures the event-log directory presentation reads are served fresh from. Absent in
+    /// tests that never write presentation: [`Self::presentation`] then always reports the
+    /// default (empty) record.
+    #[must_use]
+    pub fn with_log_dir(mut self, log_dir: impl Into<PathBuf>) -> Self {
+        self.log_dir = Some(Arc::new(log_dir.into()));
+        self
+    }
+
     /// The string identifier of the world this process serves.
     #[must_use]
     pub fn world(&self) -> &str {
         &self.world
+    }
+
+    /// The world's presentation, read fresh from the log directory on every call (never
+    /// cached): a live `s2w presentation set` must be visible on the next request, and
+    /// `/worlds` and `/worlds/{world}/presentation` must never disagree because one of them
+    /// serves a startup-time snapshot. Returns the default (empty) record when no log
+    /// directory is configured or no presentation has ever been set.
+    ///
+    /// # Errors
+    /// [`QueryError::Storage`] if the log directory exists but cannot be opened or read.
+    pub fn presentation(&self) -> Result<WorldPresentation, QueryError> {
+        let Some(log_dir) = &self.log_dir else {
+            return Ok(WorldPresentation::default());
+        };
+        let reader = ReadOnlySqliteEventLog::open(log_dir.as_path())
+            .map_err(|error| QueryError::Storage(error.to_string()))?;
+        Ok(reader
+            .world_presentation(&self.world)
+            .map_err(|error| QueryError::Storage(error.to_string()))?
+            .unwrap_or_default())
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
@@ -175,6 +211,7 @@ impl IntoResponse for QueryError {
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable | Self::StreamLimit => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(self.json_body())).into_response()
     }
@@ -191,6 +228,7 @@ pub fn router(state: QueryState) -> Router {
         .route("/worlds/{world}/entity/{id}/history", get(history))
         .route("/worlds/{world}/time", get(time))
         .route("/worlds/{world}/sources", get(sources))
+        .route("/worlds/{world}/presentation", get(world_presentation))
         .with_state(state)
 }
 
@@ -285,6 +323,11 @@ pub struct WorldSummary {
     pub name: String,
     /// The world's latest fold offset.
     pub head: u64,
+    /// Presentation-supplied title override, read fresh; absent when no presentation has been
+    /// set. The client's fallback chain (title -> name -> world) is not pre-collapsed here.
+    pub title: Option<String>,
+    /// Presentation-supplied tagline, read fresh; absent when no presentation has been set.
+    pub tagline: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -294,6 +337,7 @@ struct Worlds {
 
 async fn list_worlds(State(state): State<QueryState>) -> Response {
     let run = || -> Result<_, QueryError> {
+        let presentation = state.presentation()?;
         state.read(|timeline| {
             let world = state.world().to_owned();
             Ok(Worlds {
@@ -304,9 +348,22 @@ async fn list_worlds(State(state): State<QueryState>) -> Response {
                         .map_or_else(|| world.clone(), |m| m.name.clone()),
                     world,
                     head: timeline.head(),
+                    title: presentation.title.clone(),
+                    tagline: presentation.tagline.clone(),
                 }],
             })
         })
+    };
+    run().map(Json).into_response()
+}
+
+async fn world_presentation(
+    State(state): State<QueryState>,
+    Path(world): Path<String>,
+) -> Response {
+    let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
+        state.presentation()
     };
     run().map(Json).into_response()
 }

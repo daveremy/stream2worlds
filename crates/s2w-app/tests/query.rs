@@ -376,7 +376,8 @@ mod golden {
             assert_eq!(
                 body,
                 serde_json::json!({
-                    "worlds": [{"world": "default", "name": "default", "head": 24}]
+                    "worlds": [{"world": "default", "name": "default", "head": 24,
+                        "title": null, "tagline": null}]
                 })
             );
         });

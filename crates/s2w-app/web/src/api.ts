@@ -40,6 +40,18 @@ export async function snapshot(params: URLSearchParams, signal: AbortSignal): Pr
 export async function worlds(signal: AbortSignal): Promise<{ worlds: { world: string; name: string; head: number }[] }> {
   return (await checked('/worlds', signal)).json();
 }
+// Mirrors s2w-log's `Palette`/`Typefaces`/`WorldPresentation`: the load-path type, tolerant of
+// missing fields (every field defaults to absent, never errors on a partial/older row).
+export type Palette = { ground: string; ink: string; accent: string; success: string; warning: string; danger: string };
+export type Typefaces = { display: string; body: string; mono: string };
+export type WorldPresentation = {
+  title?: string | null; tagline?: string | null; description?: string | null;
+  palette_light?: Palette | null; palette_dark?: Palette | null; typefaces?: Typefaces | null;
+};
+export async function presentation(world: string, signal: AbortSignal): Promise<WorldPresentation> {
+  const url = new URL(`/worlds/${encodeURIComponent(world)}/presentation`, location.origin);
+  return (await checked(url, signal)).json();
+}
 // The sources view is independent of the pinned offset, so `at` is dropped.
 export async function sources(params: URLSearchParams, signal: AbortSignal): Promise<SourceInfo[]> {
   const url = endpoint(params, 'sources');
