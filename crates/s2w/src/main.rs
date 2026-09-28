@@ -183,7 +183,15 @@ fn run_mcp(format: Format) -> ExitCode {
     match s2w_app::mcp::run_mcp(state) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            output::print_error(format, &error.to_string());
+            // A fatal `mcp --json` failure matches `watch --json`'s shape (s2w#79):
+            // `{"error": ..., "fatal": true}`, not the plain `{"error": ...}` object
+            // `print_error` renders for a usage/parse failure.
+            match format {
+                Format::Json => eprintln!("{}", output::render_stream_error(&error.to_string())),
+                Format::Human => {
+                    output::print_error(Format::Human, &error.to_string());
+                }
+            }
             match error {
                 AppError::Usage(_) => ExitCode::from(2),
                 _ => ExitCode::FAILURE,
