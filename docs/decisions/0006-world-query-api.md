@@ -9,7 +9,7 @@ Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §
 > **Amended by 0016 (2026-09-27):** `/events` also takes an optional `at=`, which bounds the
 > replay: it sends the deltas after `from` through `at`, then closes (`at` below `from` is
 > `bad_parameter`, past the head is `offset_beyond_head`). `/events` holds one of 32 concurrent
-> stream slots and answers `unavailable` (503) when none is free. Every route refuses an
+> stream slots and answers `stream_limit` (503) when none is free. Every route refuses an
 > `Origin` header other than `http://` plus a loopback name on the served port with 403
 > `origin_rejected`; a request without `Origin` is unaffected.
 
@@ -31,7 +31,7 @@ I/O and is callable directly; `router` serves it over HTTP with `axum` 0.8 and a
 
 Errors are `{"error": <code>, "message": <text>}` with stable codes: `offset_beyond_head` and
 `unknown_entity` (404), `bad_parameter` and `hops_too_large` (400), `branch_not_yet` and
-`lod_not_yet` (501), `unavailable` (503).
+`lod_not_yet` (501), `unavailable` (503, poisoned lock), `stream_limit` (503, event-stream cap).
 
 ## Contract details
 

@@ -53,7 +53,9 @@ authority parser, so the two allowlists cannot drift apart.
 Each served timeline shares 32 concurrent event slots (one timeline/process in the supported
 serve topology). `/events` acquires a permit before producing streaming headers and transfers
 it into the stream object; dropping the body releases it, even if the body was never polled.
-The 33rd request receives the existing `unavailable` JSON error with HTTP 503. A bounded
+The 33rd request receives a `stream_limit` JSON error with HTTP 503 — a distinct code from
+`unavailable` (the poisoned-lock case), so a client can tell a transient cap from a server
+fault (round-1 review finding). A bounded
 replay uses a slot too. The existing five-second shutdown drain remains in effect.
 
 `from=` remains exclusive and Last-Event-ID retains precedence. The optional `at=` parameter
