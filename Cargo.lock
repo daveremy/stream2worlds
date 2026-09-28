@@ -1793,6 +1793,9 @@ name = "s2w"
 version = "0.0.0"
 dependencies = [
  "s2w-app",
+ "s2w-log",
+ "s2w-model",
+ "serde_json",
 ]
 
 [[package]]
