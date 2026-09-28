@@ -34,6 +34,11 @@ PID=$!
 
 URL=""
 for _ in $(seq 1 50); do
+  if ! kill -0 "$PID" 2>/dev/null; then
+    echo "error: the server process exited before it started listening" >&2
+    cat "$LOG_FILE" >&2
+    exit 1
+  fi
   URL=$(grep -m1 -oE 'http://[0-9.]+:[0-9]+' "$LOG_FILE" 2>/dev/null || true)
   [[ -n "$URL" ]] && break
   sleep 0.2

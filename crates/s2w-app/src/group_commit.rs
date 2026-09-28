@@ -6,7 +6,6 @@
 //! cannot replay it.
 
 use std::cell::Cell;
-use std::rc::Rc;
 use std::time::Duration;
 
 use s2w_log::{AppendOutcome, EventLog};
@@ -100,16 +99,15 @@ pub(crate) async fn pump_events<L: EventLog>(
     stream: EventStream,
     name: &str,
 ) -> Result<(), AppError> {
-    let total = Rc::new(Cell::new(0_u64));
-    let last_event_at = Rc::new(Cell::new(Instant::now()));
-    let convert = {
-        let total = Rc::clone(&total);
-        let last_event_at = Rc::clone(&last_event_at);
-        move |event: RawEvent| {
-            total.set(total.get() + 1);
-            last_event_at.set(Instant::now());
-            Ok(event)
-        }
+    // `pump_future` and `report_progress` are only ever joined here with `select!`, never
+    // spawned onto another task, so a plain borrow (no `Rc`, no `Send` bound) is enough — the
+    // borrow checker itself is the proof that both stay on this one task.
+    let total = Cell::new(0_u64);
+    let last_event_at = Cell::new(Instant::now());
+    let convert = |event: RawEvent| {
+        total.set(total.get() + 1);
+        last_event_at.set(Instant::now());
+        Ok(event)
     };
     let pump_future = pump(log, stream, convert, |error: SourceError| {
         if error.is_fatal() {
@@ -121,9 +119,9 @@ pub(crate) async fn pump_events<L: EventLog>(
     });
     tokio::select! {
         result = pump_future => result,
-        () = report_progress(name, &total, &last_event_at) => {
-            unreachable!("the progress ticker runs forever and never resolves")
-        }
+        // report_progress never returns, so `never` can never be constructed; this is the
+        // exhaustive match for an empty type, not a fallback branch.
+        never = report_progress(name, &total, &last_event_at) => match never {},
     }
 }
 
