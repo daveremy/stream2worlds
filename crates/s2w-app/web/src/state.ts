@@ -1,8 +1,16 @@
 import type { Message, Node, Link, WorldView } from './api';
+// @ts-expect-error tsconfig's Bundler resolution forbids the extension; Node's native
+// TypeScript stripping (state.test.mjs importing this file directly) requires it.
+import { degreeById, nodeById, pickLabelKeys, topHubs } from './profile.ts';
+import type { LabelKeyMap } from './profile';
 export type EvidenceRow = { offset: number; kind: string; entityIds: number[]; summary: string; message: Message; ts?: string };
 export class ViewState {
   nodes = new Map<string, Node>();
   links = new Map<string, Link>();
+  keyByType: LabelKeyMap = new Map();
+  nodesById = new Map<number, Node>();
+  degreeMap = new Map<string, number>();
+  hubs: { label: string; degree: number }[] = [];
   evidence: EvidenceRow[] = [];
   lastAppliedOffset = 0;
   offset = 0;
@@ -12,6 +20,10 @@ export class ViewState {
     this.offset = view.offset;
     this.nodes = new Map(view.nodes.map(node => [node.id, node]));
     this.links = new Map(view.links.map(link => [JSON.stringify([link.source, link.target, link.kind]), link]));
+    this.keyByType = pickLabelKeys(view.nodes);
+    this.nodesById = nodeById(view.nodes);
+    this.degreeMap = degreeById(view.nodes, view.links);
+    this.hubs = topHubs(view.nodes, view.links, this.keyByType);
   }
   apply(message: Message): boolean {
     if (message.offset <= this.lastAppliedOffset) return false;

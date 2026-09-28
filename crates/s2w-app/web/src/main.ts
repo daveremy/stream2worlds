@@ -3,8 +3,7 @@ import type { Message } from './api';
 import { ViewState } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
-import type { Link, Node } from './api';
-import { activeNow, linkColor, nodeById, pickLabelKeys, topHubs, typeColor } from './profile';
+import { activeNow, linkColor, typeColor } from './profile';
 const status = document.querySelector<HTMLElement>('#status')!;
 const graph = document.querySelector<HTMLElement>('#graph')!;
 const table = document.querySelector<HTMLTableElement>('#evidence')!;
@@ -36,7 +35,7 @@ async function start(): Promise<void> {
     params.get(key) ?? ({ branch: 'actual', lod: 'entity', hops: '1' }[key] ?? '');
   function paint(): void {
     renderTable(table, state);
-    renderLegend(legend, [...state.nodes.values()], [...state.links.values()]);
+    renderLegend(legend, state);
     renderActive(active, state);
     position.textContent = `${params.has('at') ? 'Pinned' : 'Live'} · graph at ${state.offset} · evidence through ${state.lastAppliedOffset}`;
   }
@@ -141,15 +140,14 @@ window.addEventListener('popstate', () => void start());
 window.addEventListener('pagehide', () => dispose());
 void start();
 
-function renderLegend(element: HTMLElement, nodes: Node[], links: Link[]): void {
-  const keyByType = pickLabelKeys(nodes);
+function renderLegend(element: HTMLElement, state: ViewState): void {
   const entityList = document.createElement('ul');
-  for (const entityType of new Set(nodes.map(node => node.entity_type))) {
-    const key = keyByType.get(entityType);
+  for (const entityType of new Set([...state.nodes.values()].map(node => node.entity_type))) {
+    const key = state.keyByType.get(entityType);
     entityList.append(legendItem(typeColor(entityType), `${entityType} · ${key === undefined ? 'keys' : `labeled by ${key}`}`));
   }
   const linkList = document.createElement('ul');
-  for (const kind of new Set(links.map(link => link.kind))) linkList.append(legendItem(linkColor(kind), kind));
+  for (const kind of new Set([...state.links.values()].map(link => link.kind))) linkList.append(legendItem(linkColor(kind), kind));
   const entityHeading = document.createElement('h3'); entityHeading.textContent = 'Entity types';
   const linkHeading = document.createElement('h3'); linkHeading.textContent = 'Link kinds';
   element.replaceChildren(entityHeading, entityList, linkHeading, linkList);
@@ -163,15 +161,11 @@ function legendItem(color: string, text: string): HTMLLIElement {
 }
 
 function renderActive(element: HTMLElement, state: ViewState): void {
-  const nodes = [...state.nodes.values()];
-  const links = [...state.links.values()];
-  const keyByType = pickLabelKeys(nodes);
-  const recent = activeNow(state.evidence, nodeById(nodes), keyByType);
-  const hubs = topHubs(nodes, links, keyByType);
+  const recent = activeNow(state.evidence, state.nodesById, state.keyByType);
   const recentHeading = document.createElement('h3'); recentHeading.textContent = 'Active now';
   const hubHeading = document.createElement('h3'); hubHeading.textContent = 'Hubs';
   const recentList = metricList(recent.map(item => `${item.label} (${item.count})`));
-  const hubList = metricList(hubs.map(item => `${item.label} (${item.degree})`));
+  const hubList = metricList(state.hubs.map(item => `${item.label} (${item.degree})`));
   element.replaceChildren(recentHeading, recentList, hubHeading, hubList);
 }
 
