@@ -4,7 +4,9 @@ The workspace's fitness functions: `cargo xtask check`.
 
 ## Allowed dependencies
 
-- `serde`, `serde_json`, `toml`, `syn`, `proc-macro2`, `s2w-core` (the golden replay check folds the golden log)
+- `serde`, `serde_json`, `toml`, `syn`, `proc-macro2`, `s2w-core` (the golden replay check folds
+  the golden log), `s2w-model` (the obfuscation replay's engine-layer coverage builds
+  `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 

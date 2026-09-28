@@ -11,6 +11,8 @@ workspace = true
 
 [dependencies]
 s2w-core = { path = "../crates/s2w-core" }
+s2w-model = { path = "../crates/s2w-model" }
+s2w-system1 = { path = "../crates/s2w-system1" }
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

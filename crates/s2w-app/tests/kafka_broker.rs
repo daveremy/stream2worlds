@@ -109,6 +109,7 @@ fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std
                 since,
                 log_dir: log_dir.to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             };
             async move {
                 let mut reporter = HumanReporter;

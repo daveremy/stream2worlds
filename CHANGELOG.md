@@ -13,6 +13,39 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Generic field filter, replacing `--wiki` — #131 (2026-09-28)
+
+**Shipped:** a generic, data-driven `--filter <json-path><op><value>` flag (repeatable) on
+`watch` and `serve`, replacing the retired `--wiki` canary/examplewiki drop with a mechanism
+any stream can use. `s2w-sources::filter` (`FieldFilter`, `FilterOp::{Eq,Ne}`) parses specs and
+matches them against an event's decoded JSON; `sse::filtered::FilteredDialect` applies them as
+a decorator around any `SseDialect`, filtering pre-envelope so a dropped frame never reaches
+the log. `registry::resolve` takes the caller's filters and wraps SSE sources automatically;
+Kafka and stdin refuse loudly (`ResolveError::FiltersUnsupported`) rather than silently
+ignoring a filter they cannot honor. Presets (`presets::PRESETS`) carry their own default
+filter specs as a fourth column — the `wikipedia` preset's canary/examplewiki drop is now data,
+not code. `cargo xtask check`'s obfuscation-replay check (added for #119) now also covers the
+`s2w-system1` engine layer (`JsonClaimsEngine`), reusing the same golden fixture through a
+hand-built `RawEvent` per event rather than a new one.
+
+**Learned:** a required end-to-end test (a canary-shaped frame driven through the real loopback
+SSE harness with the `wikipedia` preset's exact filter specs, asserting it never reaches the
+SQLite log) is what actually proves the mechanism works — round 1 of plan review found that
+the original plan would have compiled and passed unit tests while silently no-op'ing the
+filter in production.
+
+**Changed course:** none — the original scope (replace `--wiki` with a generic filter) held;
+plan review round 1 tightened where the mechanism lives (in `s2w-sources`, applied at
+`SseDialect::accept`, not threaded through the CLI layer) and added the required end-to-end
+test above.
+
+**Next:** Kafka/stdin `--filter` support (today they refuse loudly instead) —
+[#134](https://github.com/daveremy/stream2worlds/issues/134). Obfuscation-replay coverage for
+the bridge registry (`s2w-app::Bridge`/`EngineRegistry`) remains a documented gap —
+[#135](https://github.com/daveremy/stream2worlds/issues/135).
+
+---
+
 ## No compiled domain code — #119 (2026-09-28)
 
 **Shipped:** retired the Wikimedia-bound compiled engines (`WikimediaPageChangeEngine`, the

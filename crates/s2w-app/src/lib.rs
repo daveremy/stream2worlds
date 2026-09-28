@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use s2w_log::{EventLog, LogError, SqliteEventLog};
 use s2w_model::{Cursor, SourceId};
-use s2w_sources::registry::resolve;
+use s2w_sources::registry::{FieldFilter, resolve};
 use s2w_sources::source::{CursorLookup, Ending, SourceError};
 
 /// Failures from wiring and running a watch command.
@@ -75,6 +75,10 @@ pub struct WatchArgs {
     /// `--json` (s2w#79): NDJSON progress on stdout, and `{"note":…}` / `{"error":…,
     /// "fatal":bool}` objects on stderr, instead of the human status lines.
     pub json: bool,
+    /// Raw `--filter <path>[!]=<value>` specs, parsed and ANDed against every event's raw
+    /// payload before it is stored (SSE sources only today — a preset's own default filters,
+    /// if any, are ANDed with these, not replaced by them).
+    pub filters: Vec<String>,
 }
 
 /// Runs `s2w watch <source-uri>` until the source ends or the process is stopped.
@@ -98,7 +102,9 @@ pub fn watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError>
 ///
 /// As [`watch`].
 pub async fn run_watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError> {
-    let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
+    let filters = parse_filters(&args.filters)?;
+    let source =
+        resolve(&args.uri, &filters).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let name = source.name();
@@ -124,6 +130,15 @@ pub async fn run_watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(),
         Ending::AtEndOfInput => Ok(()),
         Ending::Never => Err(AppError::StreamEnded(name)),
     }
+}
+
+/// Parses every raw `--filter` spec, or a [`AppError::Usage`] naming the first bad one.
+/// Shared by `watch` and `serve` (s2w#131).
+pub(crate) fn parse_filters(specs: &[String]) -> Result<Vec<FieldFilter>, AppError> {
+    specs
+        .iter()
+        .map(|spec| FieldFilter::parse(spec).map_err(AppError::Usage))
+        .collect()
 }
 
 /// Maps a held writer lock to a usage error naming which lock blocked (`watch` and `serve`
@@ -169,7 +184,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_stream::StreamExt;
 
-    use super::{AppError, HumanReporter, LogCursors, WatchArgs, watch};
+    use super::{AppError, HumanReporter, LogCursors, WatchArgs, parse_filters, watch};
 
     #[test]
     fn watch_lock_conflict_maps_to_usage_and_releases() {
@@ -181,6 +196,7 @@ mod tests {
                 since: None,
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         )
@@ -279,6 +295,7 @@ mod tests {
                 since: Some("2026-09-27T00:00:00Z".to_owned()),
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         );
@@ -303,6 +320,7 @@ mod tests {
                 since: None,
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         );
@@ -327,6 +345,7 @@ mod tests {
                 since: None,
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         );
@@ -357,6 +376,7 @@ mod tests {
                 since: Some("2026-09-27T00:00:00Z".to_owned()),
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         );
@@ -375,6 +395,7 @@ mod tests {
                 since: None,
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         );
@@ -393,6 +414,7 @@ mod tests {
                 since: Some("2026-09-27".to_owned()),
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         );
@@ -412,6 +434,7 @@ mod tests {
                 since: Some("yesterday".to_owned()),
                 log_dir: directory.path().to_path_buf(),
                 json: false,
+                filters: Vec::new(),
             },
             &mut HumanReporter,
         );
@@ -475,7 +498,7 @@ mod tests {
             });
 
             let mut log = SqliteEventLog::open(directory.path()).expect("log should reopen");
-            let source = resolve(&uri).expect("loopback URL should resolve");
+            let source = resolve(&uri, &[]).expect("loopback URL should resolve");
             let started = source
                 .start(None, &LogCursors(&log))
                 .await
@@ -510,6 +533,99 @@ mod tests {
                 );
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
+
+            server.abort();
+            let _ignored = server.await;
+        });
+    }
+
+    /// s2w#131: proves the canary/`examplewiki` drop actually filters — not just that
+    /// `FieldFilter::parse`/`matches` are correct in isolation, but that a dropped frame never
+    /// reaches the SQLite log while a normal frame does. Uses the same filter specs the
+    /// `wikipedia` preset ships (`presets::PRESETS`'s 4th column) against a generic loopback SSE
+    /// source (the preset's own URL is fixed to the real Wikimedia endpoint and cannot be
+    /// loopback-tested directly) — the filtering code path (`FilteredDialect::accept`) is the
+    /// same one the preset wires up, only the wrapped dialect (`Opaque` here vs.
+    /// `SinceQueryParam` for the preset) differs, and that difference is not what this test is
+    /// about. Before this fix, the equivalent specs would have been applied to the ENVELOPED
+    /// stored payload (`{"data":"<raw JSON as a string>","id":…}`) in `s2w-app`, so `wiki_id`
+    /// would never be found and the canary frame would have reached the log anyway — this test
+    /// fails under that shape and passes under `FilteredDialect`'s pre-envelope filtering.
+    #[test]
+    fn a_canary_shaped_frame_is_dropped_before_it_reaches_the_log() {
+        run(false, async {
+            let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+                Ok(listener) => listener,
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => return,
+                Err(error) => panic!("loopback listener should bind: {error}"),
+            };
+            let address = listener
+                .local_addr()
+                .expect("listener should have an address");
+            let uri = format!("http://{address}/events");
+            let directory = TestDirectory::new("sse-canary-drop");
+
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.expect("request should connect");
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let read = socket
+                        .read(&mut buffer)
+                        .await
+                        .expect("request should be readable");
+                    assert!(read > 0, "request ended before its headers");
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\n\
+                          id: c1\ndata: {\"wiki_id\":\"examplewiki\"}\n\n\
+                          id: c2\ndata: {\"wiki_id\":\"enwiki\",\"ok\":true}\n\n",
+                    )
+                    .await
+                    .expect("response should be writable");
+                std::future::pending::<()>().await;
+            });
+
+            let filters = parse_filters(&[
+                "meta.domain!=canary".to_owned(),
+                "wiki_id!=examplewiki".to_owned(),
+                "database!=examplewiki".to_owned(),
+            ])
+            .expect("wikipedia preset filter specs must parse");
+
+            let mut log = SqliteEventLog::open(directory.path()).expect("log should open");
+            let source = resolve(&uri, &filters).expect("loopback URL should resolve");
+            let started = source
+                .start(None, &LogCursors(&log))
+                .await
+                .expect("source should start");
+
+            let mut stream = started.stream;
+            let event = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                .await
+                .expect("an event should arrive")
+                .expect("source should stay open")
+                .expect("the non-canary frame should be accepted");
+            assert_eq!(
+                event.cursor.as_bytes(),
+                b"c2",
+                "the canary frame (c1) must never reach the stream at all"
+            );
+            log.append(event).expect("event should append");
+
+            let stored: Vec<Vec<u8>> = log
+                .replay(None)
+                .expect("log should replay")
+                .filter_map(Result::ok)
+                .map(|stored| stored.event.cursor.as_bytes().to_vec())
+                .collect();
+            assert_eq!(
+                stored,
+                vec![b"c2".to_vec()],
+                "the canary frame must never be stored — got {stored:?}"
+            );
 
             server.abort();
             let _ignored = server.await;

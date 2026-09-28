@@ -55,16 +55,26 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
     let mut log_dir = None;
     let mut port = None;
     let mut world = None;
+    let mut filters = Vec::new();
     let mut index = 1;
     while index < args.len() {
         let flag = args[index].as_str();
+        if flag == "--filter" {
+            let value = args
+                .get(index + 1)
+                .filter(|v| !v.trim().is_empty() && !v.starts_with("--"))
+                .ok_or_else(|| "--filter needs a value: --filter <path>[!]=<value>".to_owned())?;
+            filters.push(value.clone());
+            index += 2;
+            continue;
+        }
         let slot = match flag {
             "--log-dir" => &mut log_dir,
             "--port" => &mut port,
             "--world" => &mut world,
             other => {
                 return Err(format!(
-                    "unexpected argument '{other}': expected --log-dir, --port or --world"
+                    "unexpected argument '{other}': expected --log-dir, --port, --world or --filter"
                 ));
             }
         };
@@ -90,6 +100,7 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
             p.parse::<u16>()
                 .map_err(|_| "--port needs an integer from 0 to 65535".to_owned())
         })?,
+        filters,
     })
 }
 
@@ -107,6 +118,7 @@ mod tests {
                 world: "default".to_owned(),
                 log_dir: PathBuf::from("./s2w-data"),
                 port: 4310,
+                filters: Vec::new(),
             })
         );
         assert_eq!(
@@ -124,6 +136,7 @@ mod tests {
                 world: "research.v2_test-1".to_owned(),
                 log_dir: PathBuf::from("data"),
                 port: 0,
+                filters: Vec::new(),
             })
         );
     }
@@ -181,7 +194,10 @@ mod tests {
     fn json_suffix_is_rejected_as_an_unrecognized_serve_argument() {
         assert_eq!(
             parse(&args(&["-", "--json"])),
-            Err("unexpected argument '--json': expected --log-dir, --port or --world".to_owned())
+            Err(
+                "unexpected argument '--json': expected --log-dir, --port, --world or --filter"
+                    .to_owned()
+            )
         );
     }
 

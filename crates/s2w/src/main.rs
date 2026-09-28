@@ -16,7 +16,7 @@ use s2w_app::{AppError, HumanReporter, WatchArgs};
 /// directory.
 const DEFAULT_LOG_DIR: &str = "./s2w-data";
 
-const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>] [--json]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists. --json prints one progress object per\n      flush on stdout (e.g. {\"appended\":1,\"duplicates\":0,\"reconnects\":0,\n      \"cursor\":\"...\",\"at\":1700000000000}), one {\"note\":\"...\"} object per benign\n      startup note, and one {\"error\":\"...\",\"fatal\":bool} object per source error,\n      both on stderr, instead of the human status lines.\n\n  s2w serve <source> [--log-dir <path>] [--port <port>] [--world <name>]\n      Ingest and serve the live query API on 127.0.0.1 (default port 4310; 0 picks\n      a free port). Default log directory: ./s2w-data.\n      --world <name>                    world id (default: default)\n\nSources:\n  wikipedia                            Wikipedia page changes (a named URL preset over\n                                       sse); --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp [--log-dir <path>] [--world <name>]\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world by default;\n      --log-dir PATH serves a one-shot snapshot of the real on-disk world at PATH,\n      read-only while s2w serve may keep writing there. --world NAME selects the\n      world id (default \"default\").\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; also `s2w watch <source> --json`\n      for NDJSON progress (see above). Before `serve` or `mcp`, it selects JSON\n      rendering (`s2w --json serve ...`, `s2w --json mcp`); for mcp, only startup\n      and usage errors are affected because stdout is JSON-RPC-only once serving.\n      For serve and mcp this flag is prefix-only; unlike watch, it is not accepted\n      among the subcommand's own arguments."; // vocabulary: allow
+const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>] [--filter <spec>]... [--json]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists. --filter <path>[!]=<value> drops any\n      event whose payload does not match (repeatable, ANDed together; a preset's\n      own default filters, if any, are ANDed with these). --json prints one\n      progress object per flush on stdout (e.g. {\"appended\":1,\"duplicates\":0,\n      \"reconnects\":0,\"cursor\":\"...\",\"at\":1700000000000}), one {\"note\":\"...\"}\n      object per benign startup note, and one {\"error\":\"...\",\"fatal\":bool}\n      object per source error, both on stderr, instead of the human status\n      lines.\n\n  s2w serve <source> [--log-dir <path>] [--port <port>] [--world <name>] [--filter <spec>]...\n      Ingest and serve the live query API on 127.0.0.1 (default port 4310; 0 picks\n      a free port). Default log directory: ./s2w-data.\n      --world <name>                    world id (default: default)\n      --filter <path>[!]=<value>        as in watch, above (repeatable)\n\nSources:\n  wikipedia                            Wikipedia page changes (a named URL preset over\n                                       sse); --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp [--log-dir <path>] [--world <name>]\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world by default;\n      --log-dir PATH serves a one-shot snapshot of the real on-disk world at PATH,\n      read-only while s2w serve may keep writing there. --world NAME selects the\n      world id (default \"default\").\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; also `s2w watch <source> --json`\n      for NDJSON progress (see above). Before `serve` or `mcp`, it selects JSON\n      rendering (`s2w --json serve ...`, `s2w --json mcp`); for mcp, only startup\n      and usage errors are affected because stdout is JSON-RPC-only once serving.\n      For serve and mcp this flag is prefix-only; unlike watch, it is not accepted\n      among the subcommand's own arguments."; // vocabulary: allow
 
 fn main() -> ExitCode {
     dispatch(std::env::args().skip(1).collect())
@@ -97,11 +97,13 @@ fn parse_watch(args: &[String]) -> Result<WatchArgs, String> {
 }
 
 /// Parses the flag tail of `s2w watch <source>`: `--since` and `--log-dir`, each with exactly
-/// one value at most once; `--json` (s2w#79), a value-less flag, at most once.
+/// one value at most once; `--json` (s2w#79), a value-less flag, at most once; `--filter
+/// <path>[!]=<value>` (s2w#131), repeatable.
 fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> {
     let mut since = None;
     let mut log_dir = None;
     let mut json = false;
+    let mut filters = Vec::new();
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -109,7 +111,7 @@ fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> 
             Some(name) => name,
             None => {
                 return Err(format!(
-                    "unexpected argument '{flag}': expected --since, --log-dir or --json"
+                    "unexpected argument '{flag}': expected --since, --log-dir, --filter or --json"
                 ));
             }
         };
@@ -121,12 +123,20 @@ fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> 
             index += 1;
             continue;
         }
+        if name == "filter" {
+            let Some(value) = args.get(index + 1) else {
+                return Err("--filter needs a value: --filter <path>[!]=<value>".to_owned());
+            };
+            filters.push(value.clone());
+            index += 2;
+            continue;
+        }
         let slot = match name {
             "since" => &mut since,
             "log-dir" => &mut log_dir,
             other => {
                 return Err(format!(
-                    "unknown flag '--{other}'. Try: --since <value>, --log-dir <path> or --json"
+                    "unknown flag '--{other}'. Try: --since <value>, --log-dir <path>, --filter <path>[!]=<value> or --json"
                 ));
             }
         };
@@ -144,6 +154,7 @@ fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> 
         since,
         log_dir: log_dir.map_or_else(|| PathBuf::from(DEFAULT_LOG_DIR), PathBuf::from),
         json,
+        filters,
     })
 }
 
@@ -257,7 +268,8 @@ mod tests {
                 uri: "wikipedia".to_owned(),
                 since: None,
                 log_dir: PathBuf::from("./s2w-data"),
-                json: false
+                json: false,
+                filters: Vec::new()
             })
         );
     }
@@ -276,7 +288,8 @@ mod tests {
                 uri: "wikipedia".to_owned(),
                 since: Some("2026-09-27T12:00:00Z".to_owned()),
                 log_dir: PathBuf::from("/tmp/s2w"),
-                json: false
+                json: false,
+                filters: Vec::new()
             })
         );
     }
@@ -289,7 +302,8 @@ mod tests {
                 uri: "wikipedia".to_owned(),
                 since: Some("123".to_owned()),
                 log_dir: PathBuf::from("./s2w-data"),
-                json: false
+                json: false,
+                filters: Vec::new()
             })
         );
         assert_eq!(
@@ -298,7 +312,8 @@ mod tests {
                 uri: "wikipedia".to_owned(),
                 since: None,
                 log_dir: PathBuf::from("data/dir"),
-                json: false
+                json: false,
+                filters: Vec::new()
             })
         );
     }
@@ -327,7 +342,8 @@ mod tests {
                 uri: "kafka://localhost:9092/orders".to_owned(),
                 since: Some("1700000000000".to_owned()),
                 log_dir: PathBuf::from("k"),
-                json: false
+                json: false,
+                filters: Vec::new()
             })
         );
     }
@@ -340,7 +356,8 @@ mod tests {
                 uri: "-".to_owned(),
                 since: None,
                 log_dir: PathBuf::from("s"),
-                json: false
+                json: false,
+                filters: Vec::new()
             })
         );
     }
@@ -365,7 +382,8 @@ mod tests {
                 uri: "wikipedia".to_owned(),
                 since: None,
                 log_dir: PathBuf::from("./s2w-data"),
-                json: true
+                json: true,
+                filters: Vec::new()
             })
         );
         assert_eq!(
@@ -381,7 +399,8 @@ mod tests {
                 uri: "wikipedia".to_owned(),
                 since: Some("123".to_owned()),
                 log_dir: PathBuf::from("data/dir"),
-                json: true
+                json: true,
+                filters: Vec::new()
             })
         );
     }

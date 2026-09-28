@@ -3,11 +3,12 @@
 
 use std::sync::Arc;
 
+pub use crate::filter::FieldFilter;
 use crate::hash::fnv1a64_hex;
 use crate::kafka::KafkaAdapter;
 use crate::presets::preset;
 use crate::source::{Source, SourceError};
-use crate::sse::{Opaque, SseConfig, SseSource, USER_AGENT};
+use crate::sse::{FilteredDialect, Opaque, SseConfig, SseSource, USER_AGENT};
 use crate::stdin::StdinSource;
 
 /// The forms [`resolve`] accepts, for usage messages.
@@ -27,25 +28,63 @@ pub enum ResolveError {
         /// The accepted forms.
         forms: &'static str,
     },
+    /// A `--filter` was given for a source whose adapter has no per-record filter hook yet
+    /// (Kafka, stdin). Refused loudly rather than silently ignored — a filter that silently
+    /// matches nothing is exactly the bug this flag exists to fix.
+    #[error("--filter is not supported for {scheme} sources yet (uri: {uri:?})")]
+    FiltersUnsupported {
+        /// The URI given.
+        uri: String,
+        /// The adapter that cannot honor a filter.
+        scheme: &'static str,
+    },
+    /// A preset's own default `--filter` spec does not parse. Unreachable for a committed
+    /// `PRESETS` entry (`every_preset_filter_spec_parses` proves it), surfaced here rather than
+    /// panicking so a future bad edit fails loudly instead of crashing the process.
+    #[error(transparent)]
+    PresetFilterInvalid(#[from] PresetFilterError),
 }
 
+/// A preset's own default filter spec failed to parse; see [`ResolveError::PresetFilterInvalid`].
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct PresetFilterError(String);
+
 /// Resolves `uri`: `-` is stdin, then an exact preset name, then the scheme before `://`.
+/// `filters` are ANDed against every event's raw payload before it is stored (SSE only today;
+/// see [`ResolveError::FiltersUnsupported`]).
 ///
 /// # Errors
 ///
 /// [`ResolveError::Unknown`] listing the accepted forms, [`ResolveError::Invalid`] when the
-/// scheme's adapter refuses the rest of the URI.
-pub fn resolve(uri: &str) -> Result<Box<dyn Source>, ResolveError> {
-    if let Some(source) = preset(uri) {
+/// scheme's adapter refuses the rest of the URI, [`ResolveError::FiltersUnsupported`] when
+/// `filters` is non-empty for an adapter with no filter hook, [`ResolveError::PresetFilterInvalid`]
+/// if a preset's own default filter spec does not parse (unreachable for a committed preset).
+pub fn resolve(uri: &str, filters: &[FieldFilter]) -> Result<Box<dyn Source>, ResolveError> {
+    if let Some(source) = preset(uri, filters).map_err(PresetFilterError)? {
         return Ok(source);
     }
     if uri == "-" {
+        if !filters.is_empty() {
+            return Err(ResolveError::FiltersUnsupported {
+                uri: uri.to_owned(),
+                scheme: "stdin",
+            });
+        }
         return Ok(Box::new(StdinSource::from_stdin()));
     }
     match uri.split_once("://") {
-        Some(("kafka", _)) => Ok(Box::new(KafkaAdapter::parse(uri)?)),
-        Some(("sse", rest)) => Ok(Box::new(sse(format!("https://{rest}"))?)),
-        Some(("https" | "http", _)) => Ok(Box::new(sse(uri.to_owned())?)),
+        Some(("kafka", _)) => {
+            if !filters.is_empty() {
+                return Err(ResolveError::FiltersUnsupported {
+                    uri: uri.to_owned(),
+                    scheme: "kafka",
+                });
+            }
+            Ok(Box::new(KafkaAdapter::parse(uri)?))
+        }
+        Some(("sse", rest)) => Ok(Box::new(sse(format!("https://{rest}"), filters)?)),
+        Some(("https" | "http", _)) => Ok(Box::new(sse(uri.to_owned(), filters)?)),
         _ => Err(ResolveError::Unknown {
             uri: uri.to_owned(),
             forms: FORMS,
@@ -74,7 +113,7 @@ fn sanitize(input: &str) -> String {
 /// which is never sent to the server) and alone determines identity, so two URLs that sanitize
 /// to the same readable prefix (different query strings, or path punctuation that collapses to
 /// the same underscores) still get distinct source ids and never share a stored cursor.
-fn sse(url: String) -> Result<SseSource, SourceError> {
+fn sse(url: String, filters: &[FieldFilter]) -> Result<SseSource, SourceError> {
     let invalid = |reason: String| SourceError::InvalidTarget {
         name: "sse",
         uri: url.clone(),
@@ -101,10 +140,14 @@ fn sse(url: String) -> Result<SseSource, SourceError> {
     // Canonical identity: everything but the fragment, which the server never sees.
     let canonical = parsed.as_str().split('#').next().unwrap_or(parsed.as_str());
     let source_id = format!("{readable}.{}", fnv1a64_hex(canonical.as_bytes()));
+    // Wrapped unconditionally, even with an empty filter list — `FilteredDialect` with no
+    // filters is a no-op (`apply_all(&[], _) == true`), simpler than branching here.
+    let dialect: Arc<dyn crate::sse::SseDialect> =
+        Arc::new(FilteredDialect::new(Arc::new(Opaque), filters.to_vec()));
     Ok(SseSource::new(SseConfig {
         name: "sse",
         url,
-        dialect: Arc::new(Opaque),
+        dialect,
         source_id,
         user_agent: USER_AGENT,
     }))
@@ -115,7 +158,7 @@ mod tests {
     use super::{FORMS, resolve};
 
     fn name(uri: &str) -> Result<&'static str, String> {
-        resolve(uri)
+        resolve(uri, &[])
             .map(|source| source.name())
             .map_err(|error| error.to_string())
     }
@@ -152,7 +195,8 @@ mod tests {
 
     #[test]
     fn sse_source_ids_are_derived_from_host_and_path() {
-        let id = |uri: &str| super::sse(uri.to_owned()).map(|source| source.source_id().to_owned());
+        let id =
+            |uri: &str| super::sse(uri.to_owned(), &[]).map(|source| source.source_id().to_owned());
         let a = id("https://stream.example.org/v2/recent%20changes").expect("valid");
         assert!(
             a.starts_with("sse.stream.example.org.v2_recent_20changes."),
@@ -167,7 +211,7 @@ mod tests {
     #[test]
     fn sse_source_ids_never_collide_on_query_or_sanitized_punctuation() {
         let id = |uri: &str| {
-            super::sse(uri.to_owned())
+            super::sse(uri.to_owned(), &[])
                 .expect("valid")
                 .source_id()
                 .to_owned()
@@ -179,6 +223,30 @@ mod tests {
         );
         // Path punctuation that sanitizes to the same readable prefix must not share an id.
         assert_ne!(id("https://h/a/b"), id("https://h/a_b"));
+    }
+
+    #[test]
+    fn kafka_refuses_a_filter_loudly_instead_of_ignoring_it() {
+        let filters = vec![super::FieldFilter::parse("a=1").expect("valid")];
+        match resolve("kafka://b:9092/t", &filters) {
+            Err(message) => {
+                let message = message.to_string();
+                assert!(message.contains("not supported"), "{message}");
+            }
+            Ok(_) => panic!("a kafka URI with a filter must be refused, not silently ignored"),
+        }
+    }
+
+    #[test]
+    fn stdin_refuses_a_filter_loudly_instead_of_ignoring_it() {
+        let filters = vec![super::FieldFilter::parse("a=1").expect("valid")];
+        match resolve("-", &filters) {
+            Err(message) => {
+                let message = message.to_string();
+                assert!(message.contains("not supported"), "{message}");
+            }
+            Ok(_) => panic!("stdin with a filter must be refused, not silently ignored"),
+        }
     }
 
     #[test]

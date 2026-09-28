@@ -16,22 +16,31 @@
 //! event log (`{"key": "site-a", ...}`) but a key in the folded world (`"keys": {"site-a": 0}`),
 //! which is exactly the role a naive by-JSON-position transform would get wrong.
 //!
-//! Scope: this replays only `s2w-core`'s fold, the one layer decision 0018's "measured today"
-//! note says is clean. It does not yet run through the bridge registry or `s2w-system1`'s
-//! engines, where domain-keyed logic could plausibly return — see the PR's Deferred concerns.
+//! Scope: replays `s2w-core`'s fold and, via [`engine_replay`], `s2w-system1`'s engines
+//! (`JsonClaimsEngine` today — the vec is iterated, so a future engine is covered
+//! automatically). It does not yet run through the bridge registry (`s2w-app::Bridge`/
+//! `EngineRegistry`) — tracked as [stream2worlds#135](https://github.com/daveremy/stream2worlds/issues/135).
+//! `Route::Exact("stdin")` is the only default route today, so the registry carries
+//! materially less domain-keying risk than the engine layer this check now covers.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use s2w_core::{World, WorldEvent, fold};
+use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
+use s2w_system1::{Engine, JsonClaimsEngine, Verdict};
 use serde_json::Value;
 
 use crate::golden::{HUB_CAP, LOG};
 
 pub(crate) fn check(root: &Path) -> Vec<String> {
     match fs::read_to_string(root.join(LOG)) {
-        Ok(text) => replay(&text),
+        Ok(text) => {
+            let mut problems = replay(&text);
+            problems.extend(engine_replay(&text));
+            problems
+        }
         Err(e) => vec![format!("{LOG}: {e}")],
     }
 }
@@ -49,6 +58,61 @@ pub(crate) fn replay(log_text: &str) -> Vec<String> {
         let world = fold(World::with_hub_cap(HUB_CAP), events);
         serde_json::to_value(world).map_err(|e| e.to_string())
     })
+}
+
+/// The same replay, through the `s2w-system1` engine layer instead of the bare `s2w-core`
+/// fold: each golden event is wrapped in a hand-built [`RawEvent`] and run through every
+/// [`Engine`] in [`engines`], and the proposed claims are folded exactly as [`replay`] folds
+/// the golden events directly. The engine vec is iterated, so a future engine added to
+/// `s2w-system1` is covered automatically without touching this function.
+pub(crate) fn engine_replay(log_text: &str) -> Vec<String> {
+    let events_json: Value = match serde_json::from_str(log_text) {
+        Ok(v) => v,
+        Err(e) => return vec![format!("{LOG}: not JSON: {e}")],
+    };
+    let events: Vec<WorldEvent> = match serde_json::from_value(events_json.clone()) {
+        Ok(v) => v,
+        Err(e) => return vec![format!("{LOG}: not a JSON array of WorldEvents: {e}")],
+    };
+    let engines = engines();
+    replay_events(&events_json, &events, engine_fold_to_json(&engines))
+}
+
+fn engines() -> Vec<Box<dyn Engine>> {
+    vec![Box::new(JsonClaimsEngine)]
+}
+
+/// Runs each golden `WorldEvent`, re-serialized as a bare-`WorldEvent` [`RawEvent`] payload,
+/// through every engine, collects the proposed claims (abstentions contribute nothing), and
+/// folds them exactly as [`replay`]'s own closure folds the golden events directly —
+/// `JsonClaimsEngine` proposes exactly the event it is given back out for this bare-event
+/// payload shape, so pass A and pass B stay structurally comparable.
+fn engine_fold_to_json(
+    engines: &[Box<dyn Engine>],
+) -> impl Fn(&[WorldEvent]) -> Result<Value, String> + '_ {
+    move |events| {
+        let mut claims = Vec::new();
+        for (i, event) in events.iter().enumerate() {
+            let payload = serde_json::to_vec(event).map_err(|e| e.to_string())?;
+            let raw = RawEvent {
+                source: SourceId::new("golden").map_err(|e| e.to_string())?,
+                cursor: Cursor::new(vec![u8::try_from(i).unwrap_or(u8::MAX)])
+                    .map_err(|e| e.to_string())?,
+                received_at: Timestamp::from_millis(0),
+                payload,
+            };
+            for engine in engines {
+                if let Verdict::Propose {
+                    claims: proposed, ..
+                } = engine.evaluate(&raw)
+                {
+                    claims.extend(proposed);
+                }
+            }
+        }
+        let world = fold(World::with_hub_cap(HUB_CAP), &claims);
+        serde_json::to_value(world).map_err(|e| e.to_string())
+    }
 }
 
 /// `replay`'s wiring — build the maps, obfuscate the event log, fold both, transform pass A's
@@ -438,5 +502,84 @@ mod tests {
                 "schema field '{schema}' leaked into a transform map"
             );
         }
+    }
+
+    // ---------- engine-layer coverage ----------
+
+    #[test]
+    fn the_committed_fixture_replays_clean_through_the_engine_layer() {
+        assert_eq!(engine_replay(LOG_TEXT), Vec::<String>::new());
+    }
+
+    /// The engine-path analogue of `a_dropped_entity_in_pass_b_is_caught`: each golden event,
+    /// run through `JsonClaimsEngine`, proposes exactly itself back out, so dropping one golden
+    /// event before folding stands in for "one proposed claim missing". Exercises the engine
+    /// layer's own claim-collection step (`engine_fold_to_json`), not just `compare` on
+    /// hand-built values.
+    #[test]
+    fn a_dropped_claim_on_the_engine_path_is_caught() {
+        let events_json: Value = serde_json::from_str(LOG_TEXT).unwrap();
+        let events: Vec<WorldEvent> = serde_json::from_value(events_json.clone()).unwrap();
+        let (key_map, value_map, problems) = build_maps(&events_json);
+        assert!(problems.is_empty(), "{problems:?}");
+
+        let engines = engines();
+        let fold_to_json = engine_fold_to_json(&engines);
+
+        let full_a = fold_to_json(&events).unwrap();
+        let dropped_a = fold_to_json(&events[1..]).unwrap();
+
+        let transformed_full = transform(&full_a, &key_map, &value_map);
+        let transformed_dropped = transform(&dropped_a, &key_map, &value_map);
+
+        // Sanity first: comparing the full pass against an untouched clone of itself must read
+        // clean, so the assertion below is caused by the drop, not by `compare` always firing.
+        let problems = compare(&transformed_full, &transformed_full.clone());
+        assert_eq!(problems.len(), 0, "{problems:?}");
+
+        let problems = compare(&transformed_full, &transformed_dropped);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("different world"), "{}", problems[0]);
+    }
+
+    /// A toy `Engine` that reads the literal attrs key `"wiki_id"` off the raw payload bytes —
+    /// exactly the domain-keyed read this check exists to catch, now at the engine layer rather
+    /// than the fold. Wired through `replay_events` exactly as `engine_replay` wires the real
+    /// engines, mirroring `replay_itself_catches_a_domain_keyed_fold_not_just_the_comparator`:
+    /// proves `replay_events`' own plumbing surfaces the mismatch, not just `compare` called
+    /// directly.
+    #[test]
+    fn engine_replay_itself_catches_a_domain_keyed_engine_not_just_the_comparator() {
+        struct ToyDomainKeyedEngine;
+        impl Engine for ToyDomainKeyedEngine {
+            fn name(&self) -> &'static str {
+                "toy_domain_keyed"
+            }
+            fn version(&self) -> u32 {
+                1
+            }
+            fn evaluate(&self, event: &RawEvent) -> Verdict {
+                let hit = String::from_utf8_lossy(&event.payload).contains("wiki_id");
+                Verdict::Propose {
+                    claims: vec![WorldEvent::EntityObserved {
+                        key: s2w_model::NaturalKey::new(if hit { "hit" } else { "e1" }),
+                        entity_type: "toy".to_owned(),
+                        attrs: BTreeMap::new(),
+                    }],
+                    confidence: s2w_system1::Confidence::CERTAIN,
+                }
+            }
+        }
+
+        let events_json: Value = serde_json::from_str(
+            r#"[{"EntityObserved": {"key": "e1", "entity_type": "t", "attrs": {"wiki_id": {"Str": "123"}}}}]"#,
+        )
+        .unwrap();
+        let events: Vec<WorldEvent> = serde_json::from_value(events_json.clone()).unwrap();
+
+        let engines: Vec<Box<dyn Engine>> = vec![Box::new(ToyDomainKeyedEngine)];
+        let problems = replay_events(&events_json, &events, engine_fold_to_json(&engines));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("different world"), "{}", problems[0]);
     }
 }

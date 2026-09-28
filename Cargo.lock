@@ -2894,6 +2894,8 @@ version = "0.0.0"
 dependencies = [
  "proc-macro2",
  "s2w-core",
+ "s2w-model",
+ "s2w-system1",
  "serde",
  "serde_json",
  "syn 2.0.119",
