@@ -74,22 +74,28 @@ offset. Membership at offset N is derived by folding these rows **by that record
 to and including N; a row's own recorded offset is never revised by a later fact, so the past
 never changes retroactively.
 
-Only the process serving the world writes membership rows — 0014 already puts one process in
-sole possession of the event log's, the verdict store's and (by extension) the world's writer
-locks, so an admin action (add/remove a source) is routed to that process, never applied
-directly by an external tool against a directory the server holds open. That process already
-maintains the live fold state to answer queries (0006's `QueryState`/`Timeline`), so it reads
-its own current fold offset directly when it writes a membership row; it does not need a fresh
-fold pass, and it does not need the raw log-position-to-fold-offset mapping 0006 defers to #33
-— that mapping is only needed by a reader with the log but no already-running fold, which the
-serving process is not.
+Only `serve` writes membership rows — it is the only command that holds a `QueryState`
+(0006/0014); `watch` holds the same writer locks but has no query state and is not where an
+admin action is applied. 0014 already puts `serve` in sole possession of the event log's, the
+verdict store's and the world's writer locks, so add/remove a source is routed to that running
+process, never applied directly by an external tool against a directory the server holds open.
+`serve` reads its `Timeline`'s current head offset directly when it writes a membership row —
+cheap, since it already holds that state to answer queries (0006) — rather than a fresh fold
+pass or the raw log-position-to-fold-offset mapping 0006 defers to #33, which is only needed by
+a reader with the log but no already-running fold.
 
-**Membership enforcement lives in the same write path as ingestion, not beside it.** The
-group-commit pump (0002's amendment, 0014) checks current membership before assembling each
-batch: it never starts a fetch against a removed source, and a batch already being assembled
-when a `Removed` row lands is truncated at that row's offset — no event from that source is
-appended at or after its `Removed` row's recorded offset. This is what makes "future stops"
-true of the log's actual contents, not only of the membership log's claim about them.
+**Membership enforcement is commit order, not an offset comparison.** The bridge assigns fold
+offsets after ingestion, with a lag behind the raw log (0014) — a fold offset recorded on a
+`Removed` row and a log append's own position are not directly comparable, the same
+log-position-vs-fold-offset distinction 0006 draws. So enforcement is stated at the level that
+is actually true: the `Removed` row and the group-commit pump's batches commit through the same
+writer lock, in the same database, on the same thread (0014); the pump checks current
+membership before assembling each batch and never starts a fetch against a removed source, so
+any batch that would contain that source's events simply never commits after the `Removed`
+row's own commit. "Future stops" is a claim about commit order — no batch from a removed source
+commits after its `Removed` row — not a claim compared across fold offsets and log positions.
+A recorded fold offset on a membership row is audit and display data (what a
+`/worlds/{world}/sources?at=` reader sees), not the mechanism that stops ingestion.
 
 `effective_from` on `Added` answers a different question and is never confused with the row's
 recorded offset: it names a position in the *source's own stream* (a Kafka partition offset, an
@@ -103,7 +109,14 @@ cursor.
 Membership intervals are half-open: a source is a member from its `Added` row's recorded
 offset up to, but not including, its matching `Removed` row's recorded offset; the event at the
 removal offset itself falls outside the span. Removal is only ever effective at its own
-recorded offset — there is no retroactive removal, matching the append-only rule above.
+recorded offset — there is no retroactive removal, matching the append-only rule above. Because
+the bridge assigns fold offsets after ingestion with some lag (0014), an event already committed
+to the log just before a `Removed` row's own commit can still be folded at an offset numerically
+past that row's recorded offset; commit order, not the recorded offset, is what guarantees it is
+never dropped (previous section). A `sources?at=` read is therefore accurate for anything except
+this narrow race at a removal boundary, matching the spirit of 0006's own clamped-timestamp
+caveat — a display precision limit, never a correctness one, since no ingested event is ever
+lost or double-counted by it.
 
 A re-added source after removal is a new `Added` row, never a revived one — its prior history
 stays exactly where it was, under its own membership span. Re-adding reuses the same
