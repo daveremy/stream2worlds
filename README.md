@@ -176,10 +176,13 @@ read it as a snapshot of the most recent edit, not a running summary of the whol
 
 Confidence here is a similarity score to the nearest category, rescaled to basis points — not a
 calibrated probability. Below a threshold, or too close a tie with the runner-up category, the
-engine abstains rather than guessing: a wrong classification never gets served with false
-certainty, only silence. Scoped to `enwiki` only in this slice, since the underlying model is
-English-only. Full design, the version-pinning scheme, and named calibration follow-ups:
-[decision 0013](docs/decisions/0013-local-embeddings-engine.md).
+engine abstains rather than guessing, so a low-confidence comment produces silence, not a forced
+guess. That does not guarantee an accepted classification is correct — an unrelated comment can
+still score above both threshold and margin and pick the wrong category with apparent
+confidence; threshold/margin calibration against real traffic (named as a follow-up below)
+narrows that risk, it does not eliminate it. Scoped to `enwiki` only in this slice, since the
+underlying model is English-only. Full design, the version-pinning scheme, and named calibration
+follow-ups: [decision 0013](docs/decisions/0013-local-embeddings-engine.md).
 
 ## Technical architecture
 

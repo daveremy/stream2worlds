@@ -289,7 +289,13 @@ mod tests {
                     return Err("expected an EntityObserved claim".into());
                 };
                 assert_eq!(entity_type, "page");
-                assert!(attrs.contains_key("last_edit_category"));
+                // ENWIKI_SAMPLE's comment ("Reverted edits by ... to last revision by ...") is
+                // an unambiguous revert — pin the label, not just its presence (opus review,
+                // code review round 1, s2w#64).
+                assert_eq!(
+                    attrs.get("last_edit_category"),
+                    Some(&AttrValue::Str("revert".to_owned()))
+                );
                 assert!(attrs.contains_key("last_edit_category_rev_id"));
             }
             other => return Err(format!("expected Propose, got {other:?}").into()),

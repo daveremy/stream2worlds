@@ -78,9 +78,13 @@ by construction alone.
 **Threshold and margin are named as unvalidated** (`threshold_bps = 4_000`, `margin_bps = 500`).
 Static-embedding cosine similarity on short text tends to cluster high; these starting values
 may be too permissive or too strict against real `enwiki` traffic. Per decision 0011
-("thresholds are starting points, not published values"), this is not a blocker: the
-abstain-first design means a wrong threshold costs missed classifications (silence), never a
-false claim of certainty. **Follow-up, not built in #64:** calibrate `threshold_bps`/
+("thresholds are starting points, not published values"), this is not a blocker: a threshold set
+too strict costs missed classifications (silence, the safe failure mode). A threshold set too
+permissive is the opposite risk and is NOT fully covered by the abstain design alone — an
+unrelated comment can score above both threshold and margin and pick the wrong one of the six
+fixed categories with apparent confidence; abstention guards against low-similarity noise, not
+against a confident wrong pick among the categories. **Follow-up, not built in #64:** calibrate
+`threshold_bps`/
 `margin_bps` against a sample of real `enwiki` comments; if that needs code changes beyond the
 two constants, file it as a separate issue.
 

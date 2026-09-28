@@ -329,10 +329,14 @@ mod tests {
     /// functions and compares the result to itself proves nothing — it can never fail, because
     /// changing a label, phrase, threshold, or vendored file changes both sides identically.
     /// This test instead compares the running classifier's hashes against literal pinned
-    /// values in an append-only table keyed by version, and asserts no version number is ever
-    /// reused with a different hash pair. Passing it again after a real change requires
-    /// appending a new `(version, model_hash, config_hash)` row and bumping `CURRENT_VERSION`
-    /// in the same diff — updating a pinned literal alone, without touching the version, fails.
+    /// values in a table keyed by version, and asserts no version number is ever reused with a
+    /// different hash pair, and that `CURRENT_VERSION`'s row matches what the running classifier
+    /// actually computes — so *forgetting* to update the pinned row after a real change fails.
+    ///
+    /// This test alone cannot stop someone *editing* an existing row's pinned hashes in place
+    /// (a compiled test has no view of git history — an in-place edit and a real append can look
+    /// identically self-consistent). That is enforced separately, against `origin/main`, by
+    /// `cargo xtask check`'s version-history append-only check (`xtask/src/version_history.rs`).
     #[test]
     fn version_history_is_append_only_and_matches_the_current_build() -> Result<(), ClassifierError>
     {
