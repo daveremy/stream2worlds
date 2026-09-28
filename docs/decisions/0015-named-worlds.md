@@ -1,6 +1,6 @@
 # 0015: Named worlds as the container — world-scoped API, membership history, deployment modes
 
-Date: 2026-09-27 · Status: accepted · Gate 3 · Issue #92 · Amends [0006](0006-world-query-api.md), [0009](0009-mcp-server.md)
+Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #92 · Amends [0006](0006-world-query-api.md), [0009](0009-mcp-server.md)
 
 ## Decision
 
