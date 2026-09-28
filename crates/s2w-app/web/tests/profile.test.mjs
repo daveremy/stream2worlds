@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeNow, labeledSummary, labelFor, linkColor, nodeById, pickLabelKeys, topHubs, typeColor } from '../src/profile.ts';
+import { activeNow, labeledSummary, labelFor, labelMap, linkColor, nodeById, pickLabelKeys, topHubs, typeColor } from '../src/profile.ts';
 
 function entity(entity, attrs, kind = 'entity', inDegree = 0) {
   const base = { kind, id: `entity:${entity}`, entity, entity_type: 'record', keys: [`key-${entity}`],
@@ -16,6 +16,56 @@ test('pickLabelKeys chooses the higher-cardinality string attribute', () => {
     entity(4, { alpha: { Str: 'Alpha Four' }, beta: { Str: 'Group Two' } }),
   ];
   assert.equal(pickLabelKeys(nodes).get('record'), 'alpha');
+});
+
+// A 32-bit FNV-1a hash, kept local to the test (profile.ts's own `hash()` is unexported) so the
+// fixture's ids look like real hashed identifiers, not small sequential integers a production
+// stream would never produce.
+function hashId(seed) {
+  let result = 0x811c9dc5;
+  for (const char of seed) { result ^= char.codePointAt(0); result = Math.imul(result, 0x01000193); }
+  return result >>> 0;
+}
+
+test('pickLabelKeys is invariant under key-renaming AND id-hashing (decision 0018 obfuscation replay)', () => {
+  // Mirrors the obfuscation replay decision 0018 requires at the Rust level: every field
+  // renamed AND every id hashed. Entity ids below are hashed (not sequential 1/2/3/4), and no
+  // two candidate keys tie on score/whitespace/distinct, so the assertion below proves the
+  // SCORING (not a tie-break rule) survives both transformations.
+  const nodes = [
+    entity(hashId('alpha'), { title: { Str: 'Amber Stone' }, category: { Str: 'Group North' } }),
+    entity(hashId('beta'), { title: { Str: 'Birch Field' }, category: { Str: 'Group North' } }),
+    entity(hashId('gamma'), { title: { Str: 'Cobalt Lake' }, category: { Str: 'Group South' } }),
+    entity(hashId('delta'), { title: { Str: 'Dune Ridge' }, category: { Str: 'Group South' } }),
+  ];
+  // Confirm the fixture actually has hash-shaped ids, not an accident of small seed strings.
+  for (const node of nodes) assert.ok(node.entity > 0xffff, `expected a hash-sized id, got ${node.entity}`);
+  const rename = key => `renamed_${[...key].reverse().join('')}`;
+  const renamed = nodes.map((node, index) => ({
+    ...node,
+    entity: hashId(`renamed-${index}`), id: `entity:${hashId(`renamed-${index}`)}`,
+    keys: [`key-${hashId(`renamed-${index}`)}`],
+    attrs: Object.fromEntries(Object.entries(node.attrs).map(([key, value]) => [rename(key), value])),
+  }));
+  const expected = new Map([...pickLabelKeys(nodes)].map(([entityType, key]) =>
+    [entityType, key === undefined ? undefined : rename(key)]));
+  assert.deepEqual(pickLabelKeys(renamed), expected);
+});
+
+test('pickLabelKeys ranks score before whitespace', () => {
+  const nodes = [
+    entity(10, { phrase: { Str: 'Shared Value' }, token: { Str: 'Amber' } }),
+    entity(20, { phrase: { Str: 'Shared Value' }, token: { Str: 'Birch' } }),
+    entity(30, { phrase: { Str: 'Shared Value' }, token: { Str: 'Cobalt' } }),
+    entity(40, { phrase: { Str: 'Shared Value' }, token: { Str: 'Dune' } }),
+  ];
+  assert.equal(pickLabelKeys(nodes).get('record'), 'token');
+});
+
+test('pickLabelKeys keeps hex-letter-only words', () => {
+  const nodes = [entity(10, { candidate: { Str: 'Ada' } }), entity(20, { candidate: { Str: 'cafe' } }),
+    entity(30, { candidate: { Str: 'Beef' } })];
+  assert.equal(pickLabelKeys(nodes).get('record'), 'candidate');
 });
 
 test('pickLabelKeys returns undefined when a type has no string attributes', () => {
@@ -38,6 +88,19 @@ test('pickLabelKeys prefers whitespace-bearing values over tied machine tokens',
 
 test('labelFor falls back to entity keys', () => {
   assert.equal(labelFor(entity(1, {}), new Map()), 'key-1');
+});
+
+test('labelMap disambiguates duplicate labels only', () => {
+  const nodes = [
+    entity(482910, { candidate: { Str: 'Shared Name' } }),
+    entity(9123055, { candidate: { Str: 'Shared Name' } }),
+    entity(7301842, { candidate: { Str: 'Distinct Name' } }),
+  ];
+  assert.deepEqual(labelMap(nodes, pickLabelKeys(nodes)), new Map([
+    ['entity:482910', 'Shared Name #482910'],
+    ['entity:9123055', 'Shared Name #9123055'],
+    ['entity:7301842', 'Distinct Name'],
+  ]));
 });
 
 test('labeledSummary resolves protocol ids and preserves other fields', () => {
@@ -83,4 +146,17 @@ test('activeNow and topHubs sort, truncate, and retain missing ids', () => {
   assert.deepEqual(topHubs(nodes, links, keys, 2), [
     { label: 'Beta Two', degree: 7 }, { label: 'Alpha One', degree: 3 },
   ]);
+});
+
+test('topHubs uses visible degree when it exceeds recorded degree', () => {
+  const nodes = [
+    entity(10, { candidate: { Str: 'Amber One' } }, 'hub', 1),
+    entity(20, { candidate: { Str: 'Birch Two' } }),
+    entity(30, { candidate: { Str: 'Cobalt Three' } }),
+  ];
+  const links = [
+    { source: 'entity:10', target: 'entity:20', kind: 'connected', weight: 1 },
+    { source: 'entity:10', target: 'entity:30', kind: 'connected', weight: 1 },
+  ];
+  assert.deepEqual(topHubs(nodes, links, pickLabelKeys(nodes), 1), [{ label: 'Amber One', degree: 2 }]);
 });

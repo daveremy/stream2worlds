@@ -3,7 +3,7 @@ import type { Link, Message, Node } from './api';
 const TYPE_COLORS = ['#70c9ee', '#f6bd60', '#84dcc6', '#f28482', '#b8a1e3', '#90be6d', '#ff9f68', '#7eb6ff', '#e78ac3'];
 const LINK_COLORS = ['#9ec5fe', '#ffd166', '#80ed99', '#ff8fa3', '#c8b6ff', '#72ddf7', '#f4a261', '#a7c957'];
 
-type LabelKeyMap = Map<string, string | undefined>;
+export type LabelKeyMap = Map<string, string | undefined>;
 
 function hash(value: string): number {
   let result = 0;
@@ -12,8 +12,9 @@ function hash(value: string): number {
 }
 
 function isIdLike(value: string): boolean {
-  if (value.length > 80) return true;
   if (/\s/.test(value) || value.length === 0) return false;
+  if (!/[0-9-]/.test(value)) return false;
+  if (value.length > 80) return true;
   const matching = [...value].filter(char => /[0-9a-f-]/i.test(char)).length;
   return matching / [...value].length > 0.8;
 }
@@ -45,8 +46,9 @@ export function pickLabelKeys(nodes: Node[]): LabelKeyMap {
       const distinct = new Set(values).size;
       return [{ key, whitespace: values.some(value => /\s/.test(value)),
         score: coverage * (distinct / values.length), distinct }];
-    }).sort((left, right) => Number(right.whitespace) - Number(left.whitespace) ||
-      right.score - left.score || right.distinct - left.distinct || (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
+    }).sort((left, right) => right.score - left.score ||
+      Number(right.whitespace) - Number(left.whitespace) || right.distinct - left.distinct ||
+      (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
     result.set(entityType, ranked[0]?.key);
   }
   return result;
@@ -60,14 +62,25 @@ export function labelFor(node: Node, keyByType: LabelKeyMap): string {
   return node.keys.join(', ') || `#${node.entity}`;
 }
 
-export function labeledSummary(message: Message, nodesById: Map<number, Node>, keyByType: LabelKeyMap): string {
+export function labelMap(nodes: Node[], keyByType: LabelKeyMap): Map<string, string> {
+  const labels = nodes.map(node => [node, labelFor(node, keyByType)] as const);
+  const counts = new Map<string, number>();
+  for (const [, label] of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+  return new Map(labels.map(([node, label]) => [node.id,
+    node.kind !== 'type' && counts.get(label)! > 1 ? `${label} #${node.entity}` : label]));
+}
+
+export function labeledSummary(
+  message: Message, nodesById: Map<number, Node>, keyByType: LabelKeyMap,
+  labels?: Map<string, string>,
+): string {
   const idFields = new Set(['entity', 'resolved', 'source', 'target', 'hub', 'survivor', 'absorbed']);
   const labeled: Record<string, unknown> = { ...message };
   for (const key of Object.keys(labeled)) {
     const value = labeled[key];
     if (!idFields.has(key) || typeof value !== 'number') continue;
     const node = nodesById.get(value);
-    labeled[key] = node === undefined ? `#${value}` : labelFor(node, keyByType);
+    labeled[key] = node === undefined ? `#${value}` : labels?.get(node.id) ?? labelFor(node, keyByType);
   }
   return JSON.stringify(labeled);
 }
@@ -95,7 +108,8 @@ export function degreeById(nodes: Node[], links: Link[]): Map<string, number> {
 
 export function activeNow(
   evidence: { offset: number; kind: string; entityIds: number[]; summary: string }[],
-  nodesById: Map<number, Node>, keyByType: LabelKeyMap, windowSize = 50,
+  nodesById: Map<number, Node>, keyByType: LabelKeyMap, labels?: Map<string, string>,
+  windowSize = 50,
 ): { label: string; count: number }[] {
   const counts = new Map<number, number>();
   for (const row of evidence.slice(-windowSize)) {
@@ -103,15 +117,18 @@ export function activeNow(
   }
   return [...counts].sort((left, right) => right[1] - left[1]).slice(0, 5).map(([id, count]) => {
     const node = nodesById.get(id);
-    return { label: node === undefined ? `#${id}` : labelFor(node, keyByType), count };
+    return { label: node === undefined ? `#${id}` : labels?.get(node.id) ?? labelFor(node, keyByType), count };
   });
 }
 
-export function topHubs(nodes: Node[], links: Link[], keyByType: LabelKeyMap, limit = 5): { label: string; degree: number }[] {
+export function topHubs(
+  nodes: Node[], links: Link[], keyByType: LabelKeyMap, limit = 5,
+  labels?: Map<string, string>,
+): { label: string; degree: number }[] {
   const degrees = degreeById(nodes, links);
   return nodes.filter((node): node is Extract<Node, { kind: 'entity' | 'hub' }> => node.kind !== 'type')
-    .map(node => ({ node, degree: node.kind === 'hub' ? node.in_degree : degrees.get(node.id) ?? 0 }))
+    .map(node => ({ node, degree: node.kind === 'hub' ? Math.max(node.in_degree, degrees.get(node.id) ?? 0) : degrees.get(node.id) ?? 0 }))
     .sort((left, right) => right.degree - left.degree)
     .slice(0, limit)
-    .map(({ node, degree }) => ({ label: labelFor(node, keyByType), degree }));
+    .map(({ node, degree }) => ({ label: labels?.get(node.id) ?? labelFor(node, keyByType), degree }));
 }
