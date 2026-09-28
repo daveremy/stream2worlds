@@ -91,7 +91,8 @@ async fn run_serve_async(
         .await?;
     let state = state
         .with_world(args.world.clone())
-        .with_metadata(Some(manifest), log.membership_history()?);
+        .with_metadata(Some(manifest), log.membership_history()?)
+        .with_log_dir(args.log_dir.clone());
     report_source_start(reporter, name, &started.notes);
     let listener = TcpListener::bind(("127.0.0.1", args.port))
         .await

@@ -88,6 +88,11 @@ pub enum QueryError {
     /// panicked" message for an ordinary "too many tabs open" condition).
     #[error("too many concurrent event streams; retry shortly")]
     StreamLimit,
+    /// The log directory could not be opened or read while serving a fresh-per-request value
+    /// (presentation). Distinct from [`Self::Unavailable`], which means the in-memory timeline
+    /// lock was poisoned by a panicking writer — this is a storage-layer failure instead.
+    #[error("storage error: {0}")]
+    Storage(String),
 }
 
 impl QueryError {
@@ -104,6 +109,7 @@ impl QueryError {
             Self::HopsTooLarge { .. } => "hops_too_large",
             Self::Unavailable => "unavailable",
             Self::StreamLimit => "stream_limit",
+            Self::Storage(_) => "storage",
         }
     }
 
