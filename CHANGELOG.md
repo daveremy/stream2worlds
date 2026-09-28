@@ -41,11 +41,13 @@ similarity, additive alongside the existing rules engine on the same page.
   boundary test) that the starting `threshold_bps`/`margin_bps` values may be too strict on
   real `enwiki` text. Named as a calibration follow-up in decision 0013, not built here.
 - `model2vec-rs`'s `default-features = false` alone does not compile: `tokenizers` needs
-  `onig` or `fancy-regex`. Chose `fancy-regex` (pure Rust, no C toolchain) — the plan's
-  round-2 dependency-tree check never actually compiled, so this was invisible until
-  implementation, and it surfaced a second `cargo deny` advisory (`RUSTSEC-2025-0119`,
-  `number_prefix` via `indicatif`) that round 2's check against the non-compiling tree
-  couldn't have found either.
+  `onig` or `fancy-regex`. Chose `fancy-regex` over `onig` (which binds the C Oniguruma
+  library) — the plan's round-2 dependency-tree check never actually compiled, so this was
+  invisible until implementation, and it surfaced a second `cargo deny` advisory
+  (`RUSTSEC-2025-0119`, `number_prefix` via `indicatif`) that round 2's check against the
+  non-compiling tree couldn't have found either. `fancy-regex`'s own regex engine is pure
+  Rust, but the tree still needs a C++ toolchain regardless of this choice: `tokenizers`'s
+  `esaxx_fast` feature pulls in `esaxx-rs`, which compiles C++ via `cc` (decision 0013).
 - Full-mode plan review hit its 2-round cap with both reviewers still blocking on real,
   convergent findings (the version-bump test and the `BelowThreshold`-reused-for-a-near-tie
   issue); a karpathy ruling folded all four remaining findings into implementation rather than

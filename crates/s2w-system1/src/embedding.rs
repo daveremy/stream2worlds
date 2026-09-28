@@ -59,8 +59,11 @@ const CATEGORIES: [(&str, &[&str]); 6] = [
 ];
 
 /// Starting values (decision 0013): calibration against real `enwiki` traffic is a named
-/// follow-up, not built here. The abstain-first design means these being too permissive or too
-/// strict costs missed classifications (silence), never a false claim of certainty.
+/// follow-up, not built here. The abstain-first design guards against low-similarity noise —
+/// too permissive or too strict here costs missed classifications (silence), not a confident
+/// pick with no evidence behind it. It does not guard against a confident but WRONG pick among
+/// the six fixed categories; that risk is inherent to the classifier, not a threshold tuning
+/// question.
 const THRESHOLD_BPS: u16 = 4_000;
 const MARGIN_BPS: u16 = 500;
 
