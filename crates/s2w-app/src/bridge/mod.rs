@@ -6,9 +6,11 @@
 //!
 //! The bridge resumes from the last [`LogPosition`] it consumed, never from a fold offset: one
 //! raw event yields zero or more claims. That position is in memory only, so a new bridge
-//! replays the whole log into an empty timeline. Verdicts are not persisted yet, which is safe
-//! only because every registered engine is a pure function of its payload (see
-//! `crates/s2w-system1/AGENTS.md`).
+//! replays the whole log into an empty timeline — but through the [`VerdictStore`]: a stored
+//! verdict for an event and engine name is served as stored, whatever its version, and the
+//! engine is not called; only an event an engine has no stored verdict for is evaluated
+//! (decision 0012). Each poll batch commits its new verdicts in one transaction before any
+//! of its claims is served, so no claim is ever served whose verdict is not durable.
 
 mod registry;
 
@@ -16,14 +18,14 @@ use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::Duration;
 
-use s2w_log::{LogError, LogPosition, LogReader, StoredEvent};
-use s2w_model::SourceId;
+use s2w_log::{LogError, LogPosition, LogReader, StoredEvent, StoredVerdict, VerdictStore};
+use s2w_model::{SourceId, Timestamp, WorldEvent};
 use s2w_system1::{AbstainReason, Engine, Verdict};
 use tokio::sync::watch;
 
 use crate::query::{QueryError, QueryState};
 
-pub use registry::{EngineRegistry, Route};
+pub use registry::{EngineRegistry, RegistryError, Route};
 
 /// How the bridge polls. SQLite has no cross-process notification, so discovery is a poll.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,9 +73,17 @@ pub struct BridgeStats {
     pub abstained: AbstainCounts,
     /// Consumed events no engine is routed for.
     pub unrouted: u64,
-    /// Engine calls that panicked; the bridge recorded them as `Abstain(Panicked)`.
-    /// (Backwards receipt times are clamped and counted by the timeline, `TimeRange::clamped`.)
+    /// `Abstain(Panicked)` verdicts: an engine call panicked, now or when the verdict was
+    /// stored. (Backwards receipt times are clamped and counted by the timeline,
+    /// `TimeRange::clamped`.)
     pub engine_panics: u64,
+    /// Verdicts served from the verdict store; the engine was not called.
+    pub replayed: u64,
+    /// Replayed verdicts whose stored version differs from the registered engine's version,
+    /// so a version bump is visible.
+    pub replayed_stale_version: u64,
+    /// Engine calls: verdicts evaluated now and stored.
+    pub evaluated: u64,
 }
 
 impl BridgeStats {
@@ -86,6 +96,9 @@ impl BridgeStats {
         self.abstained.insufficient += other.abstained.insufficient;
         self.unrouted += other.unrouted;
         self.engine_panics += other.engine_panics;
+        self.replayed += other.replayed;
+        self.replayed_stale_version += other.replayed_stale_version;
+        self.evaluated += other.evaluated;
     }
 }
 
@@ -94,12 +107,13 @@ impl BridgeStats {
 pub struct PollReport {
     /// What this poll did.
     pub stats: BridgeStats,
-    /// A log error that ended this poll early. Everything before it was consumed; the next
-    /// poll resumes after the last consumed event.
+    /// A log or verdict-store error that ended this poll early. Everything before it was
+    /// consumed; the next poll resumes after the last consumed event. A failed verdict commit
+    /// consumes nothing from the batch.
     pub error: Option<LogError>,
 }
 
-/// One engine's verdict on one stored event: the unit a future verdict log persists.
+/// One engine's verdict on one stored event: the unit the verdict store persists.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerdictRecord {
     /// The evaluated event's log position.
@@ -110,10 +124,28 @@ pub struct VerdictRecord {
     pub version: u32,
     /// The verdict, with a caught panic as `Abstain(Panicked)`.
     pub verdict: Verdict,
+    /// Encoded provenance (decision 0012's reserved keys). `None` from every shipped engine.
+    pub provenance: Option<Vec<u8>>,
 }
 
-/// Runs `engines` on `stored`, in order. The one place verdicts are produced, so persisting
-/// them later is one write inserted here.
+impl VerdictRecord {
+    /// The stored form, bound to the judged event's content hash.
+    fn to_stored(&self, event_hash: i64) -> Result<StoredVerdict, LogError> {
+        let verdict = serde_json::to_vec(&self.verdict)
+            .map_err(|error| LogError::Io(format!("encoding a verdict: {error}")))?;
+        Ok(StoredVerdict {
+            position: self.position,
+            event_hash,
+            engine: self.engine.to_owned(),
+            version: self.version,
+            verdict,
+            provenance: self.provenance.clone(),
+        })
+    }
+}
+
+/// Runs `engines` on `stored`, in order. The one place verdicts are produced; the bridge
+/// persists every one in its [`VerdictStore`] before serving it.
 ///
 /// Engines are infallible by signature; a panic anyway is caught and recorded as
 /// [`AbstainReason::Panicked`], so one bad payload cannot stop the bridge. This relies on the
@@ -133,6 +165,7 @@ pub fn evaluate_stored(stored: &StoredEvent, engines: &[&dyn Engine]) -> Vec<Ver
                 engine: engine.name(),
                 version: engine.version(),
                 verdict,
+                provenance: None,
             }
         })
         .collect()
@@ -159,33 +192,53 @@ pub enum BridgeError {
     /// The served timeline is unavailable (its lock was poisoned).
     #[error("query state: {0}")]
     Query(#[from] QueryError),
+    /// The verdict store could not be read at start.
+    #[error("verdict store: {0}")]
+    Store(LogError),
     /// The blocking task running a poll failed.
     #[error("bridge poll task: {0}")]
     Task(String),
 }
 
-/// Reads the log, runs System 1 and appends claims to the served timeline.
+/// Reads the log, runs System 1 (or replays its stored verdicts) and appends claims to the
+/// served timeline.
 ///
-/// Generic over [`LogReader`], so it runs against [`s2w_log::InMemoryEventLog`] in tests and
-/// [`s2w_log::SqliteEventLog`] on disk.
-pub struct Bridge<R: LogReader> {
+/// Generic over [`LogReader`] and [`VerdictStore`], so it runs against the in-memory log and
+/// store in tests and the SQLite ones on disk.
+pub struct Bridge<R: LogReader, V: VerdictStore> {
     reader: R,
+    verdicts: V,
     registry: EngineRegistry,
     state: QueryState,
     config: BridgeConfig,
     last: Option<LogPosition>,
+    /// The verdict store's cursor at start: the log must reach it (store ahead of log is
+    /// corruption).
+    store_cursor: Option<LogPosition>,
     warned_unrouted: BTreeSet<SourceId>,
     stats: BridgeStats,
 }
 
-impl<R: LogReader> Bridge<R> {
-    /// A bridge that will replay `reader` from its first event into `state`.
+/// One poll batch, judged but not yet committed or served.
+#[derive(Default)]
+struct Judged {
+    stats: BridgeStats,
+    new_rows: Vec<StoredVerdict>,
+    claims: Vec<(Timestamp, WorldEvent)>,
+    through: Option<LogPosition>,
+}
+
+impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
+    /// A bridge that will replay `reader` from its first event into `state`, serving the
+    /// verdicts `verdicts` already holds and storing the ones it evaluates.
     ///
     /// # Errors
     /// [`BridgeError::TimelineNotEmpty`] if `state` already has events;
-    /// [`BridgeError::Query`] if it is unavailable.
+    /// [`BridgeError::Query`] if it is unavailable; [`BridgeError::Store`] if the verdict
+    /// store's cursor cannot be read.
     pub fn new(
         reader: R,
+        verdicts: V,
         registry: EngineRegistry,
         state: QueryState,
         config: BridgeConfig,
@@ -194,6 +247,7 @@ impl<R: LogReader> Bridge<R> {
         if head != 0 {
             return Err(BridgeError::TimelineNotEmpty { head });
         }
+        let store_cursor = verdicts.cursor().map_err(BridgeError::Store)?;
         // A zero batch would never advance, and a zero delay would spin.
         let poll = config.poll.max(Duration::from_millis(1));
         let config = BridgeConfig {
@@ -203,10 +257,12 @@ impl<R: LogReader> Bridge<R> {
         };
         Ok(Self {
             reader,
+            verdicts,
             registry,
             state,
             config,
             last: None,
+            store_cursor,
             warned_unrouted: BTreeSet::new(),
             stats: BridgeStats::default(),
         })
@@ -218,85 +274,210 @@ impl<R: LogReader> Bridge<R> {
         self.stats
     }
 
+    /// The verdict store, e.g. to inspect what a poll stored.
+    #[must_use]
+    pub const fn verdicts(&self) -> &V {
+        &self.verdicts
+    }
+
     /// Consumes at most `batch` new events. Synchronous, so a test can drive it without a
     /// runtime.
     ///
-    /// A log error ends the poll early and is returned in [`PollReport::error`], never as `Err`:
-    /// the bridge keeps its position and the next poll retries.
+    /// Per batch: judge every event (a stored verdict is served as stored; an engine with none
+    /// is evaluated), commit the new verdicts and the cursor in one transaction, and only then
+    /// append the batch's claims and advance. A log or store error ends the poll early and is
+    /// returned in [`PollReport::error`], never as `Err`: the bridge keeps its position and the
+    /// next poll retries. Corruption (a verdict whose event hash does not match the log, bytes
+    /// that do not decode, a store ahead of the log) is reported the same way and never falls
+    /// back to re-evaluation.
     ///
     /// # Errors
     /// [`BridgeError::Query`] if the timeline is unavailable. That is fatal: the lock is
-    /// poisoned for good, and the event in progress may be partly appended.
+    /// poisoned for good, and the batch in progress may be partly appended.
     pub fn poll_once(&mut self) -> Result<PollReport, BridgeError> {
         let mut report = PollReport::default();
-        let events = match self.reader.read_after(self.last) {
-            Ok(events) => events,
-            Err(error) => {
-                eprintln!("s2w: bridge: reading the log failed, will retry: {error}");
-                report.error = Some(error);
-                return Ok(report);
-            }
+        let (events, read_error) = self.read_batch();
+        let exhausted = read_error.is_none() && events.len() < self.config.batch;
+        report.error = read_error;
+
+        let consumed_through = events.last().map(|e| e.position).max(self.last);
+        if exhausted && consumed_through < self.store_cursor {
+            report.error = Some(LogError::Corrupt(format!(
+                "the verdict store's cursor is {}, but the log ends at {}",
+                self.store_cursor.map_or(0, LogPosition::as_u64),
+                consumed_through.map_or(0, LogPosition::as_u64),
+            )));
+            return Ok(self.finish(report));
+        }
+
+        let (judged, corrupt) = self.judge(&events);
+        if corrupt.is_some() {
+            report.error = corrupt;
+        }
+        let Some(through) = judged.through else {
+            return Ok(self.finish(report));
         };
-        for item in events.take(self.config.batch) {
-            let stored = match item {
-                Ok(stored) => stored,
-                Err(error) => {
-                    report.error = Some(error);
-                    break;
-                }
-            };
-            report.stats.consumed += 1;
-            let engines = self.registry.engines_for(&stored.event.source);
-            if engines.is_empty() {
-                report.stats.unrouted += 1;
-                if !self.warned_unrouted.contains(&stored.event.source) {
-                    self.warned_unrouted.insert(stored.event.source.clone());
-                    eprintln!(
-                        "s2w: bridge: no System 1 engine is routed for source '{}'; its events are skipped",
-                        stored.event.source.as_str()
-                    );
-                }
-            }
-            let at = stored.event.received_at;
-            for record in evaluate_stored(&stored, &engines) {
-                match record.verdict {
-                    Verdict::Propose { claims, .. } => {
-                        if claims.is_empty() {
-                            report.stats.proposed_empty += 1;
-                        }
-                        for claim in claims {
-                            self.state.append(at, claim)?;
-                            report.stats.proposed_claims += 1;
-                        }
-                    }
-                    Verdict::Abstain { reason } => match reason {
-                        AbstainReason::NotMine => report.stats.abstained.not_mine += 1,
-                        AbstainReason::Unparseable(_) => report.stats.abstained.unparseable += 1,
-                        AbstainReason::Insufficient(_) => {
-                            report.stats.abstained.insufficient += 1;
-                        }
-                        AbstainReason::Panicked(message) => {
-                            report.stats.engine_panics += 1;
-                            eprintln!(
-                                "s2w: bridge: engine '{}' panicked at log position {}: {message}",
-                                record.engine,
-                                record.position.as_u64()
-                            );
-                        }
-                    },
-                }
-            }
-            self.last = Some(stored.position);
+        if let Err(error) = self.verdicts.commit_batch(&judged.new_rows, through) {
+            // Nothing is durable, so nothing is served: the next poll retries the batch.
+            report.error = Some(error);
+            return Ok(self.finish(report));
         }
-        if let Some(error) = &report.error {
-            eprintln!("s2w: bridge: reading the log failed, will retry: {error}");
+        for (at, claim) in judged.claims {
+            self.state.append(at, claim)?;
         }
+        report.stats = judged.stats;
+        self.last = Some(through);
         self.stats.add(&report.stats);
-        Ok(report)
+        Ok(self.finish(report))
+    }
+
+    fn finish(&self, report: PollReport) -> PollReport {
+        if let Some(error) = &report.error {
+            eprintln!("s2w: bridge: poll ended early, will retry: {error}");
+        }
+        report
+    }
+
+    /// At most `batch` events after `last`, and the log error that cut the read short.
+    fn read_batch(&self) -> (Vec<StoredEvent>, Option<LogError>) {
+        let mut events = Vec::new();
+        let items = match self.reader.read_after(self.last) {
+            Ok(items) => items,
+            Err(error) => return (events, Some(error)),
+        };
+        for item in items.take(self.config.batch) {
+            match item {
+                Ok(stored) => events.push(stored),
+                Err(error) => return (events, Some(error)),
+            }
+        }
+        (events, None)
+    }
+
+    /// Judges `events` in order. On an error, returns what was judged before the bad event
+    /// together with the error, so the good prefix is still committed and served.
+    fn judge(&mut self, events: &[StoredEvent]) -> (Judged, Option<LogError>) {
+        let mut judged = Judged::default();
+        let Some(batch_end) = events.last().map(|e| e.position) else {
+            return (judged, None);
+        };
+        let stored = match self.verdicts.read_range(self.last, batch_end) {
+            Ok(stored) => stored,
+            Err(error) => return (judged, Some(error)),
+        };
+        let mut stored = stored.as_slice();
+        for event in events {
+            let here = stored.partition_point(|row| row.position <= event.position);
+            let (at_event, rest) = stored.split_at(here);
+            if let Err(error) = self.judge_event(event, at_event, &mut judged) {
+                return (judged, Some(error));
+            }
+            stored = rest;
+            judged.through = Some(event.position);
+        }
+        (judged, None)
+    }
+
+    /// Judges one event into `judged`, which it leaves untouched on error. `rows` are the
+    /// stored verdicts at positions after the previous event through this one.
+    fn judge_event(
+        &mut self,
+        event: &StoredEvent,
+        rows: &[StoredVerdict],
+        judged: &mut Judged,
+    ) -> Result<(), LogError> {
+        let at = event.position.as_u64();
+        if let Some(row) = rows.iter().find(|row| row.position != event.position) {
+            return Err(LogError::Corrupt(format!(
+                "a stored verdict names log position {}, which holds no event",
+                row.position.as_u64()
+            )));
+        }
+        if rows.iter().any(|row| row.event_hash != event.content_hash) {
+            return Err(LogError::Corrupt(format!(
+                "stored verdicts at log position {at} judged a different event than the log holds"
+            )));
+        }
+
+        let engines = self.registry.engines_for(&event.event.source);
+        let mut stats = BridgeStats {
+            consumed: 1,
+            ..BridgeStats::default()
+        };
+        if engines.is_empty() {
+            stats.unrouted += 1;
+            if !self.warned_unrouted.contains(&event.event.source) {
+                self.warned_unrouted.insert(event.event.source.clone());
+                eprintln!(
+                    "s2w: bridge: no System 1 engine is routed for source '{}'; its events are skipped",
+                    event.event.source.as_str()
+                );
+            }
+        }
+        let mut verdicts = Vec::with_capacity(engines.len());
+        let mut new_rows = Vec::new();
+        for engine in engines {
+            // Rows at one position are in write order, so the first match is the one first
+            // served (the lowest seq), whatever its version.
+            if let Some(row) = rows.iter().find(|row| row.engine == engine.name()) {
+                let verdict: Verdict = serde_json::from_slice(&row.verdict).map_err(|error| {
+                    LogError::Corrupt(format!(
+                        "stored verdict of engine '{}' at log position {at} does not decode: {error}",
+                        row.engine
+                    ))
+                })?;
+                stats.replayed += 1;
+                if row.version != engine.version() {
+                    stats.replayed_stale_version += 1;
+                }
+                verdicts.push(verdict);
+            } else {
+                for record in evaluate_stored(event, &[engine]) {
+                    stats.evaluated += 1;
+                    if let Verdict::Abstain {
+                        reason: AbstainReason::Panicked(message),
+                    } = &record.verdict
+                    {
+                        eprintln!(
+                            "s2w: bridge: engine '{}' panicked at log position {at}: {message}",
+                            record.engine
+                        );
+                    }
+                    new_rows.push(record.to_stored(event.content_hash)?);
+                    verdicts.push(record.verdict);
+                }
+            }
+        }
+
+        let received = event.event.received_at;
+        let mut claims = Vec::new();
+        for verdict in verdicts {
+            match verdict {
+                Verdict::Propose {
+                    claims: proposed, ..
+                } => {
+                    if proposed.is_empty() {
+                        stats.proposed_empty += 1;
+                    }
+                    stats.proposed_claims += proposed.len() as u64;
+                    claims.extend(proposed.into_iter().map(|claim| (received, claim)));
+                }
+                Verdict::Abstain { reason } => match reason {
+                    AbstainReason::NotMine => stats.abstained.not_mine += 1,
+                    AbstainReason::Unparseable(_) => stats.abstained.unparseable += 1,
+                    AbstainReason::Insufficient(_) => stats.abstained.insufficient += 1,
+                    AbstainReason::Panicked(_) => stats.engine_panics += 1,
+                },
+            }
+        }
+        judged.stats.add(&stats);
+        judged.new_rows.extend(new_rows);
+        judged.claims.extend(claims);
+        Ok(())
     }
 }
 
-impl<R: LogReader + Send + 'static> Bridge<R> {
+impl<R: LogReader + Send + 'static, V: VerdictStore + Send + 'static> Bridge<R, V> {
     /// Polls until `shutdown` turns true, then returns the totals.
     ///
     /// An empty poll backs off from `poll`, doubling up to `max_backoff`; a poll that found

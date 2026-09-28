@@ -9,7 +9,8 @@ use s2w_app::bridge::{Bridge, BridgeConfig, BridgeError, BridgeStats, EngineRegi
 use s2w_app::query::{QueryState, Timeline};
 use s2w_core::{AttrValue, NaturalKey, World};
 use s2w_log::{
-    EventLog, InMemoryEventLog, LogError, LogPosition, LogReader, SqliteEventLog, StoredEvent,
+    EventLog, InMemoryEventLog, InMemoryVerdictStore, LogError, LogPosition, LogReader,
+    SqliteEventLog, SqliteVerdictStore, StoredEvent, VerdictStore,
 };
 use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
 use s2w_system1::{AbstainReason, Engine, Verdict};
@@ -95,10 +96,16 @@ fn edge_weight(world: &World, from: &str, to: &str, kind: &str) -> Result<u64, S
         .map_or(0, |(_, weight)| *weight))
 }
 
-fn replay_and_check<R: LogReader>(log: R) -> TestResult {
+fn replay_and_check<R: LogReader, V: VerdictStore>(log: R, verdicts: V) -> TestResult {
     let state = new_state();
     let observer = state.clone();
-    let mut bridge = Bridge::new(log, EngineRegistry::with_defaults(), state, batch_of(4))?;
+    let mut bridge = Bridge::new(
+        log,
+        verdicts,
+        EngineRegistry::with_defaults(),
+        state,
+        batch_of(4),
+    )?;
 
     let first = bridge.poll_once()?;
     let second = bridge.poll_once()?;
@@ -114,6 +121,7 @@ fn replay_and_check<R: LogReader>(log: R) -> TestResult {
             consumed: 7,
             proposed_claims: 5 * 3 + 1,
             unrouted: 1,
+            evaluated: 6,
             ..BridgeStats::default()
         }
     );
@@ -187,7 +195,7 @@ fn replay_and_check<R: LogReader>(log: R) -> TestResult {
 fn bridge_replays_the_in_memory_log() -> TestResult {
     let mut log = InMemoryEventLog::new();
     log.append_batch(fixture_events()?)?;
-    replay_and_check(log)
+    replay_and_check(log, InMemoryVerdictStore::new())
 }
 
 /// A fresh directory under the system temp dir, removed on drop (even when a test panics).
@@ -216,7 +224,7 @@ fn bridge_replays_the_sqlite_log() -> TestResult {
     let directory = TestDirectory::new("bridge")?;
     let mut log = SqliteEventLog::open(&directory.0)?;
     log.append_batch(fixture_events()?)?;
-    replay_and_check(log)
+    replay_and_check(log, SqliteVerdictStore::open(&directory.0)?)
 }
 
 #[test]
@@ -231,6 +239,7 @@ fn bridge_refuses_a_timeline_that_already_has_events() -> TestResult {
     )?;
     let refused = Bridge::new(
         InMemoryEventLog::new(),
+        InMemoryVerdictStore::new(),
         EngineRegistry::with_defaults(),
         state,
         BridgeConfig::default(),
@@ -264,12 +273,18 @@ fn a_panicking_engine_is_an_abstention_and_the_next_engine_still_runs() -> TestR
         .next()
         .ok_or("the event was stored")??;
     let mut registry = EngineRegistry::new();
-    registry.register(Route::Exact("stdin"), Box::new(Panics));
+    registry.register(Route::Exact("stdin"), Box::new(Panics))?;
     registry.register(
         Route::Exact("stdin"),
         Box::new(s2w_system1::JsonClaimsEngine),
-    );
-    let mut bridge = Bridge::new(log, registry, new_state(), BridgeConfig::default())?;
+    )?;
+    let mut bridge = Bridge::new(
+        log,
+        InMemoryVerdictStore::new(),
+        registry,
+        new_state(),
+        BridgeConfig::default(),
+    )?;
     let report = bridge.poll_once()?;
     assert_eq!(report.stats.engine_panics, 1);
     assert_eq!(report.stats.proposed_claims, 1);
@@ -319,6 +334,7 @@ fn a_log_error_ends_the_poll_and_the_next_poll_resumes_after_the_last_consumed_e
     let observer = state.clone();
     let mut bridge = Bridge::new(
         reader,
+        InMemoryVerdictStore::new(),
         EngineRegistry::with_defaults(),
         state,
         batch_of(100),
@@ -352,7 +368,13 @@ fn run_drains_the_log_and_stops_on_shutdown() -> TestResult {
                 max_backoff: Duration::from_millis(20),
                 batch: 2,
             };
-            let bridge = Bridge::new(log, EngineRegistry::with_defaults(), state, config)?;
+            let bridge = Bridge::new(
+                log,
+                InMemoryVerdictStore::new(),
+                EngineRegistry::with_defaults(),
+                state,
+                config,
+            )?;
             let (stop, shutdown) = tokio::sync::watch::channel(false);
             let task = tokio::spawn(bridge.run(shutdown));
 
