@@ -29,7 +29,7 @@ thiserror.workspace = true
 # `rt` for the runtime this crate builds, `net` and `time` for the I/O and timer drivers
 # reqwest's async client needs underneath it (`enable_all` enables exactly those two);
 # `macros` and `sync` for the query API's SSE broadcast.
-tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
+tokio = { version = "1", features = ["macros", "net", "rt", "signal", "sync", "time"] }
 tokio-stream = "0.1"
 
 [dev-dependencies]

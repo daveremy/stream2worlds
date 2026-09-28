@@ -4,6 +4,7 @@ pub mod bridge;
 mod group_commit;
 pub mod mcp;
 pub mod query;
+pub mod serve;
 
 /// The hub in-degree cap a served timeline starts under, re-exported so the CLI can build the
 /// MCP server's empty world without depending on the core itself.
@@ -19,6 +20,12 @@ use s2w_sources::source::{CursorLookup, Ending, SourceError};
 /// Failures from wiring and running a watch command.
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
+    /// The HTTP listener or server failed.
+    #[error("HTTP server: {0}")]
+    Serve(#[source] std::io::Error),
+    /// The bridge could not start or exited before shutdown.
+    #[error("fatal bridge exit: {0}")]
+    BridgeStopped(String),
     /// The event log could not be opened, read or appended to.
     #[error("event log: {0}")]
     Log(#[from] s2w_log::LogError),
