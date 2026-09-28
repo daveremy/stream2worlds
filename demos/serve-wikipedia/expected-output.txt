@@ -1,0 +1,11 @@
+== stream2worlds: serve-wikipedia demo ==
+server: http://127.0.0.1:37685
+ingesting for 15s...
+
+== world summary (curl http://127.0.0.1:37685/world | jq) ==
+{
+  "nodes": 222,
+  "links": 149
+}
+
+== done ==

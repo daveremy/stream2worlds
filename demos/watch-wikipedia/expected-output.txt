@@ -1,0 +1,16 @@
+== stream2worlds: watch-wikipedia demo ==
+log dir: .demo-data/watch-wikipedia-1780775 (temporary, removed on exit)
+
+-- first run: 20s --
+s2w: wikipedia: 10.6 events/s, 53 total, last event 142.3ms ago
+s2w: wikipedia: 14.2 events/s, 124 total, last event 152.7ms ago
+s2w: wikipedia: 11.4 events/s, 181 total, last event 89.0ms ago
+log now holds 239 events total
+
+-- restart against the same log dir: 15s --
+watch the per-run total below start near 0 again (it is not cumulative across restarts) while the log's own row count keeps growing from where it left off
+s2w: wikipedia: 10.4 events/s, 52 total, last event 199.7ms ago
+s2w: wikipedia: 13.0 events/s, 117 total, last event 106.4ms ago
+log now holds 404 events total (was 239 before the restart) -- nothing was replayed from scratch
+
+== done ==
