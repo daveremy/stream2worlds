@@ -13,6 +13,25 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 64 — world-scoped query APIs (2026-09-27)
+
+**Shipped:** Every HTTP query is now scoped as `/worlds/{world}/…`, `GET /worlds` discovers
+the one world served by the process, and all five MCP tools require the same `world` string.
+`s2w serve` uses `default` unless `--world <name>` selects another URL-safe identifier.
+
+**Learned:** Carrying world identity through route extraction, MCP schemas and CLI dispatch
+from the start makes a forgotten dispatch setting observable; a configured-world integration
+test now proves the server does not silently fall back to `default`.
+
+**Changed course:** The unscoped HTTP routes and optional MCP shape were removed rather than
+aliased. Clients use the named-world contract before the evidence view ships, avoiding a later
+compatibility surface. [Decision 0015](docs/decisions/0015-named-worlds.md) records the design.
+
+**Next:** A separate follow-up adds the manifest and append-only source-membership log; this
+sprint deliberately does not create either.
+
+---
+
 ## Sprint 63 — local embeddings (2026-09-27, 19:00–20:50)
 
 A third System 1 engine ([#64](https://github.com/daveremy/stream2worlds/issues/64)), following

@@ -76,8 +76,8 @@ stop_pid "$TAIL_PID"
 TAIL_PID=""
 
 echo
-echo "== world summary (curl $URL/world | jq) =="
-curl -sf --max-time 10 "$URL/world" | jq '{nodes: (.nodes | length), links: (.links | length)}'
+echo "== world summary (curl $URL/worlds/default/world | jq) =="
+curl -sf --max-time 10 "$URL/worlds/default/world" | jq '{nodes: (.nodes | length), links: (.links | length)}'
 
 echo
 echo "== done =="

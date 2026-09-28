@@ -31,6 +31,8 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct ServeArgs {
     /// A source URI accepted by `watch`, including `-` for stdin.
     pub uri: String,
+    /// The string identifier of the world served by this process.
+    pub world: String,
     /// Directory containing the event log and verdict store; created if absent.
     pub log_dir: PathBuf,
     /// Loopback HTTP port; zero asks the OS for an available port.
