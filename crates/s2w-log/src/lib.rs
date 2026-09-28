@@ -55,7 +55,7 @@ fn open_sqlite_store(
         .truncate(false)
         .open(directory.join(lock_file))
         .map_err(map_fs_error)?;
-    lock.try_lock().map_err(|_| LogError::Locked)?;
+    lock.try_lock().map_err(map_try_lock_error)?;
 
     let mut connection = Connection::open(directory.join(database_file)).map_err(map_sqlite)?;
     connection
@@ -656,6 +656,16 @@ fn map_sqlite(error: rusqlite::Error) -> LogError {
 
 fn map_fs_error(error: std::io::Error) -> LogError {
     LogError::Io(error.to_string())
+}
+
+/// Maps a failed [`File::try_lock`] to a [`LogError`]: only [`std::fs::TryLockError::WouldBlock`]
+/// means another handle holds the lock. Any other error is a real I/O failure and must not be
+/// mistaken for [`LogError::Locked`].
+fn map_try_lock_error(error: std::fs::TryLockError) -> LogError {
+    match error {
+        std::fs::TryLockError::WouldBlock => LogError::Locked,
+        std::fs::TryLockError::Error(io_error) => LogError::Io(io_error.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -1375,5 +1385,21 @@ mod tests {
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn try_lock_would_block_maps_to_locked() {
+        let error = std::fs::TryLockError::WouldBlock;
+        assert!(matches!(map_try_lock_error(error), LogError::Locked));
+    }
+
+    #[test]
+    fn try_lock_other_error_maps_to_io() {
+        let io_error = std::io::Error::other("disk gremlins");
+        let error = std::fs::TryLockError::Error(io_error);
+        match map_try_lock_error(error) {
+            LogError::Io(message) => assert!(message.contains("disk gremlins")),
+            other => panic!("expected LogError::Io, got {other:?}"),
+        }
     }
 }
