@@ -249,9 +249,14 @@ fn shared_log_ingestion_and_bridge_feed_the_http_router_without_sockets() {
             received_at: Timestamp::from_millis(i64::from(i)),
             payload: format!(r#"{{"EntityObserved":{{"key":"live-{i}","entity_type":"thing","attrs":{{}}}}}}"#).into_bytes(),
         }));
-        group_commit::pump_events(&mut writer, Box::pin(tokio_stream::iter(events)), "stdin")
-            .await
-            .expect("ingest");
+        group_commit::pump_events(
+            &mut writer,
+            Box::pin(tokio_stream::iter(events)),
+            "stdin",
+            &mut group_commit::HumanReporter,
+        )
+        .await
+        .expect("ingest");
         // More than one batch exercises owned reader lifetimes and the explicit collection cap.
         for _ in 0..2 {
             let report = bridge.poll_once().expect("poll");

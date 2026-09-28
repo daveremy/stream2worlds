@@ -108,6 +108,7 @@ fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std
                 uri: url.clone(),
                 since,
                 log_dir: log_dir.to_path_buf(),
+                json: false,
             };
             // The watch never ends on its own; stop it once it has had time to catch up.
             tokio::time::timeout(Duration::from_secs(4), run_watch(args))

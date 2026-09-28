@@ -30,7 +30,7 @@ pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 /// Where the pump reports progress and errors, split out from [`pump`] so `s2w` can choose
 /// human text (the long-standing default) or NDJSON (`--json`, s2w#79) without a second pump
 /// implementation.
-pub(crate) trait Reporter {
+pub(crate) trait Reporter: Send {
     /// A batch was written to the log. `appended` and `duplicates` are running totals since the
     /// pump started; `cursor` is the last event's cursor, lossily decoded, once any event has
     /// been logged.
@@ -113,7 +113,9 @@ impl Reporter for JsonReporter {
 fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| i64::try_from(duration.as_millis()).unwrap_or(i64::MAX))
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+        })
 }
 
 /// Consumes `source` into `log` with group commit until the stream ends.
