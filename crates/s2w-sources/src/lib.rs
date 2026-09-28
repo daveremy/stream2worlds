@@ -7,6 +7,7 @@ mod kafka;
 mod ndjson;
 mod presets;
 pub mod registry;
+mod since;
 pub mod source;
 mod sse;
 mod stdin;

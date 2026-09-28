@@ -10,6 +10,7 @@ mod connect;
 mod dialect;
 mod envelope;
 mod frame;
+mod start;
 #[cfg(test)]
 mod tests;
 
@@ -25,8 +26,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
-pub(crate) use dialect::{Opaque, SseDialect, header_safe};
+pub(crate) use dialect::{Opaque, SinceError, SseDialect, header_safe};
 use frame::{FrameParser, RawFrame};
+use start::StartPlan;
 
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
 
@@ -97,33 +99,15 @@ impl Source for SseSource {
                 reason: error.to_string(),
             })?;
             let source_id = SourceId::new(source_id)?;
-            let initial_cursor = match cursors.cursor(&source_id)? {
-                Some(stored) => {
-                    if let Some(since) = since {
-                        return Err(SourceError::SinceWithStoredCursor {
-                            source_id: source_id.as_str().to_owned(),
-                            since: since.to_owned(),
-                        });
-                    }
-                    let header = dialect.validate_stored(&stored).map_err(|reason| {
-                        SourceError::StoredCursor {
-                            source_id: source_id.as_str().to_owned(),
-                            cursor: String::from_utf8_lossy(stored.as_bytes()).into_owned(),
-                            reason,
-                        }
-                    })?;
-                    Some(header)
-                }
-                None => None,
-            };
-            if let Some(since) = since {
-                // Validation-only dry run: applied to a throwaway clone so an unsupported
-                // `since` surfaces here, before we open a connection. The real mutation
-                // happens per-connect in `connect.rs::build_request`.
-                dialect
-                    .apply_since(&mut parsed.clone(), since)
-                    .map_err(|reason| SourceError::SinceUnsupported { name, reason })?;
-            }
+            let stored = cursors.cursor(&source_id)?;
+            let plan = choose_start(
+                name,
+                dialect.as_ref(),
+                &parsed,
+                &source_id,
+                stored.as_ref(),
+                since,
+            )?;
             let connector = ReqwestConnect::new(parsed, user_agent, Arc::clone(&dialect))
                 .map_err(|reason| SourceError::Fatal { name, reason })?;
             let state = StreamState {
@@ -134,8 +118,8 @@ impl Source for SseSource {
             let (stream, task) = spawn(
                 connector,
                 state,
-                since.map(str::to_owned),
-                initial_cursor,
+                plan.since,
+                plan.initial_cursor,
                 Backoff::production(),
             );
             drop(task);
@@ -146,6 +130,17 @@ impl Source for SseSource {
             })
         })
     }
+}
+
+fn choose_start(
+    name: &'static str,
+    dialect: &dyn SseDialect,
+    url: &reqwest::Url,
+    source_id: &SourceId,
+    stored: Option<&Cursor>,
+    since: Option<&str>,
+) -> Result<StartPlan, SourceError> {
+    start::choose(name, dialect, url, source_id, stored, since)
 }
 
 /// What the read loop needs to turn frames into events.

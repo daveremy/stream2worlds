@@ -61,7 +61,7 @@ impl ReqwestConnect {
         if let Some(value) = since {
             self.dialect
                 .apply_since(&mut url, value)
-                .map_err(ConnectError::Request)?;
+                .map_err(|error| ConnectError::Request(error.to_string()))?;
         }
         let mut request = self.client.get(url).header("User-Agent", self.user_agent);
         if let Some(value) = last_event_id {

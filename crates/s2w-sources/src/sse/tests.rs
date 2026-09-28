@@ -404,6 +404,83 @@ async_test!(connect_attempts_reset_only_after_an_accepted_event, {
     observer.assert_no_mismatches().await;
 });
 
+#[test]
+fn choose_start_resumes_from_a_stored_cursor() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    let stored = Cursor::new(FIRST_ID.as_bytes().to_vec()).expect("valid cursor");
+    let plan = choose_start("wikipedia", &Wikimedia, &url, &source, Some(&stored), None)
+        .expect("stored cursor should resume");
+    assert_eq!(
+        plan,
+        StartPlan {
+            since: None,
+            initial_cursor: Some(FIRST_ID.to_owned())
+        }
+    );
+}
+
+#[test]
+fn choose_start_accepts_a_valid_since_for_a_fresh_log() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    let since = "2026-09-27T12:00:00Z";
+    let plan = choose_start("wikipedia", &Wikimedia, &url, &source, None, Some(since))
+        .expect("valid since should start fresh");
+    assert_eq!(
+        plan,
+        StartPlan {
+            since: Some(since.to_owned()),
+            initial_cursor: None
+        }
+    );
+}
+
+#[test]
+fn choose_start_rejects_an_invalid_since() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    assert!(matches!(
+        choose_start(
+            "wikipedia",
+            &Wikimedia,
+            &url,
+            &source,
+            None,
+            Some("yesterday")
+        ),
+        Err(SourceError::InvalidSince { .. })
+    ));
+}
+
+#[test]
+fn choose_start_rejects_since_for_the_opaque_dialect() {
+    let url = reqwest::Url::parse("https://example.test/events").expect("valid test URL");
+    let source = SourceId::new("opaque-test").expect("valid source id");
+    assert!(matches!(
+        choose_start("sse", &Opaque, &url, &source, None, Some("123")),
+        Err(SourceError::SinceUnsupported { .. })
+    ));
+}
+
+#[test]
+fn choose_start_prioritizes_stored_cursor_conflict_over_invalid_since() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    let stored = Cursor::new(FIRST_ID.as_bytes().to_vec()).expect("valid cursor");
+    assert!(matches!(
+        choose_start(
+            "wikipedia",
+            &Wikimedia,
+            &url,
+            &source,
+            Some(&stored),
+            Some("yesterday")
+        ),
+        Err(SourceError::SinceWithStoredCursor { .. })
+    ));
+}
+
 async_test!(
     opaque_dialect_envelopes_distinct_ids_with_identical_data_differently,
     {
