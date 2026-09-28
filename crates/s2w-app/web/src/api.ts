@@ -37,7 +37,7 @@ async function checked(url: URL | string, signal: AbortSignal): Promise<Response
 export async function snapshot(params: URLSearchParams, signal: AbortSignal): Promise<WorldView> {
   return (await checked(endpoint(params, 'world'), signal)).json();
 }
-export async function worlds(signal: AbortSignal): Promise<{ worlds: { world: string; name: string; head: number }[] }> {
+export async function worlds(signal: AbortSignal): Promise<{ worlds: { world: string; name: string; head: number; title?: string | null; tagline?: string | null }[] }> {
   return (await checked('/worlds', signal)).json();
 }
 // Mirrors s2w-log's `Palette`/`Typefaces`/`WorldPresentation`: the load-path type, tolerant of

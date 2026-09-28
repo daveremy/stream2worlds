@@ -28,3 +28,17 @@ th { position: sticky; top: 0; background: var(--s2w-ground, #17283b); text-alig
 td, th { padding: 8px 12px; border-bottom: 1px solid var(--s2w-line-soft, #28394d); }
 td:last-child { overflow-wrap: anywhere; } td:first-child { font-variant-numeric: tabular-nums; }
 footer { margin-top: 20px; font-size: 13px; } a { color: var(--s2w-accent, #70c9ee); }
+
+/* Instance home page (#144 PR 2): a grid of world cards, each accented from its own palette. */
+#worlds { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; }
+.world-card { --card-accent: var(--card-accent-light, var(--s2w-accent, #2f6fdb)); display: block;
+  padding: 1rem; border: 1px solid currentColor; border-top: 4px solid var(--card-accent);
+  border-radius: 6px; color: inherit; text-decoration: none; }
+@media (prefers-color-scheme: dark) {
+  .world-card { --card-accent: var(--card-accent-dark, var(--s2w-accent, #6fa0ff)); }
+}
+.world-card:hover, .world-card:focus-visible { outline: 2px solid var(--card-accent); }
+.world-card h2 { margin: 0 0 .25rem; }
+.world-card .tagline { font-style: italic; margin: 0 0 .5rem; }
+.world-card .description { margin: 0 0 .5rem; }
+.world-card .meta, .empty { opacity: .7; margin: 0; }
