@@ -1,14 +1,29 @@
 import ForceGraph from 'force-graph';
-import type { Node } from '../api';
+import type { NodeObject } from 'force-graph';
+import type { Link, Node } from '../api';
+import { degreeById, labelFor, linkColor, pickLabelKeys, typeColor } from '../profile';
 import type { GraphRenderer } from '../renderer';
 import type { ViewState } from '../state';
+type GraphNode = Node & NodeObject;
 export class Force2D implements GraphRenderer {
-  private graph?: ForceGraph<Node>;
+  private graph?: ForceGraph<GraphNode, Link>;
   private resize?: ResizeObserver;
+  private degreeMap = new Map<string, number>();
+  private keyByType = new Map<string, string | undefined>();
   mount(element: HTMLElement, state: ViewState): void {
-    this.graph = new ForceGraph<Node>(element).backgroundColor('#101c2b')
-      .nodeAutoColorBy('entity_type').linkColor(() => '#7890a6').linkDirectionalArrowLength(4)
-      .nodeLabel((node: Node) => {
+    this.graph = new ForceGraph<GraphNode, Link>(element).backgroundColor('#101c2b')
+      .nodeColor((node: GraphNode) => typeColor(node.entity_type))
+      .nodeVal((node: GraphNode) => sizeFor(node, this.degreeMap))
+      .nodeCanvasObjectMode(() => 'after')
+      .nodeCanvasObject((node: GraphNode, context: CanvasRenderingContext2D, globalScale: number) => {
+        if (globalScale < 0.7 || node.x === undefined || node.y === undefined) return;
+        const fontSize = 11 / globalScale;
+        context.font = `${fontSize}px system-ui, sans-serif`;
+        context.textAlign = 'center'; context.textBaseline = 'top'; context.fillStyle = '#e3edf6';
+        context.fillText(labelFor(node, this.keyByType), node.x, node.y + 5 / globalScale);
+      })
+      .linkColor(link => linkColor(link.kind)).linkDirectionalArrowLength(4)
+      .nodeLabel((node: GraphNode) => {
         // Tooltip libraries accept HTML strings: return a text-only element for stream data.
         const label = document.createElement('span');
         label.textContent = node.kind === 'type' ? `${node.entity_type} (${node.count})` :
@@ -28,9 +43,12 @@ export class Force2D implements GraphRenderer {
     // Since every coalesced refetch (main.ts scheduleRefresh) hands this a brand-new snapshot,
     // carry the live position fields over by id so the graph doesn't re-layout from scratch on
     // every refresh (round-1 review finding, blocking).
-    const previous: Map<string, Partial<Node>> = new Map(
-      (this.graph?.graphData().nodes ?? []).map((node) => [(node as Node).id, node as Partial<Node>]));
-    const nodes = structuredClone([...state.nodes.values()]).map((node) => {
+    const stateNodes = [...state.nodes.values()];
+    this.degreeMap = degreeById(stateNodes, [...state.links.values()]);
+    this.keyByType = pickLabelKeys(stateNodes);
+    const previous: Map<string, Partial<GraphNode>> = new Map(
+      (this.graph?.graphData().nodes ?? []).map(node => [node.id, node]));
+    const nodes = structuredClone(stateNodes).map((node) => {
       const prior = previous.get(node.id);
       if (!prior) return node;
       const { x, y, vx, vy, fx, fy } = prior as Record<string, number | undefined>;
@@ -39,4 +57,10 @@ export class Force2D implements GraphRenderer {
     this.graph?.graphData({ nodes, links: structuredClone([...state.links.values()]) });
   }
   destroy(): void { this.resize?.disconnect(); this.graph?._destructor(); this.graph = undefined; }
+}
+
+function sizeFor(node: Node, degreeMap: Map<string, number>): number {
+  if (node.kind === 'hub') return Math.max(1, node.in_degree);
+  if (node.kind === 'type') return Math.max(1, node.count);
+  return Math.max(1, degreeMap.get(node.id) ?? 1);
 }

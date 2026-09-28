@@ -1,5 +1,5 @@
 import type { Message, Node, Link, WorldView } from './api';
-export type EvidenceRow = { offset: number; kind: string; entityIds: number[]; summary: string; ts?: string };
+export type EvidenceRow = { offset: number; kind: string; entityIds: number[]; summary: string; message: Message; ts?: string };
 export class ViewState {
   nodes = new Map<string, Node>();
   links = new Map<string, Link>();
@@ -21,7 +21,7 @@ export class ViewState {
       message.type === 'hub_ref' ? [message.source, message.hub] :
       message.type === 'noop' ? [] : [message.survivor, message.absorbed];
     this.evidence.push({ offset: message.offset, kind: message.type, entityIds: [...new Set(ids)],
-      summary: JSON.stringify(message) });
+      summary: JSON.stringify(message), message });
     if (this.evidence.length > 500) this.evidence.splice(0, this.evidence.length - 500);
     return true;
   }
