@@ -7,10 +7,10 @@ use crate::sse::{SinceQueryParam, SseConfig, SseSource, USER_AGENT};
 
 /// Every preset as the exact name accepted by `s2w watch`, its URL, and stored source id.
 pub(crate) const PRESETS: &[(&str, &str, &str)] = &[(
-    "wikipedia",
-    "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1",
-    "wikipedia.page_change",
-)]; // vocabulary: allow
+    "wikipedia",                                                       // vocabulary: allow
+    "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1", // vocabulary: allow
+    "wikipedia.page_change",                                           // vocabulary: allow
+)];
 
 /// The preset named `name`, if there is one.
 #[must_use]

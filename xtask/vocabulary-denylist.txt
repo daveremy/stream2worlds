@@ -1,0 +1,9 @@
+wiki
+wiki_id
+enwiki
+wikipedia
+wikimedia
+mediawiki
+page_id
+revision
+revert
