@@ -714,6 +714,31 @@ mod tests {
         }
     }
 
+    /// Retries `open` while it returns [`LogError::Locked`], bounded by a short deadline.
+    ///
+    /// Test-only guard for a "reopen after our own explicit drop" site (#85): closing a
+    /// `std::fs::File` releases its `flock` only once every duplicate of its open-file
+    /// description is gone. `Command::spawn` (used by the SIGKILL-crash tests) `fork()`s the
+    /// whole test binary before `exec()`, and fork duplicates the entire fd table — so a
+    /// concurrently-running unrelated test's spawn can transiently hold a duplicate of a lock
+    /// file descriptor we just dropped, until the child's `O_CLOEXEC` descriptors close at
+    /// `exec()`. A reopen that lands in that window sees `WouldBlock`. Never wrap a site that
+    /// asserts fail-fast behavior while another handle is deliberately still held open —
+    /// that would hide a real lock regression instead of this scheduling artifact.
+    pub(crate) fn retry_until_unlocked<T>(
+        mut open: impl FnMut() -> Result<T, LogError>,
+    ) -> Result<T, LogError> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+        loop {
+            match open() {
+                Err(LogError::Locked) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                result => return result,
+            }
+        }
+    }
+
     fn source(name: &str) -> Result<SourceId, ModelError> {
         SourceId::new(name)
     }
@@ -1142,7 +1167,7 @@ mod tests {
             }
         }
 
-        let log = SqliteEventLog::open(directory.path())?;
+        let log = retry_until_unlocked(|| SqliteEventLog::open(directory.path()))?;
         let actual = log
             .replay(None)?
             .map(|result| result.map(|stored| stored.event))
@@ -1254,7 +1279,7 @@ mod tests {
             Some(LogError::Locked)
         );
         drop(first);
-        assert!(SqliteEventLog::open(directory.path()).is_ok());
+        assert!(retry_until_unlocked(|| SqliteEventLog::open(directory.path())).is_ok());
         Ok(())
     }
 
@@ -1262,7 +1287,7 @@ mod tests {
     fn sqlite_uses_wal_and_full_synchronous_on_every_open() -> TestResult {
         let directory = TestDirectory::new("pragmas")?;
         for _ in 0..2 {
-            let log = SqliteEventLog::open(directory.path())?;
+            let log = retry_until_unlocked(|| SqliteEventLog::open(directory.path()))?;
             let journal: String = log
                 .connection
                 .query_row("PRAGMA journal_mode", [], |row| row.get(0))?;

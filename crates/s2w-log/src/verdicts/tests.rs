@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use super::*;
-use crate::tests::TestDirectory;
+use crate::tests::{TestDirectory, retry_until_unlocked};
 
 const CRASH_CHILD_ENV: &str = "S2W_VERDICT_CRASH_CHILD_DIRECTORY";
 const CRASH_BATCHES: u64 = 8;
@@ -119,7 +119,7 @@ fn sqlite_store_round_trips_across_reopen() -> TestResult {
         let mut store = SqliteVerdictStore::open(directory.path())?;
         store.commit_batch(&rows, position(5))?;
     }
-    let store = SqliteVerdictStore::open(directory.path())?;
+    let store = retry_until_unlocked(|| SqliteVerdictStore::open(directory.path()))?;
     assert_eq!(store.cursor()?, Some(position(5)));
     assert_eq!(
         store.read_range(None, position(5))?,
@@ -161,7 +161,7 @@ fn sqlite_triggers_refuse_update_and_delete() -> TestResult {
     // Raising the cursor is allowed; only lowering it is refused.
     connection.execute("UPDATE bridge_cursor SET position = 6", [])?;
     drop(connection);
-    let store = SqliteVerdictStore::open(directory.path())?;
+    let store = retry_until_unlocked(|| SqliteVerdictStore::open(directory.path()))?;
     assert_eq!(store.cursor()?, Some(position(6)));
     assert_eq!(
         store.read_range(None, position(9))?,
@@ -179,7 +179,7 @@ fn sqlite_second_open_fails_fast_while_lock_is_held() -> TestResult {
         Some(LogError::Locked)
     );
     drop(first);
-    assert!(SqliteVerdictStore::open(directory.path()).is_ok());
+    assert!(retry_until_unlocked(|| SqliteVerdictStore::open(directory.path())).is_ok());
     Ok(())
 }
 
@@ -187,7 +187,7 @@ fn sqlite_second_open_fails_fast_while_lock_is_held() -> TestResult {
 fn sqlite_uses_wal_full_synchronous_and_its_own_version() -> TestResult {
     let directory = TestDirectory::new("verdict-pragmas")?;
     for _ in 0..2 {
-        let store = SqliteVerdictStore::open(directory.path())?;
+        let store = retry_until_unlocked(|| SqliteVerdictStore::open(directory.path()))?;
         let journal: String = store
             .connection
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
