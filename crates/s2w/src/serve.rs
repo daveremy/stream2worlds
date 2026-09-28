@@ -12,7 +12,8 @@ use crate::{DEFAULT_LOG_DIR, output, usage_error};
 pub(super) fn dispatch(args: &[String]) -> ExitCode {
     match parse(args) {
         Ok(args) => {
-            let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP));
+            let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP))
+                .with_world(args.world.clone());
             exit_code(s2w_app::serve::run_serve(state, args))
         }
         Err(message) => usage_error(message),
@@ -40,6 +41,7 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
     let mut log_dir = None;
     let mut port = None;
     let mut wiki = None;
+    let mut world = None;
     let mut index = 1;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -47,9 +49,10 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
             "--log-dir" => &mut log_dir,
             "--port" => &mut port,
             "--wiki" => &mut wiki,
+            "--world" => &mut world,
             other => {
                 return Err(format!(
-                    "unexpected argument '{other}': expected --log-dir, --port or --wiki"
+                    "unexpected argument '{other}': expected --log-dir, --port, --wiki or --world"
                 ));
             }
         };
@@ -63,8 +66,16 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
         *slot = Some(value.clone());
         index += 2;
     }
+    let world = world.unwrap_or_else(|| "default".to_owned());
+    if !world
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err("--world must contain only ASCII letters, digits, '.', '_' or '-'".to_owned());
+    }
     Ok(ServeArgs {
         uri,
+        world,
         log_dir: log_dir.map_or_else(|| PathBuf::from(DEFAULT_LOG_DIR), PathBuf::from),
         port: port.map_or(Ok(4310), |p| {
             p.parse::<u16>()
@@ -85,15 +96,25 @@ mod tests {
             parse(&args(&["wikipedia"])),
             Ok(ServeArgs {
                 uri: "wikipedia".to_owned(),
+                world: "default".to_owned(),
                 log_dir: PathBuf::from("./s2w-data"),
                 port: 4310,
                 wiki: None,
             })
         );
         assert_eq!(
-            parse(&args(&["-", "--port", "0", "--log-dir", "data"])),
+            parse(&args(&[
+                "-",
+                "--port",
+                "0",
+                "--log-dir",
+                "data",
+                "--world",
+                "research.v2_test-1",
+            ])),
             Ok(ServeArgs {
                 uri: "-".to_owned(),
+                world: "research.v2_test-1".to_owned(),
                 log_dir: PathBuf::from("data"),
                 port: 0,
                 wiki: None,
@@ -103,6 +124,23 @@ mod tests {
             parse(&args(&["wikipedia", "--wiki", "enwiki"])),
             Ok(ServeArgs {
                 uri: "wikipedia".to_owned(),
+                world: "default".to_owned(),
+                log_dir: PathBuf::from("./s2w-data"),
+                port: 4310,
+                wiki: Some("enwiki".to_owned()),
+            })
+        );
+        assert_eq!(
+            parse(&args(&[
+                "wikipedia",
+                "--wiki",
+                "enwiki",
+                "--world",
+                "research.v2_test-1"
+            ])),
+            Ok(ServeArgs {
+                uri: "wikipedia".to_owned(),
+                world: "research.v2_test-1".to_owned(),
                 log_dir: PathBuf::from("./s2w-data"),
                 port: 4310,
                 wiki: Some("enwiki".to_owned()),
@@ -124,6 +162,10 @@ mod tests {
             vec!["-", "--port", "-1"],
             vec!["-", "--port", "1", "--port", "2"],
             vec!["-", "--log-dir", "a", "--log-dir", "b"],
+            vec!["-", "--world", "a", "--world", "b"],
+            vec!["-", "--world", ""],
+            vec!["-", "--world", "a/b"],
+            vec!["-", "--world", "a b"],
             vec!["-", "--since", "1"],
             vec!["-", "--json"],
             vec!["-", "extra"],

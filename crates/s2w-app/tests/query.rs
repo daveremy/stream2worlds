@@ -57,6 +57,14 @@ mod golden {
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
+    async fn get_status(app: &Router, uri: &str) -> StatusCode {
+        app.clone()
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status()
+    }
+
     fn id_of(key: &str) -> u64 {
         let world = fold(World::with_hub_cap(CAP), &events());
         world.id_of(&NaturalKey::new(key)).unwrap().get()
@@ -77,7 +85,7 @@ mod golden {
 
     async fn head_entity_view_serves_the_hub_as_an_aggregate_body() {
         let (_, app) = app();
-        let (status, view) = get(&app, "/world").await;
+        let (status, view) = get(&app, "/worlds/default/world").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(view["offset"], 24);
         assert_eq!(view["branch"], "actual");
@@ -101,7 +109,7 @@ mod golden {
             assert!(n["id"].as_str().unwrap().starts_with("e:"));
         }
         // Deterministic bytes.
-        assert_eq!(get(&app, "/world").await.1, view);
+        assert_eq!(get(&app, "/worlds/default/world").await.1, view);
     }
 
     #[test]
@@ -116,7 +124,7 @@ mod golden {
             let world = fold(World::with_hub_cap(CAP), &log[..at]);
             let expected =
                 serde_json::to_value(world_view(&world, &ViewParams::default()).unwrap()).unwrap();
-            let (status, got) = get(&app, &format!("/world?at={at}")).await;
+            let (status, got) = get(&app, &format!("/worlds/default/world?at={at}")).await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(got, expected, "at={at}");
         }
@@ -133,7 +141,7 @@ mod golden {
         // Offset 14: Alice_alt was merged under Alice at 13, so it is a member, not a node, and
         // its observation at 14 landed on Alice. Its attributes from before the merge (12) stay
         // on Alice_alt: a merge moves nothing (decision 0005).
-        let (_, view) = get(&app, "/world?at=14").await;
+        let (_, view) = get(&app, "/worlds/default/world?at=14").await;
         assert!(node(&view, &format!("e:{alt}")).is_none());
         let a = node(&view, &format!("e:{alice}")).unwrap();
         assert_eq!(a["members"], serde_json::json!([alt]));
@@ -144,7 +152,7 @@ mod golden {
         assert_eq!(a["attrs"]["tz"]["Str"], "UTC");
         assert!(a["attrs"].get("edits").is_none());
         // Head: the merge was revoked at 22, so Alice_alt is its own node again.
-        let (_, view) = get(&app, "/world").await;
+        let (_, view) = get(&app, "/worlds/default/world").await;
         assert!(node(&view, &format!("e:{alt}")).is_some());
     }
 
@@ -155,7 +163,7 @@ mod golden {
 
     async fn type_lod_aggregates_links_into_the_hub_body() {
         let (_, app) = app();
-        let (status, view) = get(&app, "/world?lod=type").await;
+        let (status, view) = get(&app, "/worlds/default/world?lod=type").await;
         assert_eq!(status, StatusCode::OK);
         let page = node(&view, "type:page").unwrap();
         // The hub (type wiki) is its own node, never counted in a type bucket.
@@ -206,7 +214,7 @@ mod golden {
         let key_id = |k: &str| format!("e:{}", world.id_of(&NaturalKey::new(k)).unwrap().get());
         let enwiki = key_id("enwiki");
 
-        let (status, view) = get(&app, "/world").await;
+        let (status, view) = get(&app, "/worlds/default/world").await;
         assert_eq!(status, StatusCode::OK);
         let hub = node(&view, &enwiki).unwrap();
         assert_eq!(hub["kind"], "hub");
@@ -240,7 +248,7 @@ mod golden {
             assert_eq!(n["hub_refs"][0]["hub"], enwiki.as_str(), "{page}");
         }
 
-        let (status, view) = get(&app, "/world?lod=type").await;
+        let (status, view) = get(&app, "/worlds/default/world?lod=type").await;
         assert_eq!(status, StatusCode::OK);
         let total: u64 = view["links"]
             .as_array()
@@ -261,7 +269,8 @@ mod golden {
     async fn focus_limits_to_the_neighbourhood_and_never_expands_a_hub_body() {
         let (_, app) = app();
         let alice = id_of("user:Alice");
-        let (status, view) = get(&app, &format!("/world?focus={alice}&hops=2")).await;
+        let (status, view) =
+            get(&app, &format!("/worlds/default/world?focus={alice}&hops=2")).await;
         assert_eq!(status, StatusCode::OK);
         let ids: Vec<&str> = view["nodes"]
             .as_array()
@@ -274,10 +283,10 @@ mod golden {
         assert!(ids.contains(&format!("e:{}", id_of("enwiki")).as_str()));
         assert!(!ids.contains(&format!("e:{}", id_of("page:Cargo")).as_str()));
 
-        let (status, err) = get(&app, "/world?focus=999").await;
+        let (status, err) = get(&app, "/worlds/default/world?focus=999").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(err["error"], "unknown_entity");
-        let (status, err) = get(&app, &format!("/world?focus={alice}&hops=6")).await;
+        let (status, err) = get(&app, &format!("/worlds/default/world?focus={alice}&hops=6")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(err["error"], "hops_too_large");
     }
@@ -291,45 +300,57 @@ mod golden {
         let (_, app) = app();
         for (uri, status, code) in [
             (
-                "/world?branch=fork1",
+                "/worlds/default/world?branch=fork1",
                 StatusCode::NOT_IMPLEMENTED,
                 "branch_not_yet",
             ),
             (
-                "/world?lod=cluster",
+                "/worlds/default/world?lod=cluster",
                 StatusCode::NOT_IMPLEMENTED,
                 "lod_not_yet",
             ),
             (
-                "/world?lod=galaxy",
+                "/worlds/default/world?lod=galaxy",
                 StatusCode::BAD_REQUEST,
                 "bad_parameter",
             ),
-            ("/world?at=25", StatusCode::NOT_FOUND, "offset_beyond_head"),
-            ("/world?at=-1", StatusCode::BAD_REQUEST, "bad_parameter"),
             (
-                "/diff?branch=fork1",
-                StatusCode::NOT_IMPLEMENTED,
-                "branch_not_yet",
-            ),
-            (
-                "/events?branch=fork1",
-                StatusCode::NOT_IMPLEMENTED,
-                "branch_not_yet",
-            ),
-            (
-                "/events?from=25",
+                "/worlds/default/world?at=25",
                 StatusCode::NOT_FOUND,
                 "offset_beyond_head",
             ),
             (
-                "/entity/999/history",
+                "/worlds/default/world?at=-1",
+                StatusCode::BAD_REQUEST,
+                "bad_parameter",
+            ),
+            (
+                "/worlds/default/diff?branch=fork1",
+                StatusCode::NOT_IMPLEMENTED,
+                "branch_not_yet",
+            ),
+            (
+                "/worlds/default/events?branch=fork1",
+                StatusCode::NOT_IMPLEMENTED,
+                "branch_not_yet",
+            ),
+            (
+                "/worlds/default/events?from=25",
+                StatusCode::NOT_FOUND,
+                "offset_beyond_head",
+            ),
+            (
+                "/worlds/default/entity/999/history",
                 StatusCode::NOT_FOUND,
                 "unknown_entity",
             ),
-            ("/time?ts=soon", StatusCode::BAD_REQUEST, "bad_parameter"),
             (
-                "/time?branch=fork1",
+                "/worlds/default/time?ts=soon",
+                StatusCode::BAD_REQUEST,
+                "bad_parameter",
+            ),
+            (
+                "/worlds/default/time?branch=fork1",
                 StatusCode::NOT_IMPLEMENTED,
                 "branch_not_yet",
             ),
@@ -340,10 +361,67 @@ mod golden {
             assert!(body["message"].as_str().is_some_and(|m| !m.is_empty()));
         }
         // The only branch is listed.
-        let (_, branches) = get(&app, "/branches").await;
+        let (_, branches) = get(&app, "/worlds/default/branches").await;
         assert_eq!(branches[0]["name"], "actual");
         assert_eq!(branches[0]["head"], 24);
         assert_eq!(branches[0]["fold_version"], 1);
+    }
+
+    #[test]
+    fn worlds_lists_the_configured_world_and_head() {
+        run(async {
+            let (_, app) = app();
+            let (status, body) = get(&app, "/worlds").await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(
+                body,
+                serde_json::json!({
+                    "worlds": [{"world": "default", "name": "default", "head": 24}]
+                })
+            );
+        });
+    }
+
+    #[test]
+    fn wrong_world_is_a_typed_not_found_for_every_scoped_route() {
+        run(async {
+            let (_, app) = app();
+            for uri in [
+                "/worlds/nope/world",
+                "/worlds/nope/events",
+                "/worlds/nope/branches",
+                "/worlds/nope/diff",
+                "/worlds/nope/entity/1/history",
+                "/worlds/nope/time",
+            ] {
+                let (status, body) = get(&app, uri).await;
+                assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+                assert_eq!(body["error"], "unknown_world", "{uri}");
+                assert!(
+                    body["message"]
+                        .as_str()
+                        .is_some_and(|message| !message.is_empty()),
+                    "{uri}"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn unscoped_routes_do_not_exist() {
+        run(async {
+            let (_, app) = app();
+            for uri in [
+                "/world",
+                "/events",
+                "/branches",
+                "/diff",
+                "/entity/1/history",
+                "/time",
+            ] {
+                assert_eq!(get_status(&app, uri).await, StatusCode::NOT_FOUND, "{uri}");
+            }
+        });
     }
 
     /// Reads SSE frames until `n` messages arrive; returns (id, event, data) triples.
@@ -400,7 +478,7 @@ mod golden {
 
     async fn sse_replays_one_typed_delta_per_offset_then_follows_body() {
         let (state, app) = app();
-        let body = open_sse(&app, "/events", None).await;
+        let body = open_sse(&app, "/worlds/default/events", None).await;
         let msgs = read_sse(body, 24).await;
         let ids: Vec<u64> = msgs.iter().map(|m| m.0).collect();
         assert_eq!(ids, (1..=24).collect::<Vec<_>>());
@@ -425,7 +503,7 @@ mod golden {
         }
 
         // Resume after offset 20 with Last-Event-ID, then receive a live append.
-        let body = open_sse(&app, "/events?from=0", Some("20")).await;
+        let body = open_sse(&app, "/worlds/default/events?from=0", Some("20")).await;
         let appended = state
             .append(
                 Timestamp::from_millis(99_000),
@@ -452,15 +530,15 @@ mod golden {
     async fn diff_reports_the_merge_and_the_split_body() {
         let (_, app) = app();
         let (alice, alt) = (id_of("user:Alice"), id_of("user:Alice_alt"));
-        let (status, d) = get(&app, "/diff?from=12&to=13").await;
+        let (status, d) = get(&app, "/worlds/default/diff?from=12&to=13").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(d["merges"]["added"][0]["absorbed"], alt);
         assert_eq!(d["merges"]["added"][0]["survivor"], alice);
         assert_eq!(d["nodes"]["removed"][0]["id"], format!("e:{alt}"));
-        let (_, d) = get(&app, "/diff?from=21&to=22").await;
+        let (_, d) = get(&app, "/worlds/default/diff?from=21&to=22").await;
         assert_eq!(d["merges"]["removed"][0]["absorbed"], alt);
         assert_eq!(d["nodes"]["added"][0]["id"], format!("e:{alt}"));
-        let (_, d) = get(&app, "/diff?from=24").await;
+        let (_, d) = get(&app, "/worlds/default/diff?from=24").await;
         assert_eq!(d["from"], 24);
         assert_eq!(d["to"], 24);
         assert!(d["nodes"]["changed"].as_array().unwrap().is_empty());
@@ -474,7 +552,7 @@ mod golden {
     async fn entity_history_includes_aliases_while_merged_body() {
         let (_, app) = app();
         let alice = id_of("user:Alice");
-        let (status, h) = get(&app, &format!("/entity/{alice}/history")).await;
+        let (status, h) = get(&app, &format!("/worlds/default/entity/{alice}/history")).await;
         assert_eq!(status, StatusCode::OK);
         let offsets: Vec<u64> = h
             .as_array()
@@ -485,7 +563,11 @@ mod golden {
         // 3: observed; 4, 5: edited Rust; 13: merge; 14: Alice_alt observed while merged into
         // Alice; 15: Alice_alt edited Serde while merged; 20: Alice merged under Bob; 22: split.
         assert_eq!(offsets, vec![3, 4, 5, 13, 14, 15, 20, 22]);
-        let (_, h) = get(&app, &format!("/entity/{alice}/history?to=5")).await;
+        let (_, h) = get(
+            &app,
+            &format!("/worlds/default/entity/{alice}/history?to=5"),
+        )
+        .await;
         assert_eq!(h.as_array().unwrap().len(), 3);
     }
 
@@ -504,11 +586,11 @@ mod golden {
             (23_000, 24),
             (1_000_000, 24),
         ] {
-            let (status, t) = get(&app, &format!("/time?ts={ts}")).await;
+            let (status, t) = get(&app, &format!("/worlds/default/time?ts={ts}")).await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(t["offset"], offset, "ts={ts}");
         }
-        let (_, range) = get(&app, "/time").await;
+        let (_, range) = get(&app, "/worlds/default/time").await;
         assert_eq!(range["head"], 24);
         assert_eq!(range["first_ts"], 0);
         assert_eq!(range["last_ts"], 23_000);
@@ -520,7 +602,7 @@ mod golden {
             attrs: std::collections::BTreeMap::new(),
         };
         assert_eq!(state.append(Timestamp::from_millis(5), late).unwrap(), 25);
-        let (_, range) = get(&app, "/time").await;
+        let (_, range) = get(&app, "/worlds/default/time").await;
         assert_eq!(range["clamped"], 1);
         assert_eq!(range["last_ts"], 23_000);
     }

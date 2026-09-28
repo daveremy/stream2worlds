@@ -14,6 +14,7 @@ fn both_writer_locks_map_to_usage_and_release() {
     let dir = TestDirectory::new("serve-locks");
     let args = ServeArgs {
         uri: "-".to_owned(),
+        world: "default".to_owned(),
         log_dir: dir.path().to_owned(),
         port: 0,
         wiki: None,
@@ -194,7 +195,7 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
                     let mut socket = tokio::net::TcpStream::connect(addr).await.expect("connect");
                     socket
                         .write_all(
-                            b"GET /world HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+                            b"GET /worlds/default/world HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
                         )
                         .await
                         .expect("request");
@@ -211,7 +212,7 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
                 }
             })
             .await
-            .expect("ingested event should reach /world");
+            .expect("ingested event should reach /worlds/default/world");
             stop_tx.send(()).expect("stop server");
             // Keep ingestion alive until after stop; otherwise EOF could win the select.
             events_tx
@@ -263,7 +264,7 @@ fn shared_log_ingestion_and_bridge_feed_the_http_router_without_sockets() {
             .layer(middleware::from_fn(host_allowlist))
             .oneshot(
                 Request::builder()
-                    .uri("/world")
+                    .uri("/worlds/default/world")
                     .header(HOST, "localhost:4310")
                     .body(Body::empty())
                     .expect("request"),
@@ -277,8 +278,31 @@ fn shared_log_ingestion_and_bridge_feed_the_http_router_without_sockets() {
         let world: serde_json::Value = serde_json::from_slice(&bytes).expect("world JSON");
         assert_eq!(world["nodes"].as_array().expect("nodes").len(), 2);
         println!(
-            "GET /world (in-process HTTP router): {}",
+            "GET /worlds/default/world (in-process HTTP router): {}",
             String::from_utf8_lossy(&bytes)
         );
+    });
+}
+
+#[test]
+fn configured_world_is_the_only_world_served() {
+    run(false, async {
+        let app = router(state().with_world("foo"));
+        for (uri, expected) in [
+            ("/worlds/foo/world", StatusCode::OK),
+            ("/worlds/default/world", StatusCode::NOT_FOUND),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(uri)
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(response.status(), expected, "{uri}");
+        }
     });
 }

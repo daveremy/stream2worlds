@@ -61,7 +61,7 @@ mod tests {
             "entity_history" => {
                 server.entity_history(Parameters(serde_json::from_value(args).unwrap()))
             }
-            "branches" => server.branches(),
+            "branches" => server.branches(Parameters(serde_json::from_value(args).unwrap())),
             "time" => server.time(Parameters(serde_json::from_value(args).unwrap())),
             _ => panic!("unexpected tool {tool}"),
         }
@@ -103,31 +103,51 @@ mod tests {
                 .unwrap()
                 .get();
             for (tool, uri, args) in [
-                ("world_view", "/world".to_owned(), json!({})),
                 (
                     "world_view",
-                    "/world?at=14&branch=actual&lod=type".to_owned(),
-                    json!({"at":14,"branch":"actual","lod":"type"}),
+                    "/worlds/default/world".to_owned(),
+                    json!({"world":"default"}),
                 ),
                 (
                     "world_view",
-                    format!("/world?focus={id}&hops=2"),
-                    json!({"focus":id,"hops":2}),
+                    "/worlds/default/world?at=14&branch=actual&lod=type".to_owned(),
+                    json!({"world":"default","at":14,"branch":"actual","lod":"type"}),
+                ),
+                (
+                    "world_view",
+                    format!("/worlds/default/world?focus={id}&hops=2"),
+                    json!({"world":"default","focus":id,"hops":2}),
                 ),
                 (
                     "world_diff",
-                    "/diff?from=12&to=14".to_owned(),
-                    json!({"from":12,"to":14}),
+                    "/worlds/default/diff?from=12&to=14".to_owned(),
+                    json!({"world":"default","from":12,"to":14}),
                 ),
                 (
                     "entity_history",
-                    format!("/entity/{id}/history?to=14"),
-                    json!({"id":id,"to":14}),
+                    format!("/worlds/default/entity/{id}/history?to=14"),
+                    json!({"world":"default","id":id,"to":14}),
                 ),
-                ("branches", "/branches".to_owned(), json!({})),
-                ("time", "/time".to_owned(), json!({})),
-                ("time", "/time?ts=12500".to_owned(), json!({"ts":12500})),
-                ("time", "/time?ts=-1".to_owned(), json!({"ts":-1})),
+                (
+                    "branches",
+                    "/worlds/default/branches".to_owned(),
+                    json!({"world":"default"}),
+                ),
+                (
+                    "time",
+                    "/worlds/default/time".to_owned(),
+                    json!({"world":"default"}),
+                ),
+                (
+                    "time",
+                    "/worlds/default/time?ts=12500".to_owned(),
+                    json!({"world":"default","ts":12500}),
+                ),
+                (
+                    "time",
+                    "/worlds/default/time?ts=-1".to_owned(),
+                    json!({"world":"default","ts":-1}),
+                ),
             ] {
                 assert_http(&state, &uri, &call(&server, tool, args), None).await;
             }
@@ -140,17 +160,42 @@ mod tests {
             let state = empty();
             let server = WorldMcp::new(state.clone());
             for (tool, uri, args, error) in [
-                ("world_view", "/world", json!({}), None),
-                ("world_diff", "/diff", json!({}), None),
+                (
+                    "world_view",
+                    "/worlds/default/world",
+                    json!({"world":"default"}),
+                    None,
+                ),
+                (
+                    "world_diff",
+                    "/worlds/default/diff",
+                    json!({"world":"default"}),
+                    None,
+                ),
                 (
                     "entity_history",
-                    "/entity/1/history",
-                    json!({"id":1}),
+                    "/worlds/default/entity/1/history",
+                    json!({"world":"default","id":1}),
                     Some("unknown_entity"),
                 ),
-                ("branches", "/branches", json!({}), None),
-                ("time", "/time", json!({}), None),
-                ("time", "/time?ts=0", json!({"ts":0}), None),
+                (
+                    "branches",
+                    "/worlds/default/branches",
+                    json!({"world":"default"}),
+                    None,
+                ),
+                (
+                    "time",
+                    "/worlds/default/time",
+                    json!({"world":"default"}),
+                    None,
+                ),
+                (
+                    "time",
+                    "/worlds/default/time?ts=0",
+                    json!({"world":"default","ts":0}),
+                    None,
+                ),
             ] {
                 assert_http(&state, uri, &call(&server, tool, args), error).await;
             }
@@ -165,73 +210,93 @@ mod tests {
             for (tool, uri, args, code) in [
                 (
                     "world_view",
-                    "/world?at=999",
-                    json!({"at":999}),
+                    "/worlds/default/world?at=999",
+                    json!({"world":"default","at":999}),
                     "offset_beyond_head",
                 ),
                 (
                     "world_view",
-                    "/world?focus=999",
-                    json!({"focus":999}),
+                    "/worlds/default/world?focus=999",
+                    json!({"world":"default","focus":999}),
                     "unknown_entity",
                 ),
                 (
                     "world_view",
-                    "/world?focus=1&hops=6",
-                    json!({"focus":1,"hops":6}),
+                    "/worlds/default/world?focus=1&hops=6",
+                    json!({"world":"default","focus":1,"hops":6}),
                     "hops_too_large",
                 ),
                 (
                     "world_view",
-                    "/world?lod=cluster",
-                    json!({"lod":"cluster"}),
+                    "/worlds/default/world?lod=cluster",
+                    json!({"world":"default","lod":"cluster"}),
                     "lod_not_yet",
                 ),
                 (
                     "world_view",
-                    "/world?lod=invalid",
-                    json!({"lod":"invalid"}),
+                    "/worlds/default/world?lod=invalid",
+                    json!({"world":"default","lod":"invalid"}),
                     "bad_parameter",
                 ),
                 (
                     "world_view",
-                    "/world?branch=future",
-                    json!({"branch":"future"}),
+                    "/worlds/default/world?branch=future",
+                    json!({"world":"default","branch":"future"}),
                     "branch_not_yet",
                 ),
                 (
                     "world_diff",
-                    "/diff?from=999",
-                    json!({"from":999}),
+                    "/worlds/default/diff?from=999",
+                    json!({"world":"default","from":999}),
                     "offset_beyond_head",
                 ),
                 (
                     "world_diff",
-                    "/diff?branch=future",
-                    json!({"branch":"future"}),
+                    "/worlds/default/diff?branch=future",
+                    json!({"world":"default","branch":"future"}),
                     "branch_not_yet",
                 ),
                 (
                     "entity_history",
-                    "/entity/999/history",
-                    json!({"id":999}),
+                    "/worlds/default/entity/999/history",
+                    json!({"world":"default","id":999}),
                     "unknown_entity",
                 ),
                 (
                     "entity_history",
-                    "/entity/1/history?branch=future",
-                    json!({"id":1,"branch":"future"}),
+                    "/worlds/default/entity/1/history?branch=future",
+                    json!({"world":"default","id":1,"branch":"future"}),
                     "branch_not_yet",
                 ),
                 (
                     "time",
-                    "/time?branch=future",
-                    json!({"branch":"future"}),
+                    "/worlds/default/time?branch=future",
+                    json!({"world":"default","branch":"future"}),
                     "branch_not_yet",
                 ),
             ] {
                 assert_http(&state, uri, &call(&server, tool, args), Some(code)).await;
             }
         });
+    }
+
+    #[test]
+    fn wrong_world_is_an_error_for_every_tool() {
+        let server = WorldMcp::new(golden());
+        for (tool, args) in [
+            ("world_view", json!({"world":"nope"})),
+            ("world_diff", json!({"world":"nope"})),
+            ("entity_history", json!({"world":"nope","id":1})),
+            ("branches", json!({"world":"nope"})),
+            ("time", json!({"world":"nope"})),
+        ] {
+            let result = call(&server, tool, args);
+            assert_eq!(result.is_error, Some(true), "{tool}");
+            assert_eq!(
+                serde_json::from_str::<Value>(text(&result)).unwrap()["error"],
+                "unknown_world",
+                "{tool}"
+            );
+        }
     }
 }

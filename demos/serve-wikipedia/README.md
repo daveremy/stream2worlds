@@ -20,7 +20,7 @@ Takes about 20 seconds. Requires `curl` and `jq` on `PATH`. No configuration, no
 
 1. **A progress line every 5 seconds** on stderr while the server runs (same mechanism as the
    `watch-wikipedia` demo — s2w#87).
-2. **`curl $URL/world | jq`** returns a live node/link count for whatever Wikipedia has edited
+2. **`curl $URL/worlds/default/world | jq`** returns a live node/link count for whatever Wikipedia has edited
    in the last few seconds.
 
 ## Known gap (out of scope here, follow-up filed)

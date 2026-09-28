@@ -62,10 +62,23 @@ mod tests {
                 ]
             );
             for tool in tools {
+                let requires_world = tool
+                    .input_schema
+                    .get("required")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|required| required.iter().any(|name| name == "world"));
+                assert!(
+                    requires_world,
+                    "{} schema does not require world",
+                    tool.name
+                );
                 assert_eq!(tool.annotations.unwrap().read_only_hint, Some(true));
             }
             let result = client
-                .call_tool(CallToolRequestParams::new("branches"))
+                .call_tool(
+                    CallToolRequestParams::new("branches")
+                        .with_arguments(json!({"world":"default"}).as_object().unwrap().clone()),
+                )
                 .await
                 .unwrap();
             assert_eq!(result.is_error, Some(false));
@@ -75,8 +88,12 @@ mod tests {
             );
             let result = client
                 .call_tool(
-                    CallToolRequestParams::new("entity_history")
-                        .with_arguments(json!({"id":1}).as_object().unwrap().clone()),
+                    CallToolRequestParams::new("entity_history").with_arguments(
+                        json!({"world":"default","id":1})
+                            .as_object()
+                            .unwrap()
+                            .clone(),
+                    ),
                 )
                 .await
                 .unwrap();
@@ -86,8 +103,8 @@ mod tests {
                 "unknown_entity"
             );
             for (tool, args) in [
-                ("entity_history", json!({})),
-                ("world_view", json!({"at":"oops"})),
+                ("entity_history", json!({"world":"default"})),
+                ("world_view", json!({"world":"default","at":"oops"})),
             ] {
                 let error = client
                     .call_tool(
@@ -101,6 +118,37 @@ mod tests {
                     "{error:?}"
                 );
             }
+            client.cancel().await.unwrap();
+            task.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn omitting_only_world_is_rejected_at_the_protocol_level() {
+        run(async {
+            let server = WorldMcp::new(QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP)));
+            let (server_io, client_io) = tokio::io::duplex(4096);
+            let task = tokio::spawn(async move {
+                server
+                    .serve(server_io)
+                    .await
+                    .unwrap()
+                    .waiting()
+                    .await
+                    .unwrap();
+            });
+            let client = ().serve(client_io).await.unwrap();
+            let error = client
+                .call_tool(
+                    CallToolRequestParams::new("entity_history")
+                        .with_arguments(json!({"id":1}).as_object().unwrap().clone()),
+                )
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, ServiceError::McpError(ref data) if data.code == ErrorCode::INVALID_PARAMS),
+                "{error:?}"
+            );
             client.cancel().await.unwrap();
             task.await.unwrap();
         });
