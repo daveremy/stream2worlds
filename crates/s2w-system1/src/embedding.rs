@@ -440,11 +440,13 @@ mod tests {
     /// Two changes from the original 10-comment/10ms version (s2w#100, failed at 10.12ms on a
     /// docs-only PR): a warmup call outside the timed section absorbs one-time first-call cost
     /// (tokenizer/allocator warmup), which a runner-busy blip can otherwise push past a tight
-    /// budget on the very first classify(); and the timed batch is 10x larger (cycling the same
-    /// ten comments), so a single scheduling stall is a much smaller fraction of the total and
-    /// the per-comment budget can grow (5 ms/comment, ~5x slower than the 1,000 events/s target
-    /// this indirectly protects — decision 0004 / research #64's headroom claim) while still
-    /// catching a genuine multi-x regression.
+    /// budget on the very first `classify()`; and the timed batch is 10x larger (cycling the
+    /// same ten comments), so a single scheduling stall is a much smaller fraction of the
+    /// total. The per-comment budget stays at 1 ms/comment (the 1,000 events/s line itself,
+    /// decision 0004 / research #64) rather than loosening — a wider per-call allowance would
+    /// let this guard pass a real regression well below the target it exists to protect;
+    /// warmup + a bigger averaging window is what buys the noise tolerance, not a looser number
+    /// (codex review, round 1).
     #[test]
     fn encoding_a_batch_of_comments_stays_within_a_generous_throughput_budget()
     -> Result<(), ClassifierError> {
@@ -466,7 +468,7 @@ mod tests {
         let _ = classifier.classify(comments[0]);
 
         let batch: Vec<&str> = comments.iter().copied().cycle().take(100).collect();
-        let budget = batch.len() as u32 * std::time::Duration::from_millis(5);
+        let budget = batch.len() as u32 * std::time::Duration::from_millis(1);
 
         let start = std::time::Instant::now();
         for comment in &batch {
