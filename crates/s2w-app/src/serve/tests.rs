@@ -5,8 +5,107 @@ use axum::{Router, body::Body, routing::get};
 use s2w_model::Timestamp;
 use tower::ServiceExt;
 
+#[derive(Debug, PartialEq, Eq)]
+enum Report {
+    Note(String),
+    SourceError(String, bool),
+}
+
+#[derive(Default)]
+struct TestReporter {
+    reports: Vec<Report>,
+}
+
+impl Reporter for TestReporter {
+    fn flushed(
+        &mut self,
+        _appended: u64,
+        _duplicates: u64,
+        _reconnects: u64,
+        _cursor: Option<&str>,
+    ) {
+    }
+
+    fn duplicate(&mut self, _position: u64) {}
+
+    fn note(&mut self, message: &str) {
+        self.reports.push(Report::Note(message.to_owned()));
+    }
+
+    fn source_error(&mut self, message: &str, retry: bool) {
+        self.reports
+            .push(Report::SourceError(message.to_owned(), retry));
+    }
+
+    fn wants_ticker(&self) -> bool {
+        false
+    }
+}
+
 fn state() -> QueryState {
     QueryState::new(Timeline::new(crate::DEFAULT_HUB_IN_DEGREE_CAP))
+}
+
+#[test]
+fn startup_notes_preserve_source_and_full_wiki_scope_text() {
+    let mut reporter = TestReporter::default();
+    let args = ServeArgs {
+        uri: "wikipedia".to_owned(),
+        world: "default".to_owned(),
+        log_dir: PathBuf::from("chosen-data"),
+        port: 0,
+        wiki: Some("enwiki".to_owned()),
+    };
+    report_source_start(
+        &mut reporter,
+        "wikipedia",
+        &["no stored cursor; starting fresh".to_owned()],
+        &args,
+    );
+    assert_eq!(
+        reporter.reports,
+        [
+            Report::Note("wikipedia: no stored cursor; starting fresh".to_owned()),
+            Report::Note(
+                "wikipedia: --wiki \"enwiki\" filters new ingestion only; events already in chosen-data from other wikis are unaffected"
+                    .to_owned()
+            )
+        ]
+    );
+}
+
+#[test]
+fn listening_note_uses_the_actual_bound_address() {
+    run(false, async {
+        let listener = match TcpListener::bind("127.0.0.1:0").await {
+            Ok(listener) => listener,
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!("skipping TCP integration: sandbox denies loopback sockets: {error}");
+                return;
+            }
+            Err(error) => panic!("bind: {error}"),
+        };
+        let expected = format!(
+            "serving on http://{}",
+            listener.local_addr().expect("bound address")
+        );
+        let mut reporter = TestReporter::default();
+        report_listener(&mut reporter, &listener).expect("listener address");
+        assert_eq!(reporter.reports, [Report::Note(expected)]);
+    });
+}
+
+#[test]
+fn membership_change_note_preserves_recovery_instructions() {
+    let mut reporter = TestReporter::default();
+    report_membership_changed(&mut reporter);
+    assert_eq!(
+        reporter.reports,
+        [Report::Note(
+            "source membership changed; HTTP remains available; re-add with a cursor and restart to resume"
+                .to_owned()
+        )]
+    );
 }
 
 #[test]
@@ -20,7 +119,8 @@ fn both_writer_locks_map_to_usage_and_release() {
         wiki: None,
     };
     let log = SqliteEventLog::open(dir.path()).expect("first event log opens");
-    let error = run_serve(state(), args.clone()).expect_err("second event log must fail");
+    let error = run_serve(state(), args.clone(), &mut TestReporter::default())
+        .expect_err("second event log must fail");
     assert!(
         matches!(error, AppError::Usage(ref m) if m.contains("the event log at") && m.contains("only once per --log-dir"))
     );
@@ -28,7 +128,8 @@ fn both_writer_locks_map_to_usage_and_release() {
     let log = SqliteEventLog::open(dir.path()).expect("event lock released");
     drop(log);
     let verdicts = SqliteVerdictStore::open(dir.path()).expect("first verdict store opens");
-    let error = run_serve(state(), args).expect_err("second verdict store must fail");
+    let error = run_serve(state(), args, &mut TestReporter::default())
+        .expect_err("second verdict store must fail");
     assert!(
         matches!(error, AppError::Usage(ref m) if m.contains("the verdict store at") && m.contains("only once per --log-dir"))
     );
@@ -115,8 +216,9 @@ fn early_bridge_exit_is_fatal_and_signals_http_shutdown() {
         ] {
             let (tx, rx) = watch::channel(false);
             let drained = std::cell::Cell::new(false);
+            let mut reporter = TestReporter::default();
             let outcome = supervise(
-                std::future::pending(),
+                |_| Box::pin(std::future::pending()),
                 async { result },
                 async {
                     shutdown_signal(rx).await;
@@ -125,11 +227,58 @@ fn early_bridge_exit_is_fatal_and_signals_http_shutdown() {
                 },
                 std::future::pending(),
                 tx,
+                &mut reporter,
             )
             .await;
             assert!(matches!(outcome, Err(AppError::BridgeStopped(_))));
             assert!(drained.get(), "HTTP must observe shutdown before returning");
+            assert_eq!(
+                reporter.reports,
+                [Report::Note(
+                    "shutting down HTTP after a fatal error".to_owned()
+                )]
+            );
+            assert!(
+                !reporter.reports.iter().any(|report| matches!(
+                    report,
+                    Report::Note(message) if message.contains("injected failure")
+                )),
+                "the fatal error is rendered by the CLI exactly once"
+            );
         }
+    });
+}
+
+#[test]
+fn ingestion_reports_source_errors_and_natural_shutdown_through_one_reporter() {
+    run(false, async {
+        let (tx, rx) = watch::channel(false);
+        let mut reporter = TestReporter::default();
+        let outcome = supervise(
+            |reporter| {
+                Box::pin(async move {
+                    reporter.source_error("stdin: skipped malformed line", false);
+                    Ok(())
+                })
+            },
+            std::future::pending(),
+            async {
+                shutdown_signal(rx).await;
+                Ok(())
+            },
+            std::future::pending(),
+            tx,
+            &mut reporter,
+        )
+        .await;
+        assert!(outcome.is_ok());
+        assert_eq!(
+            reporter.reports,
+            [
+                Report::SourceError("stdin: skipped malformed line".to_owned(), false),
+                Report::Note("ingestion stopped; shutting down HTTP".to_owned())
+            ]
+        );
     });
 }
 
@@ -138,16 +287,24 @@ fn an_open_sse_cannot_block_shutdown_past_the_deadline() {
     run(true, async {
         let (tx, _rx) = watch::channel(false);
         let start = tokio::time::Instant::now();
+        let mut reporter = TestReporter::default();
         let outcome = supervise(
-            std::future::pending(),
+            |_| Box::pin(std::future::pending()),
             std::future::pending(),
             std::future::pending(),
             async { Ok(()) },
             tx,
+            &mut reporter,
         )
         .await;
         assert!(outcome.is_ok());
         assert_eq!(start.elapsed(), DRAIN_TIMEOUT);
+        assert_eq!(
+            reporter.reports,
+            [Report::Note(
+                "HTTP drain timed out after 5 seconds; closing remaining connections".to_owned()
+            )]
+        );
     });
 }
 
@@ -175,10 +332,19 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
             notes: Vec::new(),
         };
         let (stop_tx, stop_rx) = oneshot::channel();
-        let server = serve_live(state(), log, verdicts, started, "stdin", listener, async {
-            stop_rx.await.expect("stop signal");
-            Ok(())
-        });
+        let mut reporter = TestReporter::default();
+        let server = serve_live(
+            state(),
+            ServeStorage { log, verdicts },
+            started,
+            "stdin",
+            listener,
+            async {
+                stop_rx.await.expect("stop signal");
+                Ok(())
+            },
+            &mut reporter,
+        );
         let client = async {
             events_tx
                 .send(Ok(RawEvent {

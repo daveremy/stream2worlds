@@ -5,26 +5,40 @@ use std::process::ExitCode;
 
 use s2w_app::query::{QueryState, Timeline};
 use s2w_app::serve::ServeArgs;
-use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP};
+use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, HumanReporter};
 
+use crate::output::Format;
+use crate::reporter::JsonReporter;
 use crate::{DEFAULT_LOG_DIR, output, usage_error};
 
-pub(super) fn dispatch(args: &[String]) -> ExitCode {
+pub(super) fn dispatch(args: &[String], format: Format) -> ExitCode {
     match parse(args) {
         Ok(args) => {
             let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP))
                 .with_world(args.world.clone());
-            exit_code(s2w_app::serve::run_serve(state, args))
+            let result = match format {
+                Format::Human => s2w_app::serve::run_serve(state, args, &mut HumanReporter),
+                Format::Json => s2w_app::serve::run_serve(state, args, &mut JsonReporter),
+            };
+            exit_code(result, format)
         }
-        Err(message) => usage_error(message),
+        Err(message) => usage_error(format, message),
     }
 }
 
-fn exit_code(result: Result<(), AppError>) -> ExitCode {
+fn exit_code(result: Result<(), AppError>, format: Format) -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            output::print_error(output::Format::Human, &error.to_string());
+            // A fatal `serve --json` failure matches `watch --json`'s shape (s2w#79):
+            // `{"error": ..., "fatal": true}`, not the plain `{"error": ...}` object
+            // `print_error` renders for a usage/parse failure.
+            match format {
+                Format::Json => eprintln!("{}", output::render_stream_error(&error.to_string())),
+                Format::Human => {
+                    output::print_error(Format::Human, &error.to_string());
+                }
+            }
             match error {
                 AppError::Usage(_) => ExitCode::from(2),
                 _ => ExitCode::FAILURE,
@@ -179,11 +193,35 @@ mod tests {
     }
 
     #[test]
-    fn unknown_source_and_json_prefix_are_usage_errors() {
-        assert_eq!(dispatch(&args(&["unknown-source"])), ExitCode::from(2));
+    fn unknown_source_is_a_usage_error() {
         assert_eq!(
-            crate::dispatch(args(&["--json", "serve", "-"])),
+            dispatch(&args(&["unknown-source"]), Format::Human),
             ExitCode::from(2)
+        );
+    }
+
+    #[test]
+    fn json_prefix_reaches_serve_dispatch_and_renders_parse_errors_as_json() {
+        let mut command = args(&["--json", "serve"]);
+        let format = crate::take_output_format(&mut command);
+        assert_eq!(format, Format::Json);
+        assert_eq!(command, args(&["serve"]));
+        assert_eq!(dispatch(&command[1..], format), ExitCode::from(2));
+        let message = parse(&command[1..]).expect_err("missing source must fail");
+        assert_eq!(
+            output::render_error(format, &message),
+            r#"{"error": "missing source after 'serve'. Try: s2w serve wikipedia"}"#
+        );
+    }
+
+    #[test]
+    fn json_suffix_is_rejected_as_an_unrecognized_serve_argument() {
+        assert_eq!(
+            parse(&args(&["-", "--json"])),
+            Err(
+                "unexpected argument '--json': expected --log-dir, --port, --wiki or --world"
+                    .to_owned()
+            )
         );
     }
 
@@ -191,7 +229,10 @@ mod tests {
     fn lock_usage_errors_exit_two() {
         // App tests exercise the actual open-to-Usage mapping for both locks.
         assert_eq!(
-            exit_code(Err(AppError::Usage("event log already open".to_owned()))),
+            exit_code(
+                Err(AppError::Usage("event log already open".to_owned())),
+                Format::Human
+            ),
             ExitCode::from(2)
         );
     }

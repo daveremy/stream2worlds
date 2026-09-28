@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::future::{Future, IntoFuture};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -22,7 +23,7 @@ use tokio::sync::{oneshot, watch};
 
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
 use crate::query::{QueryState, router};
-use crate::{AppError, current_thread_runtime, group_commit, open_error};
+use crate::{AppError, Reporter, current_thread_runtime, group_commit, open_error};
 
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -48,16 +49,24 @@ pub struct ServeArgs {
 ///
 /// # Errors
 /// Unknown sources and held writer locks are [`AppError::Usage`]; other failures are fatal.
-pub fn run_serve(state: QueryState, args: ServeArgs) -> Result<(), AppError> {
+pub fn run_serve(
+    state: QueryState,
+    args: ServeArgs,
+    reporter: &mut dyn Reporter,
+) -> Result<(), AppError> {
     let runtime = current_thread_runtime()?;
-    let result = runtime.block_on(run_serve_async(state, args));
+    let result = runtime.block_on(run_serve_async(state, args, reporter));
     // Tokio stdin uses an uncancellable blocking read. Do not let runtime drop wait for
     // another input byte after Ctrl-C; async HTTP tasks are still shut down immediately.
     runtime.shutdown_background();
     result
 }
 
-async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppError> {
+async fn run_serve_async(
+    state: QueryState,
+    args: ServeArgs,
+    reporter: &mut dyn Reporter,
+) -> Result<(), AppError> {
     let source = resolve(&args.uri, args.wiki.as_deref())
         .map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
@@ -85,17 +94,7 @@ async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppEr
     let state = state
         .with_world(args.world.clone())
         .with_metadata(Some(manifest), log.membership_history()?);
-    for note in &started.notes {
-        eprintln!("s2w: {name}: {note}");
-    }
-    if let Some(wiki) = &args.wiki {
-        // The filter only ever applies to events not yet stored (s2w#101): it never
-        // retroactively purges a `--log-dir` already populated from other wikis.
-        eprintln!(
-            "s2w: {name}: --wiki {wiki:?} filters new ingestion only; events already in {} from other wikis are unaffected",
-            args.log_dir.display()
-        );
-    }
+    report_source_start(reporter, name, &started.notes, &args);
     let listener = TcpListener::bind(("127.0.0.1", args.port))
         .await
         .map_err(|error| {
@@ -104,14 +103,42 @@ async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppEr
                 format!("binding 127.0.0.1:{}: {error}", args.port),
             ))
         })?;
-    eprintln!(
-        "s2w: serving on http://{}",
-        listener.local_addr().map_err(AppError::Serve)?
-    );
-    serve_live(state, log, verdicts, started, name, listener, async {
-        tokio::signal::ctrl_c().await.map_err(AppError::Serve)
-    })
+    report_listener(reporter, &listener)?;
+    serve_live(
+        state,
+        ServeStorage { log, verdicts },
+        started,
+        name,
+        listener,
+        async { tokio::signal::ctrl_c().await.map_err(AppError::Serve) },
+        reporter,
+    )
     .await
+}
+
+fn report_source_start(
+    reporter: &mut dyn Reporter,
+    name: &str,
+    notes: &[String],
+    args: &ServeArgs,
+) {
+    for note in notes {
+        reporter.note(&format!("{name}: {note}"));
+    }
+    if let Some(wiki) = &args.wiki {
+        // The filter only ever applies to events not yet stored (s2w#101): it never
+        // retroactively purges a `--log-dir` already populated from other wikis.
+        reporter.note(&format!(
+            "{name}: --wiki {wiki:?} filters new ingestion only; events already in {} from other wikis are unaffected",
+            args.log_dir.display()
+        ));
+    }
+}
+
+fn report_listener(reporter: &mut dyn Reporter, listener: &TcpListener) -> Result<(), AppError> {
+    let addr = listener.local_addr().map_err(AppError::Serve)?;
+    reporter.note(&format!("serving on http://{addr}"));
+    Ok(())
 }
 
 // Adapters call the gate after discovering real source IDs but before spawning producers.
@@ -134,6 +161,11 @@ impl CursorLookup for ServingCursors<'_> {
 struct SharedLogReader {
     log: Rc<RefCell<SqliteEventLog>>,
     batch: usize,
+}
+
+struct ServeStorage {
+    log: SqliteEventLog,
+    verdicts: SqliteVerdictStore,
 }
 
 impl LogReader for SharedLogReader {
@@ -206,22 +238,22 @@ async fn local_bridge(
 
 async fn serve_live(
     state: QueryState,
-    log: SqliteEventLog,
-    verdicts: SqliteVerdictStore,
+    storage: ServeStorage,
     started: Started,
     name: &'static str,
     listener: TcpListener,
     stop: impl Future<Output = Result<(), AppError>>,
+    reporter: &mut dyn Reporter,
 ) -> Result<(), AppError> {
     let config = BridgeConfig::default();
-    let shared = Rc::new(RefCell::new(log));
+    let shared = Rc::new(RefCell::new(storage.log));
     let reader = SharedLogReader {
         log: shared.clone(),
         batch: config.batch,
     };
     let bridge = Bridge::new(
         reader,
-        verdicts,
+        storage.verdicts,
         EngineRegistry::with_defaults(),
         state.clone(),
         config,
@@ -242,58 +274,81 @@ async fn serve_live(
             .map_err(AppError::Serve)
     };
     supervise(
-        async {
-            let stopped_early = group_commit::pump_events_gated(
-                |events, generations| writer.0.borrow_mut().append_batch_with_generations(events, generations),
-                started.stream,
-                name,
-                &mut group_commit::HumanReporter,
-                &started.sources,
-                |source| Ok(shared.borrow().source_membership(source)?),
-            )
-            .await?;
-            if stopped_early {
-                eprintln!("s2w: source membership changed; HTTP remains available; re-add with a cursor and restart to resume");
-                return std::future::pending::<Result<(), AppError>>().await;
-            }
-            match started.ends {
-                Ending::AtEndOfInput => Ok(()),
-                Ending::Never => Err(AppError::StreamEnded(name)),
-            }
+        move |reporter| {
+            Box::pin(async move {
+                let stopped_early = group_commit::pump_events_gated(
+                    |events, generations| {
+                        writer
+                            .0
+                            .borrow_mut()
+                            .append_batch_with_generations(events, generations)
+                    },
+                    started.stream,
+                    name,
+                    reporter,
+                    &started.sources,
+                    |source| Ok(shared.borrow().source_membership(source)?),
+                )
+                .await?;
+                if stopped_early {
+                    report_membership_changed(reporter);
+                    return std::future::pending::<Result<(), AppError>>().await;
+                }
+                match started.ends {
+                    Ending::AtEndOfInput => Ok(()),
+                    Ending::Never => Err(AppError::StreamEnded(name)),
+                }
+            })
         },
         local_bridge(bridge, config, ready_tx),
         server,
         stop,
         shutdown_tx,
+        reporter,
     )
     .await
 }
 
+fn report_membership_changed(reporter: &mut dyn Reporter) {
+    reporter.note(
+        "source membership changed; HTTP remains available; re-add with a cursor and restart to resume",
+    );
+}
+
+type PumpFuture<'a> = Pin<Box<dyn Future<Output = Result<(), AppError>> + 'a>>;
+
 async fn supervise(
-    pump: impl Future<Output = Result<(), AppError>>,
+    pump: impl for<'a> FnOnce(&'a mut dyn Reporter) -> PumpFuture<'a>,
     bridge: impl Future<Output = Result<(), BridgeError>>,
     server: impl Future<Output = Result<(), AppError>>,
     stop: impl Future<Output = Result<(), AppError>>,
     shutdown: watch::Sender<bool>,
+    reporter: &mut dyn Reporter,
 ) -> Result<(), AppError> {
     let mut server = std::pin::pin!(server);
-    let result = tokio::select! {
-        result = pump => { eprintln!("s2w: ingestion stopped; shutting down HTTP"); result }
-        result = bridge => Err(AppError::BridgeStopped(match result {
-            Ok(()) => "exited before shutdown".to_owned(),
-            Err(error) => error.to_string(),
-        })),
-        result = &mut server => return result,
-        result = stop => result,
+    let (result, ingestion_stopped) = {
+        let mut pump = pump(reporter);
+        tokio::select! {
+            result = &mut pump => (result, true),
+            result = bridge => (Err(AppError::BridgeStopped(match result {
+                Ok(()) => "exited before shutdown".to_owned(),
+                Err(error) => error.to_string(),
+            })), false),
+            result = &mut server => return result,
+            result = stop => (result, false),
+        }
     };
-    if let Err(error) = &result {
-        eprintln!("s2w: {error}; shutting down HTTP");
+    if ingestion_stopped {
+        reporter.note("ingestion stopped; shutting down HTTP");
+    }
+    if result.is_err() {
+        reporter.note("shutting down HTTP after a fatal error");
     }
     let _ignored = shutdown.send(true);
     match tokio::time::timeout(DRAIN_TIMEOUT, &mut server).await {
         Ok(drained) => result.and(drained),
         Err(_) => {
-            eprintln!("s2w: HTTP drain timed out after 5 seconds; closing remaining connections");
+            reporter.note("HTTP drain timed out after 5 seconds; closing remaining connections");
             result
         }
     }
