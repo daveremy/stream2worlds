@@ -21,14 +21,23 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **No crate may contain domain code.** Entity types, labels and links are discovered data,
+  not compiled types — enforced by a vocabulary scan and an obfuscation replay that requires
+  the same graph shape when every field is renamed and every id hashed. [Decision 0018](docs/decisions/0018-no-compiled-domain-code.md)
+- **The web view reads readable from world data alone, with no domain code behind it.** A
+  derived per-entity-type label, deterministic colors, degree-based sizing, and "Active
+  now"/"Hubs" panels — and the label pick now has a test proving it survives an attribute
+  rename. [#114](https://github.com/daveremy/stream2worlds/issues/114) · [#123](https://github.com/daveremy/stream2worlds/issues/123)
+- **Visualization and agent use are first-class, not an afterthought.** Every gate now plans
+  three surfaces (a view spec authored by System 2, a lifetime baseline, and surprise scoring
+  against it) instead of adding them after the fact. [Decision 0017](docs/decisions/0017-view-and-agents-first-class.md)
+- **`serve`/`mcp --json` stream the same structured progress `watch --json` already had.** One
+  NDJSON object per flush on stdout, errors on stderr. [#110](https://github.com/daveremy/stream2worlds/issues/110)
 - **`s2w watch --json` streams machine-readable progress.** One NDJSON object per flush on
   stdout (`appended`, `duplicates`, `reconnects`, `cursor`, `at`), errors on stderr — the flag
   the AGENTS.md exception had deferred to this issue. [#79](https://github.com/daveremy/stream2worlds/issues/79)
-- **A third System 1 engine judges what an edit comment means, not just its structure.** Local embeddings classify an `enwiki` page-change comment into an edit category (revert, vandalism repair, content addition, and more) by similarity, running additively alongside the existing rules engine on the same page — and abstaining, never guessing, when it isn't confident. [Decision 0013](docs/decisions/0013-local-embeddings-engine.md) · [#64](https://github.com/daveremy/stream2worlds/issues/64)
-- **A live world is visible in the browser.** `s2w serve` now serves a local web view at `http://localhost:4310/`: a 2D entity graph and an evidence table fed by Server-Sent Events. Pin any offset with `?at=` to share an exact moment. [Decision 0016](docs/decisions/0016-web-delivery.md)
-- **Every query names its world.** HTTP uses `/worlds/{world}/…`, every MCP tool requires a `world` parameter, and `s2w serve` defaults to `default` or accepts `--world <name>`. [Decision 0015](docs/decisions/0015-named-worlds.md)
-- **One command serves a live world.** `s2w serve wikipedia` ingests events, persists verdicts and exposes `/worlds/default/world` on loopback port 4310. [Decision 0014](docs/decisions/0014-serve-topology.md)
-- **In progress:** threshold/margin calibration for the embeddings engine against real `enwiki` traffic.
+- **In progress:** the H heuristics (research 0002 §6's seven domain-free stages) that type a
+  new stream without any domain code; read-only MCP over a real world ([#115](https://github.com/daveremy/stream2worlds/issues/115)).
 
 ## Demos
 

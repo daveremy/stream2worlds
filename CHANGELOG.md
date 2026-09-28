@@ -13,6 +13,40 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Domain as data — decisions 0017/0018, readable view, research 0008 (2026-09-28)
+
+**Shipped:** [Decision 0017](docs/decisions/0017-view-and-agents-first-class.md) makes
+visualization and agent use first-class: a view spec is authored by System 2 and stored as a
+log event, shape comes before domain, and every gate reports a lifetime baseline plus surprise
+against it. [Decision 0018](docs/decisions/0018-no-compiled-domain-code.md) retires compiled
+domain code entirely — no crate, type, flag or branch may name or key on a domain; entity
+types, labels and links are discovered data, enforced by a domain-vocabulary scan and an
+obfuscation replay. The live web view ([#114](https://github.com/daveremy/stream2worlds/issues/114))
+now reads readable from world data alone: a derived per-entity-type label (highest
+coverage×distinctness string attribute, id-like values rejected), deterministic colors with a
+legend, degree-based sizing, and "Active now"/"Hubs" panels. `serve`/`mcp --json` gained the
+same structured stdout/stderr progress `watch --json` already had ([#110](https://github.com/daveremy/stream2worlds/issues/110)
+part 1 — MCP itself is tracked separately as #115). [#123](https://github.com/daveremy/stream2worlds/issues/123)
+closed the review gap on #114: a rename-invariance test proving the label pick survives an
+attribute rename (0018's own acceptance test), derivations computed once per snapshot instead
+of once per SSE message, and three label-scoring fixes (score-before-whitespace tie-break, a
+digit/dash guard on the id-like heuristic, hub ranking using the larger of recorded and
+visible degree).
+
+**Learned:** [Research 0008](research/0008-view-spec-and-surprise.md) (sagan) grounds 0017's shape: a
+System 2-authored view spec, shape-before-domain, a lifetime baseline with surprise scoring,
+and a readiness rule frozen to the H+S2 arm — the obfuscated view form is reported, not graded
+as a pass/fail.
+
+**Changed course:** `WikimediaPageChangeEngine` and the Wikimedia-bound embeddings schema are
+retired per 0018; a new stream shows raw identifiers and inferred shapes until the H heuristics
+land, which is the honest state of the product rather than a regression to hide.
+
+**Next:** the H heuristics (research 0002 §6's seven domain-free stages) that make a new
+stream typed without any domain code; #115 (read-only MCP over a real world).
+
+---
+
 ## World membership implementation — #95 (2026-09-28)
 
 **Shipped in the working branch:** persistent world identity, an append-only source membership
