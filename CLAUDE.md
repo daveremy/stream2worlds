@@ -17,6 +17,9 @@ PR; never commit to `main` directly after the bootstrap commit.
 - Adapters depend only on `s2w-model`; never on the core or on each other.
 - Every crate has an `AGENTS.md` with its allowed dependencies and invariants. Read it before editing the crate.
 - Golden replay files are human-owned: never regenerate one to make a test pass; flag it instead.
+- **No compiled domain code** (Dave, 2026-09-28; decision 0018). No crate may name a domain or key on a
+  domain's field names. Domain knowledge is discovered and persisted as data in the log. Code knows
+  protocols and formats, never what a stream is about. Recorded fixtures may contain domain data.
 
 ## Documentation: the README is the user manual
 The README is the user documentation, so it must describe what the code does today. **Every
