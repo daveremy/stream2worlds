@@ -1,9 +1,11 @@
 //! Deterministic per-event engines proposing claims without seeing the folded world.
 
+mod embedding;
 mod engines;
 mod verdict;
 
-pub use engines::{JsonClaimsEngine, WikimediaPageChangeEngine};
+pub use embedding::{ClassifierError, ClassifyResult, CommentClassifier};
+pub use engines::{JsonClaimsEngine, LocalEmbeddingsEngine, WikimediaPageChangeEngine};
 pub use verdict::{AbstainReason, Confidence, ConfidenceError, Verdict};
 
 use s2w_model::RawEvent;
@@ -17,6 +19,11 @@ pub trait Engine: Send + Sync {
     fn version(&self) -> u32;
     /// Total: unsupported or malformed inputs abstain, never panic or error.
     fn evaluate(&self, event: &RawEvent) -> Verdict;
+    /// Reserved provenance bytes (decision 0012), encoded by the caller. `None` (the default)
+    /// for engines with no identity beyond their version, e.g. both first-slice rules engines.
+    fn provenance(&self) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 #[cfg(test)]

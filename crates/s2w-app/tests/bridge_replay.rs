@@ -5,7 +5,9 @@ use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use s2w_app::bridge::{Bridge, BridgeConfig, BridgeError, BridgeStats, EngineRegistry, Route};
+use s2w_app::bridge::{
+    AbstainCounts, Bridge, BridgeConfig, BridgeError, BridgeStats, EngineRegistry, Route,
+};
 use s2w_app::query::{QueryState, Timeline};
 use s2w_core::{AttrValue, NaturalKey, World};
 use s2w_log::{
@@ -121,7 +123,14 @@ fn replay_and_check<R: LogReader, V: VerdictStore>(log: R, verdicts: V) -> TestR
             consumed: 7,
             proposed_claims: 5 * 3 + 1,
             unrouted: 1,
-            evaluated: 6,
+            // Both wikimedia.page_change and the new wikimedia.local_embeddings engine run on
+            // every wikipedia.* event; none of the fixture's five is `enwiki`, so the
+            // embeddings engine abstains `NotMine` on all five (language scope).
+            evaluated: 6 + 5,
+            abstained: AbstainCounts {
+                not_mine: 5,
+                ..AbstainCounts::default()
+            },
             ..BridgeStats::default()
         }
     );

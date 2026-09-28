@@ -21,10 +21,11 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **A third System 1 engine judges what an edit comment means, not just its structure.** Local embeddings classify an `enwiki` page-change comment into an edit category (revert, vandalism repair, content addition, and more) by similarity, running additively alongside the existing rules engine on the same page — and abstaining, never guessing, when it isn't confident. [Decision 0013](docs/decisions/0013-local-embeddings-engine.md) · [#64](https://github.com/daveremy/stream2worlds/issues/64)
 - **One command serves a live world.** `s2w serve wikipedia` ingests events, persists verdicts and exposes `/world` on loopback port 4310. [Decision 0014](docs/decisions/0014-serve-topology.md)
 - **A world can be written by hand.** `s2w serve -` turns incoming JSON claims into queryable entities and relationships while stdin remains open. [Decision 0011](docs/decisions/0011-system1-bridge.md)
 - **Verdicts survive restarts.** Stored judgments rebuild the world without calling the engine again. [Decision 0012](docs/decisions/0012-verdict-log.md)
-- **In progress:** the evidence view and bundle pipeline ([#10](https://github.com/daveremy/stream2worlds/issues/10)); local embeddings ([#64](https://github.com/daveremy/stream2worlds/issues/64)).
+- **In progress:** the evidence view and bundle pipeline ([#10](https://github.com/daveremy/stream2worlds/issues/10)); threshold/margin calibration for the embeddings engine against real `enwiki` traffic.
 
 ---
 
@@ -160,6 +161,29 @@ Good architecture from the first commit, paid down every sprint instead of in a 
 
 Decisions live in [`docs/decisions/`](docs/decisions/).
 
+## How embeddings fit in
+
+Local embeddings are one of three System 1 engines, running alongside rules and JSON claims
+behind the same verdict/confidence/abstain trait — additive, not a replacement. Rules read the
+structure of a Wikimedia page-change event (page id, revision id, performer); embeddings read
+its one free-text field, `revision.comment`, and classify it into an edit category (`revert`,
+`vandalism_repair`, `content_addition`, `content_removal`, `minor_edit`, `structural_edit`) by
+similarity to fixed example phrases. Both engines run on the same event and write to the same
+page entity, so a page's world state carries both the rules engine's structural fact
+(`last_rev_id`) and the embeddings engine's judgment about what that revision did
+(`last_edit_category`, with `last_edit_category_rev_id` naming which revision it describes —
+read it as a snapshot of the most recent edit, not a running summary of the whole page).
+
+Confidence here is a similarity score to the nearest category, rescaled to basis points — not a
+calibrated probability. Below a threshold, or too close a tie with the runner-up category, the
+engine abstains rather than guessing, so a low-confidence comment produces silence, not a forced
+guess. That does not guarantee an accepted classification is correct — an unrelated comment can
+still score above both threshold and margin and pick the wrong category with apparent
+confidence; threshold/margin calibration against real traffic (named as a follow-up below)
+narrows that risk, it does not eliminate it. Scoped to `enwiki` only in this slice, since the
+underlying model is English-only. Full design, the version-pinning scheme, and named calibration
+follow-ups: [decision 0013](docs/decisions/0013-local-embeddings-engine.md).
+
 ## Technical architecture
 
 What `s2w` is built on, and what is deliberately not built yet. **Building** means part of the first slice, in the gate named; **later** means after the first slice; **on trigger** means we switch only when the named measurement says so.
@@ -178,7 +202,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |
 | World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/world` at any offset and level of detail, `/events`, `/branches`, `/diff`, `/entity/:id/history`, `/time` ([decision 0006](docs/decisions/0006-world-query-api.md)) | built (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual world only until branches exist (`branch=` other than actual and `lod=cluster` answer 501); `s2w mcp` exposes its five read tools over stdio; the loopback HTTP listener ships as `s2w serve <source>` ([decision 0014](docs/decisions/0014-serve-topology.md)); the evidence view is next. |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
-| System 1 engines | Rules; JSON claims; local embeddings (next) | building (gate 2–3) | Two engines ship behind one verdict/confidence/abstain trait: Wikimedia page-change rules and JSON claims (a payload that already is a claim). Every verdict is stored before its claims are served, and a restart replays stored verdicts instead of re-running engines ([decision 0012](docs/decisions/0012-verdict-log.md)). Local embeddings are next ([#64](https://github.com/daveremy/stream2worlds/issues/64)). |
+| System 1 engines | Rules; JSON claims; local embeddings (`model2vec-rs`, potion-base-8M) | building (gate 2–3) | Three engines ship behind one verdict/confidence/abstain trait: Wikimedia page-change rules, JSON claims (a payload that already is a claim), and local embeddings, which classify an English edit comment's category by similarity to fixed prototypes and abstain below threshold or on a near-tie ([decision 0013](docs/decisions/0013-local-embeddings-engine.md)). Every verdict is stored before its claims are served, and a restart replays stored verdicts instead of re-running engines ([decision 0012](docs/decisions/0012-verdict-log.md)). |
 | System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it joins through the bake-off, p50/p99 and accuracy per engine. |
 | System 1 router | Each judgment names a latency budget; rule → embeddings → decision model | later | Needs more than one engine worth routing between. |
 | System 2 | A hosted LLM API on a fixed budget; the client's own agent via MCP sampling, or a local model | building (gate 3) | Asynchronous, never in the stream. Two providers differ in latency, cost and where data goes. |

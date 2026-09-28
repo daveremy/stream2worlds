@@ -58,6 +58,10 @@ pub struct AbstainCounts {
     pub unparseable: u64,
     /// [`AbstainReason::Insufficient`].
     pub insufficient: u64,
+    /// [`AbstainReason::BelowThreshold`].
+    pub below_threshold: u64,
+    /// [`AbstainReason::Ambiguous`].
+    pub ambiguous: u64,
 }
 
 /// What the bridge did. Each consumed event and each verdict increments exactly one counter
@@ -95,6 +99,8 @@ impl BridgeStats {
         self.abstained.not_mine += other.abstained.not_mine;
         self.abstained.unparseable += other.abstained.unparseable;
         self.abstained.insufficient += other.abstained.insufficient;
+        self.abstained.below_threshold += other.abstained.below_threshold;
+        self.abstained.ambiguous += other.abstained.ambiguous;
         self.unrouted += other.unrouted;
         self.engine_panics += other.engine_panics;
         self.replayed += other.replayed;
@@ -125,7 +131,8 @@ pub struct VerdictRecord {
     pub version: u32,
     /// The verdict, with a caught panic as `Abstain(Panicked)`.
     pub verdict: Verdict,
-    /// Encoded provenance (decision 0012's reserved keys). `None` from every shipped engine.
+    /// Encoded provenance (decision 0012's reserved keys). `None` when an engine doesn't
+    /// implement it; the embeddings engine returns `Some` (model hash + config hash).
     pub provenance: Option<Vec<u8>>,
 }
 
@@ -173,7 +180,7 @@ fn evaluate_one(stored: &StoredEvent, engine: &dyn Engine) -> VerdictRecord {
         engine: engine.name(),
         version: engine.version(),
         verdict,
-        provenance: None,
+        provenance: engine.provenance(),
     }
 }
 

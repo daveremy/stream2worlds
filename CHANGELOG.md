@@ -13,6 +13,57 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 63 — local embeddings (2026-09-27, 19:00–20:50)
+
+A third System 1 engine ([#64](https://github.com/daveremy/stream2worlds/issues/64)), following
+#63's verdict log: local embeddings classify an `enwiki` edit comment into a category by
+similarity, additive alongside the existing rules engine on the same page.
+
+**Shipped**
+- **`LocalEmbeddingsEngine`**, using `model2vec-rs` with potion-base-8M (vendored, no network
+  fetch), split into a plain `CommentClassifier` (no `Engine` dependency, reusable by a future
+  System 2/Jev consumer) and a thin `Engine` adapter. Scoped to `enwiki` only; abstains below
+  threshold or on a near-tie rather than guessing. [Decision 0013](docs/decisions/0013-local-embeddings-engine.md).
+- **Provenance now covers two hashes**, model identity and taxonomy/config, independently
+  visible in a stored verdict.
+- **Version-bump enforcement is a table, not a pinned pair**: an append-only
+  `(version, model_hash, config_hash)` history, with the shipped version derived from the
+  table's last row so a hash change and a version bump can't drift apart.
+- **A golden-output test on 8 real English edit comments** catches a `Cargo.lock` bump or
+  scoring change that a model/config hash alone would miss, and doubles as a calibration
+  sanity check: one of the eight lands in `NoMatch` on real, plausibly-worded text.
+- README's "System 1 engines" row moves from "next" to built, and a new "How embeddings fit in"
+  section explains the engine at the application level.
+
+**Learned**
+- One real comment in the golden set — a revert notice — lands in `NoMatch` rather than a
+  confident match, evidence (not just a constructed boundary test) that the starting
+  `threshold_bps`/`margin_bps` values may be too strict on real `enwiki` text. Named as a
+  calibration follow-up in decision 0013, not built here.
+- The golden test must run each case through the same `normalize_comment` step production
+  runs before classification — an earlier version pinned one case's raw, marker-prefixed text,
+  which described a classification production never actually produces (code review round 2,
+  s2w#64).
+- `model2vec-rs`'s `default-features = false` alone does not compile: `tokenizers` needs
+  `onig` or `fancy-regex`. Chose `fancy-regex` over `onig` (which binds the C Oniguruma
+  library) — the plan's round-2 dependency-tree check never actually compiled, so this was
+  invisible until implementation, and it surfaced a second `cargo deny` advisory
+  (`RUSTSEC-2025-0119`, `number_prefix` via `indicatif`) that round 2's check against the
+  non-compiling tree couldn't have found either. `fancy-regex`'s own regex engine is pure
+  Rust, but the tree still needs a C++ toolchain regardless of this choice: `tokenizers`'s
+  `esaxx_fast` feature pulls in `esaxx-rs`, which compiles C++ via `cc` (decision 0013).
+- Full-mode plan review hit its 2-round cap with both reviewers still blocking on real,
+  convergent findings (the version-bump test and the `BelowThreshold`-reused-for-a-near-tie
+  issue); a karpathy ruling folded all four remaining findings into implementation rather than
+  spending a third plan-text round on changes that didn't alter the plan's shape.
+
+**Next**
+- Threshold/margin calibration against real `enwiki` comment traffic.
+- Full boilerplate-template stripping beyond the single leading `/* Section */` marker.
+- Jev joins behind the same `Engine` trait once its latency/cost/accuracy are measured.
+
+---
+
 ## Gate 2 — live HTTP command (#10, PR1, 2026-09-27)
 
 **Shipped:** `s2w serve <source>` owns source ingestion, durable verdicts and the live query API

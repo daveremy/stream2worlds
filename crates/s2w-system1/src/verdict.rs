@@ -29,6 +29,25 @@ pub enum AbstainReason {
     Insufficient(String),
     /// The bridge caught an engine panic; engines must not return this themselves.
     Panicked(String),
+    /// A graded engine's top score did not clear its threshold.
+    BelowThreshold {
+        /// The top score, in basis points.
+        score_bps: u16,
+        /// The threshold it did not clear.
+        threshold_bps: u16,
+    },
+    /// A graded engine's top score cleared its threshold but not its margin over the
+    /// runner-up: too close a tie to call confidently. Never reused as [`Self::BelowThreshold`]
+    /// — that would persist a self-contradictory verdict (decision 0012: verdicts are
+    /// append-only), since the top score genuinely was above threshold.
+    Ambiguous {
+        /// The top score, in basis points.
+        top1_bps: u16,
+        /// The runner-up score, in basis points.
+        top2_bps: u16,
+        /// The margin `top1_bps - top2_bps` needed to clear.
+        required_margin_bps: u16,
+    },
 }
 
 /// Basis points in 0..=10_000. Deserialization enforces the same range as construction.
@@ -90,6 +109,15 @@ mod tests {
             AbstainReason::Unparseable("bad".into()),
             AbstainReason::Insufficient("missing".into()),
             AbstainReason::Panicked("panic".into()),
+            AbstainReason::BelowThreshold {
+                score_bps: 3_000,
+                threshold_bps: 4_000,
+            },
+            AbstainReason::Ambiguous {
+                top1_bps: 6_000,
+                top2_bps: 5_600,
+                required_margin_bps: 500,
+            },
         ] {
             verdicts.push(Verdict::Abstain { reason });
         }

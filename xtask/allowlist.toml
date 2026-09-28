@@ -17,7 +17,7 @@ normal = ["s2w-model", "rusqlite"]
 normal = ["s2w-model", "reqwest", "rskafka", "tokio", "serde_json", "tokio-stream", "thiserror"]
 
 [crates.s2w-system1]
-normal = ["s2w-model", "serde", "serde_json", "thiserror"]
+normal = ["s2w-model", "serde", "serde_json", "thiserror", "model2vec-rs"]
 
 [crates.s2w-system2]
 normal = ["s2w-model"]
@@ -83,3 +83,6 @@ readme_row = "Fitness functions"
 
 [external.proc-macro2]
 readme_row = "Fitness functions"
+
+[external.model2vec-rs]
+readme_row = "System 1 engines"

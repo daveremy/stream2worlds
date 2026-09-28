@@ -20,6 +20,9 @@
 //!    split point. The fixture must use every `WorldEvent` variant and trip the hub cap.
 //!
 //! 7. **Module sizes** (`module_size.rs`): report-only AST spans and blocking exemption growth.
+//! 8. **Version-history append-only** (`version_history.rs`): `VERSION_HISTORY` in
+//!    `s2w-system1/src/embedding.rs` may only grow — no row already on `origin/main` may be
+//!    edited, reordered, or removed.
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -34,6 +37,7 @@ use serde::Deserialize;
 
 mod golden;
 mod module_size;
+mod version_history;
 
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
@@ -194,6 +198,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(overrides(root));
     problems.extend(golden::check(root));
     problems.extend(module_size::check(root, &meta, tighten));
+    problems.extend(version_history::check(root));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(

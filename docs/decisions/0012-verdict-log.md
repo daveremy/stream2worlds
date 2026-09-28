@@ -16,8 +16,10 @@ golden file `crates/s2w-system1/testdata/page-change-sample.verdict.json` pins),
 delete refused by trigger), and opaque bytes to `s2w-log`; encoding stays in `s2w-app::bridge`.
 
 **Provenance** is a reserved JSON object. Reserved keys: `model_hash`, `temperature_milli`
-(an integer; no floats, per 0011), `calibration_id`. Both shipped engines write `NULL`. Adding
-a key is not a schema change.
+(an integer; no floats, per 0011), `calibration_id`. Both engines shipped as of this decision
+wrote `NULL`; the local embeddings engine (decision 0013) is the first to write a non-`NULL`
+`provenance` (a `model_hash` and taxonomy/config hash pair). Adding a key is not a schema
+change.
 
 **Where.** `<log dir>/verdicts.sqlite3`, a sibling of the event log with its own writer lock
 (`VERDICTS_LOCK`) and its own `user_version`, not a table in the events database. The bridge

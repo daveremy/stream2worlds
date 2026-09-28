@@ -145,6 +145,8 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
                     AbstainReason::Unparseable(_) => stats.abstained.unparseable += 1,
                     AbstainReason::Insufficient(_) => stats.abstained.insufficient += 1,
                     AbstainReason::Panicked(_) => stats.engine_panics += 1,
+                    AbstainReason::BelowThreshold { .. } => stats.abstained.below_threshold += 1,
+                    AbstainReason::Ambiguous { .. } => stats.abstained.ambiguous += 1,
                 },
             }
         }

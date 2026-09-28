@@ -16,3 +16,4 @@ s2w-model = { path = "../s2w-model" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+model2vec-rs = { version = "0.3.0", default-features = false, features = ["fancy-regex"] }
