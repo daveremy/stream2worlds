@@ -1,9 +1,12 @@
-import { ApiError, evidence, eventsUrl, kinds, snapshot, sources as fetchSources, streamStatus, worlds } from './api';
+import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, snapshot,
+  sources as fetchSources, streamStatus, worlds } from './api';
 import type { Message } from './api';
 import { ViewState, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
 import { activeNow, linkColor, typeColor } from './profile';
+import { applyPresentation } from './presentation';
+import { buildUrl, parseWorldFromPath, worldPathFor } from './url';
 const status = document.querySelector<HTMLElement>('#status')!;
 const graph = document.querySelector<HTMLElement>('#graph')!;
 const table = document.querySelector<HTMLTableElement>('#evidence')!;
@@ -18,11 +21,26 @@ function describe(error: unknown): string {
   return error instanceof ApiError && error.code === 'offset_beyond_head' ? 'No data at this offset' :
     error instanceof Error ? error.message : String(error);
 }
+// The path (`/w/<world>/`) takes precedence over the legacy `?world=` query param — the server
+// redirects the query form to the path form (step 4), and every client-side URL writer below
+// keeps `world` out of the query from here on (`buildUrl` strips it unconditionally).
+function currentParams(): URLSearchParams {
+  const params = new URLSearchParams(location.search);
+  const pathWorld = parseWorldFromPath(location.pathname);
+  if (pathWorld) params.set('world', pathWorld);
+  return params;
+}
+// Every writer of the visible URL bar goes through this: the world (if known) always lives in
+// the path, never the query (round-1 review finding).
+function visibleUrl(params: URLSearchParams): string {
+  const world = params.get('world');
+  return buildUrl(world ? worldPathFor(world) : location.pathname, params);
+}
 async function start(): Promise<void> {
   dispose(); // Abort outstanding fetches, close the stream and cancel every timer first.
   const controller = new AbortController();
   const { signal } = controller;
-  const params = new URLSearchParams(location.search);
+  const params = currentParams();
   const state = new ViewState(params); activeState = state;
   const renderer = new Force2D();
   let source: EventSource | undefined;
@@ -96,12 +114,22 @@ async function start(): Promise<void> {
   async function initialize(): Promise<void> {
     try {
       if (!params.get('world')) {
+        // Bare `/`: self-discover via `/worlds`, then navigate to the canonical `/w/<world>/`
+        // URL — a real navigation (`location.replace`), not `history.replaceState`, since this
+        // is the one case where the pathname itself must change from `/` to `/w/<world>/`.
         const list = await worlds(signal);
         if (signal.aborted) return;
         params.set('world', list.worlds[0]?.world ?? 'default');
-        history.replaceState(null, '', `?${params}`);
-        (form.elements.namedItem('world') as HTMLInputElement).value = params.get('world')!;
+        location.replace(visibleUrl(params));
+        return;
       }
+      // Best-effort: presentation absence/failure must never block the graph itself (same
+      // posture as the sources fetch below).
+      try {
+        const p = await fetchPresentation(params.get('world')!, signal);
+        if (!signal.aborted) applyPresentation(p, renderer);
+      } catch { /* non-essential */ }
+      if (signal.aborted) return;
       const view = await snapshot(params, signal); lastFetch = Date.now();
       const seed = await evidence(params, view.offset, signal);
       if (signal.aborted) return;
@@ -133,16 +161,16 @@ form.addEventListener('submit', event => {
     const value = (form.elements.namedItem(key) as HTMLInputElement).value.trim();
     if (value) params.set(key, value);
   }
-  history.replaceState(null, '', `?${params}`); void start();
+  history.replaceState(null, '', visibleUrl(params)); void start();
 });
 document.querySelector('#pin')!.addEventListener('click', () => {
   if (!activeState) return;
-  const params = new URLSearchParams(location.search);
-  params.set('at', String(activeState.offset)); history.replaceState(null, '', `?${params}`); void start();
+  const params = currentParams();
+  params.set('at', String(activeState.offset)); history.replaceState(null, '', visibleUrl(params)); void start();
 });
 document.querySelector('#live')!.addEventListener('click', () => {
-  const params = new URLSearchParams(location.search); params.delete('at');
-  history.replaceState(null, '', `?${params}`); void start();
+  const params = currentParams(); params.delete('at');
+  history.replaceState(null, '', visibleUrl(params)); void start();
 });
 window.addEventListener('popstate', () => void start());
 window.addEventListener('pagehide', () => dispose());
