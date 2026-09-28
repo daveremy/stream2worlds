@@ -4,7 +4,7 @@ use s2w_model::{AttrValue, NaturalKey, RawEvent, WorldEvent};
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::embedding::{ClassifierError, ClassifyResult, CommentClassifier};
+use crate::embedding::{CURRENT_VERSION, ClassifierError, ClassifyResult, CommentClassifier};
 use crate::{AbstainReason, Confidence, Engine, Verdict};
 
 /// The one free-text field on the Wikimedia page-change schema, classified into an edit
@@ -61,7 +61,7 @@ impl Engine for LocalEmbeddingsEngine {
         "wikimedia.local_embeddings"
     }
     fn version(&self) -> u32 {
-        1
+        CURRENT_VERSION
     }
     fn evaluate(&self, event: &RawEvent) -> Verdict {
         match decide(&event.payload, &self.classifier) {

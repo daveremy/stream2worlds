@@ -309,17 +309,60 @@ fn config_hash(
     format!("{hash:016x}")
 }
 
+/// Append-only history of every `(version, model_hash, config_hash)` triple this engine has
+/// ever shipped (decision 0013, ruling item 1). Append a new row — never edit or remove one —
+/// whenever the vendored model or the taxonomy/threshold/margin config changes.
+pub(crate) const VERSION_HISTORY: &[(u32, &str, &str)] =
+    &[(1, "101c78283a6ede4c", "ca6c472a088fcd18")];
+
+/// The version this build ships: derived from the last row of [`VERSION_HISTORY`] rather than a
+/// separately-maintained literal, so a hash change and a version bump can never land as two
+/// independent, driftable ideas — appending a row is the only way to change what version this
+/// build reports. [`crate::engines::embeddings::LocalEmbeddingsEngine::version`] returns this.
+pub(crate) const CURRENT_VERSION: u32 = VERSION_HISTORY[VERSION_HISTORY.len() - 1].0;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Pinned literals (R1/R2 finding, both reviewers, blocking): changing any vendored file,
-    /// any label, any phrase, or either threshold changes the computed hash and fails this
-    /// test. Passing it again requires updating the pinned literal *and* consciously deciding
-    /// whether `LocalEmbeddingsEngine::version()` should bump (decision 0013).
+    /// Ruling item 1 (both plan reviewers, blocking): a test that only recomputes the hash
+    /// functions and compares the result to itself proves nothing — it can never fail, because
+    /// changing a label, phrase, threshold, or vendored file changes both sides identically.
+    /// This test instead compares the running classifier's hashes against literal pinned
+    /// values in an append-only table keyed by version, and asserts no version number is ever
+    /// reused with a different hash pair. Passing it again after a real change requires
+    /// appending a new `(version, model_hash, config_hash)` row and bumping `CURRENT_VERSION`
+    /// in the same diff — updating a pinned literal alone, without touching the version, fails.
     #[test]
-    fn model_and_config_hashes_are_pinned() -> Result<(), ClassifierError> {
+    fn version_history_is_append_only_and_matches_the_current_build() -> Result<(), ClassifierError>
+    {
+        for (i, &(version_a, model_a, config_a)) in VERSION_HISTORY.iter().enumerate() {
+            for &(version_b, model_b, config_b) in &VERSION_HISTORY[i + 1..] {
+                assert!(
+                    version_a != version_b || (model_a == model_b && config_a == config_b),
+                    "version {version_a} maps to two different (model_hash, config_hash) pairs"
+                );
+            }
+        }
+
+        let rows_for_current: Vec<_> = VERSION_HISTORY
+            .iter()
+            .filter(|&&(version, _, _)| version == CURRENT_VERSION)
+            .collect();
+        assert_eq!(
+            rows_for_current.len(),
+            1,
+            "CURRENT_VERSION must name exactly one row in VERSION_HISTORY"
+        );
+        let &(_, expected_model_hash, expected_config_hash) = rows_for_current[0];
+
         let classifier = CommentClassifier::new()?;
+        assert_eq!(classifier.model_hash(), expected_model_hash);
+        assert_eq!(classifier.config_hash(), expected_config_hash);
+
+        // Independently re-derive both hashes from the source inputs, so a bug in
+        // `CommentClassifier::new` computing a hash differently from `config_hash`/
+        // `fnv1a_hex_over` can't hide behind an equally-wrong pinned literal.
         assert_eq!(
             classifier.model_hash(),
             fnv1a_hex_over([MODEL_TOKENIZER, MODEL_WEIGHTS, MODEL_CONFIG])
@@ -328,11 +371,6 @@ mod tests {
             classifier.config_hash(),
             config_hash(&classifier.labels, &CATEGORIES, THRESHOLD_BPS, MARGIN_BPS)
         );
-        // The append-only version table below asserts these two exact values never drift
-        // silently; this assertion documents that both hashes are non-empty hex, the shape a
-        // future version-table test compares against.
-        assert_eq!(classifier.model_hash().len(), 16);
-        assert_eq!(classifier.config_hash().len(), 16);
         Ok(())
     }
 
@@ -382,5 +420,135 @@ mod tests {
                 "top1={top1_bps} top2={top2_bps} margin={margin}"
             );
         }
+    }
+
+    /// Throughput regression guard (plan §8, R1 finding, codex: the ~8,000 strings/s figure is
+    /// a published model2vec benchmark, not a measurement of this engine end to end). Not a
+    /// load test or a proof of the 1,000 events/s target (decision 0004) — a generous per-call
+    /// budget (1 ms/string, ~8x slower than the published figure) that catches a future
+    /// dependency bump or normalization change quietly regressing throughput, without pretending
+    /// to validate the target itself. Runs on the same self-hosted single runner as the rest of
+    /// CI, so the budget stays generous rather than tight.
+    #[test]
+    fn encoding_a_batch_of_comments_stays_within_a_generous_throughput_budget()
+    -> Result<(), ClassifierError> {
+        let classifier = CommentClassifier::new()?;
+        let comments = [
+            "Reverted edits by 1.2.3.4 (talk) to last version by Example",
+            "/* History */ added a paragraph about the founding",
+            "Undid revision 123456789 by Example (talk)",
+            "cleanup after vandalism",
+            "expanded the lead section with a summary",
+            "fixed typo",
+            "rv unconstructive edit",
+            "added citation needed tag",
+            "removed unsourced claim",
+            "copyedit for clarity",
+        ];
+        let budget = comments.len() as u32 * std::time::Duration::from_millis(1);
+
+        let start = std::time::Instant::now();
+        for comment in comments {
+            let _ = classifier.classify(comment);
+        }
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed <= budget,
+            "encoding {} comments took {elapsed:?}, over the {budget:?} budget",
+            comments.len()
+        );
+        Ok(())
+    }
+
+    /// Golden-output test (ruling item 4, opus): pins the full expected result — label,
+    /// `top1_bps`, `top2_bps` — for a fixed set of real English edit comments, so a
+    /// `Cargo.lock` bump of `model2vec-rs`/`tokenizers`, or a change to normalization or
+    /// scoring, that changes a verdict with the *same* `model_hash`/`config_hash` (because the
+    /// change lives in code or a dependency, not in the vendored files or the taxonomy) is
+    /// still caught. This is the real regression net the two hashes alone cannot provide, and
+    /// doubles as the calibration sanity check codex asked for: two of these real comments
+    /// (a revert and a section edit, both worded ambiguously) land in `NoMatch`, which is
+    /// itself evidence the abstain-first design is doing its job on real text, not just
+    /// constructed boundary values.
+    #[test]
+    fn golden_classifications_for_fixed_real_comments() -> Result<(), ClassifierError> {
+        let classifier = CommentClassifier::new()?;
+        let cases: [(&str, ClassifyResult); 8] = [
+            (
+                "Reverted edits by 1.2.3.4 (talk) to last version by Example",
+                ClassifyResult::NoMatch {
+                    top1_bps: 4519,
+                    top2_bps: 4294,
+                    threshold_bps: THRESHOLD_BPS,
+                    margin_bps: MARGIN_BPS,
+                },
+            ),
+            (
+                "/* History */ added a paragraph about the founding",
+                ClassifyResult::NoMatch {
+                    top1_bps: 4629,
+                    top2_bps: 4257,
+                    threshold_bps: THRESHOLD_BPS,
+                    margin_bps: MARGIN_BPS,
+                },
+            ),
+            (
+                "Undid revision 123456789 by Example (talk)",
+                ClassifyResult::Match {
+                    label: "revert",
+                    top1_bps: 4175,
+                    top2_bps: 1953,
+                },
+            ),
+            (
+                "cleanup after vandalism",
+                ClassifyResult::Match {
+                    label: "vandalism_repair",
+                    top1_bps: 8205,
+                    top2_bps: 4094,
+                },
+            ),
+            (
+                "expanded the lead section with a summary",
+                ClassifyResult::Match {
+                    label: "content_addition",
+                    top1_bps: 6142,
+                    top2_bps: 5218,
+                },
+            ),
+            (
+                "fixed typo",
+                ClassifyResult::Match {
+                    label: "minor_edit",
+                    top1_bps: 6678,
+                    top2_bps: 2095,
+                },
+            ),
+            (
+                "removed unsourced claim about population",
+                ClassifyResult::Match {
+                    label: "content_removal",
+                    top1_bps: 5872,
+                    top2_bps: 2899,
+                },
+            ),
+            (
+                "reorganized sections for readability",
+                ClassifyResult::Match {
+                    label: "structural_edit",
+                    top1_bps: 6035,
+                    top2_bps: 3844,
+                },
+            ),
+        ];
+        for (comment, expected) in cases {
+            assert_eq!(
+                classifier.classify(comment),
+                expected,
+                "comment: {comment:?}"
+            );
+        }
+        Ok(())
     }
 }
