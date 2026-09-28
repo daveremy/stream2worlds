@@ -23,8 +23,20 @@ export class Force2D implements GraphRenderer {
   }
   update(state: ViewState): void {
     // d3 mutates nodes/links; never hand it the authoritative state objects.
-    this.graph?.graphData({ nodes: structuredClone([...state.nodes.values()]),
-      links: structuredClone([...state.links.values()]) });
+    // force-graph/d3-force-3d does not match incoming nodes to existing ones by id — any node
+    // object without x/y/vx/vy gets a fresh initial position and reheats the whole simulation.
+    // Since every coalesced refetch (main.ts scheduleRefresh) hands this a brand-new snapshot,
+    // carry the live position fields over by id so the graph doesn't re-layout from scratch on
+    // every refresh (round-1 review finding, blocking).
+    const previous: Map<string, Partial<Node>> = new Map(
+      (this.graph?.graphData().nodes ?? []).map((node) => [(node as Node).id, node as Partial<Node>]));
+    const nodes = structuredClone([...state.nodes.values()]).map((node) => {
+      const prior = previous.get(node.id);
+      if (!prior) return node;
+      const { x, y, vx, vy, fx, fy } = prior as Record<string, number | undefined>;
+      return Object.assign(node, { x, y, vx, vy, fx, fy });
+    });
+    this.graph?.graphData({ nodes, links: structuredClone([...state.links.values()]) });
   }
   destroy(): void { this.resize?.disconnect(); this.graph?._destructor(); this.graph = undefined; }
 }

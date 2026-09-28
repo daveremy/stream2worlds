@@ -42,7 +42,15 @@ async function start(): Promise<void> {
       try {
         const view = await snapshot(params, signal);
         if (!signal.aborted) { state.snapshot(view); renderer.update(state); paint(); }
-      } catch (error) { if (!signal.aborted) { status.textContent = describe(error); dirty = true; } }
+      } catch (error) {
+        if (!signal.aborted) {
+          status.textContent = describe(error);
+          // Only retry on something that can plausibly resolve itself (503/network); a
+          // non-503 ApiError (400/404/...) will fail identically forever, so stop looping
+          // instead of refetching once a second with no backoff (round-1 review finding).
+          dirty = !(error instanceof ApiError && error.status !== 503);
+        }
+      }
       finally { fetching = false; if (dirty && !signal.aborted) scheduleRefresh(); }
     }, Math.max(0, 1000 - (Date.now() - lastFetch)));
   }

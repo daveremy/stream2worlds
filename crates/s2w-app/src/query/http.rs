@@ -145,7 +145,7 @@ impl IntoResponse for QueryError {
             | Self::UnknownWorld { .. } => StatusCode::NOT_FOUND,
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
-            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::StreamLimit => StatusCode::SERVICE_UNAVAILABLE,
         };
         (status, Json(self.json_body())).into_response()
     }
@@ -430,13 +430,17 @@ async fn events(
         })?;
         Ok((from, world, at))
     };
-    let (from, world, at) = match start() {
-        Ok(ok) => ok,
-        Err(e) => return e.into_response(),
-    };
+    // Acquire the stream-cap permit BEFORE folding any history (round-1 review finding): a
+    // request arriving over the cap should pay only the semaphore check, not the full fold
+    // `start()` does under the read lock. The permit is dropped (freeing the slot) if `start()`
+    // then fails validation — no slot is held past this function returning an error response.
     let permit = match crate::serve::sse_cap_guard(state.sse_slots.clone()) {
         Ok(permit) => permit,
         Err(error) => return error.into_response(),
+    };
+    let (from, world, at) = match start() {
+        Ok(ok) => ok,
+        Err(e) => return e.into_response(),
     };
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(follow(state, from, world, at, tx));

@@ -309,7 +309,7 @@ pub(crate) fn sse_cap_guard(
 ) -> Result<tokio::sync::OwnedSemaphorePermit, crate::query::QueryError> {
     slots
         .try_acquire_owned()
-        .map_err(|_| crate::query::QueryError::Unavailable)
+        .map_err(|_| crate::query::QueryError::StreamLimit)
 }
 
 // A literal loopback authority's port (`None` when absent), or `None` for anything else.
