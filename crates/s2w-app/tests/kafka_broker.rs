@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use s2w_app::{AppError, WatchArgs, run_watch};
+use s2w_app::{AppError, HumanReporter, WatchArgs, run_watch};
 use s2w_log::{EventLog, SqliteEventLog};
 use s2w_model::SourceId;
 
@@ -110,8 +110,11 @@ fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std
                 log_dir: log_dir.to_path_buf(),
                 json: false,
             };
-            // The watch never ends on its own; stop it once it has had time to catch up.
-            tokio::time::timeout(Duration::from_secs(4), run_watch(args))
+            async move {
+                let mut reporter = HumanReporter;
+                // The watch never ends on its own; stop it once it has had time to catch up.
+                tokio::time::timeout(Duration::from_secs(4), run_watch(args, &mut reporter)).await
+            }
         };
         let contents = |log_dir: &Path| -> TestResult<Contents> {
             let log = SqliteEventLog::open(log_dir)?;

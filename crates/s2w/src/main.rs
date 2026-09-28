@@ -1,14 +1,16 @@
 //! The `s2w` command-line tool.
 
 pub mod output;
+mod reporter;
 mod serve;
 
 use output::Format;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use reporter::JsonReporter;
 use s2w_app::query::{QueryState, Timeline};
-use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchArgs};
+use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, HumanReporter, WatchArgs};
 
 /// Where `s2w watch` keeps its event log when `--log-dir` is absent, relative to the working
 /// directory.
@@ -158,7 +160,11 @@ fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> 
 /// Runs a parsed `s2w watch` command.
 fn run_watch(args: WatchArgs) -> ExitCode {
     let json = args.json;
-    let outcome = s2w_app::watch(args);
+    let outcome = if json {
+        s2w_app::watch(args, &mut JsonReporter::default())
+    } else {
+        s2w_app::watch(args, &mut HumanReporter)
+    };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

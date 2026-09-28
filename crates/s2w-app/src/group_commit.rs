@@ -29,8 +29,11 @@ pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Where the pump reports progress and errors, split out from [`pump`] so `s2w` can choose
 /// human text (the long-standing default) or NDJSON (`--json`, s2w#79) without a second pump
-/// implementation.
-pub(crate) trait Reporter: Send {
+/// implementation. `pub` (s2w#79 round 2): the concrete `--json` reporter lives in `crates/s2w`
+/// (it needs `output.rs`'s rendering seam, which this crate cannot depend on), so the trait and
+/// the default [`HumanReporter`] have to cross the crate boundary; `watch`/`run_watch` no
+/// longer pick a reporter themselves — the caller supplies one.
+pub trait Reporter: Send {
     /// A batch was written to the log. `appended` and `duplicates` are running totals since the
     /// pump started; `cursor` is the last event's cursor, lossily decoded, once any event has
     /// been logged.
@@ -38,12 +41,15 @@ pub(crate) trait Reporter: Send {
     /// One duplicate was collapsed at this log position (folded into the next [`Self::flushed`]
     /// call's `duplicates` total, not necessarily its own line).
     fn duplicate(&mut self, position: u64);
-    /// A start note, or a non-fatal source error already reported — the pump continues past
-    /// it. `retry` marks [`SourceError::Retrying`]: a transient failure retried from the same
-    /// position, counted toward [`Self::flushed`]'s next reconnect total. (The one fatal error
-    /// that stops the pump is rendered by the caller, not through this trait — see
-    /// `s2w::run_watch`.)
-    fn note(&mut self, message: &str, retry: bool);
+    /// A benign informational note — never a source error (e.g. "no stored cursor; starting
+    /// fresh"). A `--json` reader filtering stderr for `"error"` must not see one of these
+    /// (s2w#79 round 2: [`Self::source_error`] is the only method that renders `"error"`).
+    fn note(&mut self, message: &str);
+    /// A non-fatal source error, already reported — the pump continues past it. `retry` marks
+    /// [`SourceError::Retrying`]: a transient failure retried from the same position, counted
+    /// toward [`Self::flushed`]'s next reconnect total. (The one fatal error that stops the
+    /// pump is rendered by the caller, not through this trait — see `s2w::run_watch`.)
+    fn source_error(&mut self, message: &str, retry: bool);
     /// Whether the periodic human rate line ([`report_progress`]) should run alongside this
     /// reporter. Human: yes, so a quiet source doesn't read as a hang. Json: no — `flushed`
     /// already reports every batch, and a plain-text line would break an NDJSON stderr reader.
@@ -54,7 +60,7 @@ pub(crate) trait Reporter: Send {
 
 /// Prints the human-readable lines `watch` has always printed.
 #[derive(Default)]
-pub(crate) struct HumanReporter;
+pub struct HumanReporter;
 
 impl Reporter for HumanReporter {
     fn flushed(&mut self, _appended: u64, _duplicates: u64, _cursor: Option<&str>) {
@@ -66,56 +72,15 @@ impl Reporter for HumanReporter {
         eprintln!("s2w: duplicate event collapsed at log position {position}");
     }
 
-    fn note(&mut self, message: &str, _retry: bool) {
+    fn note(&mut self, message: &str) {
         eprintln!("s2w: {message}");
     }
-}
 
-/// Prints NDJSON (s2w#79): one progress object per flush on stdout, one
-/// `{"error": "…", "fatal": bool}` object per note or source error on stderr.
-#[derive(Default)]
-pub(crate) struct JsonReporter {
-    /// Running total of [`SourceError::Retrying`] reports, surfaced in every `flushed` line.
-    reconnects: u64,
-}
-
-impl Reporter for JsonReporter {
-    fn flushed(&mut self, appended: u64, duplicates: u64, cursor: Option<&str>) {
-        let line = serde_json::json!({
-            "appended": appended,
-            "duplicates": duplicates,
-            "reconnects": self.reconnects,
-            "cursor": cursor,
-            "at": now_millis(),
-        });
-        println!("{line}");
+    fn source_error(&mut self, message: &str, _retry: bool) {
+        // Same text as a benign note today — nothing in the human output distinguishes them
+        // yet (pre-existing; only the trait split matters for `--json`, s2w#79 round 2).
+        eprintln!("s2w: {message}");
     }
-
-    fn duplicate(&mut self, _position: u64) {
-        // Folded into the next `flushed` call's `duplicates` total instead of its own line —
-        // the log position isn't part of the sketched shape and would need its own field.
-    }
-
-    fn note(&mut self, message: &str, retry: bool) {
-        if retry {
-            self.reconnects += 1;
-        }
-        let line = serde_json::json!({ "error": message, "fatal": false });
-        eprintln!("{line}");
-    }
-
-    fn wants_ticker(&self) -> bool {
-        false
-    }
-}
-
-/// Milliseconds since the Unix epoch, for a progress line's `at` field.
-fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |duration| {
-            i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
-        })
 }
 
 /// Consumes `source` into `log` with group commit until the stream ends.
@@ -184,7 +149,7 @@ where
                 buffer.push(event);
             }),
             Some(Err(error)) => on_error(error).map(|(message, retry)| {
-                report.note(&message, retry);
+                report.source_error(&message, retry);
             }),
         };
         if let Err(error) = outcome {
