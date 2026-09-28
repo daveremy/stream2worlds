@@ -21,10 +21,11 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **A third System 1 engine judges what an edit comment means, not just its structure.** Local embeddings classify an `enwiki` page-change comment into an edit category (revert, vandalism repair, content addition, and more) by similarity, running additively alongside the existing rules engine on the same page — and abstaining, never guessing, when it isn't confident. [Decision 0013](docs/decisions/0013-local-embeddings-engine.md) · [#64](https://github.com/daveremy/stream2worlds/issues/64)
 - **One command serves a live world.** `s2w serve wikipedia` ingests events, persists verdicts and exposes `/world` on loopback port 4310. [Decision 0014](docs/decisions/0014-serve-topology.md)
 - **A world can be written by hand.** `s2w serve -` turns incoming JSON claims into queryable entities and relationships while stdin remains open. [Decision 0011](docs/decisions/0011-system1-bridge.md)
 - **Verdicts survive restarts.** Stored judgments rebuild the world without calling the engine again. [Decision 0012](docs/decisions/0012-verdict-log.md)
-- **In progress:** the evidence view and bundle pipeline ([#10](https://github.com/daveremy/stream2worlds/issues/10)); local embeddings ([#64](https://github.com/daveremy/stream2worlds/issues/64)).
+- **In progress:** the evidence view and bundle pipeline ([#10](https://github.com/daveremy/stream2worlds/issues/10)); threshold/margin calibration for the embeddings engine against real `enwiki` traffic.
 
 ---
 
@@ -159,6 +160,26 @@ Good architecture from the first commit, paid down every sprint instead of in a 
 - an `AGENTS.md` in every crate, because most of the code will be written by coding agents.
 
 Decisions live in [`docs/decisions/`](docs/decisions/).
+
+## How embeddings fit in
+
+Local embeddings are one of three System 1 engines, running alongside rules and JSON claims
+behind the same verdict/confidence/abstain trait — additive, not a replacement. Rules read the
+structure of a Wikimedia page-change event (page id, revision id, performer); embeddings read
+its one free-text field, `revision.comment`, and classify it into an edit category (`revert`,
+`vandalism_repair`, `content_addition`, `content_removal`, `minor_edit`, `structural_edit`) by
+similarity to fixed example phrases. Both engines run on the same event and write to the same
+page entity, so a page's world state carries both the rules engine's structural fact
+(`last_rev_id`) and the embeddings engine's judgment about what that revision did
+(`last_edit_category`, with `last_edit_category_rev_id` naming which revision it describes —
+read it as a snapshot of the most recent edit, not a running summary of the whole page).
+
+Confidence here is a similarity score to the nearest category, rescaled to basis points — not a
+calibrated probability. Below a threshold, or too close a tie with the runner-up category, the
+engine abstains rather than guessing: a wrong classification never gets served with false
+certainty, only silence. Scoped to `enwiki` only in this slice, since the underlying model is
+English-only. Full design, the version-pinning scheme, and named calibration follow-ups:
+[decision 0013](docs/decisions/0013-local-embeddings-engine.md).
 
 ## Technical architecture
 
