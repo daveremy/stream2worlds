@@ -8,7 +8,7 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-use s2w_log::{AppendOutcome, EventLog};
+use s2w_log::{AppendOutcome, EventLog, LogPosition};
 use s2w_model::RawEvent;
 use s2w_sources::source::{EventStream, SourceError};
 use tokio::time::{Instant, MissedTickBehavior};
@@ -23,14 +23,81 @@ pub(crate) const MAX_BATCH: usize = 100;
 pub(crate) const MAX_DELAY: Duration = Duration::from_millis(50);
 
 /// How often the progress line prints on stderr while a source is healthy (s2w#87: a running
-/// `watch` or `serve` prints nothing else, which reads as a hang to a viewer).
+/// `watch` or `serve` prints nothing else, which reads as a hang to a viewer). Human mode only
+/// (s2w#79): `--json` reports every flush instead, so a second timer would be redundant noise.
 pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Where the pump reports progress and errors, split out from [`pump`] so `s2w` can choose
+/// human text (the long-standing default) or NDJSON (`--json`, s2w#79) without a second pump
+/// implementation. `pub` (s2w#79 round 2): the concrete `--json` reporter lives in `crates/s2w`
+/// (it needs `output.rs`'s rendering seam, which this crate cannot depend on), so the trait and
+/// the default [`HumanReporter`] have to cross the crate boundary; `watch`/`run_watch` no
+/// longer pick a reporter themselves — the caller supplies one.
+pub trait Reporter: Send {
+    /// A batch was written to the log. `appended`, `duplicates` and `reconnects` are running
+    /// totals since the pump started (s2w#79 round 2: `reconnects` counted by the pump itself,
+    /// per `crates/s2w/AGENTS.md`'s "no logic here beyond argument parsing and output
+    /// formatting" — a reporter only renders it); `cursor` is the last event's cursor, lossily
+    /// decoded, once any event has been logged.
+    fn flushed(&mut self, appended: u64, duplicates: u64, reconnects: u64, cursor: Option<&str>);
+    /// One duplicate was collapsed at this log position (folded into the next [`Self::flushed`]
+    /// call's `duplicates` total, not necessarily its own line).
+    fn duplicate(&mut self, position: u64);
+    /// A benign informational note — never a source error (e.g. "no stored cursor; starting
+    /// fresh"). A `--json` reader filtering stderr for `"error"` must not see one of these
+    /// (s2w#79 round 2: [`Self::source_error`] is the only method that renders `"error"`).
+    fn note(&mut self, message: &str);
+    /// A non-fatal source error, already reported — the pump continues past it. `retry` marks
+    /// [`SourceError::Retrying`]: a transient failure retried from the same position, already
+    /// folded into the `reconnects` total [`Self::flushed`] reports next — a reporter only
+    /// renders the message, it does not count. (The one fatal error that stops the pump is
+    /// rendered by the caller, not through this trait — see `s2w::run_watch`.)
+    fn source_error(&mut self, message: &str, retry: bool);
+    /// Whether the periodic human rate line ([`report_progress`]) should run alongside this
+    /// reporter. Human: yes, so a quiet source doesn't read as a hang. Json: no — `flushed`
+    /// already reports every batch, and a plain-text line would break an NDJSON stderr reader.
+    fn wants_ticker(&self) -> bool {
+        true
+    }
+}
+
+/// Prints the human-readable lines `watch` has always printed.
+#[derive(Default)]
+pub struct HumanReporter;
+
+impl Reporter for HumanReporter {
+    fn flushed(
+        &mut self,
+        _appended: u64,
+        _duplicates: u64,
+        _reconnects: u64,
+        _cursor: Option<&str>,
+    ) {
+        // The periodic ticker (`report_progress`) owns the human progress line; a per-flush
+        // line here would be far chattier than the 5s cadence readers are used to.
+    }
+
+    fn duplicate(&mut self, position: u64) {
+        eprintln!("s2w: duplicate event collapsed at log position {position}");
+    }
+
+    fn note(&mut self, message: &str) {
+        eprintln!("s2w: {message}");
+    }
+
+    fn source_error(&mut self, message: &str, _retry: bool) {
+        // Same text as a benign note today — nothing in the human output distinguishes them
+        // yet (pre-existing; only the trait split matters for `--json`, s2w#79 round 2).
+        eprintln!("s2w: {message}");
+    }
+}
 
 /// Consumes `source` into `log` with group commit until the stream ends.
 ///
 /// `convert` turns a source item into a log event; its error stops the pump. `on_error` sees
-/// every source error: it returns `Ok(())` for an error that was reported and skipped, or the
-/// error that stops the pump. The buffer is flushed before any error is returned.
+/// every source error: `Ok((message, retry))` for one that was reported and skipped (`retry`
+/// marks a transient failure retried from the same position), or the error that stops the pump.
+/// The buffer is flushed, and `report` told about it, before any error is returned.
 ///
 /// # Errors
 ///
@@ -39,7 +106,8 @@ pub(crate) async fn pump<L, S, T, E>(
     log: &mut L,
     mut source: S,
     mut convert: impl FnMut(T) -> Result<RawEvent, AppError>,
-    mut on_error: impl FnMut(E) -> Result<(), AppError>,
+    mut on_error: impl FnMut(E) -> Result<(String, bool), AppError>,
+    report: &mut dyn Reporter,
 ) -> Result<(), AppError>
 where
     L: EventLog,
@@ -47,13 +115,28 @@ where
 {
     let mut buffer: Vec<RawEvent> = Vec::with_capacity(MAX_BATCH);
     let mut deadline: Option<Instant> = None;
+    let mut appended: u64 = 0;
+    let mut duplicates: u64 = 0;
+    // Count of `SourceError::Retrying` reports so far (s2w#79 round 2: counted here, in
+    // s2w-app, per `crates/s2w/AGENTS.md`'s "no logic here beyond argument parsing and output
+    // formatting" — a `Reporter` only renders it, never counts it).
+    let mut reconnects: u64 = 0;
+    let mut last_cursor: Option<String> = None;
     loop {
         let next = match deadline {
             Some(at) => {
                 if let Ok(next) = tokio::time::timeout_at(at, source.next()).await {
                     next
                 } else {
-                    flush(log, &mut buffer)?;
+                    flush_and_report(
+                        log,
+                        &mut buffer,
+                        &mut appended,
+                        &mut duplicates,
+                        reconnects,
+                        &last_cursor,
+                        report,
+                    )?;
                     deadline = None;
                     continue;
                 }
@@ -62,33 +145,63 @@ where
         };
         let outcome = match next {
             None => {
-                flush(log, &mut buffer)?;
+                flush_and_report(
+                    log,
+                    &mut buffer,
+                    &mut appended,
+                    &mut duplicates,
+                    reconnects,
+                    &last_cursor,
+                    report,
+                )?;
                 return Ok(());
             }
             Some(Ok(item)) => convert(item).map(|event| {
                 if buffer.is_empty() {
                     deadline = Some(Instant::now() + MAX_DELAY);
                 }
+                last_cursor = Some(String::from_utf8_lossy(event.cursor.as_bytes()).into_owned());
                 buffer.push(event);
             }),
-            Some(Err(error)) => on_error(error),
+            Some(Err(error)) => on_error(error).map(|(message, retry)| {
+                if retry {
+                    reconnects += 1;
+                }
+                report.source_error(&message, retry);
+            }),
         };
         if let Err(error) = outcome {
-            flush(log, &mut buffer)?;
+            flush_and_report(
+                log,
+                &mut buffer,
+                &mut appended,
+                &mut duplicates,
+                reconnects,
+                &last_cursor,
+                report,
+            )?;
             return Err(error);
         }
         if buffer.len() >= MAX_BATCH {
-            flush(log, &mut buffer)?;
+            flush_and_report(
+                log,
+                &mut buffer,
+                &mut appended,
+                &mut duplicates,
+                reconnects,
+                &last_cursor,
+                report,
+            )?;
             deadline = None;
         }
     }
 }
 
-/// Consumes a started source's stream into `log` with group commit until it ends, printing a
-/// periodic progress line on stderr (`name` identifies the source in that line) so a healthy
-/// run is not silent.
+/// Consumes a started source's stream into `log` with group commit until it ends, reporting
+/// progress and errors through `report` (human lines, or `--json`'s NDJSON, s2w#79).
 ///
-/// A [`SourceError::Skipped`] item is reported on stderr and the stream continues; any other
+/// A [`SourceError::Skipped`] item is reported and the stream continues; a
+/// [`SourceError::Retrying`] one is reported as a reconnect and the stream continues; any other
 /// error stops the pump after the buffer is flushed.
 ///
 /// # Errors
@@ -98,6 +211,7 @@ pub(crate) async fn pump_events<L: EventLog>(
     log: &mut L,
     stream: EventStream,
     name: &str,
+    report: &mut dyn Reporter,
 ) -> Result<(), AppError> {
     // `pump_future` and `report_progress` are only ever joined here with `select!`, never
     // spawned onto another task, so a plain borrow (no `Rc`, no `Send` bound) is enough — the
@@ -109,25 +223,29 @@ pub(crate) async fn pump_events<L: EventLog>(
         last_event_at.set(Some(Instant::now()));
         Ok(event)
     };
-    let pump_future = pump(log, stream, convert, |error: SourceError| {
+    let on_error = |error: SourceError| {
         if error.is_fatal() {
             Err(AppError::Source(error))
         } else {
-            eprintln!("s2w: {error}");
-            Ok(())
+            let retry = matches!(error, SourceError::Retrying { .. });
+            Ok((error.to_string(), retry))
         }
-    });
-    tokio::select! {
-        result = pump_future => result,
-        // report_progress never returns, so `never` can never be constructed; this is the
-        // exhaustive match for an empty type, not a fallback branch.
-        never = report_progress(name, &total, &last_event_at) => match never {},
+    };
+    if report.wants_ticker() {
+        tokio::select! {
+            result = pump(log, stream, convert, on_error, report) => result,
+            // report_progress never returns, so `never` can never be constructed; this is the
+            // exhaustive match for an empty type, not a fallback branch.
+            never = report_progress(name, &total, &last_event_at) => match never {},
+        }
+    } else {
+        pump(log, stream, convert, on_error, report).await
     }
 }
 
 /// Prints `name`'s throughput, running total and time since the last event roughly every
 /// [`PROGRESS_INTERVAL`], forever — the caller races it against the pump and drops it once the
-/// pump finishes.
+/// pump finishes. Human mode only; see [`Reporter::wants_ticker`].
 async fn report_progress(
     name: &str,
     total: &Cell<u64>,
@@ -159,21 +277,46 @@ async fn report_progress(
     }
 }
 
-/// Writes the buffer as one batch and reports collapsed redeliveries on stderr.
-fn flush<L: EventLog>(log: &mut L, buffer: &mut Vec<RawEvent>) -> Result<(), AppError> {
+/// Flushes the buffer, if there's anything in it, and reports the batch's duplicates and the
+/// running totals so far.
+fn flush_and_report<L: EventLog>(
+    log: &mut L,
+    buffer: &mut Vec<RawEvent>,
+    appended: &mut u64,
+    duplicates: &mut u64,
+    reconnects: u64,
+    last_cursor: &Option<String>,
+    report: &mut dyn Reporter,
+) -> Result<(), AppError> {
     if buffer.is_empty() {
         return Ok(());
     }
+    let (inserted, duplicate_positions) = flush(log, buffer)?;
+    *appended += inserted;
+    *duplicates += duplicate_positions.len() as u64;
+    for position in duplicate_positions {
+        report.duplicate(position.as_u64());
+    }
+    report.flushed(*appended, *duplicates, reconnects, last_cursor.as_deref());
+    Ok(())
+}
+
+/// Writes the buffer as one batch. Returns how many events were newly inserted and the log
+/// positions of any duplicates collapsed among them; the buffer is always empty on return.
+fn flush<L: EventLog>(
+    log: &mut L,
+    buffer: &mut Vec<RawEvent>,
+) -> Result<(u64, Vec<LogPosition>), AppError> {
     let events = std::mem::replace(buffer, Vec::with_capacity(MAX_BATCH));
+    let mut inserted = 0_u64;
+    let mut duplicates = Vec::new();
     for outcome in log.append_batch(events)? {
-        if let AppendOutcome::Duplicate(position) = outcome {
-            eprintln!(
-                "s2w: duplicate event collapsed at log position {}",
-                position.as_u64()
-            );
+        match outcome {
+            AppendOutcome::Inserted(_) => inserted += 1,
+            AppendOutcome::Duplicate(position) => duplicates.push(position),
         }
     }
-    Ok(())
+    Ok((inserted, duplicates))
 }
 
 #[cfg(test)]
@@ -184,7 +327,7 @@ mod tests {
     use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
     use tokio_stream::wrappers::ReceiverStream;
 
-    use super::{MAX_BATCH, pump};
+    use super::{HumanReporter, MAX_BATCH, pump};
     use crate::AppError;
 
     /// An in-memory log that records the size of every batch it is handed.
@@ -247,7 +390,14 @@ mod tests {
         crate::tests::run(true, async {
             let (mut log, record) = counting_log();
             let items: Vec<Result<u64, AppError>> = (1..=250).map(Ok).collect();
-            let outcome = pump(&mut log, tokio_stream::iter(items), event, Err).await;
+            let outcome = pump(
+                &mut log,
+                tokio_stream::iter(items),
+                event,
+                Err,
+                &mut HumanReporter,
+            )
+            .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
             assert_eq!(batches(&record), vec![MAX_BATCH, MAX_BATCH, 50]);
         });
@@ -259,7 +409,14 @@ mod tests {
             let (mut log, record) = counting_log();
             let (sender, receiver) = tokio::sync::mpsc::channel::<Result<u64, AppError>>(8);
             let task = tokio::spawn(async move {
-                pump(&mut log, ReceiverStream::new(receiver), event, Err).await
+                pump(
+                    &mut log,
+                    ReceiverStream::new(receiver),
+                    event,
+                    Err,
+                    &mut HumanReporter,
+                )
+                .await
             });
             for number in 1..=3 {
                 assert!(sender.send(Ok(number)).await.is_ok());
@@ -289,7 +446,14 @@ mod tests {
             let (mut log, record) = counting_log();
             let items: Vec<Result<u64, AppError>> =
                 vec![Ok(1), Ok(2), Err(AppError::Usage("stop".to_owned())), Ok(3)];
-            let outcome = pump(&mut log, tokio_stream::iter(items), event, Err).await;
+            let outcome = pump(
+                &mut log,
+                tokio_stream::iter(items),
+                event,
+                Err,
+                &mut HumanReporter,
+            )
+            .await;
             assert!(
                 matches!(outcome, Err(AppError::Usage(_))),
                 "got {outcome:?}"
@@ -304,7 +468,14 @@ mod tests {
             let (mut log, record) = counting_log();
             let items: Vec<Result<u64, AppError>> =
                 vec![Ok(1), Err(AppError::Usage("skip".to_owned())), Ok(2)];
-            let outcome = pump(&mut log, tokio_stream::iter(items), event, |_| Ok(())).await;
+            let outcome = pump(
+                &mut log,
+                tokio_stream::iter(items),
+                event,
+                |_| Ok((String::new(), false)),
+                &mut HumanReporter,
+            )
+            .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
             assert_eq!(batches(&record), vec![2]);
         });

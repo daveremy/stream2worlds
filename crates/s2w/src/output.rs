@@ -45,6 +45,43 @@ pub fn print_usage(format: Format, text: &str) {
     println!("{}", render_usage(format, text));
 }
 
+/// Renders the fatal error that stops `s2w watch <source> --json` (s2w#79): the one place a
+/// `watch --json` run's own top-level failure becomes an object, matching the shape its
+/// in-stream reports already use (this module's [`render_source_error`], via the CLI-side
+/// `--json` reporter in `reporter.rs`).
+pub fn render_stream_error(message: &str) -> String {
+    format!("{{\"error\": {}, \"fatal\": true}}", json_string(message))
+}
+
+/// Renders one `s2w watch --json` progress line (s2w#79, round 2): a flush's running
+/// `appended`/`duplicates` totals, the reconnect count, the last event's cursor (once any
+/// event has been logged) and the flush time in epoch milliseconds.
+pub fn render_progress_line(
+    appended: u64,
+    duplicates: u64,
+    reconnects: u64,
+    cursor: Option<&str>,
+    at_millis: i64,
+) -> String {
+    let cursor = cursor.map_or_else(|| "null".to_owned(), json_string);
+    format!(
+        "{{\"appended\": {appended}, \"duplicates\": {duplicates}, \"reconnects\": {reconnects}, \"cursor\": {cursor}, \"at\": {at_millis}}}"
+    )
+}
+
+/// Renders a benign `s2w watch --json` startup/status note (s2w#79, round 2) — never a source
+/// error, so a reader filtering stderr for `"error"` never sees one of these. See
+/// [`render_source_error`] for the other stream, which does say `"error"`.
+pub fn render_source_note(message: &str) -> String {
+    format!("{{\"note\": {}}}", json_string(message))
+}
+
+/// Renders a non-fatal `s2w watch --json` source error (s2w#79, round 2): the pump reported it
+/// and kept running, unlike [`render_stream_error`]'s fatal one-shot that stops the process.
+pub fn render_source_error(message: &str) -> String {
+    format!("{{\"error\": {}, \"fatal\": false}}", json_string(message))
+}
+
 /// Prints an error to stderr and returns the usage error exit code, 2.
 pub fn print_error(format: Format, message: &str) -> ExitCode {
     eprintln!("{}", render_error(format, message));
@@ -86,6 +123,39 @@ mod tests {
         assert_eq!(
             render_version(Format::Json, "1.2.3"),
             r#"{"version": "1.2.3"}"#
+        );
+    }
+
+    #[test]
+    fn renders_a_progress_line_with_and_without_a_cursor() {
+        assert_eq!(
+            render_progress_line(3, 1, 0, Some("42"), 1_700_000_000_000),
+            r#"{"appended": 3, "duplicates": 1, "reconnects": 0, "cursor": "42", "at": 1700000000000}"#
+        );
+        assert_eq!(
+            render_progress_line(0, 0, 2, None, 0),
+            r#"{"appended": 0, "duplicates": 0, "reconnects": 2, "cursor": null, "at": 0}"#
+        );
+    }
+
+    #[test]
+    fn renders_a_source_note_without_the_word_error() {
+        let rendered = render_source_note("wikipedia: no stored cursor; starting fresh");
+        assert_eq!(
+            rendered,
+            r#"{"note": "wikipedia: no stored cursor; starting fresh"}"#
+        );
+        assert!(
+            !rendered.contains("error"),
+            "a benign note must never render as an error: {rendered}"
+        );
+    }
+
+    #[test]
+    fn renders_a_non_fatal_source_error() {
+        assert_eq!(
+            render_source_error("kafka: connection reset, retrying"),
+            r#"{"error": "kafka: connection reset, retrying", "fatal": false}"#
         );
     }
 

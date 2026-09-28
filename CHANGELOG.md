@@ -13,6 +13,50 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 64 — NDJSON watch progress (2026-09-27, 21:00–22:50)
+
+The follow-up #39 deferred: `s2w watch --json` ([#79](https://github.com/daveremy/stream2worlds/issues/79)).
+
+**Shipped**
+- `s2w watch <source> --json`: one NDJSON object per flush on stdout
+  (`{"appended","duplicates","reconnects","cursor","at"}`), and `{"error","fatal"}` lines on
+  stderr for source errors and the one fatal error that stops the pump — a clean machine-readable
+  stream alongside the existing human progress lines, never both at once.
+- `crates/s2w-app/src/group_commit.rs` gained a `pub` `Reporter` trait (`HumanReporter`
+  reproduces today's eprintln lines exactly) so `pump`/`pump_events` route through one seam
+  instead of hardcoded `eprintln!`. `serve` keeps `HumanReporter` — `serve --json` is out of
+  scope for this issue. The concrete `--json` reporter (`JsonReporter`) lives in
+  `crates/s2w/src/reporter.rs`, not in `s2w-app` — it needs `output.rs`'s rendering seam, which
+  `s2w-app` cannot depend on (round 2: the first-draft `JsonReporter` in `group_commit.rs` built
+  its own JSON via `serde_json`, a second JSON path the issue explicitly ruled out). It renders
+  three new `output.rs` helpers (`render_progress_line`, `render_source_note`,
+  `render_source_error`) built by hand like the existing `render_stream_error`, and is stateless
+  — every counter (`appended`/`duplicates`/`reconnects`) is tracked by `pump` in `s2w-app` and
+  only rendered on the CLI side, per `crates/s2w/AGENTS.md`'s "no logic here beyond argument
+  parsing and output formatting".
+- `crates/s2w/AGENTS.md`'s dated exception (2026-09-27, #39) is resolved: `watch` now has
+  `--json`; only `serve` still lacks one.
+
+**Learned**
+- `Reporter` needs an explicit `Send` bound because `crates/s2w`'s concrete `--json` reporter
+  crosses a `tokio::spawn` in its own test harness (`crates/s2w-app/tests/kafka_broker.rs`), and
+  because `&mut dyn Reporter` is threaded through `pump`'s `impl FnMut` closures, which the
+  compiler requires to be `Send` the moment any caller might spawn them — `dyn Trait` isn't
+  `Send` by default. Production `pump`/`report_progress` are only ever joined with `select!` on
+  one task (see the doc comment on `pump_events`), never spawned.
+- `"at"` is epoch milliseconds (`i64`), not an RFC3339 string, matching this codebase's existing
+  convention (`query/timeline.rs`'s `first_ts`/`last_ts`) rather than the issue's original sketch
+  — there's no RFC3339-rendering helper anywhere in the workspace to reuse.
+- Round 1 and round 2 code review (codex) each found a real, in-scope bug the plan missed:
+  round 1, a benign startup note (`"no stored cursor; starting fresh"`) rendered as
+  `{"error":...}`, indistinguishable from a real source error to a `--json` consumer filtering
+  stderr for `"error"` — `Reporter::note` split into `note` (benign, `{"note":...}`) and
+  `source_error` (`{"error":...,"fatal":false}`). Round 2, the reconnect counter had moved into
+  the CLI-side reporter along with the JSON rendering, silently reintroducing counting logic
+  crates/s2w/AGENTS.md forbids — moved back into `pump`.
+
+**Next**
+- `serve --json` progress, if a future issue asks for it — explicitly out of scope here.
 ## Sprint 64 — world-scoped query APIs (2026-09-27)
 
 **Shipped:** Every HTTP query is now scoped as `/worlds/{world}/…`, `GET /worlds` discovers

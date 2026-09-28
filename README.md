@@ -21,6 +21,9 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **`s2w watch --json` streams machine-readable progress.** One NDJSON object per flush on
+  stdout (`appended`, `duplicates`, `reconnects`, `cursor`, `at`), errors on stderr — the flag
+  the AGENTS.md exception had deferred to this issue. [#79](https://github.com/daveremy/stream2worlds/issues/79)
 - **A third System 1 engine judges what an edit comment means, not just its structure.** Local embeddings classify an `enwiki` page-change comment into an edit category (revert, vandalism repair, content addition, and more) by similarity, running additively alongside the existing rules engine on the same page — and abstaining, never guessing, when it isn't confident. [Decision 0013](docs/decisions/0013-local-embeddings-engine.md) · [#64](https://github.com/daveremy/stream2worlds/issues/64)
 - **Every query names its world.** HTTP uses `/worlds/{world}/…`, every MCP tool requires a `world` parameter, and `s2w serve` defaults to `default` or accepts `--world <name>`. [Decision 0015](docs/decisions/0015-named-worlds.md)
 - **One command serves a live world.** `s2w serve wikipedia` ingests events, persists verdicts and exposes `/worlds/default/world` on loopback port 4310. [Decision 0014](docs/decisions/0014-serve-topology.md)
@@ -98,6 +101,10 @@ s2w serve wikipedia --wiki enwiki --log-dir ./s2w-data --port 4310
 
 # replay history first; only for a log that has no stored cursor yet
 s2w watch wikipedia --since 2026-09-27T00:00:00Z --log-dir ./fresh-dir
+
+# machine-readable progress instead of the human status lines: one NDJSON object per flush on
+# stdout, errors on stderr
+s2w watch wikipedia --json --log-dir ./s2w-data
 
 # your Kafka topic: reads by partition assignment, never joins a consumer group, commits nothing
 s2w watch kafka://localhost:9092/orders --log-dir ./s2w-data

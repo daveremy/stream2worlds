@@ -6,6 +6,11 @@ pub mod mcp;
 pub mod query;
 pub mod serve;
 
+/// `s2w`'s `--json` reporter lives on the CLI side (it needs `output.rs`'s rendering seam,
+/// which this crate cannot depend on — see `crates/s2w/AGENTS.md`'s dependency direction);
+/// this is the trait it implements, plus the default human one `watch`/`run_watch` need a
+/// caller to supply explicitly (s2w#79).
+pub use group_commit::{HumanReporter, Reporter};
 /// The hub in-degree cap a served timeline starts under, re-exported so the CLI can build the
 /// MCP server's empty world without depending on the core itself.
 pub use s2w_core::DEFAULT_HUB_IN_DEGREE_CAP;
@@ -63,6 +68,9 @@ pub struct WatchArgs {
     pub since: Option<String>,
     /// The directory holding (or creating) the SQLite event log.
     pub log_dir: PathBuf,
+    /// `--json` (s2w#79): NDJSON progress on stdout, and `{"note":…}` / `{"error":…,
+    /// "fatal":bool}` objects on stderr, instead of the human status lines.
+    pub json: bool,
 }
 
 /// Runs `s2w watch <source-uri>` until the source ends or the process is stopped.
@@ -72,8 +80,12 @@ pub struct WatchArgs {
 /// [`AppError::Usage`] for an unknown URI, or `--since` the source cannot honour (a stored
 /// cursor wins over it); otherwise the first failure that should stop the watch. A skipped
 /// frame or line is reported on stderr and does not stop it.
-pub fn watch(args: WatchArgs) -> Result<(), AppError> {
-    current_thread_runtime()?.block_on(run_watch(args))
+///
+/// `report` receives every progress, duplicate and note event; the caller picks the
+/// reporter (s2w#79) — the CLI's `--json` one lives in `crates/s2w` since it needs
+/// `output.rs`'s rendering seam, which this crate cannot depend on.
+pub fn watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError> {
+    current_thread_runtime()?.block_on(run_watch(args, report))
 }
 
 /// [`watch`] on the caller's runtime (current-thread: the stream is not `Send`).
@@ -81,7 +93,7 @@ pub fn watch(args: WatchArgs) -> Result<(), AppError> {
 /// # Errors
 ///
 /// As [`watch`].
-pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
+pub async fn run_watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError> {
     let source = resolve(&args.uri, None).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
@@ -101,9 +113,9 @@ pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
             }
         })?;
     for note in &started.notes {
-        eprintln!("s2w: {name}: {note}");
+        report.note(&format!("{name}: {note}"));
     }
-    group_commit::pump_events(&mut log, started.stream, name).await?;
+    group_commit::pump_events(&mut log, started.stream, name, report).await?;
     match started.ends {
         Ending::AtEndOfInput => Ok(()),
         Ending::Never => Err(AppError::StreamEnded(name)),
@@ -153,17 +165,21 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_stream::StreamExt;
 
-    use super::{AppError, LogCursors, WatchArgs, watch};
+    use super::{AppError, HumanReporter, LogCursors, WatchArgs, watch};
 
     #[test]
     fn watch_lock_conflict_maps_to_usage_and_releases() {
         let directory = TestDirectory::new("watch-lock");
         let log = SqliteEventLog::open(directory.path()).expect("first event log opens");
-        let error = watch(WatchArgs {
-            uri: "-".to_owned(),
-            since: None,
-            log_dir: directory.path().to_path_buf(),
-        })
+        let error = watch(
+            WatchArgs {
+                uri: "-".to_owned(),
+                since: None,
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        )
         .expect_err("a second open against the same --log-dir must fail");
         assert!(
             matches!(&error, AppError::Usage(message)
@@ -253,11 +269,15 @@ mod tests {
             WIKIPEDIA_SOURCE,
             br#"[{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1}]"#,
         );
-        let outcome = watch(WatchArgs {
-            uri: "wikipedia".to_owned(),
-            since: Some("2026-09-27T00:00:00Z".to_owned()),
-            log_dir: directory.path().to_path_buf(),
-        });
+        let outcome = watch(
+            WatchArgs {
+                uri: "wikipedia".to_owned(),
+                since: Some("2026-09-27T00:00:00Z".to_owned()),
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        );
         match outcome {
             Err(AppError::Usage(message)) => {
                 assert!(
@@ -273,11 +293,15 @@ mod tests {
     fn a_stored_cursor_that_is_not_utf8_is_a_loud_error() {
         let directory = TestDirectory::new("cursor-not-utf8");
         seed(directory.path(), WIKIPEDIA_SOURCE, &[0xff, 0xfe]);
-        let outcome = watch(WatchArgs {
-            uri: "wikipedia".to_owned(),
-            since: None,
-            log_dir: directory.path().to_path_buf(),
-        });
+        let outcome = watch(
+            WatchArgs {
+                uri: "wikipedia".to_owned(),
+                since: None,
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        );
         assert!(
             matches!(
                 outcome,
@@ -291,11 +315,15 @@ mod tests {
     fn a_stored_cursor_that_does_not_parse_is_a_loud_error() {
         let directory = TestDirectory::new("cursor-unparseable");
         seed(directory.path(), WIKIPEDIA_SOURCE, b"not a last-event-id");
-        let outcome = watch(WatchArgs {
-            uri: "wikipedia".to_owned(),
-            since: None,
-            log_dir: directory.path().to_path_buf(),
-        });
+        let outcome = watch(
+            WatchArgs {
+                uri: "wikipedia".to_owned(),
+                since: None,
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        );
         assert!(
             matches!(
                 outcome,
@@ -317,11 +345,15 @@ mod tests {
             &format!("kafka.{cluster}.orders.p0"),
             b"41",
         );
-        let outcome = watch(WatchArgs {
-            uri: "kafka://127.0.0.1:1/orders".to_owned(),
-            since: Some("2026-09-27T00:00:00Z".to_owned()),
-            log_dir: directory.path().to_path_buf(),
-        });
+        let outcome = watch(
+            WatchArgs {
+                uri: "kafka://127.0.0.1:1/orders".to_owned(),
+                since: Some("2026-09-27T00:00:00Z".to_owned()),
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        );
         assert!(
             matches!(&outcome, Err(AppError::Usage(message)) if message.contains("drop --since")),
             "got {outcome:?}"
@@ -331,11 +363,15 @@ mod tests {
     #[test]
     fn an_unknown_uri_is_a_usage_error() {
         let directory = TestDirectory::new("unknown-uri");
-        let outcome = watch(WatchArgs {
-            uri: "kafka".to_owned(),
-            since: None,
-            log_dir: directory.path().to_path_buf(),
-        });
+        let outcome = watch(
+            WatchArgs {
+                uri: "kafka".to_owned(),
+                since: None,
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        );
         assert!(
             matches!(&outcome, Err(AppError::Usage(message)) if message.contains("kafka://")),
             "got {outcome:?}"
@@ -345,11 +381,15 @@ mod tests {
     #[test]
     fn invalid_wikipedia_since_is_a_usage_error_without_a_log_dir_prefix() {
         let directory = TestDirectory::new("wikipedia-invalid-since");
-        let outcome = watch(WatchArgs {
-            uri: "wikipedia".to_owned(),
-            since: Some("2026-09-27".to_owned()),
-            log_dir: directory.path().to_path_buf(),
-        });
+        let outcome = watch(
+            WatchArgs {
+                uri: "wikipedia".to_owned(),
+                since: Some("2026-09-27".to_owned()),
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        );
         assert!(
             matches!(&outcome, Err(AppError::Usage(message))
                 if message.contains("invalid --since") && !message.contains("--log-dir")),
@@ -360,11 +400,15 @@ mod tests {
     #[test]
     fn invalid_kafka_since_is_a_usage_error_without_a_log_dir_prefix() {
         let directory = TestDirectory::new("kafka-invalid-since");
-        let outcome = watch(WatchArgs {
-            uri: "kafka://127.0.0.1:1/orders".to_owned(),
-            since: Some("yesterday".to_owned()),
-            log_dir: directory.path().to_path_buf(),
-        });
+        let outcome = watch(
+            WatchArgs {
+                uri: "kafka://127.0.0.1:1/orders".to_owned(),
+                since: Some("yesterday".to_owned()),
+                log_dir: directory.path().to_path_buf(),
+                json: false,
+            },
+            &mut HumanReporter,
+        );
         assert!(
             matches!(&outcome, Err(AppError::Usage(message))
                 if message.contains("invalid --since") && !message.contains("--log-dir")),
