@@ -1,7 +1,7 @@
 import ForceGraph from 'force-graph';
 import type { NodeObject } from 'force-graph';
 import type { Link, Node } from '../api';
-import { labelFor, labelMap, linkColor, typeColor } from '../profile';
+import { labelFor, linkColor, typeColor } from '../profile';
 import type { GraphRenderer } from '../renderer';
 import type { ViewState } from '../state';
 type GraphNode = Node & NodeObject;
@@ -50,7 +50,7 @@ export class Force2D implements GraphRenderer {
     const stateNodes = [...state.nodes.values()];
     this.degreeMap = state.degreeMap;
     this.keyByType = state.keyByType;
-    this.labelById = labelMap(stateNodes, this.keyByType);
+    this.labelById = state.labels;
     const previous: Map<string, Partial<GraphNode>> = new Map(
       (this.graph?.graphData().nodes ?? []).map(node => [node.id, node]));
     const nodes = structuredClone(stateNodes).map((node) => {

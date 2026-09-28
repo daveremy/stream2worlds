@@ -161,7 +161,7 @@ function legendItem(color: string, text: string): HTMLLIElement {
 }
 
 function renderActive(element: HTMLElement, state: ViewState): void {
-  const recent = activeNow(state.evidence, state.nodesById, state.keyByType);
+  const recent = activeNow(state.evidence, state.nodesById, state.keyByType, state.labels);
   const recentHeading = document.createElement('h3'); recentHeading.textContent = 'Active now';
   const hubHeading = document.createElement('h3'); hubHeading.textContent = 'Hubs';
   const recentList = metricList(recent.map(item => `${item.label} (${item.count})`));
