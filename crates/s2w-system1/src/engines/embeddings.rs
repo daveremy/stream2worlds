@@ -89,11 +89,30 @@ impl Engine for LocalEmbeddingsEngine {
 }
 
 /// Decision order (karpathy ruling on issue #64's plan-gate round 2, folded here rather than
-/// re-run as a third plan round): schema, then canary, then language scope, then structural
-/// fields, then the empty-comment check (inside [`CommentClassifier::classify`]), then scoring.
-/// So an out-of-scope event with no comment reports `NotMine`, never `Insufficient` — the
+/// re-run as a third plan round; sharpened round 2 of code review after the ordering below
+/// was found incomplete): every step, in the order it actually runs —
+///
+/// 1. JSON parse of the raw payload — `Unparseable` on malformed JSON.
+/// 2. Schema check (`$schema` prefix) — `NotMine`.
+/// 3. Canary check (`meta.domain == "canary"`) — `NotMine`.
+/// 4. Language scope check, read directly off the untyped `Value` (`wiki_id` as a string,
+///    compared to `"enwiki"`) — `NotMine`. This runs BEFORE typed deserialization on purpose:
+///    a non-`enwiki` event can have any shape in its other fields (it isn't this engine's
+///    input), and typed deserialization must never turn "not mine" into `Unparseable` just
+///    because some field this engine doesn't care about has an unexpected type.
+/// 5. Typed deserialization of the rest of the payload (`page`, `revision`, and re-reading
+///    `wiki_id` for the structural check below) — `Unparseable` on a type mismatch. Only
+///    reached once step 4 has confirmed this event claims to be `enwiki`.
+/// 6. Structural field presence (`wiki_id`, `page.page_id`, `revision`, `revision.rev_id`) —
+///    `Insufficient`.
+/// 7. Model availability — `Insufficient`.
+/// 8. Empty-comment check (inside [`CommentClassifier::classify`]) — `Insufficient`.
+/// 9. Scoring / threshold — `BelowThreshold`, `Ambiguous`, or a `Match`.
+///
+/// So an out-of-scope event — wrong schema, canary, or a non-`enwiki` wiki, however it's
+/// otherwise shaped — reports `NotMine`, never `Insufficient` or `Unparseable`: the
 /// schema/canary/language checks all mean "not this engine's input," which takes priority over
-/// "this engine's input, but incomplete."
+/// "this engine's input, but incomplete" or "this engine's input, but malformed."
 fn decide(
     payload: &[u8],
     classifier: &Result<CommentClassifier, ClassifierError>,
@@ -104,6 +123,14 @@ fn decide(
         .as_str()
         .is_some_and(|s| s.starts_with("/mediawiki/page/change/"))
         || value["meta"]["domain"] == "canary"
+    {
+        return Err(AbstainReason::NotMine);
+    }
+    // Read wiki_id off the untyped Value, before typed deserialization: a non-enwiki event
+    // can have any shape elsewhere (it isn't this engine's input), and typed deserialization
+    // must never turn "not mine" into Unparseable over a field this engine doesn't care about.
+    if let Some(wiki_id) = value["wiki_id"].as_str()
+        && wiki_id != "enwiki"
     {
         return Err(AbstainReason::NotMine);
     }
@@ -247,6 +274,29 @@ mod tests {
                 }
             ));
         }
+        Ok(())
+    }
+
+    /// Round 2 (opus subagent, correctness finding): the language-scope check must read
+    /// `wiki_id` off the untyped `Value` before typed deserialization runs, so a non-`enwiki`
+    /// event abstains `NotMine` even when some OTHER field this engine doesn't care about has
+    /// an unexpected type — never `Unparseable`, which would wrongly claim the event was ours
+    /// but malformed.
+    #[test]
+    fn a_non_enwiki_event_is_not_mine_even_with_a_malformed_unrelated_field() -> TestResult {
+        let engine = LocalEmbeddingsEngine::new();
+        let mut value: Value = serde_json::from_slice(ENWIKI_SAMPLE)?;
+        value["wiki_id"] = "dewiki".into();
+        // A field this engine doesn't scope on, given a type typed deserialization would
+        // reject (comment is `Option<String>`, not a number) — must never surface as
+        // Unparseable once wiki_id has already ruled the event NotMine.
+        value["revision"]["comment"] = 12345.into();
+        assert_eq!(
+            engine.evaluate(&raw(&serde_json::to_vec(&value)?)?),
+            Verdict::Abstain {
+                reason: AbstainReason::NotMine
+            }
+        );
         Ok(())
     }
 
