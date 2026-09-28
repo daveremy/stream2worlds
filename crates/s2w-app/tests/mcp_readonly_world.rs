@@ -16,7 +16,7 @@ mod tests {
     use rmcp::ServiceExt;
     use rmcp::model::CallToolRequestParams;
     use s2w_app::mcp::WorldMcp;
-    use s2w_app::mcp::replay::read_only_world;
+    use s2w_app::mcp::replay::{LiveReadOnlyWorld, read_only_world};
     use s2w_core::{AttrValue, NaturalKey, WorldEvent};
     use s2w_log::{
         AppendOutcome, EventLog, SqliteEventLog, SqliteVerdictStore, StoredVerdict, VerdictStore,
@@ -184,6 +184,117 @@ mod tests {
         }
 
         let state = read_only_world(directory.path(), "default", 10_000)?;
+        run(async move {
+            let server = WorldMcp::new(state);
+            let (server_io, client_io) = tokio::io::duplex(4096);
+            let task = tokio::spawn(async move {
+                server
+                    .serve(server_io)
+                    .await
+                    .unwrap()
+                    .waiting()
+                    .await
+                    .unwrap();
+            });
+            let client = ().serve(client_io).await.unwrap();
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new("world_view")
+                        .with_arguments(json!({"world":"default"}).as_object().unwrap().clone()),
+                )
+                .await
+                .unwrap();
+            let text = &result.content[0].as_text().unwrap().text;
+            assert!(text.contains("first"), "{text}");
+            assert!(text.contains("dedup-low"), "{text}");
+            assert!(!text.contains("dedup-high"), "{text}");
+            client.cancel().await.unwrap();
+            task.await.unwrap();
+        });
+
+        child_stdin.write_all(&[1])?;
+        child_stdin.flush()?;
+        loop {
+            let line = lines.next().ok_or("child exited before final marker")??;
+            if line.contains("committed ") {
+                assert!(line.ends_with("committed 3"), "{line}");
+                break;
+            }
+        }
+        child_stdin.write_all(&[1])?;
+        child_stdin.flush()?;
+        assert!(child.wait()?.success());
+        Ok(())
+    }
+
+    /// Acceptance test (stream2worlds#128): world_view results advance while another process
+    /// keeps writing the log. Opens `LiveReadOnlyWorld` against the first commit only, then
+    /// polls `refresh()` — a bounded retry loop, never a fixed sleep, matching how the real
+    /// `s2w mcp --log-dir` refresh thread polls — until the second commit shows up, then
+    /// confirms the MCP `world_view` tool serves the advanced snapshot.
+    #[test]
+    fn mcp_serves_advancing_results_while_another_process_keeps_writing() -> TestResult {
+        if env::var_os(CHILD_DIRECTORY).is_some() {
+            return Ok(());
+        }
+        let directory = TestDirectory::new("mcp-live-refresh")?;
+        let executable = env::current_exe()?;
+        let mut child = Command::new(executable)
+            .arg("--exact")
+            .arg("tests::readonly_writer_child")
+            .arg("--nocapture")
+            .arg("--test-threads=1")
+            .env(CHILD_DIRECTORY, directory.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let child_stdout = child.stdout.take().ok_or("child stdout unavailable")?;
+        let mut child_stdin = child.stdin.take().ok_or("child stdin unavailable")?;
+        let mut lines = BufReader::new(child_stdout).lines();
+
+        // Wait for the first commit before opening, so the live snapshot captures exactly that.
+        loop {
+            let line = lines
+                .next()
+                .ok_or("child exited before first commit marker")??;
+            if line.contains("committed ") {
+                assert!(line.ends_with("committed 1"), "{line}");
+                break;
+            }
+        }
+        let (state, mut live) = LiveReadOnlyWorld::open(directory.path(), "default", 10_000)?;
+        let world = serde_json::to_string(&state.world_at(None)?)?;
+        assert!(world.contains("first"), "{world}");
+        assert!(!world.contains("dedup-low"), "{world}");
+
+        // Let the writer commit event 2 (which also commits a second, higher-version verdict
+        // batch carrying "dedup-high" — see readonly_writer_child), then poll refresh() with a
+        // bounded retry loop until the new claim shows up.
+        child_stdin.write_all(&[1])?;
+        child_stdin.flush()?;
+        loop {
+            let line = lines
+                .next()
+                .ok_or("child exited before second commit marker")??;
+            if line.contains("committed ") {
+                assert!(line.ends_with("committed 2"), "{line}");
+                break;
+            }
+        }
+        let mut advanced = false;
+        for _ in 0..50 {
+            if live.refresh(&state)? {
+                advanced = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(
+            advanced,
+            "refresh() should observe the second commit within 5s"
+        );
+
+        // Confirm via the actual MCP tool, not just the raw QueryState.
         run(async move {
             let server = WorldMcp::new(state);
             let (server_io, client_io) = tokio::io::duplex(4096);
