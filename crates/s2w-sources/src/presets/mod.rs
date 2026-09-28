@@ -15,9 +15,9 @@ pub(crate) const PRESETS: &[(&str, &str, &str, &[&str])] = &[(
     "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1", // vocabulary: allow
     "wikipedia.page_change",                                           // vocabulary: allow
     &[
-        "meta.domain!=canary",     // vocabulary: allow
-        "wiki_id!=examplewiki",    // vocabulary: allow
-        "database!=examplewiki",   // vocabulary: allow
+        "meta.domain!=canary",   // vocabulary: allow
+        "wiki_id!=examplewiki",  // vocabulary: allow
+        "database!=examplewiki", // vocabulary: allow
     ],
 )];
 
@@ -32,31 +32,37 @@ pub(crate) fn preset_filters(name: &str) -> &'static [&'static str] {
 
 /// The preset named `name`, if there is one. `filters` are ANDed with the preset's own default
 /// filters (a preset's default drop cannot be loosened by a caller-supplied filter).
-#[must_use]
-pub(crate) fn preset(name: &str, filters: &[FieldFilter]) -> Option<Box<dyn Source>> {
-    PRESETS
-        .iter()
-        .find(|(preset, ..)| *preset == name)
-        .map(|(name, url, source_id, _)| {
-            let mut merged: Vec<FieldFilter> = preset_filters(name)
-                .iter()
-                .map(|spec| {
-                    FieldFilter::parse(spec)
-                        .expect("preset filter spec must parse — proven by a unit test")
-                })
-                .collect();
-            merged.extend(filters.iter().cloned());
-            Box::new(SseSource::new(SseConfig {
-                name,
-                url: (*url).to_owned(),
-                dialect: Arc::new(FilteredDialect::new(
-                    Arc::new(SinceQueryParam { param: "since" }),
-                    merged,
-                )),
-                source_id: (*source_id).to_owned(),
-                user_agent: USER_AGENT,
-            })) as Box<dyn Source>
-        })
+///
+/// # Errors
+///
+/// `Err` names the preset's own default spec that failed to parse — `every_preset_filter_spec_parses`
+/// below proves this never happens for a committed `PRESETS` entry, but a future edit to that
+/// data is caught loudly here rather than by an `unwrap`/`expect` in this function.
+pub(crate) fn preset(
+    name: &str,
+    filters: &[FieldFilter],
+) -> Result<Option<Box<dyn Source>>, String> {
+    let Some((name, url, source_id, _)) = PRESETS.iter().find(|(preset, ..)| *preset == name)
+    else {
+        return Ok(None);
+    };
+    let mut merged: Vec<FieldFilter> = Vec::new();
+    for spec in preset_filters(name) {
+        merged.push(FieldFilter::parse(spec).map_err(|e| {
+            format!("preset {name:?}'s own default filter {spec:?} does not parse: {e}")
+        })?);
+    }
+    merged.extend(filters.iter().cloned());
+    Ok(Some(Box::new(SseSource::new(SseConfig {
+        name,
+        url: (*url).to_owned(),
+        dialect: Arc::new(FilteredDialect::new(
+            Arc::new(SinceQueryParam { param: "since" }),
+            merged,
+        )),
+        source_id: (*source_id).to_owned(),
+        user_agent: USER_AGENT,
+    })) as Box<dyn Source>))
 }
 
 #[cfg(test)]

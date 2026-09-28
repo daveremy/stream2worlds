@@ -27,8 +27,10 @@
 //!    spelling, and test code plus `// vocabulary: allow` are the only exemptions.
 //! 10. **Obfuscation replay** (`obfuscation.rs`): the golden fixture folds to the same world
 //!     whether or not its claim data (identifiers, attribute names, string values) is renamed
-//!     and hashed first — a regression guard on the one layer (`s2w-core`'s fold) known clean
-//!     today against code that reads a specific name or value instead of just shape.
+//!     and hashed first — a regression guard against code that reads a specific name or value
+//!     instead of just shape. Covers `s2w-core`'s fold and, run through `s2w-system1`'s
+//!     engines (`JsonClaimsEngine` today), the engine layer; the bridge registry
+//!     (`s2w-app::Bridge`/`EngineRegistry`) is not yet covered.
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a

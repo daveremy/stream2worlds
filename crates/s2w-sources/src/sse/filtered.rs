@@ -11,7 +11,7 @@ use crate::filter::{FieldFilter, apply_all};
 
 /// Consecutive events that reached the filter check but matched nothing before this wrapper
 /// warns on stderr once per stall streak (carries s2w#101/#107 forward generically — see the
-/// retired `Wikimedia::track_stall`, `git show a3b2079`).
+/// now-retired stall-tracking helper this generalizes, `git show a3b2079`).
 const STALL_WARNING_THRESHOLD: u64 = 200;
 
 /// Wraps `inner`, dropping any frame that does not match every filter in `filters`, applied at

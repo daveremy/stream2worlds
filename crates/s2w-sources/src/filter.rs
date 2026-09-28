@@ -25,7 +25,7 @@ impl FieldFilter {
     /// Parses `"a.b.c=value"` or `"a.b.c!=value"`. The path is dot-separated; `value` is parsed
     /// as JSON (so `--filter rev=123` compares against the number `123`, `--filter
     /// name="123"` against the string), falling back to a bare string when it isn't valid JSON
-    /// (so `--filter wiki_id=enwiki` needs no quoting).
+    /// (so `--filter site_id=abc` needs no quoting).
     ///
     /// # Errors
     ///
@@ -41,7 +41,9 @@ impl FieldFilter {
             ));
         };
         if path_part.is_empty() {
-            return Err(format!("filter {spec:?}: the path before = must not be empty"));
+            return Err(format!(
+                "filter {spec:?}: the path before = must not be empty"
+            ));
         }
         let path: Vec<String> = path_part.split('.').map(str::to_owned).collect();
         let value = serde_json::from_str(value_part)

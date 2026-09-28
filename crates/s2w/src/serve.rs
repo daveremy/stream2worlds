@@ -194,7 +194,10 @@ mod tests {
     fn json_suffix_is_rejected_as_an_unrecognized_serve_argument() {
         assert_eq!(
             parse(&args(&["-", "--json"])),
-            Err("unexpected argument '--json': expected --log-dir, --port, --world or --filter".to_owned())
+            Err(
+                "unexpected argument '--json': expected --log-dir, --port, --world or --filter"
+                    .to_owned()
+            )
         );
     }
 

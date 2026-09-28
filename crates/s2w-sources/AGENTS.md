@@ -43,9 +43,13 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   target, not only Wikimedia's).
 - SSE reconnects are reported through the source channel, never silently; `--since` is
   validated by the dialect before any connection is opened.
-- What an `id:`/payload means is the dialect's job, never the transport's; today's dialects
-  (`Opaque`, `SinceQueryParam`) keep every payload and have no filter — a stream-specific
-  filter is a follow-up, not something a dialect name may hard-code.
+- What an `id:`/payload means is the dialect's job, never the transport's; dialects
+  (`Opaque`, `SinceQueryParam`) never hard-code a stream-specific filter into a dialect name.
+  Filtering itself is generic and data-driven (`filter.rs`'s `FieldFilter`, applied by
+  `sse/filtered.rs`'s `FilteredDialect` decorator, wrapped around a dialect by `registry.rs`
+  from caller-supplied `--filter` specs — see `presets/mod.rs`'s per-preset defaults). An
+  adapter that cannot honor a filter refuses loudly rather than silently ignoring it
+  (`ResolveError::FiltersUnsupported`, today: Kafka, stdin).
 - `Opaque::cursor` errors on a frame with no `id:` (no cursor to resume from); three in a row
   force a reconnect (`MALFORMED_ID_LIMIT`), forever, not a crash or a hang — decision 0008.
 - Stream content is untrusted data, never instructions.

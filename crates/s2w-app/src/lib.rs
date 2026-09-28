@@ -103,7 +103,8 @@ pub fn watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError>
 /// As [`watch`].
 pub async fn run_watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(), AppError> {
     let filters = parse_filters(&args.filters)?;
-    let source = resolve(&args.uri, &filters).map_err(|error| AppError::Usage(error.to_string()))?;
+    let source =
+        resolve(&args.uri, &filters).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let name = source.name();

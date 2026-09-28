@@ -38,7 +38,17 @@ pub enum ResolveError {
         /// The adapter that cannot honor a filter.
         scheme: &'static str,
     },
+    /// A preset's own default `--filter` spec does not parse. Unreachable for a committed
+    /// `PRESETS` entry (`every_preset_filter_spec_parses` proves it), surfaced here rather than
+    /// panicking so a future bad edit fails loudly instead of crashing the process.
+    #[error(transparent)]
+    PresetFilterInvalid(#[from] PresetFilterError),
 }
+
+/// A preset's own default filter spec failed to parse; see [`ResolveError::PresetFilterInvalid`].
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct PresetFilterError(String);
 
 /// Resolves `uri`: `-` is stdin, then an exact preset name, then the scheme before `://`.
 /// `filters` are ANDed against every event's raw payload before it is stored (SSE only today;
@@ -48,9 +58,10 @@ pub enum ResolveError {
 ///
 /// [`ResolveError::Unknown`] listing the accepted forms, [`ResolveError::Invalid`] when the
 /// scheme's adapter refuses the rest of the URI, [`ResolveError::FiltersUnsupported`] when
-/// `filters` is non-empty for an adapter with no filter hook.
+/// `filters` is non-empty for an adapter with no filter hook, [`ResolveError::PresetFilterInvalid`]
+/// if a preset's own default filter spec does not parse (unreachable for a committed preset).
 pub fn resolve(uri: &str, filters: &[FieldFilter]) -> Result<Box<dyn Source>, ResolveError> {
-    if let Some(source) = preset(uri, filters) {
+    if let Some(source) = preset(uri, filters).map_err(PresetFilterError)? {
         return Ok(source);
     }
     if uri == "-" {
