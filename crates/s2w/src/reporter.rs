@@ -11,24 +11,16 @@ use crate::output;
 
 /// Prints NDJSON: one progress object per flush on stdout, one `{"note": "…"}` per benign
 /// startup note and one `{"error": "…", "fatal": false}` per non-fatal source error, both on
-/// stderr.
-#[derive(Default)]
-pub(crate) struct JsonReporter {
-    /// Running total of `SourceError::Retrying` reports, surfaced in every `flushed` line.
-    reconnects: u64,
-}
+/// stderr. Stateless: `flushed`'s `reconnects` total is counted by `s2w-app`'s pump and only
+/// rendered here — `crates/s2w/AGENTS.md` holds "no logic here beyond argument parsing and
+/// output formatting" (round-2 review finding: a reporter-side counter violated that).
+pub(crate) struct JsonReporter;
 
 impl Reporter for JsonReporter {
-    fn flushed(&mut self, appended: u64, duplicates: u64, cursor: Option<&str>) {
+    fn flushed(&mut self, appended: u64, duplicates: u64, reconnects: u64, cursor: Option<&str>) {
         println!(
             "{}",
-            output::render_progress_line(
-                appended,
-                duplicates,
-                self.reconnects,
-                cursor,
-                at_millis()
-            )
+            output::render_progress_line(appended, duplicates, reconnects, cursor, at_millis())
         );
     }
 
@@ -41,10 +33,7 @@ impl Reporter for JsonReporter {
         eprintln!("{}", output::render_source_note(message));
     }
 
-    fn source_error(&mut self, message: &str, retry: bool) {
-        if retry {
-            self.reconnects += 1;
-        }
+    fn source_error(&mut self, message: &str, _retry: bool) {
         eprintln!("{}", output::render_source_error(message));
     }
 
@@ -70,15 +59,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flushed_counts_reconnects_from_retried_source_errors() {
-        let mut reporter = JsonReporter::default();
-        reporter.source_error("kafka: reset", true);
-        reporter.source_error("kafka: benign skip", false);
-        assert_eq!(reporter.reconnects, 1);
+    fn wants_ticker_is_false() {
+        assert!(!JsonReporter.wants_ticker());
     }
 
     #[test]
-    fn wants_ticker_is_false() {
-        assert!(!JsonReporter::default().wants_ticker());
+    fn source_error_never_mutates_state() {
+        // Stateless (round 2): this must compile and run with an immutable-looking call
+        // pattern repeated any number of times without any counter drifting internally —
+        // the reconnect total lives in s2w-app's pump, not here.
+        let mut reporter = JsonReporter;
+        reporter.source_error("kafka: reset", true);
+        reporter.source_error("kafka: benign skip", false);
     }
 }

@@ -34,10 +34,12 @@ pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 /// the default [`HumanReporter`] have to cross the crate boundary; `watch`/`run_watch` no
 /// longer pick a reporter themselves — the caller supplies one.
 pub trait Reporter: Send {
-    /// A batch was written to the log. `appended` and `duplicates` are running totals since the
-    /// pump started; `cursor` is the last event's cursor, lossily decoded, once any event has
-    /// been logged.
-    fn flushed(&mut self, appended: u64, duplicates: u64, cursor: Option<&str>);
+    /// A batch was written to the log. `appended`, `duplicates` and `reconnects` are running
+    /// totals since the pump started (s2w#79 round 2: `reconnects` counted by the pump itself,
+    /// per `crates/s2w/AGENTS.md`'s "no logic here beyond argument parsing and output
+    /// formatting" — a reporter only renders it); `cursor` is the last event's cursor, lossily
+    /// decoded, once any event has been logged.
+    fn flushed(&mut self, appended: u64, duplicates: u64, reconnects: u64, cursor: Option<&str>);
     /// One duplicate was collapsed at this log position (folded into the next [`Self::flushed`]
     /// call's `duplicates` total, not necessarily its own line).
     fn duplicate(&mut self, position: u64);
@@ -46,9 +48,10 @@ pub trait Reporter: Send {
     /// (s2w#79 round 2: [`Self::source_error`] is the only method that renders `"error"`).
     fn note(&mut self, message: &str);
     /// A non-fatal source error, already reported — the pump continues past it. `retry` marks
-    /// [`SourceError::Retrying`]: a transient failure retried from the same position, counted
-    /// toward [`Self::flushed`]'s next reconnect total. (The one fatal error that stops the
-    /// pump is rendered by the caller, not through this trait — see `s2w::run_watch`.)
+    /// [`SourceError::Retrying`]: a transient failure retried from the same position, already
+    /// folded into the `reconnects` total [`Self::flushed`] reports next — a reporter only
+    /// renders the message, it does not count. (The one fatal error that stops the pump is
+    /// rendered by the caller, not through this trait — see `s2w::run_watch`.)
     fn source_error(&mut self, message: &str, retry: bool);
     /// Whether the periodic human rate line ([`report_progress`]) should run alongside this
     /// reporter. Human: yes, so a quiet source doesn't read as a hang. Json: no — `flushed`
@@ -63,7 +66,13 @@ pub trait Reporter: Send {
 pub struct HumanReporter;
 
 impl Reporter for HumanReporter {
-    fn flushed(&mut self, _appended: u64, _duplicates: u64, _cursor: Option<&str>) {
+    fn flushed(
+        &mut self,
+        _appended: u64,
+        _duplicates: u64,
+        _reconnects: u64,
+        _cursor: Option<&str>,
+    ) {
         // The periodic ticker (`report_progress`) owns the human progress line; a per-flush
         // line here would be far chattier than the 5s cadence readers are used to.
     }
@@ -108,6 +117,10 @@ where
     let mut deadline: Option<Instant> = None;
     let mut appended: u64 = 0;
     let mut duplicates: u64 = 0;
+    // Count of `SourceError::Retrying` reports so far (s2w#79 round 2: counted here, in
+    // s2w-app, per `crates/s2w/AGENTS.md`'s "no logic here beyond argument parsing and output
+    // formatting" — a `Reporter` only renders it, never counts it).
+    let mut reconnects: u64 = 0;
     let mut last_cursor: Option<String> = None;
     loop {
         let next = match deadline {
@@ -120,6 +133,7 @@ where
                         &mut buffer,
                         &mut appended,
                         &mut duplicates,
+                        reconnects,
                         &last_cursor,
                         report,
                     )?;
@@ -136,6 +150,7 @@ where
                     &mut buffer,
                     &mut appended,
                     &mut duplicates,
+                    reconnects,
                     &last_cursor,
                     report,
                 )?;
@@ -149,6 +164,9 @@ where
                 buffer.push(event);
             }),
             Some(Err(error)) => on_error(error).map(|(message, retry)| {
+                if retry {
+                    reconnects += 1;
+                }
                 report.source_error(&message, retry);
             }),
         };
@@ -158,6 +176,7 @@ where
                 &mut buffer,
                 &mut appended,
                 &mut duplicates,
+                reconnects,
                 &last_cursor,
                 report,
             )?;
@@ -169,6 +188,7 @@ where
                 &mut buffer,
                 &mut appended,
                 &mut duplicates,
+                reconnects,
                 &last_cursor,
                 report,
             )?;
@@ -264,6 +284,7 @@ fn flush_and_report<L: EventLog>(
     buffer: &mut Vec<RawEvent>,
     appended: &mut u64,
     duplicates: &mut u64,
+    reconnects: u64,
     last_cursor: &Option<String>,
     report: &mut dyn Reporter,
 ) -> Result<(), AppError> {
@@ -276,7 +297,7 @@ fn flush_and_report<L: EventLog>(
     for position in duplicate_positions {
         report.duplicate(position.as_u64());
     }
-    report.flushed(*appended, *duplicates, last_cursor.as_deref());
+    report.flushed(*appended, *duplicates, reconnects, last_cursor.as_deref());
     Ok(())
 }
 

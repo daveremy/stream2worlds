@@ -68,8 +68,8 @@ pub struct WatchArgs {
     pub since: Option<String>,
     /// The directory holding (or creating) the SQLite event log.
     pub log_dir: PathBuf,
-    /// `--json` (s2w#79): NDJSON progress on stdout and `{"error":…,"fatal":bool}` objects on
-    /// stderr, instead of the human status lines.
+    /// `--json` (s2w#79): NDJSON progress on stdout, and `{"note":…}` / `{"error":…,
+    /// "fatal":bool}` objects on stderr, instead of the human status lines.
     pub json: bool,
 }
 
