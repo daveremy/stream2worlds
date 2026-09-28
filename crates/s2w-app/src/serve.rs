@@ -7,10 +7,10 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Duration;
 
-use axum::extract::Request;
-use axum::http::{StatusCode, header::HOST};
+use axum::extract::{Request, State};
+use axum::http::{StatusCode, Uri, header::HOST};
 use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use s2w_log::{
     AppendOutcome, EventLog, LogError, LogPosition, LogReader, SqliteEventLog, SqliteVerdictStore,
     StoredEvent, WorldManifest,
@@ -350,10 +350,127 @@ async fn shutdown_signal(mut shutdown: watch::Receiver<bool>) {
 
 // Assemble every route and fallback before applying the Host boundary.
 fn app(state: QueryState) -> axum::Router {
+    let world_state = state.clone();
     router(state)
         .route_layer(middleware::from_fn(origin_guard))
         .fallback_service(crate::assets::asset_router())
+        .layer(middleware::from_fn_with_state(world_state, world_routing))
         .layer(middleware::from_fn(host_allowlist))
+}
+
+/// `/w/{world}/` (+ no-trailing-slash, + legacy `/?world=`), stream2worlds#144. Rewrites the
+/// request's URI to `/` and forwards it — the same fallback asset router that already serves
+/// `/` as the SPA shell — rather than duplicating its index-serving logic. Applied as a
+/// whole-router `.layer`, not `.route_layer`, because none of these three paths is one of
+/// `router`'s own `.route`s; they only exist by intercepting requests the fallback would
+/// otherwise have handled unchanged.
+async fn world_routing(
+    State(state): State<QueryState>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let path = request.uri().path();
+    if let Some(world) = path
+        .strip_prefix("/w/")
+        .and_then(|rest| rest.strip_suffix('/'))
+        .filter(|world| !world.is_empty() && !world.contains('/'))
+    {
+        if let Err(error) = crate::query::check_world(&state, world) {
+            return error.into_response();
+        }
+        *request.uri_mut() = Uri::from_static("/");
+        return next.run(request).await;
+    }
+    if let Some(world) = path
+        .strip_prefix("/w/")
+        .filter(|world| !world.is_empty() && !world.contains('/'))
+    {
+        // 307, not 301/308: preserves the GET method (irrelevant here) while never caching
+        // indefinitely the way a 301/308 would — round-2 review finding.
+        return Redirect::temporary(&format!("/w/{world}/")).into_response();
+    }
+    if path == "/"
+        && let Some(location) = world_query_redirect(request.uri())
+    {
+        // 302 (axum's `Redirect` has no public constructor for it): a legacy bookmark still
+        // works, but is never cached as if the `?world=` form were canonical forever.
+        return (
+            StatusCode::FOUND,
+            [(axum::http::header::LOCATION, location)],
+        )
+            .into_response();
+    }
+    next.run(request).await
+}
+
+/// Builds the `/w/<world>/[?<preserved params>]` target for a legacy `/?world=<x>` request, or
+/// `None` when `?world=` is absent (today's `/` behavior is then unchanged). The other
+/// recognized query keys are forwarded as their original (already query-percent-encoded) bytes
+/// — no decode/re-encode round trip, so nothing can be double-encoded.
+fn world_query_redirect(uri: &Uri) -> Option<String> {
+    let query = uri.query()?;
+    let mut world = None;
+    let mut kept = Vec::new();
+    for pair in query.split('&') {
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
+        match key {
+            "world" => world = Some(value),
+            "at" | "branch" | "lod" | "focus" | "hops" => kept.push(pair),
+            _ => {}
+        }
+    }
+    let world = percent_decode_query_value(world?);
+    let mut location = format!("/w/{}/", percent_encode_path_segment(&world));
+    if !kept.is_empty() {
+        location.push('?');
+        location.push_str(&kept.join("&"));
+    }
+    Some(location)
+}
+
+/// Decodes `application/x-www-form-urlencoded` bytes: `+` is a space, `%XX` is a byte: Invalid
+/// or truncated escapes pass through literally rather than erroring — this is a redirect
+/// target, not a validated input; an odd value here still round-trips.
+fn percent_decode_query_value(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut bytes = value.bytes();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'+' => out.push(' '),
+            b'%' => {
+                let rest = bytes.clone().take(2).collect::<Vec<_>>();
+                if rest.len() == 2
+                    && let Ok(hex) = std::str::from_utf8(&rest)
+                    && let Ok(decoded) = u8::from_str_radix(hex, 16)
+                {
+                    out.push(decoded as char);
+                    bytes.next();
+                    bytes.next();
+                } else {
+                    out.push('%');
+                }
+            }
+            other => out.push(other as char),
+        }
+    }
+    out
+}
+
+/// Percent-encodes every byte outside the URL path-segment "unreserved" set
+/// (`ALPHA / DIGIT / "-" / "." / "_" / "~"`).
+fn percent_encode_path_segment(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 // An `Origin` is optional (top-level navigation omits it), but when present it must be exactly

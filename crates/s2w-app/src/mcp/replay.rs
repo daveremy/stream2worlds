@@ -488,7 +488,9 @@ mod tests {
                         "worlds": [{
                             "world": "default",
                             "name": "The display name",
-                            "head": head.as_u64()
+                            "head": head.as_u64(),
+                            "title": null,
+                            "tagline": null
                         }]
                     })
                 )
@@ -535,7 +537,9 @@ mod tests {
                         "worlds": [{
                             "world": "legacy",
                             "name": "legacy",
-                            "head": head.as_u64()
+                            "head": head.as_u64(),
+                            "title": null,
+                            "tagline": null
                         }]
                     })
                 )

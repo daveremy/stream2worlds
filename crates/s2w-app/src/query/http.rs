@@ -13,7 +13,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use s2w_core::{FOLD_VERSION, World, WorldEvent};
-use s2w_log::{MembershipRow, ReadOnlySqliteEventLog, WorldManifest, WorldPresentation, members_at};
+use s2w_log::{
+    MembershipRow, ReadOnlySqliteEventLog, WorldManifest, WorldPresentation, members_at,
+};
 use s2w_model::{SourceId, Timestamp};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
