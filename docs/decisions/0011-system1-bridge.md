@@ -54,6 +54,9 @@ serve share a process.
 
 ## Verdict persistence: deferred, with its precondition written down
 
+> **Superseded 2026-09-27 by [0012](0012-verdict-log.md) (#63):** verdicts are persisted and
+> replayed, so the purity rule below no longer applies. The section stays as the record.
+
 The system1 invariant "every verdict is persisted; replay never re-runs an engine" is **not
 met yet**. The bridge re-evaluates every event on each start.
 
@@ -99,4 +102,4 @@ local embeddings (next)" (Dave, 2026-09-27).
 - `QueryState::append` takes the write lock once per claim. Fine at this scale; a batch append
   can come later if measured.
 
-verify: `cargo test -p s2w-app --test bridge_replay` passes.
+verify: `cargo test -p s2w-app --test bridge_replay && cargo test -p s2w-app --test bridge_verdicts` passes.

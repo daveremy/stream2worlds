@@ -8,9 +8,10 @@ pub use verdict::{AbstainReason, Confidence, ConfidenceError, Verdict};
 
 use s2w_model::RawEvent;
 
-/// A payload-only mapping. Without persisted verdicts, engines must be deterministic.
+/// A payload-only mapping. Verdicts are persisted (decision 0012); engines must still be
+/// deterministic so a version bump has a well-defined meaning and replay is exact.
 pub trait Engine: Send + Sync {
-    /// Stable identifier persisted with each verdict in the future verdict log.
+    /// Stable identifier persisted with each verdict in the verdict log (decision 0012).
     fn name(&self) -> &'static str;
     /// Mapping version; bump whenever the payload-to-verdict mapping changes.
     fn version(&self) -> u32;
