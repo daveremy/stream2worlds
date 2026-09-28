@@ -13,6 +13,23 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Gate 2 — live HTTP command (#10, PR1, 2026-09-27)
+
+**Shipped:** `s2w serve <source>` owns source ingestion, durable verdicts and the live query API
+in one process. It binds loopback, checks Host headers, refuses competing store owners and
+bounds HTTP shutdown even with an open SSE client.
+
+**Learned:** the existing bridge's async runner requires `Send`; a local `poll_once` loop lets
+non-Send source streams and a single shared SQLite handle coexist on the current-thread runtime.
+
+**Changed course:** the proposed separate watch/serve processes and lockless reader were
+replaced by one owner. Loopback binding also needs a Host allowlist against DNS rebinding.
+[Decision 0014](docs/decisions/0014-serve-topology.md) records both choices.
+
+**Next:** PR2 adds the evidence view, assets and bundle gates. The dashboard remains unfinished.
+
+---
+
 ## Sprint 62 — watch fails loudly (2026-09-27, 17:00–19:00)
 
 The four hardening items deferred from the #29 review ([#39](https://github.com/daveremy/stream2worlds/issues/39)).

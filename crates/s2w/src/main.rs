@@ -1,6 +1,7 @@
 //! The `s2w` command-line tool.
 
 pub mod output;
+mod serve;
 
 use output::Format;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchArgs};
 /// directory.
 const DEFAULT_LOG_DIR: &str = "./s2w-data";
 
-const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists.\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world until the live\n      event-log bridge lands.\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; unavailable for watch/mcp.";
+const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists.\n\n  s2w serve <source> [--log-dir <path>] [--port <port>]\n      Ingest and serve the live query API on 127.0.0.1 (default port 4310; 0 picks\n      a free port). Default log directory: ./s2w-data.\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves a separate empty world; the live\n      bridge feeds HTTP through s2w serve.\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; unavailable for watch/mcp/serve.";
 
 fn main() -> ExitCode {
     dispatch(std::env::args().skip(1).collect())
@@ -30,11 +31,12 @@ fn dispatch(mut args: Vec<String>) -> ExitCode {
             output::print_usage(format, USAGE);
             ExitCode::SUCCESS
         }
-        Some("watch" | "mcp") if format == Format::Json => output::print_error(
+        Some("watch" | "mcp" | "serve") if format == Format::Json => output::print_error(
             format,
-            "--json is unavailable for watch/mcp. Try: s2w --help",
+            "--json is unavailable for watch/mcp/serve. Try: s2w --help",
         ),
         Some("watch") => watch(&args[1..]),
+        Some("serve") => serve::dispatch(&args[1..]),
         Some("mcp") => match args.get(1) {
             Some(other) => output::print_error(
                 format,
@@ -49,10 +51,10 @@ fn dispatch(mut args: Vec<String>) -> ExitCode {
     }
 }
 
-/// Removes top-level --json flags, leaving watch/mcp tails entirely untouched.
+/// Removes top-level --json flags, leaving watch/mcp/serve tails entirely untouched.
 fn take_output_format(args: &mut Vec<String>) -> Format {
     if let Some(index) = args.iter().position(|arg| arg != "--json")
-        && matches!(args[index].as_str(), "watch" | "mcp")
+        && matches!(args[index].as_str(), "watch" | "mcp" | "serve")
     {
         // A prefix requests JSON, but the subcommand's own arguments stay opaque.
         args.drain(..index);
@@ -178,7 +180,7 @@ fn usage_error(message: String) -> ExitCode {
 mod tests {
     use super::*;
 
-    fn args(values: &[&str]) -> Vec<String> {
+    pub(super) fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
     }
 
@@ -211,7 +213,11 @@ mod tests {
 
     #[test]
     fn json_detection_preserves_subcommand_tails() {
-        for values in [vec!["watch", "wikipedia", "--json"], vec!["mcp", "--json"]] {
+        for values in [
+            vec!["watch", "wikipedia", "--json"],
+            vec!["mcp", "--json"],
+            vec!["serve", "-", "--json"],
+        ] {
             let mut arguments = args(&values);
             assert_eq!(take_output_format(&mut arguments), Format::Human);
             assert_eq!(arguments, args(&values));
