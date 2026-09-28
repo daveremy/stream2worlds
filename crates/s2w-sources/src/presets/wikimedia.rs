@@ -5,9 +5,17 @@
 //! unchanged (#29). `since=` asks for a start time. Canary and `examplewiki` events are dropped
 //! after their cursor advances.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use s2w_model::Cursor;
 
 use crate::sse::{SinceError, SseDialect, header_safe};
+
+/// Consecutive real (non-canary, non-`examplewiki`) events a `--wiki` filter may match
+/// nothing among before it warns on stderr (s2w#101): a typo'd wiki id filters everything
+/// silently, and the busy `mediawiki.page_change` stream reaches this in well under a minute
+/// so the warning is not a long wait even on a quiet connection.
+const STALL_WARNING_THRESHOLD: u64 = 200;
 
 /// The EventStreams endpoint the `wikipedia` preset reads.
 pub(crate) const ENDPOINT: &str = "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1";
@@ -147,20 +155,56 @@ fn parse_position(value: &serde_json::Value) -> Result<StreamPosition, String> {
 /// SseDialect::accept), applied only to events not yet stored. It does not retroactively purge
 /// a log directory that already holds events from other wikis (same as the canary/examplewiki
 /// filter always has: neither ever un-stores anything already written).
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Wikimedia {
     wiki: Option<String>,
+    /// Consecutive real events seen since the last match; only tracked when `wiki` is `Some`.
+    /// Interior mutability because [`SseDialect::accept`] takes `&self`. Reset to 0 on every
+    /// match, so it equals [`STALL_WARNING_THRESHOLD`] exactly once per stall streak — that
+    /// equality alone gates the warning below, with nothing further needed to fire it once.
+    unmatched_since_last: AtomicU64,
 }
 
 impl Wikimedia {
     /// No filter: every non-canary, non-`examplewiki` wiki is accepted.
     pub(crate) fn new() -> Self {
-        Self { wiki: None }
+        Self {
+            wiki: None,
+            unmatched_since_last: AtomicU64::new(0),
+        }
     }
 
     /// Only `wiki`'s events are accepted (plus the same canary/examplewiki drop).
     pub(crate) fn filtered(wiki: String) -> Self {
-        Self { wiki: Some(wiki) }
+        Self {
+            wiki: Some(wiki),
+            unmatched_since_last: AtomicU64::new(0),
+        }
+    }
+
+    /// Tracks a real event's match outcome and warns once on stderr per stall streak once
+    /// [`STALL_WARNING_THRESHOLD`] consecutive real events have matched nothing — the silent
+    /// empty-world shape s2w#101 exists to catch. No-op when no filter is set.
+    fn track_stall(&self, matched: bool) {
+        let Some(wiki) = self.wiki.as_deref() else {
+            return;
+        };
+        if matched {
+            self.unmatched_since_last.store(0, Ordering::Relaxed);
+            return;
+        }
+        let count = self.unmatched_since_last.fetch_add(1, Ordering::Relaxed) + 1;
+        if count == STALL_WARNING_THRESHOLD {
+            eprintln!(
+                "s2w: wikipedia: --wiki {wiki:?} has matched none of the last {STALL_WARNING_THRESHOLD} events; check it against the stream's wiki_id values"
+            );
+        }
+    }
+
+    /// Real events since the last match (or start); test-only window into `track_stall`.
+    #[cfg(test)]
+    fn unmatched_since_last(&self) -> u64 {
+        self.unmatched_since_last.load(Ordering::Relaxed)
     }
 }
 
@@ -192,7 +236,12 @@ impl SseDialect for Wikimedia {
     fn accept(&self, data: &str) -> Result<bool, String> {
         let value: serde_json::Value = serde_json::from_str(data)
             .map_err(|error| format!("event data is not valid JSON: {error}"))?;
-        Ok(!is_filtered(&value) && matches_wiki(&value, self.wiki.as_deref()))
+        if is_filtered(&value) {
+            return Ok(false);
+        }
+        let matched = matches_wiki(&value, self.wiki.as_deref());
+        self.track_stall(matched);
+        Ok(matched)
     }
 
     /// Wikimedia's `data:` already carries a stream-unique `meta.id`, so the raw JSON is
@@ -232,7 +281,7 @@ fn matches_wiki(value: &serde_json::Value, wiki: Option<&str>) -> bool {
 mod tests {
     use s2w_model::Cursor;
 
-    use super::{LastEventId, PositionAt, Wikimedia};
+    use super::{LastEventId, PositionAt, STALL_WARNING_THRESHOLD, Wikimedia};
     use crate::sse::SseDialect;
 
     #[test]
@@ -307,6 +356,49 @@ mod tests {
             dialect.accept(r#"{"page":{"page_id":1,"page_title":"X"}}"#),
             Ok(false)
         );
+    }
+
+    #[test]
+    fn no_filter_never_tracks_a_stall() {
+        // Without `--wiki` there is nothing to stall against; the counter must stay inert.
+        let dialect = Wikimedia::new();
+        for _ in 0..STALL_WARNING_THRESHOLD {
+            assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(true));
+        }
+        assert_eq!(dialect.unmatched_since_last(), 0);
+    }
+
+    #[test]
+    fn canary_and_examplewiki_drops_do_not_count_toward_a_stall() {
+        // These are dropped for every dialect, filtered or not — they are not evidence the
+        // configured `--wiki` value is wrong and must not push the stall counter.
+        let dialect = Wikimedia::filtered("enwiki".to_owned());
+        for filtered in [
+            r#"{"meta":{"domain":"canary"}}"#,
+            r#"{"wiki_id":"examplewiki"}"#,
+        ] {
+            assert_eq!(dialect.accept(filtered), Ok(false));
+        }
+        assert_eq!(dialect.unmatched_since_last(), 0);
+    }
+
+    #[test]
+    fn wiki_filter_stall_count_reaches_the_threshold_exactly_once_per_streak() {
+        // `unmatched_since_last` strictly increments on every unmatched event and only
+        // resets on a match, so it equals `STALL_WARNING_THRESHOLD` — the warning's only
+        // trigger condition — at exactly one point per streak, never again until a match
+        // starts a new one.
+        let dialect = Wikimedia::filtered("enwiki".to_owned());
+        for i in 1..=STALL_WARNING_THRESHOLD * 2 {
+            assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(false));
+            assert_eq!(dialect.unmatched_since_last(), i);
+        }
+
+        // A match resets the streak so a later, separate stall reaches the threshold again.
+        assert_eq!(dialect.accept(ENWIKI_SAMPLE), Ok(true));
+        assert_eq!(dialect.unmatched_since_last(), 0);
+        assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(false));
+        assert_eq!(dialect.unmatched_since_last(), 1);
     }
 
     #[test]
