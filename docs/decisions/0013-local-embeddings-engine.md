@@ -61,10 +61,14 @@ a phrase, a threshold, or a vendored file changes both sides of the comparison i
 `embedding::VERSION_HISTORY` is an append-only `&[(u32, &str, &str)]` table of every
 `(version, model_hash, config_hash)` triple ever shipped; `CURRENT_VERSION` is derived from the
 table's last row (not a separate literal), and `LocalEmbeddingsEngine::version()` returns
-`CURRENT_VERSION`. The test asserts no version number maps to two different hash pairs, and
-that `CURRENT_VERSION`'s row matches the running classifier's actual hashes — so updating a
-pinned hash literal without appending a new row and bumping the version fails, by construction
-rather than by convention.
+`CURRENT_VERSION`. The unit test asserts no version number maps to two different hash pairs,
+and that `CURRENT_VERSION`'s row matches the running classifier's actual hashes — so
+*forgetting* to append a row after a real change fails. A compiled test has no view of git
+history, so it cannot by itself catch someone *editing* an existing row's pinned hashes in
+place instead of appending a new one; `cargo xtask check`'s version-history append-only check
+(`xtask/src/version_history.rs`) compares the working tree's table against `origin/main`'s
+committed copy and fails the build if any already-shipped row is edited, reordered, or
+removed. The two checks together are what make a bump-avoiding edit fail by construction.
 
 **A golden-output test is the real regression net for what the two hashes cannot see.** Neither
 hash changes when a `Cargo.lock` bump of `model2vec-rs`/`tokenizers`, or a change to
@@ -106,9 +110,14 @@ validate the 1,000 events/s target (decision 0004) end to end.
 — a deviation from the original plan, forced by a build error.** `default-features = false`
 alone fails to compile: `tokenizers` (model2vec-rs's own dependency) hard-errors
 (`compile_error!`) unless either `onig` or `fancy-regex` is enabled. `fancy-regex` was chosen
-over `onig` because it is pure Rust — no C toolchain dependency, matching this workspace's
-single static-binary delivery goal (see the "Language and delivery" row of the README's
-Technical architecture table).
+over `onig` because `onig` binds to the C Oniguruma library, and `fancy-regex`'s own regex
+engine is pure Rust. That choice does not make the full dependency tree free of a C toolchain:
+`tokenizers`'s `esaxx_fast` feature — enabled independently, by `model2vec-rs`'s `fancy-regex`
+feature — pulls in `esaxx-rs`, which compiles C++ via the `cc` crate regardless of the onig/
+fancy-regex choice (confirmed via `cargo tree -e features -i esaxx-rs`). The workspace's single
+static-binary delivery goal (see the "Language and delivery" row of the README's Technical
+architecture table) is about the shipped artifact, not a build-time toolchain guarantee — a C++
+compiler is already required at build time either way.
 
 **License and advisory findings.** `cargo deny check` (all four categories) passes:
 `licenses ok`, `bans ok`, `sources ok`. `advisories` needed two `deny.toml` exceptions, both
