@@ -83,6 +83,7 @@ flowchart LR
 | **Reality grades every forecast** | A forecast is an immutable record with a horizon. Its outcome is scored separately, so every forecaster carries a public track record. Questions are registered with a cutoff, a horizon, outcome sources and baselines, the same shape as the [contract](docs/evaluation-contract.md) `s2w` was evaluated under before any code was written. |
 | **If this, then that, across worlds** | One small language for queries, subscriptions and rules that read the world or a forecast and act through plugins. |
 | **Agents are first-class clients** | A read-only MCP server exposes the world, forecasts, evidence and a ranked attention feed. The dashboard is where people see what agents saw and did. |
+| **Visualization is first class** | The view is built with the core, not after it: every gate ships its capability, the view that shows it to a person, and the MCP surface that shows it to an agent ([decision 0017](docs/decisions/0017-view-and-agents-first-class.md)). The view stays domain-free; System 2 will tailor it to each domain with a view spec that is itself an event in the log. |
 
 ## Running today
 
