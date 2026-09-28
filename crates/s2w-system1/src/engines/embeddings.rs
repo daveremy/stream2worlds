@@ -22,14 +22,28 @@ use crate::{AbstainReason, Confidence, Engine, Verdict};
 #[derive(Debug)]
 pub struct LocalEmbeddingsEngine {
     classifier: Result<CommentClassifier, ClassifierError>,
+    /// `{"model_hash", "config_hash"}` serialized once at construction — `model_hash`/
+    /// `config_hash` never change after load, so re-serializing on every `provenance()` call
+    /// (the hot path: once per event evaluated by this engine) would be pure waste (refine
+    /// pass, s2w#64).
+    provenance: Option<Vec<u8>>,
 }
 
 impl LocalEmbeddingsEngine {
     /// Loads the vendored model and precomputes prototypes now, once.
     #[must_use]
     pub fn new() -> Self {
+        let classifier = CommentClassifier::new();
+        let provenance = classifier.as_ref().ok().and_then(|c| {
+            serde_json::to_vec(&serde_json::json!({
+                "model_hash": c.model_hash(),
+                "config_hash": c.config_hash(),
+            }))
+            .ok()
+        });
         Self {
-            classifier: CommentClassifier::new(),
+            classifier,
+            provenance,
         }
     }
 }
@@ -70,12 +84,7 @@ impl Engine for LocalEmbeddingsEngine {
         }
     }
     fn provenance(&self) -> Option<Vec<u8>> {
-        let classifier = self.classifier.as_ref().ok()?;
-        serde_json::to_vec(&serde_json::json!({
-            "model_hash": classifier.model_hash(),
-            "config_hash": classifier.config_hash(),
-        }))
-        .ok()
+        self.provenance.clone()
     }
 }
 
