@@ -1,5 +1,6 @@
 //! The `s2w` command-line tool.
 
+mod mcp;
 pub mod output;
 mod reporter;
 mod serve;
@@ -9,14 +10,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use reporter::JsonReporter;
-use s2w_app::query::{QueryState, Timeline};
-use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, HumanReporter, WatchArgs};
+use s2w_app::{AppError, HumanReporter, WatchArgs};
 
 /// Where `s2w watch` keeps its event log when `--log-dir` is absent, relative to the working
 /// directory.
 const DEFAULT_LOG_DIR: &str = "./s2w-data";
 
-const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>] [--json]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists. --json prints one progress object per\n      flush on stdout (e.g. {\"appended\":1,\"duplicates\":0,\"reconnects\":0,\n      \"cursor\":\"...\",\"at\":1700000000000}), one {\"note\":\"...\"} object per benign\n      startup note, and one {\"error\":\"...\",\"fatal\":bool} object per source error,\n      both on stderr, instead of the human status lines.\n\n  s2w serve <source> [--log-dir <path>] [--port <port>] [--world <name>] [--wiki <db>]\n      Ingest and serve the live query API on 127.0.0.1 (default port 4310; 0 picks\n      a free port). Default log directory: ./s2w-data.\n      --world <name>                    world id (default: default)\n      --wiki <db>                       restrict ingestion to one wiki (wikipedia only)\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves a separate empty world with id\n      \"default\"; MCP clients must pass world: \"default\" on every tool call.\n      The live bridge feeds HTTP through s2w serve.\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; also `s2w watch <source> --json`\n      for NDJSON progress (see above). Before `serve` or `mcp`, it selects JSON\n      rendering (`s2w --json serve ...`, `s2w --json mcp`); for mcp, only startup\n      and usage errors are affected because stdout is JSON-RPC-only once serving.\n      For serve and mcp this flag is prefix-only; unlike watch, it is not accepted\n      among the subcommand's own arguments.";
+const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>] [--json]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists. --json prints one progress object per\n      flush on stdout (e.g. {\"appended\":1,\"duplicates\":0,\"reconnects\":0,\n      \"cursor\":\"...\",\"at\":1700000000000}), one {\"note\":\"...\"} object per benign\n      startup note, and one {\"error\":\"...\",\"fatal\":bool} object per source error,\n      both on stderr, instead of the human status lines.\n\n  s2w serve <source> [--log-dir <path>] [--port <port>] [--world <name>] [--wiki <db>]\n      Ingest and serve the live query API on 127.0.0.1 (default port 4310; 0 picks\n      a free port). Default log directory: ./s2w-data.\n      --world <name>                    world id (default: default)\n      --wiki <db>                       restrict ingestion to one wiki (wikipedia only)\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp [--log-dir <path>] [--world <name>]\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves an empty world by default;\n      --log-dir PATH serves a one-shot snapshot of the real on-disk world at PATH,\n      read-only while s2w serve may keep writing there. --world NAME selects the\n      world id (default \"default\").\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; also `s2w watch <source> --json`\n      for NDJSON progress (see above). Before `serve` or `mcp`, it selects JSON\n      rendering (`s2w --json serve ...`, `s2w --json mcp`); for mcp, only startup\n      and usage errors are affected because stdout is JSON-RPC-only once serving.\n      For serve and mcp this flag is prefix-only; unlike watch, it is not accepted\n      among the subcommand's own arguments.";
 
 fn main() -> ExitCode {
     dispatch(std::env::args().skip(1).collect())
@@ -39,13 +39,7 @@ fn dispatch(mut args: Vec<String>) -> ExitCode {
         ),
         Some("watch") => watch(&args[1..]),
         Some("serve") => serve::dispatch(&args[1..], format),
-        Some("mcp") => match args.get(1) {
-            Some(other) => output::print_error(
-                format,
-                &format!("unexpected argument '{other}': mcp takes no arguments. Try: s2w mcp"),
-            ),
-            None => run_mcp(format),
-        },
+        Some("mcp") => mcp::dispatch(&args[1..], format),
         Some(other) => output::print_error(
             format,
             &format!("unknown argument '{other}'. Try: s2w --help"),
@@ -177,32 +171,15 @@ fn run_watch(args: WatchArgs) -> ExitCode {
     }
 }
 
-/// Serves the read-only query tools over stdio until the MCP client disconnects.
-fn run_mcp(format: Format) -> ExitCode {
-    let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP));
-    match s2w_app::mcp::run_mcp(state) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            // A fatal `mcp --json` failure matches `watch --json`'s shape (s2w#79):
-            // `{"error": ..., "fatal": true}`, not the plain `{"error": ...}` object
-            // `print_error` renders for a usage/parse failure.
-            match format {
-                Format::Json => eprintln!("{}", output::render_stream_error(&error.to_string())),
-                Format::Human => {
-                    output::print_error(Format::Human, &error.to_string());
-                }
-            }
-            match error {
-                AppError::Usage(_) => ExitCode::from(2),
-                _ => ExitCode::FAILURE,
-            }
-        }
-    }
-}
-
 /// Prints one usage message and returns the usage exit code.
 fn usage_error(format: Format, message: String) -> ExitCode {
     output::print_error(format, &message)
+}
+
+fn valid_world_name(world: &str) -> bool {
+    world
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 #[cfg(test)]
@@ -257,9 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_rejects_all_arguments_before_starting_the_server() {
-        // The extra-argument branch only calls print_error (stderr); run_mcp and
-        // every stdout writer are in separate branches, so no protocol can start.
+    fn mcp_rejects_unknown_arguments_before_starting_the_server() {
         for extra in ["--json", "foo"] {
             assert_eq!(dispatch(args(&["mcp", extra])), ExitCode::from(2));
         }

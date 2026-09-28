@@ -27,7 +27,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - The public seam is `EventLog`, with durable `SqliteEventLog`, fixture-friendly
   `InMemoryEventLog`, and storage-neutral `LogError` implementations.
 - `LogReader` is the read-only seam (the System 1 bridge reads through it). Every `EventLog`
-  implements it; serve shares one event-log handle in one process (decision 0014); a lockless reader stays deferred.
+  implements it; serve shares one event-log handle in one process (decision 0014), and
+  `ReadOnlySqliteEventLog` opens the same WAL database without taking the writer lock.
 - The only expected caller is `s2w-app`; `s2w-sources` never depends on this crate.
 - Append-only behavior is enforced by both the Rust API and SQLite triggers. SQLite's
   `recursive_triggers` setting is per connection, so a separate raw connection must enable it
@@ -41,6 +42,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `events.sqlite3` with its own writer lock (`VERDICTS_LOCK`) and its own `user_version`, so the
   stores have independent ownership; serve holds both locks in one process (decision 0014).
   `InMemoryVerdictStore` meets the same contract.
+- `ReadOnlySqliteVerdictStore` is the matching lockless reader for `verdicts.sqlite3`; it and
+  `ReadOnlySqliteEventLog` can coexist with active writers holding the two writer locks.
 - Rows are opaque bytes keyed `UNIQUE(position, engine, version)`, with `seq` (AUTOINCREMENT
   rowid) as write order and `event_hash` binding each row to the exact event it judged. This
   crate never decodes a verdict or its provenance; it does not depend on `s2w-system1`.

@@ -114,8 +114,51 @@ fn json_prefixed_mcp_renders_usage_errors_without_touching_stdout() {
     let stderr = String::from_utf8(output.stderr).expect("JSON stderr is UTF-8");
     assert!(looks_like_one_json_object(&stderr), "{stderr:?}");
     assert!(
-        stderr.contains(r#""error": "unexpected argument 'unexpected': mcp takes no arguments."#)
+        stderr.contains(
+            r#""error": "unexpected argument 'unexpected': expected --log-dir or --world""#
+        )
     );
+}
+
+// `mcp --log-dir` pointing at a directory that does not exist is a fatal startup error, so
+// under `--json` it renders the `{"error": ..., "fatal": true}` shape (#110/#125), not the
+// plain `{"error": ...}` object a usage/parse failure gets. Both formats must name the missing
+// path in plain text, never a raw SQLite `CANTOPEN` code (#115).
+#[test]
+fn mcp_with_a_missing_log_dir_fatally_names_the_path_in_both_formats() {
+    let missing = std::env::temp_dir().join(format!(
+        "s2w-mcp-absent-{}-definitely-not-created",
+        std::process::id()
+    ));
+    let human = Command::new(env!("CARGO_BIN_EXE_s2w"))
+        .args(["mcp", "--log-dir"])
+        .arg(&missing)
+        .output()
+        .expect("s2w mcp --log-dir <missing> should run");
+    assert_eq!(human.status.code(), Some(1));
+    assert!(human.stdout.is_empty(), "stdout is JSON-RPC-only");
+    let stderr = String::from_utf8(human.stderr).expect("human stderr is UTF-8");
+    assert!(
+        stderr.contains(&missing.display().to_string()),
+        "must name the missing path: {stderr}"
+    );
+    assert!(!stderr.contains("CANTOPEN"), "{stderr}");
+
+    let json = Command::new(env!("CARGO_BIN_EXE_s2w"))
+        .args(["--json", "mcp", "--log-dir"])
+        .arg(&missing)
+        .output()
+        .expect("s2w --json mcp --log-dir <missing> should run");
+    assert_eq!(json.status.code(), Some(1));
+    assert!(json.stdout.is_empty(), "stdout is JSON-RPC-only");
+    let stderr = String::from_utf8(json.stderr).expect("JSON stderr is UTF-8");
+    assert!(looks_like_one_json_object(&stderr), "{stderr:?}");
+    assert!(stderr.contains(r#""fatal": true"#), "{stderr}");
+    assert!(
+        stderr.contains(&missing.display().to_string()),
+        "must name the missing path: {stderr}"
+    );
+    assert!(!stderr.contains("CANTOPEN"), "{stderr}");
 }
 
 // `early_bridge_exit_is_fatal_and_signals_http_shutdown` in
