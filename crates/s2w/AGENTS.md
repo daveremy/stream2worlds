@@ -13,7 +13,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Every command is non-interactive and idempotent. Every one-shot command has `--json`.
   `watch --json` (#79) streams NDJSON progress instead of the human eprintln lines. `serve` and
   `mcp` accept prefix-only `--json` (`s2w --json serve` / `s2w --json mcp`) for structured
-  stderr notes/errors (serve) and startup/usage error rendering (mcp); mcp has no progress
-  stream because stdout is reserved for JSON-RPC once serving.
+  stderr notes/errors, plus startup/usage error rendering (mcp); `serve` also streams the same
+  per-flush NDJSON progress lines as `watch --json`, on stdout, while ingesting — `mcp` has no
+  progress stream because stdout is reserved for JSON-RPC once serving.
 - Errors say what to try next.
 - No logic here beyond argument parsing and output formatting.
