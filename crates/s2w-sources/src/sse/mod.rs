@@ -223,13 +223,25 @@ async fn run<C: Connect>(
     // A resumed source starts from the cursor it was handed (read back from the event log)
     // instead of `None`; from the first frame on, the last parsed cursor is authoritative.
     let mut cursor = initial_cursor;
+    let mut attempt = 1_u32;
     loop {
         let requested_since = cursor.is_none().then_some(since.as_deref()).flatten();
         let requested_cursor = cursor.as_deref();
         let connection = connector.connect(requested_since, requested_cursor).await;
         let mut bytes = match connection {
             Ok(bytes) => bytes,
-            Err(_) => {
+            Err(error) => {
+                let retrying = SourceError::Retrying {
+                    name: stream.name,
+                    reason: format!(
+                        "connect failed (attempt {attempt}): {error}; retrying in {:?}",
+                        backoff.current()
+                    ),
+                };
+                if matches!(send(&sender, Err(retrying)).await, FrameAction::Stop) {
+                    return;
+                }
+                attempt = attempt.saturating_add(1);
                 backoff.wait().await;
                 continue;
             }
@@ -237,19 +249,33 @@ async fn run<C: Connect>(
         let mut parser = FrameParser::default();
         let mut malformed_ids = 0_usize;
         let mut force_reconnect = false;
+        let mut delivered_frames = 0_usize;
+        let mut read_failed = false;
 
         while let Some(chunk) = bytes.next().await {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
-                Err(_) => break,
+                Err(error) => {
+                    let retrying = SourceError::Retrying {
+                        name: stream.name,
+                        reason: format!("connection dropped: {error}; reconnecting"),
+                    };
+                    if matches!(send(&sender, Err(retrying)).await, FrameAction::Stop) {
+                        return;
+                    }
+                    read_failed = true;
+                    break;
+                }
             };
             for parsed in parser.push(&chunk) {
+                delivered_frames = delivered_frames.saturating_add(1);
                 match process_frame(
                     &stream,
                     parsed,
                     &sender,
                     &mut cursor,
                     &mut backoff,
+                    &mut attempt,
                     &mut malformed_ids,
                 )
                 .await
@@ -268,12 +294,14 @@ async fn run<C: Connect>(
         }
         if !force_reconnect {
             for parsed in parser.finish() {
+                delivered_frames = delivered_frames.saturating_add(1);
                 match process_frame(
                     &stream,
                     parsed,
                     &sender,
                     &mut cursor,
                     &mut backoff,
+                    &mut attempt,
                     &mut malformed_ids,
                 )
                 .await
@@ -281,6 +309,18 @@ async fn run<C: Connect>(
                     FrameAction::Continue | FrameAction::Reconnect => {}
                     FrameAction::Stop => return,
                 }
+            }
+        }
+        if !force_reconnect && !read_failed && delivered_frames == 0 {
+            let retrying = SourceError::Retrying {
+                name: stream.name,
+                reason: format!(
+                    "connection closed before delivering a frame; reconnecting in {:?}",
+                    backoff.current()
+                ),
+            };
+            if matches!(send(&sender, Err(retrying)).await, FrameAction::Stop) {
+                return;
             }
         }
         backoff.wait().await;
@@ -299,6 +339,7 @@ async fn process_frame(
     sender: &mpsc::Sender<Item>,
     cursor: &mut Option<String>,
     backoff: &mut Backoff,
+    attempt: &mut u32,
     malformed_ids: &mut usize,
 ) -> FrameAction {
     let frame = match parsed {
@@ -326,6 +367,7 @@ async fn process_frame(
     *malformed_ids = 0;
     *cursor = Some(event_cursor.clone());
     backoff.reset();
+    *attempt = 1;
     let Some(payload) = frame.data else {
         return FrameAction::Continue;
     };

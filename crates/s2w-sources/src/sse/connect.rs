@@ -127,6 +127,10 @@ impl Backoff {
         self.current = self.current.saturating_mul(2).min(self.maximum);
     }
 
+    pub(super) const fn current(&self) -> Duration {
+        self.current
+    }
+
     pub(super) fn reset(&mut self) {
         self.current = self.initial;
     }
