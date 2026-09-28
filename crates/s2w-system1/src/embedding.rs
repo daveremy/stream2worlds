@@ -432,10 +432,21 @@ mod tests {
     /// Throughput regression guard (plan §8, R1 finding, codex: the ~8,000 strings/s figure is
     /// a published model2vec benchmark, not a measurement of this engine end to end). Not a
     /// load test or a proof of the 1,000 events/s target (decision 0004) — a generous per-call
-    /// budget (1 ms/string, ~8x slower than the published figure) that catches a future
-    /// dependency bump or normalization change quietly regressing throughput, without pretending
-    /// to validate the target itself. Runs on the same self-hosted single runner as the rest of
-    /// CI, so the budget stays generous rather than tight.
+    /// budget that catches a future dependency bump or normalization change quietly regressing
+    /// throughput, without pretending to validate the target itself. Runs on the same
+    /// self-hosted single runner as the rest of CI, so this must tolerate scheduling noise from
+    /// concurrent jobs, not just be "generous" against a published benchmark.
+    ///
+    /// Two changes from the original 10-comment/10ms version (s2w#100, failed at 10.12ms on a
+    /// docs-only PR): a warmup call outside the timed section absorbs one-time first-call cost
+    /// (tokenizer/allocator warmup), which a runner-busy blip can otherwise push past a tight
+    /// budget on the very first `classify()`; and the timed batch is 10x larger (cycling the
+    /// same ten comments), so a single scheduling stall is a much smaller fraction of the
+    /// total. The per-comment budget stays at 1 ms/comment (the 1,000 events/s line itself,
+    /// decision 0004 / research #64) rather than loosening — a wider per-call allowance would
+    /// let this guard pass a real regression well below the target it exists to protect;
+    /// warmup + a bigger averaging window is what buys the noise tolerance, not a looser number
+    /// (codex review, round 1).
     #[test]
     fn encoding_a_batch_of_comments_stays_within_a_generous_throughput_budget()
     -> Result<(), ClassifierError> {
@@ -452,10 +463,15 @@ mod tests {
             "removed unsourced claim",
             "copyedit for clarity",
         ];
-        let budget = comments.len() as u32 * std::time::Duration::from_millis(1);
+
+        // Warmup: absorb first-call setup cost outside the timed section.
+        let _ = classifier.classify(comments[0]);
+
+        let batch: Vec<&str> = comments.iter().copied().cycle().take(100).collect();
+        let budget = batch.len() as u32 * std::time::Duration::from_millis(1);
 
         let start = std::time::Instant::now();
-        for comment in comments {
+        for comment in &batch {
             let _ = classifier.classify(comment);
         }
         let elapsed = start.elapsed();
@@ -463,7 +479,7 @@ mod tests {
         assert!(
             elapsed <= budget,
             "encoding {} comments took {elapsed:?}, over the {budget:?} budget",
-            comments.len()
+            batch.len()
         );
         Ok(())
     }
