@@ -132,10 +132,12 @@ pub fn run_mcp(state: QueryState) -> Result<(), AppError> {
 ///
 /// **Shutdown contract:** after `service.waiting()` returns (the transport ending is still the
 /// only thing that stops the server), the stop flag is set and the thread is joined before
-/// returning. The bound is one in-flight `refresh()` *batch*, not one `REFRESH_INTERVAL` tick —
-/// [`replay::LiveReadOnlyWorld::refresh_checking_stop`] checks the flag between batches inside a
-/// large catch-up, not only once per poll cycle, so a big backlog can't stall shutdown for its
-/// whole duration.
+/// returning. The bound is one in-flight `refresh()` *batch* plus at most one [`STOP_CHECK_SLICE`]
+/// — [`replay::LiveReadOnlyWorld::refresh_checking_stop`] checks the flag between batches inside
+/// a large catch-up, not only once per poll cycle, so a big backlog can't stall shutdown for its
+/// whole duration, and [`sleep_checking_stop`] checks the flag every `STOP_CHECK_SLICE` rather
+/// than sleeping the full (possibly backed-off-to-`MAX_REFRESH_BACKOFF`) poll interval in one
+/// uninterruptible sleep.
 ///
 /// **Crash contract:** if the refresh thread panics (e.g. inside `QueryState`'s write lock),
 /// the panic is caught at the thread's top level, logged to stderr, and the thread exits —
@@ -242,15 +244,40 @@ impl RefreshBackoff {
     }
 }
 
+/// The slice `sleep_checking_stop` sleeps between `stop` checks — bounds shutdown latency to
+/// this much even while backed off to [`MAX_REFRESH_BACKOFF`] (round-D refine pass,
+/// stream2worlds#128): one long uninterruptible sleep would let `run`'s post-`stop`-store
+/// `handle.join()` block for up to the full backoff interval.
+const STOP_CHECK_SLICE: Duration = Duration::from_millis(100);
+
+/// Sleeps up to `interval`, checking `stop` every [`STOP_CHECK_SLICE`] so a shutdown request
+/// is noticed within one slice rather than waiting out the whole interval. Returns `true` if
+/// `stop` was observed set (caller should return immediately, without polling `live` again).
+fn sleep_checking_stop(interval: Duration, stop: &AtomicBool) -> bool {
+    let mut remaining = interval;
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return true;
+        }
+        if remaining.is_zero() {
+            return false;
+        }
+        let slice = remaining.min(STOP_CHECK_SLICE);
+        std::thread::sleep(slice);
+        remaining -= slice;
+    }
+}
+
 /// Polls `live` every [`REFRESH_INTERVAL`] (backing off on repeated `Io` failures, capped at
 /// [`MAX_REFRESH_BACKOFF`]) and folds new verdicts into `state`, until `stop` is set or a
 /// non-`Io` error freezes the loop. See [`run_mcp_live`] for the full shutdown/crash/error
-/// contract this implements.
+/// contract this implements. The sleep between polls itself checks `stop` every
+/// [`STOP_CHECK_SLICE`] ([`sleep_checking_stop`]), so shutdown latency is bounded even while
+/// backed off to [`MAX_REFRESH_BACKOFF`].
 fn refresh_loop(state: QueryState, mut live: LiveReadOnlyWorld, stop: &AtomicBool) {
     let mut backoff = RefreshBackoff::new();
     loop {
-        std::thread::sleep(backoff.interval);
-        if stop.load(Ordering::Relaxed) {
+        if sleep_checking_stop(backoff.interval, stop) {
             return;
         }
 
@@ -418,6 +445,40 @@ mod tests {
 
     fn world_json(state: &QueryState) -> String {
         serde_json::to_string(&state.world_at(None).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn sleep_checking_stop_returns_promptly_once_stop_is_set_even_mid_long_interval() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let flipper = std::thread::spawn({
+            let stop = Arc::clone(&stop);
+            move || {
+                std::thread::sleep(Duration::from_millis(50));
+                stop.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+        let started = std::time::Instant::now();
+        let stopped = super::sleep_checking_stop(MAX_REFRESH_BACKOFF, &stop);
+        let elapsed = started.elapsed();
+        flipper.join().unwrap();
+
+        assert!(stopped, "sleep_checking_stop must report stop was observed");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "must return within about one STOP_CHECK_SLICE of stop being set, not wait out the \
+             full {MAX_REFRESH_BACKOFF:?} interval: took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn sleep_checking_stop_sleeps_out_the_full_interval_when_stop_never_fires() {
+        let stop = AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        let stopped = super::sleep_checking_stop(Duration::from_millis(150), &stop);
+        let elapsed = started.elapsed();
+
+        assert!(!stopped, "no stop was ever set");
+        assert!(elapsed >= Duration::from_millis(150), "took {elapsed:?}");
     }
 
     #[test]
