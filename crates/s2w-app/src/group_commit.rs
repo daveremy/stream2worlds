@@ -99,6 +99,15 @@ impl Reporter for HumanReporter {
 /// marks a transient failure retried from the same position), or the error that stops the pump.
 /// The buffer is flushed, and `report` told about it, before any error is returned.
 ///
+/// Returns `Ok(true)` if the pump stopped early because a gated source's membership changed
+/// (removed, or a commit came back `StaleGeneration`) rather than because the stream itself
+/// ended. A `StaleGeneration` commit means the in-memory stream was opened against a
+/// membership generation that a concurrent removal/re-add has since superseded — its cursor no
+/// longer corresponds to what's actually stored, so the pump stops unconditionally (even if the
+/// source is a member again under the new generation) rather than keep reading a stream whose
+/// next flush would silently overwrite a fresh re-add cursor with a stale one, or skip events a
+/// resumed stream would need to re-fetch (s2w#95 round-1 code review, both reviewers).
+///
 /// # Errors
 ///
 /// Returns the first error from the log, `convert` or `on_error`.
@@ -110,7 +119,7 @@ pub(crate) async fn pump<S, T, E>(
     report: &mut dyn Reporter,
     sources: &[SourceId],
     mut membership: impl FnMut(&SourceId) -> Result<(bool, i64), AppError>,
-) -> Result<(), AppError>
+) -> Result<bool, AppError>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
 {
@@ -118,7 +127,7 @@ where
     for source in sources {
         let (member, generation) = membership(source)?;
         if !member {
-            return Ok(());
+            return Ok(true);
         }
         generations.push((source.clone(), generation));
     }
@@ -135,21 +144,22 @@ where
     loop {
         // Never poll a removed source, including on a restart with an already-removed row.
         if stopped {
-            return Ok(());
+            return Ok(true);
         }
         for (source, _) in &generations {
             if !membership(source)?.0 {
-                return Ok(());
+                return Ok(true);
             }
         }
         let mut commit = |events| {
             let outcomes = write(events, &generations)?;
             if outcomes.contains(&AppendOutcome::StaleGeneration) {
-                for (source, generation) in &mut generations {
-                    let (member, current) = membership(source)?;
-                    stopped |= !member;
-                    *generation = current;
-                }
+                // This stream's cursor is anchored to a membership generation a concurrent
+                // remove/re-add has already superseded — stop unconditionally, even if the
+                // source is a member again, rather than let a later flush from this same
+                // stream commit under the new generation and clobber the re-add's fresh
+                // cursor (or silently drop events a restarted stream would re-fetch).
+                stopped = true;
             }
             Ok(outcomes)
         };
@@ -184,7 +194,7 @@ where
                     &last_cursor,
                     report,
                 )?;
-                return Ok(());
+                return Ok(stopped);
             }
             Some(Ok(item)) => convert(item).map(|event| {
                 if buffer.is_empty() {
@@ -252,8 +262,11 @@ pub(crate) async fn pump_events<L: EventLog>(
         |_| Ok((true, 0)),
     )
     .await
+    .map(|_stopped_early| ())
 }
 
+/// Returns `Ok(true)` if `pump` stopped early on a membership change rather than a natural end
+/// of stream — see [`pump`]'s doc comment.
 pub(crate) async fn pump_events_gated(
     write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     stream: EventStream,
@@ -261,7 +274,7 @@ pub(crate) async fn pump_events_gated(
     report: &mut dyn Reporter,
     sources: &[SourceId],
     membership: impl FnMut(&SourceId) -> Result<(bool, i64), AppError>,
-) -> Result<(), AppError> {
+) -> Result<bool, AppError> {
     // `pump_future` and `report_progress` are only ever joined here with `select!`, never
     // spawned onto another task, so a plain borrow (no `Rc`, no `Send` bound) is enough — the
     // borrow checker itself is the proof that both stay on this one task.
@@ -488,7 +501,7 @@ mod tests {
             );
             drop(sender);
             let outcome = task.await.map_err(|error| error.to_string());
-            assert!(matches!(outcome, Ok(Ok(()))), "pump failed: {outcome:?}");
+            assert!(matches!(outcome, Ok(Ok(false))), "pump failed: {outcome:?}");
             assert_eq!(
                 batches(&record),
                 vec![3],
@@ -716,7 +729,7 @@ mod membership_tests {
         });
     }
     #[test]
-    fn stale_flush_adopts_generation_before_next_fetch() {
+    fn stale_flush_stops_pump_without_touching_the_reset_cursor() {
         crate::tests::run(false, async {
             let dir = crate::tests::TestDirectory::new("pump-generation");
             let log = Rc::new(RefCell::new(SqliteEventLog::open(dir.path()).unwrap()));
@@ -724,6 +737,8 @@ mod membership_tests {
             log.borrow_mut().bootstrap_source(&source).unwrap();
             let old = log.borrow().membership_generation(&source).unwrap();
             let mut batches = 0;
+            // 101 items so a second flush would happen if the pump kept reading past the
+            // stale one — it must not: the stream's next item (n=100) is never fetched.
             let items = (0..101)
                 .map(|n| {
                     Ok::<_, AppError>(RawEvent {
@@ -734,19 +749,22 @@ mod membership_tests {
                     })
                 })
                 .collect::<Vec<_>>();
-            pump(
+            let stopped_early = pump(
                 |events, generations| {
                     batches += 1;
-                    if batches == 1 {
-                        assert_eq!(generations[0].1, old);
-                        log.borrow_mut().record_source_removed(&source)?;
-                        log.borrow_mut().record_source_added(
-                            &source,
-                            EffectiveFrom::FromCursor(Cursor::new(b"reset".to_vec()).unwrap()),
-                        )?;
-                    } else {
-                        assert!(generations[0].1 > old);
-                    }
+                    assert_eq!(
+                        batches, 1,
+                        "pump must not flush again after a stale generation"
+                    );
+                    assert_eq!(generations[0].1, old);
+                    // A concurrent remove + re-add lands between this flush being built (with
+                    // the OLD generation) and it being written — the write below is rejected
+                    // as StaleGeneration for every event in the batch.
+                    log.borrow_mut().record_source_removed(&source)?;
+                    log.borrow_mut().record_source_added(
+                        &source,
+                        EffectiveFrom::FromCursor(Cursor::new(b"reset".to_vec()).unwrap()),
+                    )?;
                     log.borrow_mut()
                         .append_batch_with_generations(events, generations)
                 },
@@ -759,11 +777,12 @@ mod membership_tests {
             )
             .await
             .unwrap();
-            assert_eq!(batches, 2);
-            assert_eq!(log.borrow().replay(None).unwrap().count(), 1);
+            assert!(stopped_early, "a StaleGeneration flush must stop the pump");
+            assert_eq!(batches, 1);
+            assert_eq!(log.borrow().replay(None).unwrap().count(), 0);
             assert_eq!(
                 log.borrow().cursor(&source).unwrap().unwrap().as_bytes(),
-                b"100"
+                b"reset"
             );
         });
     }

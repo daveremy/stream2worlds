@@ -243,22 +243,17 @@ async fn serve_live(
     };
     supervise(
         async {
-            let mut removed = false;
-            group_commit::pump_events_gated(
+            let stopped_early = group_commit::pump_events_gated(
                 |events, generations| writer.0.borrow_mut().append_batch_with_generations(events, generations),
                 started.stream,
                 name,
                 &mut group_commit::HumanReporter,
                 &started.sources,
-                |source| {
-                    let state = shared.borrow().source_membership(source)?;
-                    removed |= !state.0;
-                    Ok(state)
-                },
+                |source| Ok(shared.borrow().source_membership(source)?),
             )
             .await?;
-            if removed {
-                eprintln!("s2w: source removed; HTTP remains available; re-add with a cursor and restart to resume");
+            if stopped_early {
+                eprintln!("s2w: source membership changed; HTTP remains available; re-add with a cursor and restart to resume");
                 return std::future::pending::<Result<(), AppError>>().await;
             }
             match started.ends {
