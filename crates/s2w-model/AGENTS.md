@@ -17,3 +17,4 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - An entity id is assigned once and never reused. A merge aliases ids under the survivor;
   revoking a repair splits them back apart; neither operation changes an id. (`EntityId` lives
   in `s2w-core` until a second crate needs it; decision 0005.)
+- No domain knowledge in this crate; see decision 0018.

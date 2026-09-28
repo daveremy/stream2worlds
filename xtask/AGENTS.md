@@ -28,3 +28,4 @@ counts; it never raises them. Cap, exemption-shape and walker findings (`#[path]
 dep-info, build failure) are report-only until
 `module-size.toml` enables enforcement; baseline growth always blocks without an authorized
 `Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`. CI needs full git history.
+- No domain knowledge in this crate; see decision 0018.

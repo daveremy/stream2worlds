@@ -4,7 +4,7 @@ System 1: per-event engines behind one verdict / confidence / abstain trait.
 
 ## Allowed dependencies
 
-- `s2w-model`; `serde`, `serde_json`, `thiserror` (decision 0011); `model2vec-rs` (decision 0013, local embeddings); further engine libraries chosen in decision records
+- `s2w-model`; `serde`, `serde_json`, `thiserror` (decision 0011); further engine libraries chosen in decision records
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -14,10 +14,9 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Every verdict is persisted; replay never re-runs an engine to reconstruct a past verdict.
   The bridge stores each verdict before serving it and replays stored verdicts on start
   ([decision 0012](../../docs/decisions/0012-verdict-log.md)).
-- Three engines ship: Wikimedia page-change rules, JSON claims, and local embeddings
-  ([decision 0013](../../docs/decisions/0013-local-embeddings-engine.md), `enwiki` only). Jev
-  joins behind the same trait next.
-- `embedding::CommentClassifier` has no dependency on `Engine`/`Verdict`/`AbstainReason` — a
-  future System 2/Jev consumer can call it directly. `engines::embeddings::LocalEmbeddingsEngine`
-  is the thin `Engine` adapter around it.
+- One engine ships today: `JsonClaimsEngine`, which reads a claim's own declared shape, not a
+  domain's. The Wikimedia-bound page-change rules engine and the `enwiki`-only local embeddings
+  engine (decision 0013) were retired under decision 0018 (no compiled domain code) — see the
+  follow-up issue for a generic field-filter replacement. Jev joins behind the same trait next.
 - Never depends on the core or on another adapter.
+- No domain knowledge in this crate; see decision 0018.

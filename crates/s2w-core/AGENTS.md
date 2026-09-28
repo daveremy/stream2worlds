@@ -19,3 +19,4 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   write-once. A merge aliases ids under the survivor; revoking a repair splits them back apart;
   neither operation changes an id. Merge edges are stored raw, as named, and resolved on read.
 - `fold_one` is total: an event it cannot apply is a documented no-op, never a panic or error.
+- No domain knowledge in this crate; see decision 0018.

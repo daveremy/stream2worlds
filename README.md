@@ -108,10 +108,6 @@ curl http://localhost:4310/worlds/default/world
 # add ?at=<offset> to the URL to pin a moment.
 curl http://localhost:4310/worlds/default/sources
 
-# --wiki restricts ingestion to one wiki (readable page titles come from the event itself,
-# so this is what actually makes /world's output legible instead of a mix of every wiki):
-s2w serve wikipedia --wiki enwiki --log-dir ./s2w-data --port 4310
-
 # replay history first; only for a log that has no stored cursor yet
 s2w watch wikipedia --since 2026-09-27T00:00:00Z --log-dir ./fresh-dir
 
@@ -216,6 +212,11 @@ Decisions live in [`docs/decisions/`](docs/decisions/).
 
 ## How embeddings fit in
 
+> **2026-09-28:** the local embeddings engine and the Wikimedia-bound rules engine this section
+> describes were retired under [decision 0018](docs/decisions/0018-no-compiled-domain-code.md)
+> (no compiled domain code); only `JsonClaimsEngine` ships today. Left below as a record of the
+> design that ran during gates 2–3, not as a description of current behavior.
+
 Local embeddings are one of three System 1 engines, running alongside rules and JSON claims
 behind the same verdict/confidence/abstain trait — additive, not a replacement. Rules read the
 structure of a Wikimedia page-change event (page id, revision id, performer); embeddings read
@@ -249,13 +250,13 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Fitness functions | `cargo xtask check` (`toml`, `serde_json`, `syn`, `proc-macro2`) | building (gate 2) | Dependency allowlist by identity, this table by exact name, AGENTS.md in every crate, workspace lint inheritance, report-only module sizes with a blocking exemption-growth ratchet, and golden replay: the golden log folds to the same bytes twice, from any serialized prefix, and matches the human-owned snapshot. |
 | Property & snapshot testing | `proptest`, `insta` | building (gate 2) | Property tests check the fold's entity identity against an independent reference model and resume from any serialized prefix; `insta` pins the fold's output shape for human review. Test-only dependencies of `s2w-core`. |
 | Licence and advisory gate | `cargo deny check licenses advisories bans` | built (gate 2) | Dependencies must stay permissive: MIT, Apache-2.0, ISC, BSD-3-Clause or Unicode-3.0, plus two scoped exceptions (`foldhash` Zlib, never compiled for our targets; `webpki-root-certs` CDLA-Permissive-2.0, the Mozilla CA bundle), per [research 0003 §8d](research/0003-rust-substrate.md#8d-licences). RustSec advisories must not silently ship. |
-| Sources | A `Source` registry resolved by URI scheme ([decision 0008](docs/decisions/0008-generic-sse-adapter.md)): Kafka by partition assignment via `rskafka` (never a consumer group, never commits; [decision 0007](docs/decisions/0007-kafka-client.md)), a generic SSE adapter via `reqwest`/`tokio`/`tokio-stream` with `wikipedia` as a preset over it ([decision 0003](docs/decisions/0003-wikipedia-sse-client.md)), and stdin NDJSON | built (gate 2) | Three real transports plus a preset, so the source seam is not designed from one case. |
+| Sources | A `Source` registry resolved by URI scheme ([decision 0008](docs/decisions/0008-generic-sse-adapter.md)): Kafka by partition assignment via `rskafka` (never a consumer group, never commits; [decision 0007](docs/decisions/0007-kafka-client.md)), a generic SSE adapter via `reqwest`/`tokio`/`tokio-stream` with named presets (e.g. `wikipedia`) as URL+settings data over it ([decision 0003](docs/decisions/0003-wikipedia-sse-client.md)), and stdin NDJSON | built (gate 2) | Three real transports plus a preset, so the source seam is not designed from one case. |
 | Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms | target (gate 2) | Targets until the scale fitness function measures them. Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |
 | World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/worlds/{world}/world` at any offset and level of detail, `/worlds/{world}/events` (optionally bounded by `at=`), `/worlds/{world}/branches`, `/worlds/{world}/diff`, `/worlds/{world}/entity/{id}/history`, `/worlds/{world}/time`, `/worlds/{world}/sources?at=`, plus `/worlds` discovery ([decision 0006](docs/decisions/0006-world-query-api.md), [decision 0015](docs/decisions/0015-named-worlds.md)) | built (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual branch of one named world per process (`branch=` other than actual and `lod=cluster` answer 501); `s2w mcp` exposes its five world-scoped read tools over stdio; the loopback HTTP listener ships as `s2w serve <source>` ([decision 0014](docs/decisions/0014-serve-topology.md)) with a cap of 32 concurrent event streams and an `Origin` allowlist ([decision 0016](docs/decisions/0016-web-delivery.md)). |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
-| System 1 engines | Rules; JSON claims; local embeddings (`model2vec-rs`, potion-base-8M) | building (gate 2–3) | Three engines ship behind one verdict/confidence/abstain trait: Wikimedia page-change rules, JSON claims (a payload that already is a claim), and local embeddings, which classify an English edit comment's category by similarity to fixed prototypes and abstain below threshold or on a near-tie ([decision 0013](docs/decisions/0013-local-embeddings-engine.md)). Every verdict is stored before its claims are served, and a restart replays stored verdicts instead of re-running engines ([decision 0012](docs/decisions/0012-verdict-log.md)). |
+| System 1 engines | JSON claims | building (gate 2–3) | One engine ships behind the verdict/confidence/abstain trait today: JSON claims, a payload that already is a claim. Every verdict is stored before its claims are served, and a restart replays stored verdicts instead of re-running engines ([decision 0012](docs/decisions/0012-verdict-log.md)). |
 | System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it joins through the bake-off, p50/p99 and accuracy per engine. |
 | System 1 router | Each judgment names a latency budget; rule → embeddings → decision model | later | Needs more than one engine worth routing between. |
 | System 2 | A hosted LLM API on a fixed budget; the client's own agent via MCP sampling, or a local model | building (gate 3) | Asynchronous, never in the stream. Two providers differ in latency, cost and where data goes. |

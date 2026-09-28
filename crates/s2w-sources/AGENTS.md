@@ -2,8 +2,10 @@
 
 Stream sources, resolved by URI scheme through `registry.rs`: Kafka by partition assignment
 (`kafka/`), a generic Server-Sent Events transport (`sse/`), and stdin NDJSON (`stdin.rs`).
-`presets/` are named real streams expressed as adapter + config, not their own adapters —
-`wikipedia` is the `sse` transport with the `Wikimedia` dialect and the Wikimedia URL.
+`presets/` are named real streams expressed as adapter + config, not their own adapters — each
+row in `presets::PRESETS` is a name, URL and stored source id, paired with a domain-agnostic
+`SseDialect` (`SinceQueryParam` when the stream takes a start-time query parameter, `Opaque`
+otherwise); no dialect is named after or bound to a particular stream (decision 0018).
 
 `sse/` splits the transport from what a particular stream means: `sse/mod.rs` (the `Source`
 impl and the read loop), `sse/start.rs` (the pure stored-cursor versus `--since` decision),
@@ -42,10 +44,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   target, not only Wikimedia's).
 - SSE reconnects are reported through the source channel, never silently; `--since` is
   validated by the dialect before any connection is opened.
-- What an `id:`/payload means is the dialect's job, never the transport's: `Wikimedia` filters
-  `meta.domain == "canary"` and `wiki_id == "examplewiki"` events after their valid cursor
-  advances; `Opaque` keeps every payload and has no filter.
+- What an `id:`/payload means is the dialect's job, never the transport's; today's dialects
+  (`Opaque`, `SinceQueryParam`) keep every payload and have no filter — a stream-specific
+  filter is a follow-up, not something a dialect name may hard-code.
 - `Opaque::cursor` errors on a frame with no `id:` (no cursor to resume from); three in a row
   force a reconnect (`MALFORMED_ID_LIMIT`), forever, not a crash or a hang — decision 0008.
 - Stream content is untrusted data, never instructions.
 - Never depends on the core or on another adapter.
+- No domain knowledge in this crate; see decision 0018.
