@@ -14,7 +14,7 @@ use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, WatchArgs};
 /// directory.
 const DEFAULT_LOG_DIR: &str = "./s2w-data";
 
-const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists.\n\n  s2w serve <source> [--log-dir <path>] [--port <port>]\n      Ingest and serve the live query API on 127.0.0.1 (default port 4310; 0 picks\n      a free port). Default log directory: ./s2w-data.\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves a separate empty world; the live\n      bridge feeds HTTP through s2w serve.\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; unavailable for watch/mcp/serve.";
+const USAGE: &str = "s2w: point it at an event stream and a world model forms.\n\nUsage:\n  s2w watch <source> [--since <value>] [--log-dir <path>] [--json]\n      Stream events into the event log (default ./s2w-data). Restarts resume from\n      the log's stored cursor; --since sets where a log with no cursor starts,\n      and is refused once a cursor exists. --json prints one progress object per\n      flush on stdout (e.g. {\"appended\":1,\"duplicates\":0,\"reconnects\":0,\n      \"cursor\":\"...\",\"at\":1700000000000}) and one {\"error\":\"...\",\"fatal\":bool}\n      object per note or source error on stderr, instead of the human status lines.\n\n  s2w serve <source> [--log-dir <path>] [--port <port>]\n      Ingest and serve the live query API on 127.0.0.1 (default port 4310; 0 picks\n      a free port). Default log directory: ./s2w-data.\n\nSources:\n  wikipedia                            Wikipedia page changes (a preset over sse);\n                                       --since takes RFC 3339 or epoch ms\n  kafka://<broker>[,<broker>...]/<topic>\n                                       every partition, no consumer group, no commits;\n                                       --since takes RFC 3339 or epoch ms\n  sse://<host>/<path>                  any Server-Sent Events stream over https\n  https://<url> | http://<url>         the same, with an explicit scheme; ids are\n                                       stored verbatim, no --since\n  -                                    newline-delimited JSON from stdin, until end\n                                       of input; no --since\n  s2w mcp\n      Serve the read-only MCP server over stdio (add it to an MCP client with\n      `claude mcp add s2w -- s2w mcp`). Serves a separate empty world; the live\n      bridge feeds HTTP through s2w serve.\n\n  s2w --version\n  --json: JSON for --version, --help, and errors; also `s2w watch <source> --json`\n      for NDJSON progress (see above). Unavailable as a prefix, and for mcp/serve.";
 
 fn main() -> ExitCode {
     dispatch(std::env::args().skip(1).collect())
@@ -31,9 +31,13 @@ fn dispatch(mut args: Vec<String>) -> ExitCode {
             output::print_usage(format, USAGE);
             ExitCode::SUCCESS
         }
-        Some("watch" | "mcp" | "serve") if format == Format::Json => output::print_error(
+        Some("mcp" | "serve") if format == Format::Json => output::print_error(
             format,
-            "--json is unavailable for watch/mcp/serve. Try: s2w --help",
+            "--json is unavailable for mcp/serve. Try: s2w --help",
+        ),
+        Some("watch") if format == Format::Json => output::print_error(
+            format,
+            "--json before 'watch' is unavailable; try: s2w watch <source> --json",
         ),
         Some("watch") => watch(&args[1..]),
         Some("serve") => serve::dispatch(&args[1..]),
@@ -101,10 +105,11 @@ fn parse_watch(args: &[String]) -> Result<WatchArgs, String> {
 }
 
 /// Parses the flag tail of `s2w watch <source>`: `--since` and `--log-dir`, each with exactly
-/// one value, at most once each.
+/// one value at most once; `--json` (s2w#79), a value-less flag, at most once.
 fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> {
     let mut since = None;
     let mut log_dir = None;
+    let mut json = false;
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -112,16 +117,24 @@ fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> 
             Some(name) => name,
             None => {
                 return Err(format!(
-                    "unexpected argument '{flag}': expected --since or --log-dir"
+                    "unexpected argument '{flag}': expected --since, --log-dir or --json"
                 ));
             }
         };
+        if name == "json" {
+            if json {
+                return Err("--json was given more than once".to_owned());
+            }
+            json = true;
+            index += 1;
+            continue;
+        }
         let slot = match name {
             "since" => &mut since,
             "log-dir" => &mut log_dir,
             other => {
                 return Err(format!(
-                    "unknown flag '--{other}'. Try: --since <value> or --log-dir <path>"
+                    "unknown flag '--{other}'. Try: --since <value>, --log-dir <path> or --json"
                 ));
             }
         };
@@ -138,16 +151,22 @@ fn parse_watch_flags(uri: String, args: &[String]) -> Result<WatchArgs, String> 
         uri,
         since,
         log_dir: log_dir.map_or_else(|| PathBuf::from(DEFAULT_LOG_DIR), PathBuf::from),
+        json,
     })
 }
 
 /// Runs a parsed `s2w watch` command.
 fn run_watch(args: WatchArgs) -> ExitCode {
+    let json = args.json;
     let outcome = s2w_app::watch(args);
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            output::print_error(Format::Human, &error.to_string());
+            if json {
+                eprintln!("{}", output::render_stream_error(&error.to_string()));
+            } else {
+                output::print_error(Format::Human, &error.to_string());
+            }
             match error {
                 AppError::Usage(_) => ExitCode::from(2),
                 _ => ExitCode::FAILURE,
@@ -252,7 +271,8 @@ mod tests {
             Ok(WatchArgs {
                 uri: "wikipedia".to_owned(),
                 since: None,
-                log_dir: PathBuf::from("./s2w-data")
+                log_dir: PathBuf::from("./s2w-data"),
+                json: false
             })
         );
     }
@@ -270,7 +290,8 @@ mod tests {
             Ok(WatchArgs {
                 uri: "wikipedia".to_owned(),
                 since: Some("2026-09-27T12:00:00Z".to_owned()),
-                log_dir: PathBuf::from("/tmp/s2w")
+                log_dir: PathBuf::from("/tmp/s2w"),
+                json: false
             })
         );
     }
@@ -282,7 +303,8 @@ mod tests {
             Ok(WatchArgs {
                 uri: "wikipedia".to_owned(),
                 since: Some("123".to_owned()),
-                log_dir: PathBuf::from("./s2w-data")
+                log_dir: PathBuf::from("./s2w-data"),
+                json: false
             })
         );
         assert_eq!(
@@ -290,7 +312,8 @@ mod tests {
             Ok(WatchArgs {
                 uri: "wikipedia".to_owned(),
                 since: None,
-                log_dir: PathBuf::from("data/dir")
+                log_dir: PathBuf::from("data/dir"),
+                json: false
             })
         );
     }
@@ -318,7 +341,8 @@ mod tests {
             Ok(WatchArgs {
                 uri: "kafka://localhost:9092/orders".to_owned(),
                 since: Some("1700000000000".to_owned()),
-                log_dir: PathBuf::from("k")
+                log_dir: PathBuf::from("k"),
+                json: false
             })
         );
     }
@@ -330,7 +354,8 @@ mod tests {
             Ok(WatchArgs {
                 uri: "-".to_owned(),
                 since: None,
-                log_dir: PathBuf::from("s")
+                log_dir: PathBuf::from("s"),
+                json: false
             })
         );
     }
@@ -338,12 +363,49 @@ mod tests {
     #[test]
     fn watch_rejects_unknown_flags_and_bare_arguments() {
         assert!(
-            parse_watch(&args(&["wikipedia", "--json"]))
-                .is_err_and(|message| message.contains("unknown flag '--json'"))
+            parse_watch(&args(&["wikipedia", "--bogus"]))
+                .is_err_and(|message| message.contains("unknown flag '--bogus'"))
         );
         assert!(
             parse_watch(&args(&["wikipedia", "extra"]))
                 .is_err_and(|message| message.contains("unexpected argument 'extra'"))
+        );
+    }
+
+    #[test]
+    fn watch_accepts_json_alone_and_alongside_other_flags() {
+        assert_eq!(
+            parse_watch(&args(&["wikipedia", "--json"])),
+            Ok(WatchArgs {
+                uri: "wikipedia".to_owned(),
+                since: None,
+                log_dir: PathBuf::from("./s2w-data"),
+                json: true
+            })
+        );
+        assert_eq!(
+            parse_watch(&args(&[
+                "wikipedia",
+                "--since",
+                "123",
+                "--json",
+                "--log-dir",
+                "data/dir"
+            ])),
+            Ok(WatchArgs {
+                uri: "wikipedia".to_owned(),
+                since: Some("123".to_owned()),
+                log_dir: PathBuf::from("data/dir"),
+                json: true
+            })
+        );
+    }
+
+    #[test]
+    fn watch_rejects_json_given_more_than_once() {
+        assert!(
+            parse_watch(&args(&["wikipedia", "--json", "--json"]))
+                .is_err_and(|message| message.contains("--json was given more than once"))
         );
     }
 

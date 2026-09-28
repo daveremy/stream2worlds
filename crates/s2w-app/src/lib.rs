@@ -63,6 +63,9 @@ pub struct WatchArgs {
     pub since: Option<String>,
     /// The directory holding (or creating) the SQLite event log.
     pub log_dir: PathBuf,
+    /// `--json` (s2w#79): NDJSON progress on stdout and `{"error":…,"fatal":bool}` objects on
+    /// stderr, instead of the human status lines.
+    pub json: bool,
 }
 
 /// Runs `s2w watch <source-uri>` until the source ends or the process is stopped.
@@ -100,10 +103,17 @@ pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
                 AppError::Source(error)
             }
         })?;
+    let mut human_reporter = group_commit::HumanReporter;
+    let mut json_reporter = group_commit::JsonReporter::default();
+    let report: &mut dyn group_commit::Reporter = if args.json {
+        &mut json_reporter
+    } else {
+        &mut human_reporter
+    };
     for note in &started.notes {
-        eprintln!("s2w: {name}: {note}");
+        report.note(&format!("{name}: {note}"), false);
     }
-    group_commit::pump_events(&mut log, started.stream, name).await?;
+    group_commit::pump_events(&mut log, started.stream, name, report).await?;
     match started.ends {
         Ending::AtEndOfInput => Ok(()),
         Ending::Never => Err(AppError::StreamEnded(name)),
@@ -163,6 +173,7 @@ mod tests {
             uri: "-".to_owned(),
             since: None,
             log_dir: directory.path().to_path_buf(),
+            json: false,
         })
         .expect_err("a second open against the same --log-dir must fail");
         assert!(
@@ -257,6 +268,7 @@ mod tests {
             uri: "wikipedia".to_owned(),
             since: Some("2026-09-27T00:00:00Z".to_owned()),
             log_dir: directory.path().to_path_buf(),
+            json: false,
         });
         match outcome {
             Err(AppError::Usage(message)) => {
@@ -277,6 +289,7 @@ mod tests {
             uri: "wikipedia".to_owned(),
             since: None,
             log_dir: directory.path().to_path_buf(),
+            json: false,
         });
         assert!(
             matches!(
@@ -295,6 +308,7 @@ mod tests {
             uri: "wikipedia".to_owned(),
             since: None,
             log_dir: directory.path().to_path_buf(),
+            json: false,
         });
         assert!(
             matches!(
@@ -321,6 +335,7 @@ mod tests {
             uri: "kafka://127.0.0.1:1/orders".to_owned(),
             since: Some("2026-09-27T00:00:00Z".to_owned()),
             log_dir: directory.path().to_path_buf(),
+            json: false,
         });
         assert!(
             matches!(&outcome, Err(AppError::Usage(message)) if message.contains("drop --since")),
@@ -335,6 +350,7 @@ mod tests {
             uri: "kafka".to_owned(),
             since: None,
             log_dir: directory.path().to_path_buf(),
+            json: false,
         });
         assert!(
             matches!(&outcome, Err(AppError::Usage(message)) if message.contains("kafka://")),
@@ -349,6 +365,7 @@ mod tests {
             uri: "wikipedia".to_owned(),
             since: Some("2026-09-27".to_owned()),
             log_dir: directory.path().to_path_buf(),
+            json: false,
         });
         assert!(
             matches!(&outcome, Err(AppError::Usage(message))
@@ -364,6 +381,7 @@ mod tests {
             uri: "kafka://127.0.0.1:1/orders".to_owned(),
             since: Some("yesterday".to_owned()),
             log_dir: directory.path().to_path_buf(),
+            json: false,
         });
         assert!(
             matches!(&outcome, Err(AppError::Usage(message))

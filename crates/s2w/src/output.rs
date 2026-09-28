@@ -45,6 +45,14 @@ pub fn print_usage(format: Format, text: &str) {
     println!("{}", render_usage(format, text));
 }
 
+/// Renders the fatal error that stops `s2w watch <source> --json` (s2w#79): the one place a
+/// `watch --json` run's own top-level failure becomes an object, matching the shape its
+/// in-stream reports already use (`s2w_app::group_commit`'s `JsonReporter`, a separate crate
+/// that cannot reach this seam — see that module's doc comment).
+pub fn render_stream_error(message: &str) -> String {
+    format!("{{\"error\": {}, \"fatal\": true}}", json_string(message))
+}
+
 /// Prints an error to stderr and returns the usage error exit code, 2.
 pub fn print_error(format: Format, message: &str) -> ExitCode {
     eprintln!("{}", render_error(format, message));
