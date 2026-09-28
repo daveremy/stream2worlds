@@ -340,8 +340,13 @@ impl Source for KafkaAdapter {
             let mut starts = BTreeMap::new();
             let mut fresh = Vec::new();
             let mut stored = Vec::new();
+            let mut removed = None;
             for &partition in connection.partitions() {
                 let source = partition_source(&target, partition)?;
+                if !cursors.is_member(&source)? {
+                    removed = Some(source);
+                    continue;
+                }
                 let start = match cursors.cursor(&source)? {
                     Some(cursor) => {
                         stored.push(source.clone());
@@ -357,6 +362,12 @@ impl Source for KafkaAdapter {
             }
             refuse_since_with_stored(since, cursors, &stored)?;
 
+            if sources.is_empty()
+                && let Some(source) = removed
+            {
+                return Ok(Started::removed(source));
+            }
+            let identities = sources.values().cloned().collect();
             let running = connection.start(&starts).await.map_err(error)?;
             let mut notes = Vec::new();
             if !stored.is_empty() {
@@ -374,6 +385,7 @@ impl Source for KafkaAdapter {
                 Err(error) => Err(seam_error(&target, error)),
             });
             Ok(Started {
+                sources: identities,
                 stream: Box::pin(stream),
                 ends: Ending::Never,
                 notes,

@@ -19,6 +19,12 @@ pub type StartFuture<'a> = Pin<Box<dyn Future<Output = Result<Started, SourceErr
 /// Read-only view of the log's stored cursors. `s2w-app` implements it for its event log, so
 /// adapters never depend on `s2w-log`.
 pub trait CursorLookup {
+    /// Called before a source starts fetching. The serving application bootstraps membership
+    /// here; standalone adapters and watch allow all sources by default.
+    fn is_member(&self, _source: &SourceId) -> Result<bool, SourceError> {
+        Ok(true)
+    }
+
     /// The stored cursor for `source`, if the log holds one.
     ///
     /// # Errors
@@ -29,6 +35,8 @@ pub trait CursorLookup {
 
 /// A started source.
 pub struct Started {
+    /// Source identities carried by this stream, known before its first poll.
+    pub sources: Vec<SourceId>,
     /// The events, each already carrying its source id and cursor.
     pub stream: EventStream,
     /// Whether the stream is expected to end on its own.
@@ -209,6 +217,18 @@ pub fn refuse_since_with_stored(
         }
     }
     Ok(())
+}
+
+impl Started {
+    /// A removed source: no producer is started and the pump must never poll this stream.
+    pub(crate) fn removed(source: SourceId) -> Self {
+        Self {
+            sources: vec![source],
+            stream: Box::pin(tokio_stream::empty()),
+            ends: Ending::Never,
+            notes: vec!["source removed; re-add with a cursor and restart to resume".into()],
+        }
+    }
 }
 
 #[cfg(test)]

@@ -96,6 +96,9 @@ impl KafkaConnection {
         let mut clients = Vec::with_capacity(self.partitions.len());
         let mut start_offsets = Vec::with_capacity(self.partitions.len());
         for &partition in &self.partitions {
+            let Some(&start) = starts.get(&partition) else {
+                continue;
+            };
             let client = self
                 .client
                 .partition_client(self.topic.clone(), partition, UnknownTopicHandling::Retry)
@@ -104,10 +107,6 @@ impl KafkaConnection {
                     partition,
                     message: error.to_string(),
                 })?;
-            let start = starts
-                .get(&partition)
-                .copied()
-                .unwrap_or(KafkaStart::Latest);
             let offset = resolve_start(&client, partition, start).await?;
             start_offsets.push((partition, offset));
             clients.push((client, offset));

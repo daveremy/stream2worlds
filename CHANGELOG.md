@@ -13,6 +13,23 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## World membership implementation — #95 (2026-09-28)
+
+**Shipped in the working branch:** persistent world identity, an append-only source membership
+history, atomic v2 migration, generation-bound ingestion, and the source-history read endpoint.
+
+**Learned:** source startup can launch a producer before the pump's first poll, and one Kafka
+adapter represents several partition identities. Startup checks now run before producers begin.
+
+**Changed course:** re-add with `Now` fails explicitly because current adapters cannot promise
+a live-tail restart. The binding storage plan records raw event heads, which are not generally
+fold offsets; the README records this remaining limitation rather than promising equivalence.
+
+**Next:** review the storage/bootstrap and ingestion/HTTP parts; provide an admin mutation path,
+resolve the offset spaces, add adapter live-tail support, and support resuming workers live.
+
+---
+
 ## Gate 2 — the local web view (2026-09-27)
 
 **Shipped:** `s2w serve` now serves a web view on its loopback port: a 2D entity graph and an

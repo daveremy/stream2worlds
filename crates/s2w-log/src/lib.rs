@@ -14,15 +14,19 @@ use std::time::Duration;
 use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior, params};
 use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
 
+mod manifest;
+mod membership;
 mod reader;
 mod verdicts;
 
+pub use manifest::WorldManifest;
+pub use membership::{EffectiveFrom, MembershipRow, members_at};
 pub use reader::LogReader;
 pub use verdicts::{InMemoryVerdictStore, SqliteVerdictStore, StoredVerdict, VerdictStore};
 
 const DATABASE_FILE: &str = "events.sqlite3";
 const LOCK_FILE: &str = "LOCK";
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const REPLAY_PAGE_SIZE: i64 = 256;
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -77,7 +81,9 @@ fn open_sqlite_store(
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(map_sqlite)?;
-    if version != 0 && version != schema_version {
+    if database_file == DATABASE_FILE && version == 2 && schema_version == 3 {
+        membership::migrate_v2_to_v3(&mut connection)?;
+    } else if version != 0 && version != schema_version {
         return Err(LogError::Corrupt(schema_mismatch(version)));
     }
     if version == 0 {
@@ -171,6 +177,10 @@ pub enum AppendOutcome {
     /// This source had already stored byte-identical payload bytes at this position, so nothing
     /// was written and the source's cursor did not move.
     Duplicate(LogPosition),
+    /// Membership forbids this event; its cursor is unchanged.
+    Rejected,
+    /// The entire batch was fetched under an obsolete membership generation.
+    StaleGeneration,
 }
 
 /// Storage-neutral failures from an event log.
@@ -186,6 +196,8 @@ pub enum LogError {
     TooLarge,
     /// A persisted cursor failed model validation.
     InvalidCursor(ModelError),
+    /// Re-adding requires a cursor until adapters can resolve a live tail.
+    ReaddRequiresCursor,
 }
 
 impl fmt::Display for LogError {
@@ -195,6 +207,9 @@ impl fmt::Display for LogError {
             Self::Corrupt(message) => write!(formatter, "event log is corrupt: {message}"),
             Self::Locked => formatter.write_str("event log is already open by another writer"),
             Self::TooLarge => formatter.write_str("event payload exceeds the 8 MiB limit"),
+            Self::ReaddRequiresCursor => formatter.write_str(
+                "re-add requires an explicit cursor: adapters cannot resolve a live tail",
+            ),
             Self::InvalidCursor(error) => write!(formatter, "invalid stored cursor: {error}"),
         }
     }
@@ -204,7 +219,11 @@ impl Error for LogError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::InvalidCursor(error) => Some(error),
-            Self::Io(_) | Self::Corrupt(_) | Self::Locked | Self::TooLarge => None,
+            Self::Io(_)
+            | Self::Corrupt(_)
+            | Self::Locked
+            | Self::TooLarge
+            | Self::ReaddRequiresCursor => None,
         }
     }
 }
@@ -386,7 +405,7 @@ impl SqliteEventLog {
             SCHEMA_VERSION,
             |version| {
                 format!(
-                    "unsupported schema version {version}; expected {SCHEMA_VERSION}. An older s2w wrote this log; open a fresh log directory"
+                    "unsupported schema version {version}; expected {SCHEMA_VERSION}. this version cannot migrate that schema"
                 )
             },
             initialize_schema,
@@ -400,7 +419,7 @@ impl SqliteEventLog {
 
 impl EventLog for SqliteEventLog {
     fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
-        let mut outcomes = self.append_batch(vec![event])?;
+        let mut outcomes = EventLog::append_batch(self, vec![event])?;
         outcomes
             .pop()
             .ok_or_else(|| LogError::Corrupt("a one-event append produced no outcome".to_owned()))
@@ -467,6 +486,9 @@ fn insert_in(
     transaction: &rusqlite::Transaction<'_>,
     event: &RawEvent,
 ) -> Result<AppendOutcome, LogError> {
+    if !membership::source_state(transaction, &event.source)?.0 {
+        return Ok(AppendOutcome::Rejected);
+    }
     let hash = content_hash(&event.payload);
     let inserted = transaction
         .execute(
@@ -605,7 +627,7 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
             CREATE TABLE IF NOT EXISTS cursors (
                 source        TEXT PRIMARY KEY,
                 cursor        BLOB    NOT NULL,
-                last_position INTEGER NOT NULL REFERENCES events(position)
+                last_position INTEGER REFERENCES events(position)
             );
             CREATE TRIGGER IF NOT EXISTS events_no_update
             BEFORE UPDATE ON events BEGIN
@@ -615,9 +637,10 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
             BEFORE DELETE ON events BEGIN
                 SELECT RAISE(ABORT, 'events are append-only: delete refused');
             END;
-            PRAGMA user_version = 2;",
+            PRAGMA user_version = 3;",
         )
         .map_err(map_sqlite)?;
+    membership::initialize(&transaction)?;
     transaction.commit().map_err(map_sqlite)
 }
 
@@ -780,6 +803,9 @@ mod tests {
     fn inserted(outcome: AppendOutcome) -> Result<LogPosition, String> {
         match outcome {
             AppendOutcome::Inserted(position) => Ok(position),
+            AppendOutcome::Rejected | AppendOutcome::StaleGeneration => {
+                Err("unexpected membership rejection".into())
+            }
             AppendOutcome::Duplicate(position) => Err(format!(
                 "expected an insert, saw a duplicate at {}",
                 position.as_u64()
