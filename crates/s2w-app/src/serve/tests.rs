@@ -104,6 +104,7 @@ fn both_writer_locks_map_to_usage_and_release() {
         world: "default".to_owned(),
         log_dir: dir.path().to_owned(),
         port: 0,
+        filters: Vec::new(),
     };
     let log = SqliteEventLog::open(dir.path()).expect("first event log opens");
     let error = run_serve(state(), args.clone(), &mut TestReporter::default())
@@ -725,7 +726,7 @@ fn serving_start_gate_bootstraps_and_preserves_removal() {
         let mut log = SqliteEventLog::open(dir.path()).unwrap();
         let source = SourceId::new("stdin").unwrap();
         log.record_source_removed(&source).unwrap();
-        let started = resolve("-")
+        let started = resolve("-", &[])
             .unwrap()
             .start(None, &ServingCursors(RefCell::new(&mut log)))
             .await
@@ -735,7 +736,7 @@ fn serving_start_gate_bootstraps_and_preserves_removal() {
         assert!(started.notes[0].contains("removed"));
         assert_eq!(log.membership_history().unwrap().len(), 1);
         // SSE's start gate runs before connecting, and uses the adapter's real hashed ID.
-        let started = resolve("http://127.0.0.1:1/events")
+        let started = resolve("http://127.0.0.1:1/events", &[])
             .unwrap()
             .start(None, &ServingCursors(RefCell::new(&mut log)))
             .await
@@ -743,7 +744,7 @@ fn serving_start_gate_bootstraps_and_preserves_removal() {
         let source = started.sources[0].clone();
         drop(started);
         log.record_source_removed(&source).unwrap();
-        let restarted = resolve("http://127.0.0.1:1/events")
+        let restarted = resolve("http://127.0.0.1:1/events", &[])
             .unwrap()
             .start(None, &ServingCursors(RefCell::new(&mut log)))
             .await

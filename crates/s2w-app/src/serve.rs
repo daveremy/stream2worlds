@@ -23,7 +23,7 @@ use tokio::sync::{oneshot, watch};
 
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
 use crate::query::{QueryState, router};
-use crate::{AppError, Reporter, current_thread_runtime, group_commit, open_error};
+use crate::{AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters};
 
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -38,6 +38,8 @@ pub struct ServeArgs {
     pub log_dir: PathBuf,
     /// Loopback HTTP port; zero asks the OS for an available port.
     pub port: u16,
+    /// Raw `--filter <path>[!]=<value>` specs; see [`crate::WatchArgs::filters`].
+    pub filters: Vec<String>,
 }
 
 /// Ingests and serves until Ctrl-C, source completion or a fatal failure.
@@ -62,7 +64,8 @@ async fn run_serve_async(
     args: ServeArgs,
     reporter: &mut dyn Reporter,
 ) -> Result<(), AppError> {
-    let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
+    let filters = parse_filters(&args.filters)?;
+    let source = resolve(&args.uri, &filters).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let verdicts = SqliteVerdictStore::open(&args.log_dir)

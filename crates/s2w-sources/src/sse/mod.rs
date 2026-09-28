@@ -9,6 +9,7 @@
 mod connect;
 mod dialect;
 mod envelope;
+mod filtered;
 mod frame;
 mod since_param;
 mod start;
@@ -28,6 +29,7 @@ use tokio_stream::{Stream, StreamExt};
 
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
 pub(crate) use dialect::{Opaque, SinceError, SseDialect};
+pub(crate) use filtered::FilteredDialect;
 use frame::{FrameParser, RawFrame};
 pub(crate) use since_param::SinceQueryParam;
 
