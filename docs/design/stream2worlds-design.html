@@ -287,7 +287,7 @@ footer{margin-top:40px;font-family:var(--display);font-size:13px;color:var(--mut
   </div>
   <div class="triad">
     <div><span class="eyebrow">Understanding</span><p>A world of entities and relationships, typed and named, built from whatever the stream contains. The stream's mess is repaired in the open, and every repair can be undone.</p></div>
-    <div><span class="eyebrow">Prediction</span><p>Forecasts with probabilities, shown as possible worlds. Every forecast is scored against what actually happens, so every predictor carries a public track record.</p></div>
+    <div><span class="eyebrow">Prediction</span><p>Forecasts with probabilities, shown as possible worlds. Every forecast is scored against what actually happens, so every predictor carries a public track record.</p><p>A possible world here is a sampled future of the world: one future state of the entity graph, rolled forward from the current snapshot. A forecast is a predicate evaluated over those samples, with Monte Carlo semantics in the style of MCDB, recorded before the outcome and graded after. In probabilistic databases the phrase means uncertainty about the present; on this page it always means the future.</p></div>
     <div><span class="eyebrow">Action</span><p>Rules that fire on the actual world or on any likely one, and act through plugins. If this, then that, across worlds.</p></div>
   </div>
   <div class="prose" style="margin-top:26px">
@@ -511,7 +511,7 @@ agent&gt; $ s2w share --manifest
     <div><h3>System 1 and System 2</h3><p>System 1 runs on every event in microseconds to milliseconds: rules, embeddings, small decision models. System 2 runs asynchronously in seconds: LLMs reading world snapshots and gaps. System 2 never sits in the stream. It teaches System 1 by writing proposals (types, repairs, predictors) into the log, where accepted ones compile into System 1's configuration.</p></div>
     <div><h3>Any stream, repaired in the open</h3><p>Real streams have no event types, drifting field names, missing ids, duplicates and gaps. The raw stream is never edited. Repairs are events with a confidence and a source, and the world folds over raw events plus repairs, so a wrong repair is revoked and the world re-projects. Proposals stay inert until accepted, and low-confidence repairs live in a preview world that rules cannot act on.</p></div>
     <div><h3>The world is the product</h3><p>A world is a projection folded over the log: entities, relationships, current state. Time travel is replaying to an offset. A model change (a new entity type, say) re-projects history, which is why the mockup's graph tidies itself at #0016. So there are two replays: the world as known then, and the world as reinterpreted now. A later repair changes the second, never the evidence behind a forecast already issued.</p></div>
-    <div><h3>A prediction is a fork</h3><p>A fork is the base world at <em>t</em> plus a suffix of predicted events, each with a probability. Forks can fork. Beam width, a depth limit and a probability floor keep the view readable. Rules read forecasts, not branches: a forecast is a bounded question ("shipment exception within 24h") with one probability, so splitting a branch or changing the beam never changes an action.</p></div>
+    <div><h3>A prediction is a fork</h3><p>A fork is the base world at <em>t</em> plus a suffix of predicted events, each with a probability. Forks can fork. Beam width, a depth limit and a probability floor keep the view readable. Rules read forecasts, not branches: a forecast is a bounded question ("shipment exception within 24h") with one probability, so splitting a branch or changing the beam never changes an action.</p><p>Terms: <strong>rollout</strong> is the mechanism that produces futures from the base world; one fork is a <strong>sampled future world</strong>; the set of forks open at an offset is the <strong>world ensemble</strong> (never "ensemble" alone, which in machine learning means model averaging). The beam, depth and probability limits apply to the view only, so the forks drawn are a subset of the world ensemble.</p></div>
     <div><h3>Every forecast gets graded</h3><p>A forecast is an immutable record: target, entity, issue time, horizon, probability, predictor version, evidence cutoff. Its outcome is scored apart from its display. Pruning hides a branch but never un-scores it, and an outcome the stream cannot observe is censored, not refuted. This is the feedback loop PredictStream never had, and it ranks System 1 engines on the same questions.</p></div>
     <div><h3>If this, then that, on worlds</h3><p>One rule primitive: a condition over the raw stream, the actual world, or a registered forecast, plus an action plugin. An action does not care whether its trigger happened or was predicted; the guard rails do.</p></div>
     <div><h3>Silence is ambiguous, and that is useful</h3><p>When a predicted event never arrives, either the world changed or the stream dropped it. Same signal, two readings. You pick one in the inbox, and the answer teaches the system which kind of silence it was.</p></div>
@@ -785,7 +785,7 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
     <tbody>
       <tr><td>Dependency allowlist</td><td>Each crate's external dependencies, from <code>cargo metadata</code>. Built first.</td><td>Every PR</td></tr>
       <tr><td>Replay determinism</td><td>Golden logs replay to the same world, with expected answers as well as hashes, across partition interleavings, thread counts, restarts, and both histories.</td><td>Every PR</td></tr>
-      <tr><td>Escape-hatch ratchet</td><td>A committed per-crate count of <code>#[allow]</code>, <code>unwrap</code>, <code>todo!</code> and <code>pub</code> items. Counts may only fall without a decision record.</td><td>Every PR</td></tr>
+      <tr><td>Escape-hatch ratchet</td><td>A committed per-crate count of <code>#[allow]</code>, <code>unwrap</code>, <code>todo!</code> and <code>pub</code> items. Counts may only fall without a decision record. <em>Dropped 2026-09-27; see the note below.</em></td><td>Every PR</td></tr>
       <tr><td>Forecast integrity</td><td>No repair, replay or restart changes an issuance; no future evidence leaks in; every issuance is accounted for across pruning, censoring and abstention.</td><td>From step 4</td></tr>
       <tr><td>Dedupe correctness</td><td>Identical payloads with different legitimate source identities are never merged.</td><td>Every PR</td></tr>
       <tr><td>Authority boundaries</td><td>Provisional state cannot trigger anything; agents and tenants cannot reach what they were not granted.</td><td>Once writes or cloud exist</td></tr>
@@ -794,6 +794,18 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
     </tbody>
   </table>
   </div>
+  <div class="prose"><p><strong>Enforcement note, 2026-09-27:</strong> an amendment to
+  <a href="../decisions/0001-workspace-layers.md">decision 0001</a> drops the escape-hatch ratchet.
+  It counted <code>allow</code> attributes, <code>unwrap</code>, <code>todo!</code> and <code>pub</code>
+  items by scanning source text, and review found routine bypasses (<code>cfg_attr(..., allow(...))</code>,
+  <code>Option::unwrap(x)</code>, macros, files outside <code>src/</code>). Patching a text scanner one
+  bypass at a time does not converge, so workspace lints now <strong>forbid</strong> <code>unsafe_code</code>,
+  <code>unreachable_pub</code>, <code>unwrap_used</code>, <code>expect_used</code>, <code>todo</code>,
+  <code>unimplemented</code> and <code>dbg_macro</code>. No attribute can override a forbid, so relaxing one
+  means editing the workspace manifest under a new decision record. The public-API count is dropped.
+  Text scanning of Rust source stays out of <code>xtask</code>; a later amendment allows <code>syn</code>
+  AST parsing for structural checks. The "first three fitness functions" in the slice are now the
+  dependency allowlist, replay determinism and the forbidden lints.</p></div>
   <div class="prose" style="margin-top:18px">
     <h3 style="font-size:19px;margin-bottom:8px">Cadence</h3>
   </div>
@@ -844,6 +856,31 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
     <li>One forecast ledger: the revert question, both outcome sources, matched baselines.<span class="done">Done when skill, coverage, censoring and uncertainty are reported, not just a calibration curve.</span></li>
     <li>Launch, local first: the split-screen obfuscation clip, forecasts shown as badges on the graph, one install path, Show HN.<span class="done">Done when strangers run it on their own topics, or clearly don't.</span></li>
   </ol>
+  <div class="prose"><p><strong>Contract note, 2026-09-27:</strong> gate 1 is signed. The
+  <a href="../evaluation-contract.md">evaluation contract</a> is signed at v4.1, after five Codex
+  review rounds; the pilot and open checks (A10) are still pending. Signed is not frozen: the pilot,
+  matcher fixtures, reference scorer, simulation and data manifests must pass before any test window
+  opens. The contract corrects the steps above in these ways:</p>
+  <ul class="pm">
+    <li>Step 1: the question is Q-revert-30m on English Wikipedia edits, with the cutoff 15 seconds after
+    the ingress recorder receives an edit and revert labels taken from MediaWiki's revert provenance, not tags.
+    Gate 4's baselines are the base rate (B0), a four-feature logistic regression (B1) and Wikimedia's
+    <code>revertrisk-language-agnostic</code> (B2). B2 is reported, not required, and may not be an input
+    to the primary <code>s2w</code> arm. The raw-sample LLM baseline (B3) belongs to gate 3.</li>
+    <li>Step 1: the hours cap is set at 60 hours of sprint time for the slice.</li>
+    <li>Step 3: "correction minutes" is gone; review found it unvalidated and v4 dropped the repair-operation
+    count that replaced it. H+S2 must beat heuristics alone (H) by at least 0.10 identity F1 on the mean and
+    be higher than H in all 5 replicates, beat B3 by at least 0.05 on the mean and be higher in at least 4 of 5, recover at least 60% of repeated entities, keep false
+    merges at or below 0.05 per replicate (among other safety floors), and spend at most $5 per stream per replicate. The obfuscated
+    and private streams must each pass on their own. Step 3 no longer runs "both providers" at once: one
+    hosted provider is evaluated first, the second is built in the slice and evaluated after it, and claims
+    are per provider.</li>
+    <li>Step 4: gate 4 passes on a Brier skill score above 0 against B0 (interval), above 0 against B1
+    (point estimate), and calibration by an equivalence test: the 90% interval for observed over expected
+    positives inside [0.8, 1.25]. Fewer than 20 expected positives makes the result inconclusive, and a result that is sensitive to censoring does not pass.</li>
+    <li>Kill criteria: "accuracy or effort" now means the gate-3 thresholds above. A failed gate is a result,
+    not a reason to relax the contract, and a change after sign-off is a new dated section, never an edit in place.</li>
+  </ul></div>
   <div class="callout">
     <p><strong>Kill criteria.</strong> Stop before building more if System 2 does not beat heuristics and the raw-sample LLM baseline on accuracy or effort, or if the launch does not make people try it on their own streams. <strong>Time box:</strong> step 2 in one week; the overall hours cap is set before starting.</p>
     <p><strong>A demo every sprint.</strong> Every sprint ends with something runnable on live data, with the command to reproduce it, and every third sprint the demo has to show usable value: a real question answered on a real stream. Each demo doubles as a build-in-public post. In the slice: gate 2 is <code>s2w watch</code> on Wikipedia with Claude asking "what's happening right now?" over MCP; gate 3 is the split screen; gate 4 is the calibration chart filling in live; then the launch. A sprint with no demo is a signal, like a broken fitness function.</p>
@@ -864,7 +901,7 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
       <tr><td>What flows in</td><td>Video frames, sensor readings, actions</td><td>Business events: orders, edits, flights, CDC rows</td></tr>
       <tr><td>The state</td><td>A learned latent vector, or a rendered scene</td><td>An explicit graph of entities, relationships and state</td></tr>
       <tr><td>How the world changes</td><td>Dynamics learned end to end from huge datasets</td><td>The log itself, plus a forecaster per registered question</td></tr>
-      <tr><td>Imagination</td><td>Roll the latent forward and render possible futures</td><td>Possible worlds: forecasts drawn as forks</td></tr>
+      <tr><td>Imagination</td><td>Roll the latent forward and render possible futures</td><td>Rollouts from the current world: a world ensemble of sampled future worlds, drawn as forks</td></tr>
       <tr><td>Learning signal</td><td>Error predicting the next frame</td><td>Forecasts graded against what actually happens</td></tr>
       <tr><td>Inspectability</td><td>Mostly opaque</td><td>Every entity, repair and forecast traces to events</td></tr>
       <tr><td>Time travel</td><td>Rare</td><td>Native: replay to any offset, as known then or as understood now</td></tr>
@@ -901,6 +938,26 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
   </div>
   <div class="prose" style="margin-top:14px">
     <p><strong>The wedge.</strong> Graphs over streams are crowded territory. The combination is not: a model proposed in minutes, corrections that are inspectable and reversible, and forecasts with an independent track record, in something light enough to try the same day. The first audience is Hacker News and X, especially Kafka users, reached through an open-source release and a demo they can run in one command.</p>
+  </div>
+</section>
+
+<section id="related-work">
+  <div class="prose">
+    <div class="eyebrow">Related work, 2026-09-27</div>
+    <h2>Every part exists somewhere</h2>
+    <p>As of 2026-09-27 we found no system that does all of it: discovering entity types, identity keys and relationships from a raw event stream, keeping the LLM off the event path, replaying the world from its log, and grading its own forecasts against the live stream. Each part exists on its own. The full map, with citations, is <a href="../../research/0001-prior-art.md">research 0001</a>. The Neighbours table above is about products; this is the technical prior art.</p>
+  </div>
+  <div class="tbl" style="margin-top:18px">
+  <table class="q">
+    <thead><tr><th>Work</th><th>What it already does</th><th>Where S2W differs</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://github.com/getzep/graphiti">Graphiti</a> (Zep, <a href="https://arxiv.org/abs/2501.13956">arXiv 2501.13956</a>)</td><td>Builds a temporal knowledge graph from a stream of episodes: LLM-extracted entities and relationships, LLM entity resolution, bi-temporal edges, incremental ingestion. The nearest system, and the first thing a reader will compare S2W to.</td><td>Graphiti calls an LLM on every episode and resolves identity by name similarity. S2W calls its LLM on snapshots, compiles what it learns into rules that run without it, discovers identity keys from the data, replays deterministically from the log, and forecasts.</td></tr>
+      <tr><td><a href="https://doi.org/10.1007/978-3-031-16103-2_25">Rebmann, Rehse and van der Aa (BPM 2022)</a></td><td>Discovers object types, identity attributes and object relationships from a flat event log, offline. The closest academic prior art.</td><td>The method leans on attribute names. Gate 3's obfuscated stream, with fields renamed and ids hashed, is the case where names carry nothing.</td></tr>
+      <tr><td><a href="https://arxiv.org/abs/2403.01975">OCEL 2.0</a></td><td>The object-centric event log standard: object types, event-to-object and object-to-object relationships.</td><td>S2W's world maps onto OCEL 2.0's objects and relationships; user-facing words stay "entity" and "relationship". An OCEL 2.0 export is deferred (<a href="https://github.com/daveremy/stream2worlds/issues/3">#3</a>).</td></tr>
+      <tr><td>Complex event forecasting (<a href="https://link.springer.com/article/10.1007/s00778-021-00698-x">Wayeb</a>, VLDBJ 2021)</td><td>Issues and scores probabilistic forecasts on live streams, with late resolution.</td><td>CEF forecasts patterns you write. S2W forecasts over a world it discovered.</td></tr>
+      <tr><td>Wikimedia's <a href="https://meta.wikimedia.org/wiki/Machine_learning_models/Production/Language-agnostic_revert_risk">revert-risk model</a></td><td>Publishes a revert probability for most edits, live on EventStreams.</td><td>Its label is an identity revert with no time window; gate 4 asks about 30 minutes. It is gate 4's strong baseline (B2), reported and recalibrated, never an input to the primary arm.</td></tr>
+    </tbody>
+  </table>
   </div>
 </section>
 
