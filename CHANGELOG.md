@@ -13,6 +13,48 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 62 — watch fails loudly (2026-09-27, 17:00–19:00)
+
+The four hardening items deferred from the #29 review ([#39](https://github.com/daveremy/stream2worlds/issues/39)).
+`watch` no longer looks healthy when it isn't: every reconnect says why, `--since` is validated
+before any connection opens, and the stored-cursor-versus-`--since` decision is a pure, tested
+function instead of live-run glue.
+
+**Shipped**
+- **SSE reconnects are reported, never silent.** Connection failures (with attempt count and
+  retry delay), dropped byte streams, and zero-frame disconnects all send a `Retrying` error
+  down the channel before the backoff; a connection that delivered frames and then closed
+  (Wikimedia's routine periodic reconnects) stays quiet. The attempt count resets only when an
+  event is accepted, not when a connection succeeds — a 200 that delivers nothing keeps
+  counting.
+- **`--since` is validated, and invalid values are exit code 2 everywhere.** Wikipedia and
+  Kafka share one RFC 3339-or-epoch-millisecond parser (in `s2w-sources`); the SSE
+  `SseDialect::apply_since` distinguishes unsupported from invalid, and invalid is a usage
+  error. This intentionally narrows Wikipedia's old ISO-8601 wording: a bare date such as
+  `2026-09-27` is not RFC 3339 and is now rejected instead of being forwarded silently.
+- **The start decision is pure and positively tested.** `sse::start::choose` decides resume
+  versus fresh versus error from `(stored cursor, --since)`; `SseSource::start` calls it instead
+  of inlining the logic. An app-level loopback test (hand-rolled HTTP over `tokio::net`, no new
+  dependency) seeds a cursor, asserts the request carries it as `Last-Event-ID`, and watches the
+  event land in the SQLite log.
+
+**Learned**
+- **A conflict beats a typo.** When a stored cursor and `--since` are both present, the
+  `SinceWithStoredCursor` error wins over validating the `--since` value — the user's mistake is
+  the combination, and naming it first saves them fixing a value that was going to be refused
+  anyway.
+
+**Changed course**
+- **`--json` on `watch` became a dated exception** instead of shipping untested: `watch` is
+  streaming, and its NDJSON progress design is deferred to [#79](https://github.com/daveremy/stream2worlds/issues/79);
+  `mcp` is already JSON-RPC over stdio. `crates/s2w/AGENTS.md` records the exception.
+
+**Next**
+- [#79](https://github.com/daveremy/stream2worlds/issues/79), when a machine consumer needs
+  progress from a running watch.
+
+---
+
 ## Sprint 61 — the live bridge (2026-09-27, 15:00–17:00)
 
 The log and the world met. Until this sprint the query API and the MCP server served a world
@@ -56,7 +98,7 @@ of them, not its own module.
 - **The SSE transport generalized; Wikipedia became a preset over it** ([decision 0008](docs/decisions/0008-generic-sse-adapter.md), a dated amendment to [decision 0003](docs/decisions/0003-wikipedia-sse-client.md)). `sse/{mod,connect,frame}.rs` carry the connection, backpressure and reconnect-backoff logic every SSE stream shares; `sse/dialect.rs`'s `SseDialect` trait carries what only one stream knows — how an `id:` becomes a cursor, how to ask for a start time, which frames to keep. `Wikimedia` (now under `presets/`) implements the existing cursor-arbitration and canary/`examplewiki` filtering; `Opaque` is the default for a bare `sse://`/`https://`/`http://` target: the `id:` verbatim as the cursor, no `--since` support, every payload kept. A frame with no `id:` cannot be resumed from, so three in a row force a reconnect — forever, not a crash or a hang, because the transport cannot know whether an arbitrary stream was ever meant to carry ids.
 - **stdin NDJSON** joined the same seam: one raw-line-per-event adapter, no `--since` support, ending at end of input.
 - **A read-only MCP server** ([#52](https://github.com/daveremy/stream2worlds/issues/52), [decision 0009](docs/decisions/0009-mcp-server.md)). `s2w mcp` serves five tools over stdio (`world_view`, `world_diff`, `entity_history`, `branches`, `time`) that return the same JSON bytes as the HTTP query routes, because both now call the same `QueryState` methods. Every tool is annotated read-only; the world is empty until the live bridge (#51) lands.
-- **`--json` on the CLI** ([#53](https://github.com/daveremy/stream2worlds/issues/53)): `--version`, `--help` and top-level errors print JSON with `--json`. `watch --json` comes with #39; `s2w mcp` refuses extra arguments so nothing but MCP messages ever reaches its stdout.
+- **`--json` on the CLI** ([#53](https://github.com/daveremy/stream2worlds/issues/53)): `--version`, `--help` and top-level errors print JSON with `--json`. `watch --json` is deferred to [#79](https://github.com/daveremy/stream2worlds/issues/79) (NDJSON progress design, dated exception recorded by #39); `s2w mcp` refuses extra arguments so nothing but MCP messages ever reaches its stdout.
 - **What the gate-3 heuristics arm H contains, decided** ([#4](https://github.com/daveremy/stream2worlds/issues/4), [decision 0010](docs/decisions/0010-gate3-h-arm.md)): research 0002's seven-stage design, with Rebmann, Rehse and van der Aa (BPM 2022) as a component of H rather than a fourth arm. Measuring H-min is [#56](https://github.com/daveremy/stream2worlds/issues/56). The signed evaluation contract gets a dated pointer note, not an in-place edit.
 - **Generic SSE keeps distinct events distinct.** The `Opaque` dialect stores `{"data","id"}` as a byte-deterministic envelope, so two events with different ids and identical data no longer collapse under the log's dedupe; the `wikipedia` preset still stores raw `data:` bytes, so logs from Sprint 59 resume unchanged (checked: 268 → 908 events, contiguous).
 - **`sse/mod.rs` split to stay under the 400-line cap** ([#44](https://github.com/daveremy/stream2worlds/issues/44)): the HTTP connection, request-building and backoff moved to `sse/connect.rs`; `mod.rs` keeps the `Source` impl and the read loop.

@@ -6,8 +6,9 @@ Stream sources, resolved by URI scheme through `registry.rs`: Kafka by partition
 `wikipedia` is the `sse` transport with the `Wikimedia` dialect and the Wikimedia URL.
 
 `sse/` splits the transport from what a particular stream means: `sse/mod.rs` (the `Source`
-impl and the read loop), `sse/connect.rs` (the HTTP connection and reconnect backoff),
-`sse/frame.rs` (wire parsing), `sse/dialect.rs` (the `SseDialect` trait plus `Opaque`, the
+impl and the read loop), `sse/start.rs` (the pure stored-cursor versus `--since` decision),
+`sse/connect.rs` (the HTTP connection and reconnect backoff), `sse/frame.rs` (wire parsing),
+`sse/dialect.rs` (the `SseDialect` trait plus `Opaque`, the
 default dialect for a bare `sse://`/`https://`/`http://` target). `Wikimedia` lives under
 `presets/wikimedia.rs`, since it is a preset, not a transport.
 
@@ -39,6 +40,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   dialect's cursor, sent back as `Last-Event-ID`).
 - Every SSE request uses a descriptive `User-Agent` (Wikimedia's policy, applied to every
   target, not only Wikimedia's).
+- SSE reconnects are reported through the source channel, never silently; `--since` is
+  validated by the dialect before any connection is opened.
 - What an `id:`/payload means is the dialect's job, never the transport's: `Wikimedia` filters
   `meta.domain == "canary"` and `wiki_id == "examplewiki"` events after their valid cursor
   advances; `Opaque` keeps every payload and has no filter.

@@ -10,6 +10,7 @@ mod connect;
 mod dialect;
 mod envelope;
 mod frame;
+mod start;
 #[cfg(test)]
 mod tests;
 
@@ -25,7 +26,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
-pub(crate) use dialect::{Opaque, SseDialect, header_safe};
+pub(crate) use dialect::{Opaque, SinceError, SseDialect, header_safe};
 use frame::{FrameParser, RawFrame};
 
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
@@ -97,33 +98,15 @@ impl Source for SseSource {
                 reason: error.to_string(),
             })?;
             let source_id = SourceId::new(source_id)?;
-            let initial_cursor = match cursors.cursor(&source_id)? {
-                Some(stored) => {
-                    if let Some(since) = since {
-                        return Err(SourceError::SinceWithStoredCursor {
-                            source_id: source_id.as_str().to_owned(),
-                            since: since.to_owned(),
-                        });
-                    }
-                    let header = dialect.validate_stored(&stored).map_err(|reason| {
-                        SourceError::StoredCursor {
-                            source_id: source_id.as_str().to_owned(),
-                            cursor: String::from_utf8_lossy(stored.as_bytes()).into_owned(),
-                            reason,
-                        }
-                    })?;
-                    Some(header)
-                }
-                None => None,
-            };
-            if let Some(since) = since {
-                // Validation-only dry run: applied to a throwaway clone so an unsupported
-                // `since` surfaces here, before we open a connection. The real mutation
-                // happens per-connect in `connect.rs::build_request`.
-                dialect
-                    .apply_since(&mut parsed.clone(), since)
-                    .map_err(|reason| SourceError::SinceUnsupported { name, reason })?;
-            }
+            let stored = cursors.cursor(&source_id)?;
+            let plan = start::choose(
+                name,
+                dialect.as_ref(),
+                &parsed,
+                &source_id,
+                stored.as_ref(),
+                since,
+            )?;
             let connector = ReqwestConnect::new(parsed, user_agent, Arc::clone(&dialect))
                 .map_err(|reason| SourceError::Fatal { name, reason })?;
             let state = StreamState {
@@ -134,8 +117,8 @@ impl Source for SseSource {
             let (stream, task) = spawn(
                 connector,
                 state,
-                since.map(str::to_owned),
-                initial_cursor,
+                plan.since,
+                plan.initial_cursor,
                 Backoff::production(),
             );
             drop(task);
@@ -223,13 +206,25 @@ async fn run<C: Connect>(
     // A resumed source starts from the cursor it was handed (read back from the event log)
     // instead of `None`; from the first frame on, the last parsed cursor is authoritative.
     let mut cursor = initial_cursor;
+    let mut attempt = 1_u32;
     loop {
         let requested_since = cursor.is_none().then_some(since.as_deref()).flatten();
         let requested_cursor = cursor.as_deref();
         let connection = connector.connect(requested_since, requested_cursor).await;
         let mut bytes = match connection {
             Ok(bytes) => bytes,
-            Err(_) => {
+            Err(error) => {
+                let retrying = SourceError::Retrying {
+                    name: stream.name,
+                    reason: format!(
+                        "connect failed (attempt {attempt}): {error}; retrying in {:?}",
+                        backoff.current()
+                    ),
+                };
+                if matches!(send(&sender, Err(retrying)).await, FrameAction::Stop) {
+                    return;
+                }
+                attempt = attempt.saturating_add(1);
                 backoff.wait().await;
                 continue;
             }
@@ -237,19 +232,33 @@ async fn run<C: Connect>(
         let mut parser = FrameParser::default();
         let mut malformed_ids = 0_usize;
         let mut force_reconnect = false;
+        let mut delivered_frames = 0_usize;
+        let mut read_failed = false;
 
         while let Some(chunk) = bytes.next().await {
             let chunk = match chunk {
                 Ok(chunk) => chunk,
-                Err(_) => break,
+                Err(error) => {
+                    let retrying = SourceError::Retrying {
+                        name: stream.name,
+                        reason: format!("connection dropped: {error}; reconnecting"),
+                    };
+                    if matches!(send(&sender, Err(retrying)).await, FrameAction::Stop) {
+                        return;
+                    }
+                    read_failed = true;
+                    break;
+                }
             };
             for parsed in parser.push(&chunk) {
+                delivered_frames = delivered_frames.saturating_add(1);
                 match process_frame(
                     &stream,
                     parsed,
                     &sender,
                     &mut cursor,
                     &mut backoff,
+                    &mut attempt,
                     &mut malformed_ids,
                 )
                 .await
@@ -268,12 +277,14 @@ async fn run<C: Connect>(
         }
         if !force_reconnect {
             for parsed in parser.finish() {
+                delivered_frames = delivered_frames.saturating_add(1);
                 match process_frame(
                     &stream,
                     parsed,
                     &sender,
                     &mut cursor,
                     &mut backoff,
+                    &mut attempt,
                     &mut malformed_ids,
                 )
                 .await
@@ -281,6 +292,18 @@ async fn run<C: Connect>(
                     FrameAction::Continue | FrameAction::Reconnect => {}
                     FrameAction::Stop => return,
                 }
+            }
+        }
+        if !force_reconnect && !read_failed && delivered_frames == 0 {
+            let retrying = SourceError::Retrying {
+                name: stream.name,
+                reason: format!(
+                    "connection closed before delivering a frame; reconnecting in {:?}",
+                    backoff.current()
+                ),
+            };
+            if matches!(send(&sender, Err(retrying)).await, FrameAction::Stop) {
+                return;
             }
         }
         backoff.wait().await;
@@ -299,6 +322,7 @@ async fn process_frame(
     sender: &mpsc::Sender<Item>,
     cursor: &mut Option<String>,
     backoff: &mut Backoff,
+    attempt: &mut u32,
     malformed_ids: &mut usize,
 ) -> FrameAction {
     let frame = match parsed {
@@ -326,6 +350,7 @@ async fn process_frame(
     *malformed_ids = 0;
     *cursor = Some(event_cursor.clone());
     backoff.reset();
+    *attempt = 1;
     let Some(payload) = frame.data else {
         return FrameAction::Continue;
     };

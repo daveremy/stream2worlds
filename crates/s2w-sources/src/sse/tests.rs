@@ -6,6 +6,7 @@ use std::time::Duration;
 use super::*;
 use crate::presets::wikimedia::{ENDPOINT, LastEventId, SOURCE_ID, Wikimedia};
 use crate::sse::envelope;
+use crate::sse::start::StartPlan;
 
 /// One delivered event as `(cursor, payload)` text.
 #[derive(Debug)]
@@ -163,6 +164,12 @@ async_test!(since_survives_failures_until_a_cursor_exists, {
         Some(since.to_owned()),
         None,
         Backoff::fixed(Duration::from_millis(0)),
+    );
+    assert!(next_retrying(&mut source).await.contains("attempt 1"));
+    assert!(
+        next_retrying(&mut source)
+            .await
+            .contains("before delivering a frame")
     );
     assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
     observer.assert_no_mismatches().await;
@@ -339,9 +346,141 @@ async_test!(status_and_transport_errors_both_retry, {
         None,
         Backoff::fixed(Duration::from_millis(0)),
     );
+    assert!(next_retrying(&mut source).await.contains("attempt 1"));
+    assert!(next_retrying(&mut source).await.contains("attempt 2"));
     assert_eq!(next_ok(&mut source).await.payload, NORMAL_DATA);
     observer.assert_no_mismatches().await;
 });
+
+async_test!(dropped_byte_stream_reports_then_reconnects, {
+    let connector = FakeConnect::new(vec![
+        Action::dropped(None, None, Vec::new()),
+        Action::stream(None, None, vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()]),
+        Action::pending_connect(None, Some(FIRST_ID.to_owned())),
+    ]);
+    let observer = connector.clone();
+    let (mut source, _task) = wikipedia(
+        connector,
+        None,
+        None,
+        Backoff::fixed(Duration::from_millis(0)),
+    );
+    let retry = next_retrying(&mut source).await;
+    assert!(retry.contains("connection dropped"), "got {retry:?}");
+    assert_eq!(next_ok(&mut source).await.cursor, FIRST_ID);
+    observer.assert_no_mismatches().await;
+});
+
+async_test!(connect_attempts_reset_only_after_an_accepted_event, {
+    let connector = FakeConnect::new(vec![
+        Action::error(None, None, FakeError::Transport),
+        Action::stream(None, None, Vec::new()),
+        Action::error(None, None, FakeError::Transport),
+        Action::stream(None, None, vec![frame(FIRST_ID, NORMAL_DATA).into_bytes()]),
+        Action::error(None, Some(FIRST_ID.to_owned()), FakeError::Transport),
+        Action::stream(
+            None,
+            Some(FIRST_ID.to_owned()),
+            vec![frame(SECOND_ID, NORMAL_DATA).into_bytes()],
+        ),
+        Action::pending_connect(None, Some(SECOND_ID.to_owned())),
+    ]);
+    let observer = connector.clone();
+    let (mut source, _task) = wikipedia(
+        connector,
+        None,
+        None,
+        Backoff::fixed(Duration::from_millis(0)),
+    );
+    assert!(next_retrying(&mut source).await.contains("attempt 1"));
+    assert!(
+        next_retrying(&mut source)
+            .await
+            .contains("before delivering a frame")
+    );
+    assert!(next_retrying(&mut source).await.contains("attempt 2"));
+    assert_eq!(next_ok(&mut source).await.cursor, FIRST_ID);
+    assert!(next_retrying(&mut source).await.contains("attempt 1"));
+    assert_eq!(next_ok(&mut source).await.cursor, SECOND_ID);
+    observer.assert_no_mismatches().await;
+});
+
+#[test]
+fn choose_start_resumes_from_a_stored_cursor() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    let stored = Cursor::new(FIRST_ID.as_bytes().to_vec()).expect("valid cursor");
+    let plan = start::choose("wikipedia", &Wikimedia, &url, &source, Some(&stored), None)
+        .expect("stored cursor should resume");
+    assert_eq!(
+        plan,
+        StartPlan {
+            since: None,
+            initial_cursor: Some(FIRST_ID.to_owned())
+        }
+    );
+}
+
+#[test]
+fn choose_start_accepts_a_valid_since_for_a_fresh_log() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    let since = "2026-09-27T12:00:00Z";
+    let plan = start::choose("wikipedia", &Wikimedia, &url, &source, None, Some(since))
+        .expect("valid since should start fresh");
+    assert_eq!(
+        plan,
+        StartPlan {
+            since: Some(since.to_owned()),
+            initial_cursor: None
+        }
+    );
+}
+
+#[test]
+fn choose_start_rejects_an_invalid_since() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    assert!(matches!(
+        start::choose(
+            "wikipedia",
+            &Wikimedia,
+            &url,
+            &source,
+            None,
+            Some("yesterday")
+        ),
+        Err(SourceError::InvalidSince { .. })
+    ));
+}
+
+#[test]
+fn choose_start_rejects_since_for_the_opaque_dialect() {
+    let url = reqwest::Url::parse("https://example.test/events").expect("valid test URL");
+    let source = SourceId::new("opaque-test").expect("valid source id");
+    assert!(matches!(
+        start::choose("sse", &Opaque, &url, &source, None, Some("123")),
+        Err(SourceError::SinceUnsupported { .. })
+    ));
+}
+
+#[test]
+fn choose_start_prioritizes_stored_cursor_conflict_over_invalid_since() {
+    let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
+    let source = SourceId::new(SOURCE_ID).expect("valid source id");
+    let stored = Cursor::new(FIRST_ID.as_bytes().to_vec()).expect("valid cursor");
+    assert!(matches!(
+        start::choose(
+            "wikipedia",
+            &Wikimedia,
+            &url,
+            &source,
+            Some(&stored),
+            Some("yesterday")
+        ),
+        Err(SourceError::SinceWithStoredCursor { .. })
+    ));
+}
 
 async_test!(
     opaque_dialect_envelopes_distinct_ids_with_identical_data_differently,
@@ -499,6 +638,15 @@ async fn next_ok(source: &mut SseStream) -> TestEvent {
     }
 }
 
+async fn next_retrying(source: &mut SseStream) -> String {
+    match tokio::time::timeout(Duration::from_secs(2), source.next()).await {
+        Ok(Some(Err(SourceError::Retrying { reason, .. }))) => reason,
+        Ok(Some(other)) => panic!("expected retry report, got {other:?}"),
+        Ok(None) => panic!("source ended unexpectedly"),
+        Err(_) => panic!("timed out waiting for retry report"),
+    }
+}
+
 fn frame(id: &str, data: &str) -> String {
     format!("event: message\nid: {id}\ndata: {data}\n\n")
 }
@@ -653,6 +801,14 @@ impl Connect for FakeConnect {
             Outcome::Stream(chunks) => {
                 Ok(Box::pin(tokio_stream::iter(chunks.into_iter().map(Ok))) as ByteStream)
             }
+            Outcome::Dropped(chunks) => {
+                let mut items: Vec<Result<Vec<u8>, ConnectError>> =
+                    chunks.into_iter().map(Ok).collect();
+                items.push(Err(ConnectError::Transport(
+                    "synthetic dropped byte stream".to_owned(),
+                )));
+                Ok(Box::pin(tokio_stream::iter(items)) as ByteStream)
+            }
             Outcome::Error(FakeError::Status(status)) => Err(ConnectError::HttpStatus(status)),
             Outcome::Error(FakeError::Transport) => Err(ConnectError::Transport(
                 "synthetic transport failure".to_owned(),
@@ -693,6 +849,14 @@ impl Action {
         }
     }
 
+    fn dropped(since: Option<&str>, last_event_id: Option<String>, chunks: Vec<Vec<u8>>) -> Self {
+        Self {
+            since: since.map(str::to_owned),
+            last_event_id,
+            outcome: Outcome::Dropped(chunks),
+        }
+    }
+
     fn pending_connect(since: Option<&str>, last_event_id: Option<String>) -> Self {
         Self {
             since: since.map(str::to_owned),
@@ -712,6 +876,7 @@ impl Action {
 
 enum Outcome {
     Stream(Vec<Vec<u8>>),
+    Dropped(Vec<Vec<u8>>),
     Error(FakeError),
     PendingConnect,
     IdleStream,

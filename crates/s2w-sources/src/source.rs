@@ -179,7 +179,9 @@ impl SourceError {
     pub fn is_usage(&self) -> bool {
         matches!(
             self,
-            Self::SinceWithStoredCursor { .. } | Self::SinceUnsupported { .. }
+            Self::SinceWithStoredCursor { .. }
+                | Self::SinceUnsupported { .. }
+                | Self::InvalidSince { .. }
         )
     }
 }
@@ -265,5 +267,15 @@ mod tests {
         ] {
             assert!(!variant.is_fatal(), "{variant:?} must not be fatal");
         }
+    }
+
+    #[test]
+    fn invalid_since_is_a_usage_error() {
+        let error = SourceError::InvalidSince {
+            name: "test",
+            value: "yesterday".to_owned(),
+            reason: "expected RFC 3339 or epoch milliseconds".to_owned(),
+        };
+        assert!(error.is_usage());
     }
 }

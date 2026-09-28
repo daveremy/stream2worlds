@@ -83,7 +83,11 @@ pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
         .await
         .map_err(|error| {
             if error.is_usage() {
-                AppError::Usage(format!("--log-dir {}: {error}", args.log_dir.display()))
+                if matches!(&error, SourceError::SinceWithStoredCursor { .. }) {
+                    AppError::Usage(format!("--log-dir {}: {error}", args.log_dir.display()))
+                } else {
+                    AppError::Usage(error.to_string())
+                }
             } else {
                 AppError::Source(error)
             }
@@ -120,12 +124,16 @@ fn current_thread_runtime() -> Result<tokio::runtime::Runtime, AppError> {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
+    use std::time::Duration;
 
     use s2w_log::{EventLog, SqliteEventLog};
     use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
+    use s2w_sources::registry::resolve;
     use s2w_sources::source::SourceError;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio_stream::StreamExt;
 
-    use super::{AppError, WatchArgs, watch};
+    use super::{AppError, LogCursors, WatchArgs, watch};
 
     const WIKIPEDIA_SOURCE: &str = "wikipedia.page_change";
 
@@ -185,6 +193,15 @@ mod tests {
         if let Err(error) = appended {
             panic!("seeding the log should succeed: {error}");
         }
+    }
+
+    fn fnv1a64_hex(bytes: &[u8]) -> String {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for &byte in bytes {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        format!("{hash:016x}")
     }
 
     // Each case below fails before any network connection is attempted, so these run offline.
@@ -253,14 +270,6 @@ mod tests {
     fn kafka_since_with_a_stored_partition_cursor_is_a_usage_error() {
         // Mirrors s2w_sources::kafka's private `cluster_id`: a length-prefixed hash of the
         // sorted broker list, so the seeded source id matches what watch() will look up.
-        fn fnv1a64_hex(bytes: &[u8]) -> String {
-            let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-            for &byte in bytes {
-                hash ^= u64::from(byte);
-                hash = hash.wrapping_mul(0x0100_0000_01b3);
-            }
-            format!("{hash:016x}")
-        }
         let broker = "127.0.0.1:1";
         let cluster = fnv1a64_hex(format!("{}:{broker}", broker.len()).as_bytes());
         let directory = TestDirectory::new("kafka-since-and-cursor");
@@ -292,5 +301,129 @@ mod tests {
             matches!(&outcome, Err(AppError::Usage(message)) if message.contains("kafka://")),
             "got {outcome:?}"
         );
+    }
+
+    #[test]
+    fn invalid_wikipedia_since_is_a_usage_error_without_a_log_dir_prefix() {
+        let directory = TestDirectory::new("wikipedia-invalid-since");
+        let outcome = watch(WatchArgs {
+            uri: "wikipedia".to_owned(),
+            since: Some("2026-09-27".to_owned()),
+            log_dir: directory.path().to_path_buf(),
+        });
+        assert!(
+            matches!(&outcome, Err(AppError::Usage(message))
+                if message.contains("invalid --since") && !message.contains("--log-dir")),
+            "got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn invalid_kafka_since_is_a_usage_error_without_a_log_dir_prefix() {
+        let directory = TestDirectory::new("kafka-invalid-since");
+        let outcome = watch(WatchArgs {
+            uri: "kafka://127.0.0.1:1/orders".to_owned(),
+            since: Some("yesterday".to_owned()),
+            log_dir: directory.path().to_path_buf(),
+        });
+        assert!(
+            matches!(&outcome, Err(AppError::Usage(message))
+                if message.contains("invalid --since") && !message.contains("--log-dir")),
+            "got {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn stored_sse_cursor_is_sent_as_last_event_id_and_the_event_is_logged() {
+        run(false, async {
+            let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+                Ok(listener) => listener,
+                // The managed implementation sandbox forbids all socket syscalls, including
+                // loopback. Normal CI and developer machines run the assertion below.
+                Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => return,
+                Err(error) => panic!("loopback listener should bind: {error}"),
+            };
+            let address = listener
+                .local_addr()
+                .expect("listener should have an address");
+            let uri = format!("http://{address}/events");
+            // Mirrors the registry's private generic-SSE identity for this fixed loopback URL.
+            let source_id = format!(
+                "sse.127.0.0.1_{}.events.{}",
+                address.port(),
+                fnv1a64_hex(uri.as_bytes())
+            );
+            let directory = TestDirectory::new("sse-positive-resume");
+            seed(directory.path(), &source_id, b"resume-41");
+
+            let (header_sender, header_receiver) = tokio::sync::oneshot::channel();
+            let server = tokio::spawn(async move {
+                let (mut socket, _) = listener.accept().await.expect("request should connect");
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let read = socket
+                        .read(&mut buffer)
+                        .await
+                        .expect("request should be readable");
+                    assert!(read > 0, "request ended before its headers");
+                    request.extend_from_slice(&buffer[..read]);
+                }
+                let request = String::from_utf8_lossy(&request);
+                let last_event_id = request.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("last-event-id")
+                        .then(|| value.trim().to_owned())
+                });
+                let _ignored = header_sender.send(last_event_id);
+                socket
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\nid: next-42\ndata: {\"ok\":true}\n\n",
+                    )
+                    .await
+                    .expect("response should be writable");
+                std::future::pending::<()>().await;
+            });
+
+            let mut log = SqliteEventLog::open(directory.path()).expect("log should reopen");
+            let source = resolve(&uri).expect("loopback URL should resolve");
+            let started = source
+                .start(None, &LogCursors(&log))
+                .await
+                .expect("source should start from its stored cursor");
+            let header = tokio::time::timeout(Duration::from_secs(2), header_receiver)
+                .await
+                .expect("request should arrive")
+                .expect("server should report the header");
+            assert_eq!(header.as_deref(), Some("resume-41"));
+
+            let mut stream = started.stream;
+            let event = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                .await
+                .expect("event should arrive")
+                .expect("source should stay open")
+                .expect("frame should be accepted");
+            log.append(event).expect("event should append");
+
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            loop {
+                let appeared = log
+                    .replay(None)
+                    .expect("log should replay")
+                    .filter_map(Result::ok)
+                    .any(|stored| stored.event.cursor.as_bytes() == b"next-42");
+                if appeared {
+                    break;
+                }
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "the loopback event did not appear in the SQLite log"
+                );
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+
+            server.abort();
+            let _ignored = server.await;
+        });
     }
 }

@@ -7,7 +7,7 @@
 
 use s2w_model::Cursor;
 
-use crate::sse::{SseDialect, header_safe};
+use crate::sse::{SinceError, SseDialect, header_safe};
 
 /// The EventStreams endpoint the `wikipedia` preset reads.
 pub(crate) const ENDPOINT: &str = "https://stream.wikimedia.org/v2/stream/mediawiki.page_change.v1";
@@ -163,7 +163,8 @@ impl SseDialect for Wikimedia {
         Ok(value)
     }
 
-    fn apply_since(&self, url: &mut reqwest::Url, since: &str) -> Result<(), String> {
+    fn apply_since(&self, url: &mut reqwest::Url, since: &str) -> Result<(), SinceError> {
+        crate::since::parse_since(since).map_err(SinceError::Invalid)?;
         url.query_pairs_mut().append_pair("since", since);
         Ok(())
     }

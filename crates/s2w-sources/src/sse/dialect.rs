@@ -2,6 +2,17 @@
 
 use s2w_model::Cursor;
 
+/// Why a dialect refused `--since`.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum SinceError {
+    /// This stream has no start-time parameter.
+    #[error("{0}")]
+    Unsupported(String),
+    /// The value is not in the format this stream accepts.
+    #[error("{0}")]
+    Invalid(String),
+}
+
 /// Whether `value` can be sent verbatim as an HTTP header value (what every cursor here
 /// eventually becomes, as `Last-Event-ID`). A cursor that fails this must never be accepted as
 /// valid: `connect.rs::build_request` would fail to build the request, and the read loop
@@ -41,7 +52,7 @@ pub(crate) trait SseDialect: Send + Sync + 'static {
     /// # Errors
     ///
     /// Why `--since` does not apply to this stream.
-    fn apply_since(&self, url: &mut reqwest::Url, since: &str) -> Result<(), String>;
+    fn apply_since(&self, url: &mut reqwest::Url, since: &str) -> Result<(), SinceError>;
 
     /// Called with a frame's `data:` AFTER its cursor has advanced. `Ok(true)` keeps the
     /// event, `Ok(false)` drops it silently, `Err` is a malformed payload that is reported and
@@ -90,8 +101,8 @@ impl SseDialect for Opaque {
         Ok(value)
     }
 
-    fn apply_since(&self, _url: &mut reqwest::Url, _since: &str) -> Result<(), String> {
-        Err("a generic SSE stream has no start-time parameter; restarts resume from the stored Last-Event-ID".to_owned())
+    fn apply_since(&self, _url: &mut reqwest::Url, _since: &str) -> Result<(), SinceError> {
+        Err(SinceError::Unsupported("a generic SSE stream has no start-time parameter; restarts resume from the stored Last-Event-ID".to_owned()))
     }
 
     fn accept(&self, _data: &str) -> Result<bool, String> {

@@ -12,7 +12,6 @@ mod fetch;
 
 use std::collections::BTreeMap;
 
-use rskafka::chrono::DateTime;
 use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
 use tokio_stream::StreamExt;
 
@@ -114,15 +113,10 @@ pub(crate) enum KafkaStart {
 /// # Errors
 /// Returns [`KafkaSourceError::InvalidSince`] when the value is neither.
 pub(crate) fn parse_since(value: &str) -> Result<i64, KafkaSourceError> {
-    if let Ok(millis) = value.parse::<i64>() {
-        return Ok(millis);
-    }
-    DateTime::parse_from_rfc3339(value)
-        .map(|time| time.timestamp_millis())
-        .map_err(|error| KafkaSourceError::InvalidSince {
-            value: value.to_owned(),
-            reason: error.to_string(),
-        })
+    crate::since::parse_since(value).map_err(|reason| KafkaSourceError::InvalidSince {
+        value: value.to_owned(),
+        reason,
+    })
 }
 
 /// One Kafka record, ready for the log.
@@ -592,10 +586,8 @@ mod tests {
     }
 
     #[test]
-    fn since_accepts_rfc3339_and_epoch_millis() -> Result<(), KafkaSourceError> {
+    fn shared_since_parser_errors_keep_the_kafka_variant() -> Result<(), KafkaSourceError> {
         assert_eq!(parse_since("1790000000123")?, 1_790_000_000_123);
-        assert_eq!(parse_since("2026-09-27T12:00:00Z")?, 1_790_510_400_000);
-        assert_eq!(parse_since("2026-09-27T05:00:00-07:00")?, 1_790_510_400_000);
         assert!(matches!(
             parse_since("yesterday"),
             Err(KafkaSourceError::InvalidSince { .. })
