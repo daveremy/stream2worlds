@@ -327,7 +327,7 @@ mod tests {
     use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
     use tokio_stream::wrappers::ReceiverStream;
 
-    use super::{HumanReporter, MAX_BATCH, pump};
+    use super::{HumanReporter, MAX_BATCH, Reporter, pump};
     use crate::AppError;
 
     /// An in-memory log that records the size of every batch it is handed.
@@ -459,6 +459,130 @@ mod tests {
                 "got {outcome:?}"
             );
             assert_eq!(batches(&record), vec![2]);
+        });
+    }
+
+    /// One call the fake `Reporter` below recorded, in order, so a test can assert both the
+    /// final totals and the sequence they arrived in.
+    #[derive(Debug, PartialEq, Eq)]
+    enum RecordedCall {
+        Flushed {
+            appended: u64,
+            duplicates: u64,
+            reconnects: u64,
+            cursor: Option<String>,
+        },
+        Duplicate {
+            position: u64,
+        },
+        SourceError {
+            message: String,
+            retry: bool,
+        },
+    }
+
+    /// A [`Reporter`] that records every call instead of rendering it, so a test can assert on
+    /// `pump`'s own bookkeeping (s2w#105 follow-up from #79 round 3: nothing previously asserted
+    /// `appended`/`duplicates`/`reconnects`, `last_cursor`, or call order directly).
+    #[derive(Default)]
+    struct RecordingReporter {
+        calls: Vec<RecordedCall>,
+    }
+
+    impl Reporter for RecordingReporter {
+        fn flushed(
+            &mut self,
+            appended: u64,
+            duplicates: u64,
+            reconnects: u64,
+            cursor: Option<&str>,
+        ) {
+            self.calls.push(RecordedCall::Flushed {
+                appended,
+                duplicates,
+                reconnects,
+                cursor: cursor.map(str::to_owned),
+            });
+        }
+
+        fn duplicate(&mut self, position: u64) {
+            self.calls.push(RecordedCall::Duplicate { position });
+        }
+
+        fn note(&mut self, _message: &str) {}
+
+        fn source_error(&mut self, message: &str, retry: bool) {
+            self.calls.push(RecordedCall::SourceError {
+                message: message.to_owned(),
+                retry,
+            });
+        }
+
+        fn wants_ticker(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn pump_reports_totals_cursor_and_call_order() {
+        crate::tests::run(true, async {
+            let (mut log, _record) = counting_log();
+            // 99 unique inserts, then a duplicate of cursor "2" as the 100th item — reaching
+            // MAX_BATCH forces the first flush mid-stream (one duplicate, no reconnects yet).
+            // Then a retried source error, a skipped (non-retried) one, and one more unique
+            // insert, so the stream-end flush reports the second batch with a reconnect.
+            let mut items: Vec<Result<u64, AppError>> = (1..=99).map(Ok).collect();
+            items.push(Ok(2)); // duplicate of the 2nd insert above
+            items.push(Err(AppError::Usage("retrying".to_owned())));
+            items.push(Err(AppError::Usage("skipped".to_owned())));
+            items.push(Ok(1000));
+
+            let mut reporter = RecordingReporter::default();
+            let mut errors_seen = 0_u32;
+            let outcome = pump(
+                &mut log,
+                tokio_stream::iter(items),
+                event,
+                |error: AppError| {
+                    // First source error retries (reconnect), the second is skipped — exercises
+                    // both `retry=true` and `retry=false` in one run.
+                    errors_seen += 1;
+                    Ok((error.to_string(), errors_seen == 1))
+                },
+                &mut reporter,
+            )
+            .await;
+            assert!(outcome.is_ok(), "pump failed: {outcome:?}");
+
+            assert_eq!(
+                reporter.calls,
+                vec![
+                    RecordedCall::Duplicate { position: 2 },
+                    RecordedCall::Flushed {
+                        appended: 99,
+                        duplicates: 1,
+                        reconnects: 0,
+                        cursor: Some("2".to_owned()),
+                    },
+                    RecordedCall::SourceError {
+                        message: "retrying".to_owned(),
+                        retry: true,
+                    },
+                    RecordedCall::SourceError {
+                        message: "skipped".to_owned(),
+                        retry: false,
+                    },
+                    RecordedCall::Flushed {
+                        appended: 100,
+                        duplicates: 1,
+                        reconnects: 1,
+                        cursor: Some("1000".to_owned()),
+                    },
+                ],
+                "duplicate must be reported before its batch's flushed call, source errors must \
+                 be reported as they happen, and each flushed call's totals/cursor must reflect \
+                 only what happened up to that flush"
+            );
         });
     }
 
