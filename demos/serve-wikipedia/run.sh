@@ -20,6 +20,10 @@ DATA_DIR=".demo-data/serve-wikipedia-$$"
 mkdir -p "$DATA_DIR"
 LOG_FILE="$DATA_DIR/serve.log"
 cleanup() {
+  if [[ -n "${TAIL_PID:-}" ]]; then
+    kill "$TAIL_PID" 2>/dev/null || true
+    wait "$TAIL_PID" 2>/dev/null || true
+  fi
   if [[ -n "${PID:-}" ]]; then
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
@@ -50,12 +54,20 @@ if [[ -z "$URL" ]]; then
 fi
 echo "server: $URL"
 
+# Stream the server's own stderr (its progress line included) live, not just on failure.
+tail -n +1 -f "$LOG_FILE" &
+TAIL_PID=$!
+
 echo "ingesting for 15s..."
 sleep 15
 
+kill "$TAIL_PID" 2>/dev/null || true
+wait "$TAIL_PID" 2>/dev/null || true
+TAIL_PID=""
+
 echo
 echo "== world summary (curl $URL/world | jq) =="
-curl -s "$URL/world" | jq '{nodes: (.nodes | length), links: (.links | length)}'
+curl -sf "$URL/world" | jq '{nodes: (.nodes | length), links: (.links | length)}'
 
 echo
 echo "== done =="

@@ -1,16 +1,18 @@
 == stream2worlds: watch-wikipedia demo ==
-log dir: .demo-data/watch-wikipedia-1780775 (temporary, removed on exit)
+log dir: .demo-data/watch-wikipedia-1932645 (temporary, removed on exit)
 
 -- first run: 20s --
-s2w: wikipedia: 10.6 events/s, 53 total, last event 142.3ms ago
-s2w: wikipedia: 14.2 events/s, 124 total, last event 152.7ms ago
-s2w: wikipedia: 11.4 events/s, 181 total, last event 89.0ms ago
-log now holds 239 events total
+s2w: wikipedia: 13.0 events/s, 65 total, last event 93.9ms ago
+s2w: wikipedia: 18.6 events/s, 158 total, last event 155.6ms ago
+s2w: wikipedia: 17.4 events/s, 245 total, last event 306.3ms ago
+log now holds 332 events total
+stored cursor: [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1790565931655},{"topic":"codfw.mediawiki.page_change.v1","partition":0,"offset":-1}]
 
 -- restart against the same log dir: 15s --
 watch the per-run total below start near 0 again (it is not cumulative across restarts) while the log's own row count keeps growing from where it left off
-s2w: wikipedia: 10.4 events/s, 52 total, last event 199.7ms ago
-s2w: wikipedia: 13.0 events/s, 117 total, last event 106.4ms ago
-log now holds 404 events total (was 239 before the restart) -- nothing was replayed from scratch
+s2w: wikipedia: 22.4 events/s, 112 total, last event 87.5ms ago
+s2w: wikipedia: 18.4 events/s, 204 total, last event 12.1ms ago
+log now holds 628 events total (was 332 before the restart) -- nothing was replayed from scratch
+stored cursor advanced from [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1790565931655},{"topic":"codfw.mediawiki.page_change.v1","partition":0,"offset":-1}] to [{"topic":"codfw.mediawiki.page_change.v1","partition":0,"offset":-1},{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1790565946751}] -- the restart resumed from it, it did not start over
 
 == done ==

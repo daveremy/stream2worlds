@@ -103,10 +103,10 @@ pub(crate) async fn pump_events<L: EventLog>(
     // spawned onto another task, so a plain borrow (no `Rc`, no `Send` bound) is enough — the
     // borrow checker itself is the proof that both stay on this one task.
     let total = Cell::new(0_u64);
-    let last_event_at = Cell::new(Instant::now());
+    let last_event_at: Cell<Option<Instant>> = Cell::new(None);
     let convert = |event: RawEvent| {
         total.set(total.get() + 1);
-        last_event_at.set(Instant::now());
+        last_event_at.set(Some(Instant::now()));
         Ok(event)
     };
     let pump_future = pump(log, stream, convert, |error: SourceError| {
@@ -125,23 +125,37 @@ pub(crate) async fn pump_events<L: EventLog>(
     }
 }
 
-/// Prints `name`'s throughput, running total and time since the last event every
+/// Prints `name`'s throughput, running total and time since the last event roughly every
 /// [`PROGRESS_INTERVAL`], forever — the caller races it against the pump and drops it once the
 /// pump finishes.
-async fn report_progress(name: &str, total: &Cell<u64>, last_event_at: &Cell<Instant>) -> ! {
+async fn report_progress(
+    name: &str,
+    total: &Cell<u64>,
+    last_event_at: &Cell<Option<Instant>>,
+) -> ! {
     let mut ticker = tokio::time::interval(PROGRESS_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     ticker.tick().await; // the first tick fires immediately; nothing to report yet
     let mut previous = total.get();
+    let mut previous_tick_at = Instant::now();
     loop {
         ticker.tick().await;
+        let now = Instant::now();
+        // The real gap since the last tick, not the nominal interval: a slow synchronous
+        // flush can delay a tick past PROGRESS_INTERVAL, and dividing by the nominal value
+        // would then overstate the rate.
+        let elapsed = now.duration_since(previous_tick_at).as_secs_f64();
+        previous_tick_at = now;
         let current = total.get();
-        let rate = current.saturating_sub(previous) as f64 / PROGRESS_INTERVAL.as_secs_f64();
+        let rate = current.saturating_sub(previous) as f64 / elapsed;
         previous = current;
-        eprintln!(
-            "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago",
-            last_event_at.get().elapsed()
-        );
+        match last_event_at.get() {
+            Some(at) => eprintln!(
+                "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago",
+                at.elapsed()
+            ),
+            None => eprintln!("s2w: {name}: {rate:.1} events/s, {current} total, no events yet"),
+        }
     }
 }
 

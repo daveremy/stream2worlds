@@ -16,8 +16,8 @@ cargo build --release   # once, or after a code change
 ```
 
 Takes about 35 seconds. No configuration, no API keys — Wikipedia's EventStreams feed is
-public. Requires `sqlite3` on `PATH` to print the log's row count (skipped, not fatal, if
-absent).
+public. Requires `sqlite3` on `PATH` to print the log's row count and stored cursor (skipped,
+not fatal, if absent).
 
 ## What to look for
 
@@ -26,7 +26,9 @@ absent).
    a hang.
 2. **The log's row count keeps growing across the restart** (`log now holds N events total`) —
    the second run's own per-process total resets near zero, but the persisted log does not.
-   That is the resume: a fresh process, the same durable state.
+3. **The stored cursor advances, it does not reset** (`stored cursor advanced from ... to
+   ...`) — this is the direct proof of resume: the second run picked up the first run's cursor
+   instead of starting fresh.
 
 ## Expected output
 

@@ -14,7 +14,7 @@ cargo build --release   # once, or after a code change
 ./demos/serve-wikipedia/run.sh
 ```
 
-Takes about 20 seconds. Requires `jq` on `PATH`. No configuration, no API keys.
+Takes about 20 seconds. Requires `curl` and `jq` on `PATH`. No configuration, no API keys.
 
 ## What to look for
 
@@ -28,7 +28,8 @@ Takes about 20 seconds. Requires `jq` on `PATH`. No configuration, no API keys.
 The nodes today are Wikidata identifiers (`Q62072440`, `Lexeme:L…`), not readable page titles,
 and cover every wiki mixed together — so "what's being edited most on English Wikipedia right
 now?" is not yet an answerable question from this output alone. A wiki filter and
-human-readable titles are tracked as a follow-up (see the issue this demo's PR links).
+human-readable titles are tracked in
+[#91](https://github.com/daveremy/stream2worlds/issues/91).
 
 ## Expected output
 

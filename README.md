@@ -28,7 +28,7 @@
 
 ## Demos
 
-One command each, no configuration, runnable from a clean clone. Newest first — see
+One command each after `cargo build --release`, no other configuration. Newest first — see
 [`demos/`](demos/) for what each one shows and a captured real run.
 
 - **[serve-wikipedia](demos/serve-wikipedia/)**: `./demos/serve-wikipedia/run.sh` — one process
