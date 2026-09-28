@@ -14,6 +14,9 @@ export type Delta = { type: 'entity'; entity: number; resolved: number; minted: 
   { type: 'merge' | 'split'; survivor: number; absorbed: number } | { type: 'noop'; event: string };
 export type Message = Delta & { offset: number };
 export const kinds = ['entity', 'link', 'hub_ref', 'merge', 'split', 'noop'] as const;
+// Mirrors query/http.rs's SourceInfo: what the bridge did with one member source.
+export type RawEventInfo = { offset: number; received_at: number; payload: unknown };
+export type SourceInfo = { source: string; consumed: number; unrouted: number; recent_unrouted: RawEventInfo[] };
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
 }
@@ -36,6 +39,12 @@ export async function snapshot(params: URLSearchParams, signal: AbortSignal): Pr
 }
 export async function worlds(signal: AbortSignal): Promise<{ worlds: { world: string; name: string; head: number }[] }> {
   return (await checked('/worlds', signal)).json();
+}
+// The sources view is independent of the pinned offset, so `at` is dropped.
+export async function sources(params: URLSearchParams, signal: AbortSignal): Promise<SourceInfo[]> {
+  const url = endpoint(params, 'sources');
+  url.searchParams.delete('at');
+  return (await checked(url, signal)).json();
 }
 export function eventsUrl(params: URLSearchParams, from: number, at?: number): URL {
   const url = endpoint(params, 'events');

@@ -76,3 +76,31 @@ test('table updates incrementally at the 500-row cap by evicting the oldest row,
   assert.ok(!body.children.includes(evictedRow)); // oldest row is gone
   assert.equal(body.children[0].children[0].textContent, '501'); // new newest row is at the top
 });
+
+test('table shows raw unrouted events when nothing has been judged, and drops them once a claim arrives', () => {
+  const state = new ViewState(new URLSearchParams());
+  state.sources = [
+    { source: 'stream.a', consumed: 3, unrouted: 3, recent_unrouted: [
+      { offset: 1, received_at: 1000, payload: { seq: 1 } },
+      { offset: 3, received_at: 3000, payload: { seq: 3 } },
+    ] },
+  ];
+  const table = new Element('table');
+  renderTable(table, state);
+
+  const head = table.children[0];
+  assert.match(head.children[0].children[2].textContent, /unjudged/);
+  const body = table.children[1];
+  assert.equal(body.children.length, 2);
+  assert.equal(body.children[0].children[0].textContent, '3'); // newest offset first
+  assert.equal(body.children[0].children[1].textContent, 'stream.a');
+  assert.match(body.children[0].children[2].textContent, /"seq":3/);
+
+  // A claim finally lands: the raw fallback disappears and the normal judged table takes over.
+  state.snapshot({ offset: 1, nodes: [entity(1, 'name', 'First')], links: [] });
+  state.apply({ offset: 1, type: 'entity', entity: 1, resolved: 1, minted: true });
+  renderTable(table, state);
+  const judgedBody = table.children[1];
+  assert.equal(judgedBody.children.length, 1);
+  assert.match(judgedBody.children[0].children[3].textContent, /minted/i);
+});

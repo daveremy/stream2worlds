@@ -15,7 +15,7 @@
 mod judge;
 mod registry;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::Duration;
 
@@ -106,6 +106,49 @@ impl BridgeStats {
         self.replayed += other.replayed;
         self.replayed_stale_version += other.replayed_stale_version;
         self.evaluated += other.evaluated;
+    }
+}
+
+/// How many of a source's most recent unrouted events are kept for the sources view, so a
+/// viewer can see the stream is alive however long it runs.
+pub const RECENT_UNROUTED_CAP: usize = 20;
+
+/// What the bridge did with one source's events: [`BridgeStats`]'s aggregates, broken out per
+/// source so the query API can name an unrouted stream instead of saying nothing arrived.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceStats {
+    /// Stored events of this source read from the log.
+    pub consumed: u64,
+    /// Consumed events of this source no engine is routed for.
+    pub unrouted: u64,
+    /// The most recent unrouted events, in log order (oldest first), capped at
+    /// [`RECENT_UNROUTED_CAP`].
+    pub recent_unrouted: VecDeque<StoredEvent>,
+}
+
+impl SourceStats {
+    /// Folds `other`'s counters into `self`, keeping the newest [`RECENT_UNROUTED_CAP`] unrouted
+    /// events across both. `judge_event` uses this to fold one judged event's local delta into a
+    /// batch's per-source stats only after every fallible step of that event has succeeded, so a
+    /// mid-event error leaves the batch's counters untouched;
+    /// [`Bridge::absorb_source_stats`] uses it to fold a committed batch into the bridge's
+    /// running totals.
+    fn add(&mut self, other: &Self) {
+        self.consumed += other.consumed;
+        self.unrouted += other.unrouted;
+        for event in other.recent_unrouted.iter().cloned() {
+            self.push_recent_unrouted(event);
+        }
+    }
+
+    /// Pushes one more unrouted event, evicting the oldest until the ring is back at
+    /// [`RECENT_UNROUTED_CAP`]. The one place the cap invariant lives — [`Self::add`] is the
+    /// only caller.
+    fn push_recent_unrouted(&mut self, event: StoredEvent) {
+        self.recent_unrouted.push_back(event);
+        while self.recent_unrouted.len() > RECENT_UNROUTED_CAP {
+            self.recent_unrouted.pop_front();
+        }
     }
 }
 
@@ -232,6 +275,7 @@ pub struct Bridge<R: LogReader, V: VerdictStore> {
     store_cursor: Option<LogPosition>,
     warned_unrouted: BTreeSet<SourceId>,
     stats: BridgeStats,
+    per_source: BTreeMap<SourceId, SourceStats>,
 }
 
 impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
@@ -271,6 +315,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             store_cursor,
             warned_unrouted: BTreeSet::new(),
             stats: BridgeStats::default(),
+            per_source: BTreeMap::new(),
         })
     }
 
@@ -278,6 +323,13 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
     #[must_use]
     pub const fn stats(&self) -> BridgeStats {
         self.stats
+    }
+
+    /// Everything this bridge has done so far, per source: the same counters as
+    /// [`Self::stats`] plus each unrouted source's most recent unrouted events.
+    #[must_use]
+    pub fn source_stats(&self) -> BTreeMap<SourceId, SourceStats> {
+        self.per_source.clone()
     }
 
     /// The verdict store, e.g. to inspect what a poll stored.
@@ -334,7 +386,25 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         report.stats = judged.stats;
         self.last = Some(through);
         self.stats.add(&report.stats);
+        self.absorb_source_stats(&judged.per_source);
         Ok(self.finish(report))
+    }
+
+    /// Folds a committed batch's per-source counters into the bridge's totals and republishes
+    /// them to the query API. Called on the same path [`Self::stats`] advances, so a batch
+    /// whose commit failed counts nowhere.
+    fn absorb_source_stats(&mut self, batch: &BTreeMap<SourceId, SourceStats>) {
+        if batch.is_empty() {
+            return;
+        }
+        for (source, stats) in batch {
+            self.per_source
+                .entry(source.clone())
+                .or_default()
+                .add(stats);
+        }
+        // Telemetry, not claims: the one write to QueryState besides `append` (see AGENTS.md).
+        self.state.publish_source_stats(self.per_source.clone());
     }
 
     fn finish(&self, report: PollReport) -> PollReport {

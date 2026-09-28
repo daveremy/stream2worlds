@@ -18,11 +18,12 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
-- The System 1 bridge (`bridge/`, decision 0011) writes to `QueryState` only through
-  `append`, resumes from a log position (never a fold offset), and refuses a non-empty timeline.
-  It commits each batch's verdicts to the verdict store before serving any of its claims, and
-  serves a stored verdict instead of calling the engine (decision 0012); a verdict that does not
-  match the log is an error, never a re-evaluation.
+- The System 1 bridge (`bridge/`, decision 0011) writes to `QueryState`'s timeline only
+  through `append`, resumes from a log position (never a fold offset), and refuses a non-empty
+  timeline. It commits each batch's verdicts to the verdict store before serving any of its
+  claims, and serves a stored verdict instead of calling the engine (decision 0012); a verdict
+  that does not match the log is an error, never a re-evaluation. The one other write is
+  `publish_source_stats`, a read-only telemetry side channel that never touches the timeline.
 - `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no
   I/O; the HTTP half only parses parameters and calls it. One SSE message per offset; stable error codes.
 - No domain knowledge in this crate; see decision 0018.

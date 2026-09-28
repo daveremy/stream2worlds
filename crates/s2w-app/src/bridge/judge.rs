@@ -5,12 +5,13 @@ use s2w_log::{LogError, LogPosition, LogReader, StoredEvent, StoredVerdict, Verd
 use s2w_model::{Timestamp, WorldEvent};
 use s2w_system1::{AbstainReason, Verdict};
 
-use super::{Bridge, BridgeStats, evaluate_one};
+use super::{Bridge, BridgeStats, SourceStats, evaluate_one};
 
 /// One poll batch, judged but not yet committed or served.
 #[derive(Default)]
 pub(super) struct Judged {
     pub(super) stats: BridgeStats,
+    pub(super) per_source: std::collections::BTreeMap<s2w_model::SourceId, SourceStats>,
     pub(super) new_rows: Vec<StoredVerdict>,
     pub(super) claims: Vec<(Timestamp, WorldEvent)>,
     pub(super) through: Option<LogPosition>,
@@ -83,8 +84,17 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             consumed: 1,
             ..BridgeStats::default()
         };
+        // Local delta, folded into `judged.per_source` only once every fallible step below has
+        // succeeded — mirrors `stats` above, so a mid-event error leaves `judged` (both fields)
+        // untouched, per this function's own contract.
+        let mut source_stats = SourceStats {
+            consumed: 1,
+            ..SourceStats::default()
+        };
         if engines.is_empty() {
             stats.unrouted += 1;
+            source_stats.unrouted += 1;
+            source_stats.push_recent_unrouted(event.clone());
             if !self.warned_unrouted.contains(&event.event.source) {
                 self.warned_unrouted.insert(event.event.source.clone());
                 eprintln!(
@@ -151,6 +161,11 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             }
         }
         judged.stats.add(&stats);
+        judged
+            .per_source
+            .entry(event.event.source.clone())
+            .or_default()
+            .add(&source_stats);
         judged.new_rows.extend(new_rows);
         judged.claims.extend(claims);
         Ok(())

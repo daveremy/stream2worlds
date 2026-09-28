@@ -131,12 +131,19 @@ Stop it with Ctrl-C. Run it again on the same `--log-dir` and it resumes from th
 same directory with a different `--world` is an error. Existing schema-v2 event logs migrate
 atomically to v3, preserving events and cursors. `/worlds` uses the stored display name.
 
-`GET /worlds/{world}/sources?at=N` returns a sorted JSON array of source IDs active at `N`;
-omitting `at` uses the current timeline head. An addition is visible at its recorded offset,
-a removal is already absent at its offset, and the latest sequence wins equal-offset ties.
-Membership offsets currently record the event-log head, as required by the #95 storage plan;
-raw events can produce zero or multiple fold events, so these offsets do not generally equal
-timeline offsets. This precision limitation needs resolution before a live admin mutation API.
+`GET /worlds/{world}/sources?at=N` returns a JSON array of `SourceInfo`, one per source ID
+active at `N` (sorted by source id); omitting `at` uses the current timeline head. An addition
+is visible at its recorded offset, a removal is already absent at its offset, and the latest
+sequence wins equal-offset ties. Membership offsets currently record the event-log head, as
+required by the #95 storage plan; raw events can produce zero or multiple fold events, so these
+offsets do not generally equal timeline offsets. This precision limitation needs resolution
+before a live admin mutation API.
+
+Each `SourceInfo` also reports the bridge's current counters for that source — `consumed`,
+`unrouted`, and the most recent unrouted raw events (`recent_unrouted`, newest first, capped)
+— independent of `at`: the counters always reflect the bridge's live state, not history as of
+the pinned offset (#143). The web view uses this to name an unrouted source instead of saying
+nothing arrived.
 
 Membership changes currently use the `s2w-log` library; there is no add/remove CLI or HTTP
 mutation endpoint. Removed sources stop ingestion while HTTP remains available. Re-add with
