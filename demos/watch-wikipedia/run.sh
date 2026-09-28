@@ -32,13 +32,15 @@ log_cursor() {
 # Bounded run: the process reads a `live` stream forever (Ending::Never), so `timeout` is what
 # stops it, not a natural exit. `-k 5` forces SIGKILL 5s after SIGTERM if the process ignores
 # it, so shutdown itself is bounded too. GNU `timeout` exits 124 exactly when IT had to
-# terminate the command because the duration elapsed -- any other exit code is a real failure
-# (a crash, a bad argument, a missing binary), not the expected "ran the demo's duration".
+# terminate the command because the duration elapsed. A clean 0 is accepted too (defensive:
+# `watch` is documented to never end on its own for this source, but this demo must not
+# mistake that for a hang if it ever does); any OTHER exit code -- a crash, a bad argument, a
+# missing binary -- is a real failure, not the expected "ran for the demo's duration".
 run_bounded() {
   local seconds=$1 rc=0
   timeout -k 5 "$seconds" "$BIN" watch wikipedia --log-dir "$DATA_DIR" || rc=$?
   if [[ "$rc" -ne 0 && "$rc" -ne 124 ]]; then
-    echo "error: s2w watch exited $rc (expected 124 = stopped by the demo's timeout)" >&2
+    echo "error: s2w watch exited $rc (expected 0 or 124)" >&2
     exit "$rc"
   fi
 }
@@ -60,11 +62,23 @@ echo "watch stderr above (once this run starts) for 's2w: wikipedia: resuming fr
 run_bounded 15
 SECOND_RUN_ROWS="$(log_rows || true)"
 SECOND_RUN_CURSOR="$(log_cursor || true)"
+# Report what actually happened, not what we hoped for: a claim of "advanced"/"grew" requires
+# both readings to be present AND actually different -- an unchanged value (e.g. the live feed
+# was momentarily idle, or sqlite3 is present but returned the same row twice) must say so
+# honestly rather than silently reusing the growth-claiming sentence either way.
 if [[ -n "$FIRST_RUN_ROWS" && -n "$SECOND_RUN_ROWS" ]]; then
-  echo "log now holds $SECOND_RUN_ROWS events total (was $FIRST_RUN_ROWS before the restart) -- nothing was replayed from scratch"
+  if [[ "$SECOND_RUN_ROWS" -gt "$FIRST_RUN_ROWS" ]]; then
+    echo "log now holds $SECOND_RUN_ROWS events total (was $FIRST_RUN_ROWS before the restart) -- nothing was replayed from scratch"
+  else
+    echo "log now holds $SECOND_RUN_ROWS events total (was $FIRST_RUN_ROWS before the restart) -- unchanged or fewer; no new events landed in this window, so growth is not evidence here"
+  fi
 fi
 if [[ -n "$FIRST_RUN_CURSOR" && -n "$SECOND_RUN_CURSOR" ]]; then
-  echo "stored cursor advanced from $FIRST_RUN_CURSOR to $SECOND_RUN_CURSOR -- the restart resumed from it, it did not start over"
+  if [[ "$SECOND_RUN_CURSOR" != "$FIRST_RUN_CURSOR" ]]; then
+    echo "stored cursor advanced from $FIRST_RUN_CURSOR to $SECOND_RUN_CURSOR -- the restart resumed from it, it did not start over"
+  else
+    echo "stored cursor unchanged ($SECOND_RUN_CURSOR) -- no new events landed in this window; the 'resuming from stored cursor' line above is the resume evidence, not this comparison"
+  fi
 fi
 
 echo
