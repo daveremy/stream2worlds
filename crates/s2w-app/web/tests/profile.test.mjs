@@ -62,7 +62,7 @@ test('pickLabelKeys ranks score before whitespace', () => {
   assert.equal(pickLabelKeys(nodes).get('record'), 'token');
 });
 
-test('pickLabelKeys excludes a long prose attribute even with spaces and no digits/dashes (lifeos#126 / s2w#126)', () => {
+test('pickLabelKeys excludes a long prose attribute even with spaces and no digits/dashes (s2w#126)', () => {
   // isIdLike's length>80 early return must win regardless of whitespace or digit/dash content,
   // so a long free-text description never beats a genuinely unique short title on the tie-break.
   const nodes = [
