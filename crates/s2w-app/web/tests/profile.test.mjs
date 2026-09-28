@@ -62,6 +62,25 @@ test('pickLabelKeys ranks score before whitespace', () => {
   assert.equal(pickLabelKeys(nodes).get('record'), 'token');
 });
 
+test('pickLabelKeys excludes a long prose attribute even with spaces and no digits/dashes (lifeos#126 / s2w#126)', () => {
+  // isIdLike's length>80 early return must win regardless of whitespace or digit/dash content,
+  // so a long free-text description never beats a genuinely unique short title on the tie-break.
+  const nodes = [
+    entity(10, { title: { Str: 'Adamant' },
+      description: { Str: 'A long free text description field with plenty of prose words and no numbers here Amber' } }),
+    entity(20, { title: { Str: 'Birchwood' },
+      description: { Str: 'A long free text description field with plenty of prose words and no numbers here Birch' } }),
+    entity(30, { title: { Str: 'Cobalton' },
+      description: { Str: 'A long free text description field with plenty of prose words and no numbers here Cobalt' } }),
+    entity(40, { title: { Str: 'Dunewood' },
+      description: { Str: 'A long free text description field with plenty of prose words and no numbers here Dune' } }),
+  ];
+  for (const node of nodes) {
+    assert.ok(node.attrs.description.Str.length > 80, 'fixture description must be >80 chars');
+  }
+  assert.equal(pickLabelKeys(nodes).get('record'), 'title');
+});
+
 test('pickLabelKeys keeps hex-letter-only words', () => {
   const nodes = [entity(10, { candidate: { Str: 'Ada' } }), entity(20, { candidate: { Str: 'cafe' } }),
     entity(30, { candidate: { Str: 'Beef' } })];

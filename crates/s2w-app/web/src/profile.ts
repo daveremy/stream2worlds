@@ -12,9 +12,9 @@ function hash(value: string): number {
 }
 
 function isIdLike(value: string): boolean {
+  if (value.length > 80) return true;
   if (/\s/.test(value) || value.length === 0) return false;
   if (!/[0-9-]/.test(value)) return false;
-  if (value.length > 80) return true;
   const matching = [...value].filter(char => /[0-9a-f-]/i.test(char)).length;
   return matching / [...value].length > 0.8;
 }
