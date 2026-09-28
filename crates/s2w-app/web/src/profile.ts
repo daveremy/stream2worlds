@@ -32,7 +32,7 @@ export function pickLabelKeys(nodes: Node[]): LabelKeyMap {
     const candidates = new Map<string, string[]>();
     for (const entity of entities) {
       for (const [key, value] of Object.entries(entity.attrs)) {
-        if (!('Str' in value)) continue;
+        if (!('Str' in value) || value.Str.length === 0) continue;
         const values = candidates.get(key) ?? [];
         values.push(value.Str);
         candidates.set(key, values);
