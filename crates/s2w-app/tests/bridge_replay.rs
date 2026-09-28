@@ -373,3 +373,89 @@ fn run_drains_the_log_and_stops_on_shutdown() -> TestResult {
             Ok(())
         })
 }
+
+/// Answers `inner`'s real rows, plus one bogus `json_claims` row bound to a real event (so it
+/// passes `judge_event`'s position/hash consistency checks) whose verdict bytes are not valid
+/// JSON — engineering the `LogError::Corrupt` that `judge_event` raises from the *engine
+/// verdict decode* step, which runs after the per-source counters are touched.
+struct CorruptRow<V> {
+    inner: V,
+    at: LogPosition,
+    event_hash: i64,
+}
+
+impl<V: VerdictStore> VerdictStore for CorruptRow<V> {
+    fn cursor(&self) -> Result<Option<LogPosition>, LogError> {
+        self.inner.cursor()
+    }
+
+    fn read_range(
+        &self,
+        after: Option<LogPosition>,
+        through: LogPosition,
+    ) -> Result<Vec<s2w_log::StoredVerdict>, LogError> {
+        let mut rows = self.inner.read_range(after, through)?;
+        rows.push(s2w_log::StoredVerdict {
+            position: self.at,
+            event_hash: self.event_hash,
+            engine: "json_claims".into(),
+            version: 2,
+            verdict: b"not json".to_vec(),
+            provenance: None,
+        });
+        Ok(rows)
+    }
+
+    fn commit_batch(
+        &mut self,
+        rows: &[s2w_log::StoredVerdict],
+        through: LogPosition,
+    ) -> Result<(), LogError> {
+        self.inner.commit_batch(rows, through)
+    }
+}
+
+/// #143 round 1: a corrupt stored verdict on one event must not leak that event's counts into
+/// the batch's per-source stats. Before the fix, `judge_event` incremented `judged.per_source`
+/// directly, ahead of the fallible engine-verdict decode that can `?`-return `Corrupt` for the
+/// same event — so a source whose event was never durably committed still showed up with a
+/// phantom `consumed` count once the batch's good prefix was absorbed.
+#[test]
+fn a_corrupt_verdict_row_does_not_leak_that_events_source_into_per_source_stats() -> TestResult {
+    let mut log = InMemoryEventLog::new();
+    log.append_batch(fixture_events()?)?;
+    let events: Vec<StoredEvent> = log.read_after(None)?.collect::<Result<_, _>>()?;
+    // Index 5 is the `stdin` event (see `fixture_events`): the only source `with_defaults`
+    // routes to an engine, so the corrupt row can be bound to a real registered engine.
+    let stdin_event = &events[5];
+
+    let mut bridge = Bridge::new(
+        log,
+        CorruptRow {
+            inner: InMemoryVerdictStore::new(),
+            at: stdin_event.position,
+            event_hash: stdin_event.content_hash,
+        },
+        EngineRegistry::with_defaults(),
+        new_state(),
+        batch_of(100),
+    )?;
+    let report = bridge.poll_once()?;
+    assert!(
+        matches!(report.error, Some(LogError::Corrupt(_))),
+        "the bogus row must be reported, not silently accepted"
+    );
+    assert_eq!(
+        report.stats.consumed, 5,
+        "only the five wiki events before the corrupt row commit"
+    );
+
+    let stats = bridge.source_stats();
+    assert!(
+        !stats.contains_key(&SourceId::new("stdin")?),
+        "stdin's event was never committed, so it must not appear in per-source stats at all"
+    );
+    let preset = &stats[&SourceId::new(WIKI)?];
+    assert_eq!((preset.consumed, preset.unrouted), (5, 5));
+    Ok(())
+}

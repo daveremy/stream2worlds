@@ -127,10 +127,23 @@ pub struct SourceStats {
 }
 
 impl SourceStats {
+    /// Folds `other`'s counters into `self`, keeping the newest [`RECENT_UNROUTED_CAP`] unrouted
+    /// events across both. `judge_event` uses this to fold one judged event's local delta into a
+    /// batch's per-source stats only after every fallible step of that event has succeeded, so a
+    /// mid-event error leaves the batch's counters untouched;
+    /// [`Bridge::absorb_source_stats`] uses it to fold a committed batch into the bridge's
+    /// running totals.
+    fn add(&mut self, other: &Self) {
+        self.consumed += other.consumed;
+        self.unrouted += other.unrouted;
+        for event in other.recent_unrouted.iter().cloned() {
+            self.push_recent_unrouted(event);
+        }
+    }
+
     /// Pushes one more unrouted event, evicting the oldest until the ring is back at
-    /// [`RECENT_UNROUTED_CAP`]. The one place the cap invariant lives — `judge_event` (per
-    /// batch) and [`Bridge::absorb_source_stats`] (folding a committed batch into the bridge's
-    /// running totals) both push through this.
+    /// [`RECENT_UNROUTED_CAP`]. The one place the cap invariant lives — [`Self::add`] is the
+    /// only caller.
     fn push_recent_unrouted(&mut self, event: StoredEvent) {
         self.recent_unrouted.push_back(event);
         while self.recent_unrouted.len() > RECENT_UNROUTED_CAP {
@@ -385,12 +398,10 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             return;
         }
         for (source, stats) in batch {
-            let entry = self.per_source.entry(source.clone()).or_default();
-            entry.consumed += stats.consumed;
-            entry.unrouted += stats.unrouted;
-            for event in stats.recent_unrouted.iter().cloned() {
-                entry.push_recent_unrouted(event);
-            }
+            self.per_source
+                .entry(source.clone())
+                .or_default()
+                .add(stats);
         }
         // Telemetry, not claims: the one write to QueryState besides `append` (see AGENTS.md).
         self.state.publish_source_stats(self.per_source.clone());

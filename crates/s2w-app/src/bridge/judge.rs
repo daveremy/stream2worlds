@@ -84,15 +84,17 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             consumed: 1,
             ..BridgeStats::default()
         };
-        let per_source = judged
-            .per_source
-            .entry(event.event.source.clone())
-            .or_default();
-        per_source.consumed += 1;
+        // Local delta, folded into `judged.per_source` only once every fallible step below has
+        // succeeded — mirrors `stats` above, so a mid-event error leaves `judged` (both fields)
+        // untouched, per this function's own contract.
+        let mut source_stats = SourceStats {
+            consumed: 1,
+            ..SourceStats::default()
+        };
         if engines.is_empty() {
             stats.unrouted += 1;
-            per_source.unrouted += 1;
-            per_source.push_recent_unrouted(event.clone());
+            source_stats.unrouted += 1;
+            source_stats.push_recent_unrouted(event.clone());
             if !self.warned_unrouted.contains(&event.event.source) {
                 self.warned_unrouted.insert(event.event.source.clone());
                 eprintln!(
@@ -159,6 +161,11 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             }
         }
         judged.stats.add(&stats);
+        judged
+            .per_source
+            .entry(event.event.source.clone())
+            .or_default()
+            .add(&source_stats);
         judged.new_rows.extend(new_rows);
         judged.claims.extend(claims);
         Ok(())
