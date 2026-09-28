@@ -27,3 +27,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no
   I/O; the HTTP half only parses parameters and calls it. One SSE message per offset; stable error codes.
 - No domain knowledge in this crate; see decision 0018.
+
+## Web bundle
+
+- `web/dist/` is committed and CI's `bundle` job fails if it differs from a clean build. Any change
+  under `crates/s2w-app/web` (source, CSS, `index.html`, lockfile) must run `npm ci && npm run build`
+  in that directory and commit the regenerated `web/dist/` in the same commit. Also run
+  `npm run typecheck` and `npm test`; CI runs both.

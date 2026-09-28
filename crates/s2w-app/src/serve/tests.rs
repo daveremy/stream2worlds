@@ -477,6 +477,38 @@ fn world_routing_redirects_the_no_slash_and_legacy_query_forms() {
             headers.get(axum::http::header::LOCATION).unwrap(),
             "/w/foo/?at=5"
         );
+        // The no-slash form keeps the whole query string too.
+        let (status, headers, _) = web_response(&full_app, "/w/foo?at=5&lod=2").await;
+        assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            headers.get(axum::http::header::LOCATION).unwrap(),
+            "/w/foo/?at=5&lod=2"
+        );
+    });
+}
+
+#[test]
+fn world_names_decode_the_same_way_in_every_url_form() {
+    // One rule: percent escapes are UTF-8 bytes; `+` is a space only in a query value.
+    assert_eq!(super::percent_decode("caf%C3%A9", false), "café");
+    assert_eq!(super::percent_decode("caf%C3%A9", true), "café");
+    assert_eq!(super::percent_decode("a+b", false), "a+b");
+    assert_eq!(super::percent_decode("a+b", true), "a b");
+    assert_eq!(super::percent_decode("100%", false), "100%");
+    assert_eq!(super::percent_decode("%zz", false), "%zz");
+    assert_eq!(super::percent_decode("%FF", false), "\u{fffd}");
+    run(false, async {
+        let full_app = app(state().with_world("café"));
+        let (status, _, _) = web_response(&full_app, "/w/caf%C3%A9/").await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, headers, _) = web_response(&full_app, "/?world=caf%C3%A9&at=5").await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers.get(axum::http::header::LOCATION).unwrap(),
+            "/w/caf%C3%A9/?at=5"
+        );
+        let (status, _, _) = web_response(&full_app, "/w/caf%C3%A9x/").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     });
 }
 

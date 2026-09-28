@@ -77,3 +77,11 @@ test('applyPresentation hides the description element when absent, shows it as p
   applyPresentation({});
   assert.equal(elements['#world-description'].hidden, true);
 });
+
+test('applyPresentation derives the neutral chrome tokens from the palette and clears them with it', () => {
+  const chrome = ['--s2w-line', '--s2w-line-soft', '--s2w-control', '--s2w-control-hover'];
+  applyPresentation({ palette_light: { ground: '#fff', ink: '#111', accent: '#03f', success: '#4', warning: '#5', danger: '#6' } });
+  for (const name of chrome) assert.match(root.style.get(name), /^color-mix\(/, name);
+  applyPresentation({});
+  for (const name of chrome) assert.equal(root.style.get(name), undefined, name);
+});

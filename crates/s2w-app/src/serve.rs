@@ -375,7 +375,8 @@ async fn world_routing(
         .and_then(|rest| rest.strip_suffix('/'))
         .filter(|world| !world.is_empty() && !world.contains('/'))
     {
-        if let Err(error) = crate::query::check_world(&state, world) {
+        // Same rule as `?world=` and the `/worlds/{world}` API routes: percent-decoded UTF-8.
+        if let Err(error) = crate::query::check_world(&state, &percent_decode(world, false)) {
             return error.into_response();
         }
         *request.uri_mut() = Uri::from_static("/");
@@ -387,7 +388,12 @@ async fn world_routing(
     {
         // 307, not 301/308: preserves the GET method (irrelevant here) while never caching
         // indefinitely the way a 301/308 would — round-2 review finding.
-        return Redirect::temporary(&format!("/w/{world}/")).into_response();
+        let mut location = format!("/w/{world}/");
+        if let Some(query) = request.uri().query() {
+            location.push('?');
+            location.push_str(query);
+        }
+        return Redirect::temporary(&location).into_response();
     }
     if path == "/"
         && let Some(location) = world_query_redirect(request.uri())
@@ -421,7 +427,7 @@ fn world_query_redirect(uri: &Uri) -> Option<String> {
             _ => {}
         }
     }
-    let world = percent_decode_query_value(world?);
+    let world = percent_decode(world?, true);
     let mut location = format!("/w/{}/", percent_encode_path_segment(&world));
     if !kept.is_empty() {
         location.push('?');
@@ -430,32 +436,35 @@ fn world_query_redirect(uri: &Uri) -> Option<String> {
     Some(location)
 }
 
-/// Decodes `application/x-www-form-urlencoded` bytes: `+` is a space, `%XX` is a byte: Invalid
-/// or truncated escapes pass through literally rather than erroring — this is a redirect
-/// target, not a validated input; an odd value here still round-trips.
-fn percent_decode_query_value(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
+/// The one decode rule for a world name from a URL: `%XX` escapes are bytes, and the bytes are
+/// read as UTF-8 (so `%C3%A9` is one `é`, not two chars). `plus_is_space` is true only for a
+/// query value (`application/x-www-form-urlencoded`); in a path `+` is a literal plus. Invalid
+/// or truncated escapes pass through literally and invalid UTF-8 becomes U+FFFD rather than an
+/// error: this yields a redirect target or a name that then fails `check_world`, never a
+/// validated input.
+fn percent_decode(value: &str, plus_is_space: bool) -> String {
+    let mut out = Vec::with_capacity(value.len());
     let mut bytes = value.bytes();
     while let Some(byte) = bytes.next() {
         match byte {
-            b'+' => out.push(' '),
+            b'+' if plus_is_space => out.push(b' '),
             b'%' => {
                 let rest = bytes.clone().take(2).collect::<Vec<_>>();
                 if rest.len() == 2
                     && let Ok(hex) = std::str::from_utf8(&rest)
                     && let Ok(decoded) = u8::from_str_radix(hex, 16)
                 {
-                    out.push(decoded as char);
+                    out.push(decoded);
                     bytes.next();
                     bytes.next();
                 } else {
-                    out.push('%');
+                    out.push(b'%');
                 }
             }
-            other => out.push(other as char),
+            other => out.push(other),
         }
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Percent-encodes every byte outside the URL path-segment "unreserved" set

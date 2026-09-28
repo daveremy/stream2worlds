@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use s2w_log::{ReadOnlySqliteEventLog, SqliteEventLog, WorldPresentation, WorldPresentationInput};
+use s2w_log::{
+    LogError, ReadOnlySqliteEventLog, SqliteEventLog, WorldPresentation, WorldPresentationInput,
+};
 use s2w_model::Timestamp;
 
 use crate::output::{self, Format};
@@ -50,9 +52,15 @@ fn dispatch_set(args: &[String]) -> ExitCode {
         Ok(args) => args,
         Err(message) => return usage_error(Format::Human, message),
     };
-    if let Err(message) = run_set(&args) {
-        output::print_error(Format::Human, &message);
-        return ExitCode::FAILURE;
+    match run_set(&args) {
+        Ok(()) => {}
+        // A held writer lock is a usage error (exit 2), like `watch`/`serve` against a held
+        // `--log-dir`: the operator's next step is different, not a retry.
+        Err(SetError::Locked(message)) => return usage_error(Format::Human, message),
+        Err(SetError::Failed(message)) => {
+            output::print_error(Format::Human, &message);
+            return ExitCode::FAILURE;
+        }
     }
     println!("presentation set for world '{}'", args.world);
     ExitCode::SUCCESS
@@ -166,20 +174,36 @@ fn parse_show(args: &[String]) -> Result<ShowArgs, String> {
 /// Reads `args.file`, validates it against the strict CLI input type, and appends it as the
 /// new presentation record for `args.world`. Refuses (via [`WorldPresentation::set`]) a world
 /// with no manifest.
-fn run_set(args: &SetArgs) -> Result<(), String> {
-    let contents = std::fs::read_to_string(&args.file)
-        .map_err(|error| format!("failed to read {}: {error}", args.file.display()))?;
+fn run_set(args: &SetArgs) -> Result<(), SetError> {
+    let contents = std::fs::read_to_string(&args.file).map_err(|error| {
+        SetError::Failed(format!("failed to read {}: {error}", args.file.display()))
+    })?;
     let input: WorldPresentationInput = serde_json::from_str(&contents).map_err(|error| {
-        format!(
+        SetError::Failed(format!(
             "invalid presentation JSON in {}: {error}",
             args.file.display()
-        )
+        ))
     })?;
     let presentation = WorldPresentation::from(input);
-    let mut log = SqliteEventLog::open(&args.log_dir).map_err(|error| error.to_string())?;
+    // Single writer: this never takes a second writer next to a running `serve`/`watch`; it
+    // fails clearly instead and names the way out.
+    let mut log = SqliteEventLog::open(&args.log_dir).map_err(|error| match error {
+        LogError::Locked => SetError::Locked(format!(
+            "the event log at {} is open by a running `s2w serve` or `s2w watch` (one writer \
+             per --log-dir). Stop it, run `s2w presentation set` again, then restart it",
+            args.log_dir.display()
+        )),
+        other => SetError::Failed(other.to_string()),
+    })?;
     WorldPresentation::set(&mut log, &args.world, &presentation, now())
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| SetError::Failed(error.to_string()))?;
     Ok(())
+}
+
+/// Why `presentation set` failed; `Locked` maps to a usage error, everything else to exit 1.
+enum SetError {
+    Locked(String),
+    Failed(String),
 }
 
 /// Loads the latest presentation record for `args.world`, rendering it as pretty JSON
@@ -252,6 +276,28 @@ mod tests {
                 file: PathBuf::from("p.json"),
             })
         );
+    }
+
+    #[test]
+    fn set_names_the_way_out_when_a_writer_holds_the_log() {
+        let base = std::env::temp_dir().join(format!("s2w-pres-lock-{}", std::process::id()));
+        let file = base.join("p.json");
+        std::fs::create_dir_all(&base).expect("temp dir");
+        std::fs::write(&file, "{}").expect("write presentation file");
+        let _writer = SqliteEventLog::open(&base).expect("first writer opens");
+        let outcome = run_set(&SetArgs {
+            log_dir: base.clone(),
+            world: "w".to_owned(),
+            file,
+        });
+        let _ = std::fs::remove_dir_all(&base);
+        match outcome {
+            Err(SetError::Locked(message)) => {
+                assert!(message.contains("Stop it"), "{message}");
+                assert!(message.contains(&base.display().to_string()), "{message}");
+            }
+            _ => panic!("expected a Locked failure"),
+        }
     }
 
     #[test]
