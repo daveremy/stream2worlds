@@ -55,7 +55,7 @@ pub(crate) fn replay(log_text: &str) -> Vec<String> {
 /// output, compare — parameterized over the fold so a test can substitute a toy fold that reads
 /// a domain field name instead of `s2w_core::fold`'s real one. Proves this function's own
 /// plumbing surfaces a mismatch, not just [`compare`] called directly on hand-built values (as
-/// the tests above already do): production (`replay`) always passes the real fold.
+/// the tests below already do): production (`replay`) always passes the real fold.
 fn replay_events(
     events_json: &Value,
     events: &[WorldEvent],

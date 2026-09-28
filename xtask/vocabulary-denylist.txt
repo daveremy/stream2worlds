@@ -9,3 +9,5 @@ revision
 revert
 adsb
 callsign
+ads_b
+call_sign

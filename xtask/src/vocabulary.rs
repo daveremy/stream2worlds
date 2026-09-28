@@ -20,8 +20,11 @@
 //! that keeps a near-miss like `x_other_y` from false-positiving on `x_y` (see the contiguity
 //! test below) also means a fused compound needs its own denylist entry to be caught. This
 //! check trades recall for precision on that one shape; it is not a vocabulary-scan bypass an
-//! attacker gains anything from, since the obfuscation replay (`obfuscation.rs`) covers the
-//! case a scan can't: it fails on ANY fold that keys on a specific string, spelled however.
+//! attacker gains anything from, since the obfuscation replay (`obfuscation.rs`) covers this
+//! case for `s2w-core`'s fold: it fails there on any fold that keys on a specific string,
+//! spelled however. That coverage does not extend past `s2w-core` — a fused compound in the
+//! bridge registry, `s2w-system1`'s engines, `s2w-app`, or the view needs its own denylist
+//! entry to be caught.
 
 use std::collections::BTreeSet;
 use std::fs;
