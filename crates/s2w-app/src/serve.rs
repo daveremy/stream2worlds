@@ -410,7 +410,7 @@ async fn world_routing(
 }
 
 /// Builds the `/w/<world>/[?<preserved params>]` target for a legacy `/?world=<x>` request, or
-/// `None` when `?world=` is absent (today's `/` behavior is then unchanged). The other
+/// `None` when `?world=` is absent (`/` then serves the home page unchanged). The other
 /// recognized query keys are forwarded as their original (already query-percent-encoded) bytes
 /// — no decode/re-encode round trip, so nothing can be double-encoded.
 fn world_query_redirect(uri: &Uri) -> Option<String> {

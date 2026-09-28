@@ -1,5 +1,5 @@
 import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, snapshot,
-  sources as fetchSources, streamStatus, worlds } from './api';
+  sources as fetchSources, streamStatus } from './api';
 import type { Message } from './api';
 import { ViewState, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
@@ -113,16 +113,8 @@ async function start(): Promise<void> {
   }
   async function initialize(): Promise<void> {
     try {
-      if (!params.get('world')) {
-        // Bare `/`: self-discover via `/worlds`, then navigate to the canonical `/w/<world>/`
-        // URL — a real navigation (`location.replace`), not `history.replaceState`, since this
-        // is the one case where the pathname itself must change from `/` to `/w/<world>/`.
-        const list = await worlds(signal);
-        if (signal.aborted) return;
-        params.set('world', list.worlds[0]?.world ?? 'default');
-        location.replace(visibleUrl(params));
-        return;
-      }
+      // A world-less page load (a stray `/index.html`) has nothing to show: send it to the home page.
+      if (!params.get('world')) { location.replace('/'); return; }
       // Best-effort: presentation absence/failure must never block the graph itself (same
       // posture as the sources fetch below).
       try {
