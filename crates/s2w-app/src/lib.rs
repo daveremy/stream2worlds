@@ -82,7 +82,7 @@ pub fn watch(args: WatchArgs) -> Result<(), AppError> {
 ///
 /// As [`watch`].
 pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
-    let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
+    let source = resolve(&args.uri, None).map_err(|error| AppError::Usage(error.to_string()))?;
     let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let name = source.name();
@@ -425,7 +425,7 @@ mod tests {
             });
 
             let mut log = SqliteEventLog::open(directory.path()).expect("log should reopen");
-            let source = resolve(&uri).expect("loopback URL should resolve");
+            let source = resolve(&uri, None).expect("loopback URL should resolve");
             let started = source
                 .start(None, &LogCursors(&log))
                 .await

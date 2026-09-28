@@ -80,7 +80,11 @@ fn claims(payload: &[u8]) -> Result<Vec<WorldEvent>, AbstainReason> {
     let page_key = NaturalKey::new(format!("{wiki}:page:{page_id}"));
     let mut page_attrs = BTreeMap::from([("wiki_id".into(), AttrValue::Str(wiki.clone()))]);
     if let Some(v) = page.page_title {
-        page_attrs.insert("title".into(), AttrValue::Str(v));
+        // MediaWiki page titles use `_` for the space in the human-readable title (e.g.
+        // `Rust_(programming_language)`); render it back for display. Wikidata's own titles
+        // (`Q60988248`, `Lexeme:L123`) have no underscores, so this is a no-op there — a
+        // readable Wikidata label needs its own lookup, out of scope here (s2w#91).
+        page_attrs.insert("title".into(), AttrValue::Str(v.replace('_', " ")));
     }
     if let Some(v) = page.namespace_id {
         page_attrs.insert("namespace_id".into(), AttrValue::Int(v));
@@ -144,6 +148,30 @@ mod tests {
     use crate::raw;
     type TestResult = Result<(), Box<dyn std::error::Error>>;
     const SAMPLE: &[u8] = include_bytes!("../../testdata/page-change-sample.json");
+    const ENWIKI_SAMPLE: &[u8] = include_bytes!("../../testdata/page-change-sample-enwiki.json");
+
+    #[test]
+    fn enwiki_title_underscores_become_spaces() -> TestResult {
+        let event = raw(ENWIKI_SAMPLE)?;
+        let claims = match WikimediaPageChangeEngine.evaluate(&event) {
+            Verdict::Propose { claims, .. } => claims,
+            other => panic!("expected a proposal, got {other:?}"),
+        };
+        let page = claims
+            .iter()
+            .find_map(|claim| match claim {
+                WorldEvent::EntityObserved {
+                    entity_type, attrs, ..
+                } if entity_type == "page" => Some(attrs),
+                _ => None,
+            })
+            .expect("a page claim");
+        assert_eq!(
+            page.get("title"),
+            Some(&AttrValue::Str("Rust (programming language)".into()))
+        );
+        Ok(())
+    }
 
     #[test]
     fn sample_claims_and_golden_are_exact() -> TestResult {

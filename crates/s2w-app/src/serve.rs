@@ -35,6 +35,11 @@ pub struct ServeArgs {
     pub log_dir: PathBuf,
     /// Loopback HTTP port; zero asks the OS for an available port.
     pub port: u16,
+    /// Restricts ingestion to one wiki (e.g. `enwiki`); only the `wikipedia` preset accepts
+    /// it (`s2w_sources::registry::resolve`'s `ResolveError::WikiNotApplicable` otherwise).
+    /// Filters new ingestion only — it does not purge a `--log-dir` already populated from
+    /// other wikis.
+    pub wiki: Option<String>,
 }
 
 /// Ingests and serves until Ctrl-C, source completion or a fatal failure.
@@ -51,7 +56,8 @@ pub fn run_serve(state: QueryState, args: ServeArgs) -> Result<(), AppError> {
 }
 
 async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppError> {
-    let source = resolve(&args.uri).map_err(|error| AppError::Usage(error.to_string()))?;
+    let source = resolve(&args.uri, args.wiki.as_deref())
+        .map_err(|error| AppError::Usage(error.to_string()))?;
     let log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let verdicts = SqliteVerdictStore::open(&args.log_dir)

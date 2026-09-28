@@ -39,15 +39,17 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
     };
     let mut log_dir = None;
     let mut port = None;
+    let mut wiki = None;
     let mut index = 1;
     while index < args.len() {
         let flag = args[index].as_str();
         let slot = match flag {
             "--log-dir" => &mut log_dir,
             "--port" => &mut port,
+            "--wiki" => &mut wiki,
             other => {
                 return Err(format!(
-                    "unexpected argument '{other}': expected --log-dir or --port"
+                    "unexpected argument '{other}': expected --log-dir, --port or --wiki"
                 ));
             }
         };
@@ -56,7 +58,7 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
         }
         let value = args
             .get(index + 1)
-            .filter(|v| !v.is_empty() && !v.starts_with("--"))
+            .filter(|v| !v.trim().is_empty() && !v.starts_with("--"))
             .ok_or_else(|| format!("{flag} needs a value: {flag} <value>"))?;
         *slot = Some(value.clone());
         index += 2;
@@ -68,6 +70,7 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
             p.parse::<u16>()
                 .map_err(|_| "--port needs an integer from 0 to 65535".to_owned())
         })?,
+        wiki,
     })
 }
 
@@ -84,6 +87,7 @@ mod tests {
                 uri: "wikipedia".to_owned(),
                 log_dir: PathBuf::from("./s2w-data"),
                 port: 4310,
+                wiki: None,
             })
         );
         assert_eq!(
@@ -92,6 +96,16 @@ mod tests {
                 uri: "-".to_owned(),
                 log_dir: PathBuf::from("data"),
                 port: 0,
+                wiki: None,
+            })
+        );
+        assert_eq!(
+            parse(&args(&["wikipedia", "--wiki", "enwiki"])),
+            Ok(ServeArgs {
+                uri: "wikipedia".to_owned(),
+                log_dir: PathBuf::from("./s2w-data"),
+                port: 4310,
+                wiki: Some("enwiki".to_owned()),
             })
         );
     }
@@ -113,6 +127,10 @@ mod tests {
             vec!["-", "--since", "1"],
             vec!["-", "--json"],
             vec!["-", "extra"],
+            vec!["-", "--wiki"],
+            vec!["-", "--wiki", ""],
+            vec!["-", "--wiki", "  "],
+            vec!["-", "--wiki", "enwiki", "--wiki", "dewiki"],
         ] {
             assert!(parse(&args(&tail)).is_err(), "accepted {tail:?}");
         }

@@ -13,7 +13,8 @@ use crate::stdin::StdinSource;
 /// The forms [`resolve`] accepts, for usage messages.
 pub const FORMS: &str = "wikipedia | kafka://<broker>[,<broker>...]/<topic> | sse://<host>/<path> (https) | https://… | http://… | -";
 
-/// A URI no adapter or preset claims, or one an adapter claims but cannot use.
+/// A URI no adapter or preset claims, one an adapter claims but cannot use, or `wiki` given for
+/// a URI that has no use for it.
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveError {
     /// The adapter for this scheme refused the URI.
@@ -27,20 +28,34 @@ pub enum ResolveError {
         /// The accepted forms.
         forms: &'static str,
     },
+    /// `wiki` was given for a URI other than the `wikipedia` preset.
+    #[error("--wiki only applies to the wikipedia preset, not {uri:?}")]
+    WikiNotApplicable {
+        /// The URI given.
+        uri: String,
+    },
 }
 
 /// Resolves `uri`: `-` is stdin, then an exact preset name, then the scheme before `://`.
+/// `wiki` restricts ingestion to one wiki (e.g. `enwiki`) and is only meaningful for the
+/// `wikipedia` preset.
 ///
 /// # Errors
 ///
-/// [`ResolveError::Unknown`] listing the accepted forms, or [`ResolveError::Invalid`] when the
-/// scheme's adapter refuses the rest of the URI.
-pub fn resolve(uri: &str) -> Result<Box<dyn Source>, ResolveError> {
+/// [`ResolveError::Unknown`] listing the accepted forms, [`ResolveError::Invalid`] when the
+/// scheme's adapter refuses the rest of the URI, or [`ResolveError::WikiNotApplicable`] when
+/// `wiki` is given for anything but `wikipedia`.
+pub fn resolve(uri: &str, wiki: Option<&str>) -> Result<Box<dyn Source>, ResolveError> {
+    if let Some(source) = preset(uri, wiki) {
+        return Ok(source);
+    }
+    if wiki.is_some() {
+        return Err(ResolveError::WikiNotApplicable {
+            uri: uri.to_owned(),
+        });
+    }
     if uri == "-" {
         return Ok(Box::new(StdinSource::from_stdin()));
-    }
-    if let Some(source) = preset(uri) {
-        return Ok(source);
     }
     match uri.split_once("://") {
         Some(("kafka", _)) => Ok(Box::new(KafkaAdapter::parse(uri)?)),
@@ -115,7 +130,7 @@ mod tests {
     use super::{FORMS, resolve};
 
     fn name(uri: &str) -> Result<&'static str, String> {
-        resolve(uri)
+        resolve(uri, None)
             .map(|source| source.name())
             .map_err(|error| error.to_string())
     }
@@ -137,6 +152,27 @@ mod tests {
     #[test]
     fn presets_resolve_by_exact_name() {
         assert_eq!(name("wikipedia"), Ok("wikipedia"));
+    }
+
+    #[test]
+    fn wiki_filter_applies_only_to_the_wikipedia_preset() {
+        match resolve("wikipedia", Some("enwiki")) {
+            Ok(source) => assert_eq!(source.name(), "wikipedia"),
+            Err(error) => panic!("wikipedia with --wiki should resolve: {error}"),
+        }
+        for uri in [
+            "-",
+            "kafka://b:9092/t",
+            "https://stream.example.org/v2/recent",
+        ] {
+            match resolve(uri, Some("enwiki")) {
+                Err(message) => assert!(
+                    message.to_string().contains("--wiki only applies"),
+                    "{uri:?}: {message}"
+                ),
+                Ok(_) => panic!("{uri:?} with --wiki should be refused"),
+            }
+        }
     }
 
     #[test]

@@ -16,6 +16,7 @@ fn both_writer_locks_map_to_usage_and_release() {
         uri: "-".to_owned(),
         log_dir: dir.path().to_owned(),
         port: 0,
+        wiki: None,
     };
     let log = SqliteEventLog::open(dir.path()).expect("first event log opens");
     let error = run_serve(state(), args.clone()).expect_err("second event log must fail");
