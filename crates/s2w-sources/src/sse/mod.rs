@@ -28,7 +28,6 @@ use tokio_stream::{Stream, StreamExt};
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
 pub(crate) use dialect::{Opaque, SinceError, SseDialect, header_safe};
 use frame::{FrameParser, RawFrame};
-use start::StartPlan;
 
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
 
@@ -100,7 +99,7 @@ impl Source for SseSource {
             })?;
             let source_id = SourceId::new(source_id)?;
             let stored = cursors.cursor(&source_id)?;
-            let plan = choose_start(
+            let plan = start::choose(
                 name,
                 dialect.as_ref(),
                 &parsed,
@@ -130,19 +129,6 @@ impl Source for SseSource {
             })
         })
     }
-}
-
-/// Thin re-export so `sse::tests` (a sibling module of `start`, not a child) can call the
-/// pure decision function without `start::choose` needing wider visibility than `pub(super)`.
-fn choose_start(
-    name: &'static str,
-    dialect: &dyn SseDialect,
-    url: &reqwest::Url,
-    source_id: &SourceId,
-    stored: Option<&Cursor>,
-    since: Option<&str>,
-) -> Result<StartPlan, SourceError> {
-    start::choose(name, dialect, url, source_id, stored, since)
 }
 
 /// What the read loop needs to turn frames into events.
