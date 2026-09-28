@@ -1,6 +1,6 @@
 //! Immutable world identity stored alongside membership and events.
-use crate::{LogError, SqliteEventLog, map_sqlite};
-use rusqlite::{OptionalExtension, params};
+use crate::{LogError, ReadOnlySqliteEventLog, SqliteEventLog, map_sqlite};
+use rusqlite::{Connection, OptionalExtension, params};
 use s2w_model::Timestamp;
 
 /// Persistent world identity and its original engine and policy sets.
@@ -20,51 +20,7 @@ pub struct WorldManifest {
 impl WorldManifest {
     /// Loads the directory's manifest, refusing reuse under another world identifier.
     pub fn load(log: &SqliteEventLog, world: &str) -> Result<Option<Self>, LogError> {
-        let row = log
-            .connection
-            .query_row(
-                "SELECT world,name,created_at FROM world_manifest LIMIT 1",
-                [],
-                |r| {
-                    Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, String>(1)?,
-                        r.get::<_, i64>(2)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(map_sqlite)?;
-        let Some((stored, name, created_at)) = row else {
-            return Ok(None);
-        };
-        let count: i64 = log
-            .connection
-            .query_row("SELECT COUNT(*) FROM world_manifest", [], |r| r.get(0))
-            .map_err(map_sqlite)?;
-        if stored != world || count != 1 {
-            return Err(LogError::Corrupt(format!(
-                "manifest world {stored:?} disagrees with configured world {world:?}"
-            )));
-        }
-        let load_set = |table: &str, column: &str| -> Result<Vec<String>, LogError> {
-            log.connection
-                .prepare(&format!(
-                    "SELECT {column} FROM {table} WHERE world=?1 ORDER BY {column}"
-                ))
-                .map_err(map_sqlite)?
-                .query_map([world], |r| r.get(0))
-                .map_err(map_sqlite)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(map_sqlite)
-        };
-        Ok(Some(Self {
-            world: stored,
-            name,
-            created_at: Timestamp::from_millis(created_at),
-            engines: load_set("world_manifest_engines", "engine")?,
-            policies: load_set("world_manifest_policies", "policy")?,
-        }))
+        load_from(&log.connection, world)
     }
     /// Creates identity once; subsequent opens return the original metadata unchanged.
     pub fn create_if_absent(
@@ -103,4 +59,57 @@ impl WorldManifest {
         tx.commit().map_err(map_sqlite)?;
         Self::load(log, world)?.ok_or_else(|| LogError::Corrupt("created manifest missing".into()))
     }
+}
+
+impl ReadOnlySqliteEventLog {
+    /// Loads the directory's manifest without taking the writer lock.
+    pub fn world_manifest(&self, world: &str) -> Result<Option<WorldManifest>, LogError> {
+        load_from(&self.connection, world)
+    }
+}
+
+fn load_from(connection: &Connection, world: &str) -> Result<Option<WorldManifest>, LogError> {
+    let row = connection
+        .query_row(
+            "SELECT world,name,created_at FROM world_manifest LIMIT 1",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(map_sqlite)?;
+    let Some((stored, name, created_at)) = row else {
+        return Ok(None);
+    };
+    let count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM world_manifest", [], |r| r.get(0))
+        .map_err(map_sqlite)?;
+    if stored != world || count != 1 {
+        return Err(LogError::Corrupt(format!(
+            "manifest world {stored:?} disagrees with configured world {world:?}"
+        )));
+    }
+    let load_set = |table: &str, column: &str| -> Result<Vec<String>, LogError> {
+        connection
+            .prepare(&format!(
+                "SELECT {column} FROM {table} WHERE world=?1 ORDER BY {column}"
+            ))
+            .map_err(map_sqlite)?
+            .query_map([world], |r| r.get(0))
+            .map_err(map_sqlite)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(map_sqlite)
+    };
+    Ok(Some(WorldManifest {
+        world: stored,
+        name,
+        created_at: Timestamp::from_millis(created_at),
+        engines: load_set("world_manifest_engines", "engine")?,
+        policies: load_set("world_manifest_policies", "policy")?,
+    }))
 }
