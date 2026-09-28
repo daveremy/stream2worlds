@@ -36,7 +36,7 @@ fn wikipedia<C: Connect>(
     let state = StreamState {
         name: "wikipedia",
         source_id,
-        dialect: Arc::new(Wikimedia),
+        dialect: Arc::new(Wikimedia::new()),
     };
     spawn(
         connector,
@@ -410,8 +410,15 @@ fn choose_start_resumes_from_a_stored_cursor() {
     let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
     let source = SourceId::new(SOURCE_ID).expect("valid source id");
     let stored = Cursor::new(FIRST_ID.as_bytes().to_vec()).expect("valid cursor");
-    let plan = start::choose("wikipedia", &Wikimedia, &url, &source, Some(&stored), None)
-        .expect("stored cursor should resume");
+    let plan = start::choose(
+        "wikipedia",
+        &Wikimedia::new(),
+        &url,
+        &source,
+        Some(&stored),
+        None,
+    )
+    .expect("stored cursor should resume");
     assert_eq!(
         plan,
         StartPlan {
@@ -426,8 +433,15 @@ fn choose_start_accepts_a_valid_since_for_a_fresh_log() {
     let url = reqwest::Url::parse(ENDPOINT).expect("valid test URL");
     let source = SourceId::new(SOURCE_ID).expect("valid source id");
     let since = "2026-09-27T12:00:00Z";
-    let plan = start::choose("wikipedia", &Wikimedia, &url, &source, None, Some(since))
-        .expect("valid since should start fresh");
+    let plan = start::choose(
+        "wikipedia",
+        &Wikimedia::new(),
+        &url,
+        &source,
+        None,
+        Some(since),
+    )
+    .expect("valid since should start fresh");
     assert_eq!(
         plan,
         StartPlan {
@@ -444,7 +458,7 @@ fn choose_start_rejects_an_invalid_since() {
     assert!(matches!(
         start::choose(
             "wikipedia",
-            &Wikimedia,
+            &Wikimedia::new(),
             &url,
             &source,
             None,
@@ -472,7 +486,7 @@ fn choose_start_prioritizes_stored_cursor_conflict_over_invalid_since() {
     assert!(matches!(
         start::choose(
             "wikipedia",
-            &Wikimedia,
+            &Wikimedia::new(),
             &url,
             &source,
             Some(&stored),
@@ -546,7 +560,7 @@ fn reqwest_request_has_exact_url_and_resume_header() {
         Ok(url) => url,
         Err(error) => panic!("endpoint should parse: {error}"),
     };
-    let connector = match ReqwestConnect::new(url, USER_AGENT, Arc::new(Wikimedia)) {
+    let connector = match ReqwestConnect::new(url, USER_AGENT, Arc::new(Wikimedia::new())) {
         Ok(connector) => connector,
         Err(error) => panic!("client should initialize: {error}"),
     };

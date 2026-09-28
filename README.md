@@ -92,6 +92,10 @@ s2w serve wikipedia --log-dir ./s2w-data --port 4310
 # From another terminal:
 curl http://localhost:4310/world
 
+# --wiki restricts ingestion to one wiki (readable page titles come from the event itself,
+# so this is what actually makes /world's output legible instead of a mix of every wiki):
+s2w serve wikipedia --wiki enwiki --log-dir ./s2w-data --port 4310
+
 # replay history first; only for a log that has no stored cursor yet
 s2w watch wikipedia --since 2026-09-27T00:00:00Z --log-dir ./fresh-dir
 

@@ -141,8 +141,28 @@ fn parse_position(value: &serde_json::Value) -> Result<StreamPosition, String> {
 }
 
 /// The Wikimedia EventStreams dialect.
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct Wikimedia;
+///
+/// `wiki` restricts ingestion to one `wiki_id` (e.g. `enwiki`) the same way the built-in
+/// canary/examplewiki drop already restricts it — a client-side filter in [`accept`](
+/// SseDialect::accept), applied only to events not yet stored. It does not retroactively purge
+/// a log directory that already holds events from other wikis (same as the canary/examplewiki
+/// filter always has: neither ever un-stores anything already written).
+#[derive(Debug, Clone)]
+pub(crate) struct Wikimedia {
+    wiki: Option<String>,
+}
+
+impl Wikimedia {
+    /// No filter: every non-canary, non-`examplewiki` wiki is accepted.
+    pub(crate) fn new() -> Self {
+        Self { wiki: None }
+    }
+
+    /// Only `wiki`'s events are accepted (plus the same canary/examplewiki drop).
+    pub(crate) fn filtered(wiki: String) -> Self {
+        Self { wiki: Some(wiki) }
+    }
+}
 
 impl SseDialect for Wikimedia {
     fn cursor(&self, id: Option<&str>) -> Result<String, String> {
@@ -172,7 +192,7 @@ impl SseDialect for Wikimedia {
     fn accept(&self, data: &str) -> Result<bool, String> {
         let value: serde_json::Value = serde_json::from_str(data)
             .map_err(|error| format!("event data is not valid JSON: {error}"))?;
-        Ok(!is_filtered(&value))
+        Ok(!is_filtered(&value) && matches_wiki(&value, self.wiki.as_deref()))
     }
 
     /// Wikimedia's `data:` already carries a stream-unique `meta.id`, so the raw JSON is
@@ -193,6 +213,19 @@ fn is_filtered(value: &serde_json::Value) -> bool {
         == Some("canary")
         || value.get("wiki_id").and_then(serde_json::Value::as_str) == Some("examplewiki")
         || value.get("database").and_then(serde_json::Value::as_str) == Some("examplewiki")
+}
+
+/// True when no filter is set, or `value`'s `wiki_id` matches it exactly.
+///
+/// An event with no `wiki_id` at all is rejected once a filter is set — `wiki_id` is a
+/// required field on every real page-change event (see
+/// `s2w_system1::engines::wikimedia::claims`, which also treats it as required), so its
+/// absence here means malformed data, never a legitimate `wiki` this filter should let through.
+fn matches_wiki(value: &serde_json::Value, wiki: Option<&str>) -> bool {
+    match wiki {
+        None => true,
+        Some(wanted) => value.get("wiki_id").and_then(serde_json::Value::as_str) == Some(wanted),
+    }
 }
 
 #[cfg(test)]
@@ -223,13 +256,13 @@ mod tests {
         // failure the read loop treats as transient and retries forever.
         let cursor = Cursor::new(b"[{\"topic\":\"a\",\n\"partition\":1,\"offset\":9}]".to_vec())
             .expect("valid cursor bytes");
-        let outcome = Wikimedia.validate_stored(&cursor);
+        let outcome = Wikimedia::new().validate_stored(&cursor);
         assert!(outcome.is_err(), "expected a loud error, got {outcome:?}");
     }
 
     #[test]
     fn canary_examplewiki_and_bad_json_are_not_accepted() {
-        let dialect = Wikimedia;
+        let dialect = Wikimedia::new();
         assert_eq!(
             dialect.accept(r#"{"database":"enwiki","meta":{"domain":"en.wikipedia.org"}}"#),
             Ok(true)
@@ -244,9 +277,41 @@ mod tests {
         assert!(dialect.accept("not json").is_err());
     }
 
+    /// A real (trimmed) `mediawiki.page_change` payload, matching the shape
+    /// `s2w_system1::engines::wikimedia::claims` actually reads `wiki_id` from — the filter
+    /// tests below check that field, not `database` (a different, legacy stream's field).
+    const ENWIKI_SAMPLE: &str = r#"{"wiki_id":"enwiki","page":{"page_id":1,"page_title":"Rust_(programming_language)"},"meta":{"domain":"en.wikipedia.org"}}"#;
+    const DEWIKI_SAMPLE: &str = r#"{"wiki_id":"dewiki","page":{"page_id":2,"page_title":"Rust_(Programmiersprache)"},"meta":{"domain":"de.wikipedia.org"}}"#;
+
+    #[test]
+    fn no_filter_accepts_every_real_wiki() {
+        let dialect = Wikimedia::new();
+        assert_eq!(dialect.accept(ENWIKI_SAMPLE), Ok(true));
+        assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(true));
+    }
+
+    #[test]
+    fn wiki_filter_accepts_only_the_matching_wiki() {
+        let dialect = Wikimedia::filtered("enwiki".to_owned());
+        assert_eq!(dialect.accept(ENWIKI_SAMPLE), Ok(true));
+        assert_eq!(dialect.accept(DEWIKI_SAMPLE), Ok(false));
+    }
+
+    #[test]
+    fn wiki_filter_rejects_an_event_with_no_wiki_id() {
+        // `wiki_id` is required on every real page-change event (mirrored in
+        // `s2w_system1::engines::wikimedia::claims`'s own `required(.., "wiki_id")`), so an
+        // event missing it is malformed, not a legitimate wiki this filter should pass through.
+        let dialect = Wikimedia::filtered("enwiki".to_owned());
+        assert_eq!(
+            dialect.accept(r#"{"page":{"page_id":1,"page_title":"X"}}"#),
+            Ok(false)
+        );
+    }
+
     #[test]
     fn stored_cursors_must_be_utf8_last_event_ids() {
-        let dialect = Wikimedia;
+        let dialect = Wikimedia::new();
         let valid = r#"[{"topic":"t","partition":0,"offset":1}]"#;
         let decode = |bytes: &[u8]| {
             Cursor::new(bytes.to_vec())
