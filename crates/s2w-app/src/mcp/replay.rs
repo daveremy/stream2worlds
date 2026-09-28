@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use s2w_log::{
     LogError, LogPosition, LogReader, ReadOnlySqliteEventLog, ReadOnlySqliteVerdictStore,
-    StoredEvent, StoredVerdict,
+    StoredEvent, StoredVerdict, WorldManifest,
 };
 use s2w_system1::Verdict;
 
@@ -93,11 +93,16 @@ impl LiveReadOnlyWorld {
         world: impl Into<Arc<str>>,
         hub_cap: u64,
     ) -> Result<(QueryState, Self), ReadOnlyWorldError> {
+        let world: Arc<str> = world.into();
         let reader =
             ReadOnlySqliteEventLog::open(log_dir).map_err(|source| open(log_dir, source))?;
         let verdicts =
             ReadOnlySqliteVerdictStore::open(log_dir).map_err(|source| open(log_dir, source))?;
-        let state = QueryState::new(Timeline::new(hub_cap)).with_world(world);
+        let manifest: Option<WorldManifest> = reader.world_manifest(&world)?;
+        let membership = reader.membership_history()?;
+        let state = QueryState::new(Timeline::new(hub_cap))
+            .with_world(Arc::clone(&world))
+            .with_metadata(manifest, membership);
         let mut last = None;
         if let Some(snapshot_end) = verdicts.cursor()? {
             catch_up(&state, &reader, &verdicts, &mut last, snapshot_end, None)?;
@@ -332,20 +337,38 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::AtomicU64;
 
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
     use s2w_core::{AttrValue, NaturalKey, WorldEvent};
     use s2w_log::{
-        AppendOutcome, EventLog, LogError, SqliteEventLog, SqliteVerdictStore, VerdictStore,
+        AppendOutcome, EffectiveFrom, EventLog, LogError, SqliteEventLog, SqliteVerdictStore,
+        VerdictStore, WorldManifest,
     };
     use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
     use s2w_system1::{Confidence, Verdict};
+    use tower::ServiceExt;
 
     use super::{CursorUpdate, LiveReadOnlyWorld, ReadOnlyWorldError, classify_cursor_update};
-    use crate::query::QueryState;
+    use crate::query::{QueryState, router};
 
     static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
     fn world_json(state: &QueryState) -> String {
         serde_json::to_string(&state.world_at(None).unwrap()).unwrap()
+    }
+
+    async fn get(app: &Router, path: &str) -> (StatusCode, serde_json::Value) {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
     }
 
     struct TestDirectory(PathBuf);
@@ -432,6 +455,129 @@ mod tests {
             )
             .unwrap();
         position
+    }
+
+    #[test]
+    fn read_only_world_serves_manifest_name_and_membership_from_the_writer() {
+        crate::tests::run(false, async {
+            let directory = TestDirectory::new("metadata");
+            let mut log = SqliteEventLog::open(directory.path()).unwrap();
+            let mut verdicts = SqliteVerdictStore::open(directory.path()).unwrap();
+            WorldManifest::create_if_absent(
+                &mut log,
+                "default",
+                "The display name",
+                Timestamp::from_millis(900),
+                &[],
+                &[],
+            )
+            .unwrap();
+            log.bootstrap_source(&SourceId::new("test.replay").unwrap())
+                .unwrap();
+            let head = commit(&mut log, &mut verdicts, 1, "metadata-at-open");
+
+            let (state, _live) =
+                LiveReadOnlyWorld::open(directory.path(), "default", 10_000).unwrap();
+            let app = router(state);
+
+            assert_eq!(
+                get(&app, "/worlds").await,
+                (
+                    StatusCode::OK,
+                    serde_json::json!({
+                        "worlds": [{
+                            "world": "default",
+                            "name": "The display name",
+                            "head": head.as_u64()
+                        }]
+                    })
+                )
+            );
+            assert_eq!(
+                get(
+                    &app,
+                    &format!("/worlds/default/sources?at={}", head.as_u64())
+                )
+                .await,
+                (StatusCode::OK, serde_json::json!(["test.replay"]))
+            );
+        });
+    }
+
+    /// `SqliteEventLog::open` eagerly creates the manifest and membership tables, so a legacy
+    /// directory that never wrote either kind of metadata safely reads them as empty.
+    #[test]
+    fn read_only_world_has_no_manifest_when_none_was_ever_created() {
+        crate::tests::run(false, async {
+            let directory = TestDirectory::new("metadata-legacy");
+            let mut log = SqliteEventLog::open(directory.path()).unwrap();
+            let mut verdicts = SqliteVerdictStore::open(directory.path()).unwrap();
+            let head = commit(&mut log, &mut verdicts, 1, "legacy-at-open");
+
+            let (state, _live) =
+                LiveReadOnlyWorld::open(directory.path(), "legacy", 10_000).unwrap();
+            let app = router(state);
+
+            assert_eq!(
+                get(&app, "/worlds").await,
+                (
+                    StatusCode::OK,
+                    serde_json::json!({
+                        "worlds": [{
+                            "world": "legacy",
+                            "name": "legacy",
+                            "head": head.as_u64()
+                        }]
+                    })
+                )
+            );
+            assert_eq!(
+                get(
+                    &app,
+                    &format!("/worlds/legacy/sources?at={}", head.as_u64())
+                )
+                .await,
+                (StatusCode::OK, serde_json::json!([]))
+            );
+        });
+    }
+
+    #[test]
+    fn read_only_metadata_is_frozen_at_open_even_as_a_writer_commits_a_new_membership_row_and_refresh_runs()
+     {
+        crate::tests::run(false, async {
+            let directory = TestDirectory::new("metadata-frozen");
+            let mut log = SqliteEventLog::open(directory.path()).unwrap();
+            let mut verdicts = SqliteVerdictStore::open(directory.path()).unwrap();
+            let event_source = SourceId::new("test.replay").unwrap();
+            let initial_peer = SourceId::new("initial.peer").unwrap();
+            log.bootstrap_source(&event_source).unwrap();
+            log.bootstrap_source(&initial_peer).unwrap();
+            commit(&mut log, &mut verdicts, 1, "seen-at-open");
+
+            let (state, mut live) =
+                LiveReadOnlyWorld::open(directory.path(), "default", 10_000).unwrap();
+
+            let added_after_open = SourceId::new("third.added-after-open").unwrap();
+            log.record_source_added(&added_after_open, EffectiveFrom::Now)
+                .unwrap();
+            let new_head = commit(&mut log, &mut verdicts, 2, "seen-after-refresh");
+            assert!(live.refresh(&state).unwrap());
+            assert!(world_json(&state).contains("seen-after-refresh"));
+
+            let app = router(state);
+            assert_eq!(
+                get(
+                    &app,
+                    &format!("/worlds/default/sources?at={}", new_head.as_u64())
+                )
+                .await,
+                (
+                    StatusCode::OK,
+                    serde_json::json!(["initial.peer", "test.replay"])
+                )
+            );
+        });
     }
 
     #[test]

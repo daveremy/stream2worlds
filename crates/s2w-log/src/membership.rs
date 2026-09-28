@@ -1,5 +1,8 @@
 //! Append-only source membership, paired with the event head under the writer transaction.
-use crate::{AppendOutcome, LogError, SqliteEventLog, check_payload_size, insert_in, map_sqlite};
+use crate::{
+    AppendOutcome, LogError, ReadOnlySqliteEventLog, SqliteEventLog, check_payload_size, insert_in,
+    map_sqlite,
+};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use s2w_model::{Cursor, RawEvent, SourceId};
 
@@ -174,36 +177,7 @@ impl SqliteEventLog {
     }
     /// Full immutable history in write order, suitable for a serving snapshot.
     pub fn membership_history(&self) -> Result<Vec<MembershipRow>, LogError> {
-        let mut stmt = self
-            .connection
-            .prepare(
-                "SELECT seq,source,kind,effective_from,world_offset FROM membership ORDER BY seq",
-            )
-            .map_err(map_sqlite)?;
-        let mut rows = stmt.query([]).map_err(map_sqlite)?;
-        let mut history = Vec::new();
-        while let Some(row) = rows.next().map_err(map_sqlite)? {
-            let source: String = row.get(1).map_err(map_sqlite)?;
-            let kind: String = row.get(2).map_err(map_sqlite)?;
-            let bytes: Option<Vec<u8>> = row.get(3).map_err(map_sqlite)?;
-            history.push(MembershipRow {
-                seq: row.get(0).map_err(map_sqlite)?,
-                source: SourceId::new(source).map_err(|e| LogError::Corrupt(e.to_string()))?,
-                effective_from: if kind == "removed" {
-                    None
-                } else {
-                    Some(match bytes {
-                        Some(bytes) => EffectiveFrom::FromCursor(
-                            Cursor::new(bytes).map_err(LogError::InvalidCursor)?,
-                        ),
-                        None => EffectiveFrom::Now,
-                    })
-                },
-                world_offset: crate::LogPosition::from_sql(row.get(4).map_err(map_sqlite)?)?
-                    .as_u64(),
-            });
-        }
-        Ok(history)
+        membership_history_from(&self.connection)
     }
     /// Members at `at`, folding equal-offset rows by their sequence number.
     pub fn membership_at(&self, at: u64) -> Result<Vec<SourceId>, LogError> {
@@ -247,6 +221,42 @@ impl SqliteEventLog {
         tx.commit().map_err(map_sqlite)?;
         Ok(outcomes)
     }
+}
+
+impl ReadOnlySqliteEventLog {
+    /// Full immutable membership history in write order, read without taking the writer lock.
+    pub fn membership_history(&self) -> Result<Vec<MembershipRow>, LogError> {
+        membership_history_from(&self.connection)
+    }
+}
+
+fn membership_history_from(connection: &Connection) -> Result<Vec<MembershipRow>, LogError> {
+    let mut stmt = connection
+        .prepare("SELECT seq,source,kind,effective_from,world_offset FROM membership ORDER BY seq")
+        .map_err(map_sqlite)?;
+    let mut rows = stmt.query([]).map_err(map_sqlite)?;
+    let mut history = Vec::new();
+    while let Some(row) = rows.next().map_err(map_sqlite)? {
+        let source: String = row.get(1).map_err(map_sqlite)?;
+        let kind: String = row.get(2).map_err(map_sqlite)?;
+        let bytes: Option<Vec<u8>> = row.get(3).map_err(map_sqlite)?;
+        history.push(MembershipRow {
+            seq: row.get(0).map_err(map_sqlite)?,
+            source: SourceId::new(source).map_err(|e| LogError::Corrupt(e.to_string()))?,
+            effective_from: if kind == "removed" {
+                None
+            } else {
+                Some(match bytes {
+                    Some(bytes) => EffectiveFrom::FromCursor(
+                        Cursor::new(bytes).map_err(LogError::InvalidCursor)?,
+                    ),
+                    None => EffectiveFrom::Now,
+                })
+            },
+            world_offset: crate::LogPosition::from_sql(row.get(4).map_err(map_sqlite)?)?.as_u64(),
+        });
+    }
+    Ok(history)
 }
 
 /// Folds a serving snapshot, with the same ordering as the storage query.
