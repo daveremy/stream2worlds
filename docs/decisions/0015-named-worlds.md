@@ -1,16 +1,27 @@
 # 0015: Named worlds as the container — world-scoped API, membership history, deployment modes
 
-Date: 2026-09-27 · Status: accepted · Gate 3 · Issue #92
+Date: 2026-09-27 · Status: accepted · Gate 3 · Issue #92 · Amends [0006](0006-world-query-api.md), [0009](0009-mcp-server.md)
 
 ## Decision
 
 A **world** — one directory holding a manifest, its event log and its verdict store (already
 the unit 0014 locks and serves) — becomes a named, addressable container. Every HTTP route and
-MCP tool is **world-scoped from the start**: `/worlds/{id}/…` and a required `world_id`
+MCP tool is **world-scoped from the start**: `/worlds/{world}/…` and a required `world` string
 parameter on every MCP tool, even though today exactly one world is served per process. `s2w
 serve <source>` keeps its current single-source, single-directory shape and needs no new
-flag: it serves world id `default` unless `--world-id` is given. Nothing about 0014's process
+flag: it serves world `default` unless `--world <name>` is given. Nothing about 0014's process
 model, locks or lifecycle changes; this decision adds identity and a scoped API in front of it.
+0006's and 0009's unscoped routes and tool signatures are removed, not aliased — every client
+of the query API, including issue #10 PR 2's web view, is written against the scoped shape from
+its first line; no vestige of the unscoped paths ships (NO VESTIGES).
+
+The new `world` identifier is a different thing from the existing `WorldId` in `s2w-core`
+(0006's `world_id: 0`, the branch identity `/branches` and the `branches` tool already return).
+That field is an unrelated, pre-existing `u64` for branch/fork identity and is untouched by
+this decision; naming the new string identifier `world` rather than `world_id` keeps the two
+apart in both the route table and the MCP schema, so a reader of `/branches` inside a
+`/worlds/{world}/branches` response is never left wondering which "world" a bare `world_id: 0`
+refers to.
 
 A world's source set is not fixed at creation. **Source membership is its own append-only,
 ordered log**, following the event log's own precedent (0002: INSERT-only, SQLite triggers
@@ -18,7 +29,10 @@ reject UPDATE and DELETE) rather than a mutable field on the manifest. A new sou
 from `now` or from a chosen offset; a removed source's past stays in the world's history and
 only its future stops. "Which sources were live at offset N" is answered by folding this log
 up to N, exactly as the world itself is a fold over events (0005) — membership is a second,
-smaller fold alongside the first, not a mutation of the first.
+smaller fold alongside the first, not a mutation of the first. Membership rows are never
+`WorldEvent`s and never advance the world's own fold offset (0005/0006); they are a parallel,
+smaller history read only by membership queries and by ingestion (below), never by the world
+fold itself.
 
 Two worlds may read the same stream: sources are addresses (URIs), not owned resources, and a
 source has no notion of which worlds consume it.
@@ -37,39 +51,84 @@ incrementally improved by adding or removing sources over time... query-at-time 
 sources were members then."*
 
 The membership log lives beside the event log and verdict store in the same directory,
-following 0014's one-directory-one-world shape: a third small store (or a table in an existing
-one — the implementation issue below decides which), never a second manifest field for
-history. Each row: source id, `Added { effective_from: Offset(n) | Now }` or `Removed`, and the
-world offset at which the admin action itself was recorded. A re-added source after removal is
-a new `Added` row, never a revived one — its prior history stays exactly where it was, under
-its own membership span.
+following 0014's one-directory-one-world shape. Its rows are written inside the same SQLite
+database and transaction as the event log's own writes (never a second store with its own
+writer lock) — 0002 rejected a two-store design for exactly this reason: keeping an admin
+action's recorded offset consistent with the log it describes needs one commit, not
+cross-store coordination. The implementation issue below picks the table shape; this record
+fixes that it is one transactional home, not two.
+
+**Membership gates ingestion; it does not filter the fold.** Removing a source stops new
+events from that source from ever being read and appended — the event log never receives them,
+so the world fold (0005) stays a pure function of the event log alone, unchanged by this
+decision. A removed source's past events are already in the log from while it was a member,
+and are folded exactly as before; nothing about `world_view` or `diff` needs to consult
+membership. Membership answers a narrower question — "which sources were live at offset N" —
+for display and audit (a `/worlds/{world}/sources?at=` query, added to the follow-up issue
+below), not "which events count."
+
+Each row: source id, `Added { effective_from } | Removed`, the **world offset** at which the
+row itself was appended (the same offset space 0006 defines — a fold offset, not a raw log
+position; the writer reads the current head offset in the same transaction, no extra fold
+needed since it already holds the log open to append), and a monotonic sequence number breaking
+ties between rows recorded at the same offset. Membership at offset N is derived by folding
+these rows **by that recorded offset**, up to and including N; a row's own recorded offset is
+never revised by a later fact, so the past never changes retroactively.
+
+`effective_from` on `Added` answers a different question and is never confused with the row's
+recorded offset: it names a position in the *source's own stream* (a Kafka partition offset, an
+SSE cursor) to start reading from — a backfill instruction to ingestion, not a world offset. A
+newly added source's events land in the world at whatever offset ingestion assigns them as they
+arrive (the same as any other newly connected source), regardless of how far back into its own
+stream `effective_from` told it to start reading. `Now` means "start reading new events only,
+no backfill" — ingestion opens the source at its live tail instead of a stored or requested
+cursor.
+
+Membership intervals are half-open: a source is a member from its `Added` row's recorded
+offset up to, but not including, its matching `Removed` row's recorded offset; the event at the
+removal offset itself falls outside the span. Removal is only ever effective at its own
+recorded offset — there is no retroactive removal, matching the append-only rule above.
+
+A re-added source after removal is a new `Added` row, never a revived one — its prior history
+stays exactly where it was, under its own membership span. Re-adding reuses the same
+`SourceId`, so it inherits that id's stored ingestion cursor and the log's `(source, content
+hash)` dedupe (`s2w-log` AGENTS.md). This is deliberate, not a gap: `effective_from` on the new
+`Added` row is the explicit, administrator-supplied instruction for where re-ingestion should
+resume, and setting it is the one case allowed to override a stored cursor (the existing
+invariant — "a stored cursor beats `--since`; passing both is a usage error" — governs the
+default `watch`/`serve` path, not this explicit administrative action). Re-ingesting a stream
+position already stored during the source's earlier membership span dedupes exactly as any
+other repeat read would; that is the log behaving correctly, not losing data, since the
+payload is already durable from the earlier span.
 
 ## World-scoped API
 
 | Today (0006/0009, unscoped) | This decision |
 |---|---|
-| `GET /world` | `GET /worlds/{id}/world` |
-| `GET /events` | `GET /worlds/{id}/events` |
-| `GET /branches` | `GET /worlds/{id}/branches` |
-| `GET /diff` | `GET /worlds/{id}/diff` |
-| `GET /entity/{eid}/history` | `GET /worlds/{id}/entity/{eid}/history` |
-| `GET /time` | `GET /worlds/{id}/time` |
-| (none) | `GET /worlds` — lists worlds this process serves: `id`, `name`, `head` offset |
+| `GET /world` | `GET /worlds/{world}/world` |
+| `GET /events` | `GET /worlds/{world}/events` |
+| `GET /branches` | `GET /worlds/{world}/branches` |
+| `GET /diff` | `GET /worlds/{world}/diff` |
+| `GET /entity/{eid}/history` | `GET /worlds/{world}/entity/{eid}/history` |
+| `GET /time` | `GET /worlds/{world}/time` |
+| (none) | `GET /worlds` — lists worlds this process serves: `world` (the string id), `name`, `head` offset |
 
 MCP: the same five tools (`world_view`, `world_diff`, `entity_history`, `branches`, `time`)
-each gain a required `world_id` string parameter, resolved the same way the HTTP path segment
+each gain a required `world` string parameter, resolved the same way the HTTP path segment
 is. One tool set, not one registered per world — rmcp's typed macros make a per-world dynamic
 tool registry far more machinery than a parameter for a value that changes per call, not per
 process.
 
-`s2w serve <source>` maps to `world_id = "default"` unless `--world-id <id>` is passed, so a
-single-source user's URLs are `/worlds/default/world`, etc. — one more path segment than today,
-otherwise unchanged. `GET /worlds` on a `serve` process reports the one world it holds. No
-existing single-world behavior regresses; the API surface is already shaped for more than one
-world when a process is asked to hold more than one, which this decision does not yet build.
+`s2w serve <source>` maps to `world = "default"` unless `--world <name>` is passed, so a
+single-source user's URLs are `/worlds/default/world`, etc. — one more path segment than today.
+This is a breaking change to the routes and MCP schema themselves (0006/0009's unscoped shape
+no longer exists, per NO VESTIGES above), but not to observable single-world behavior: the same
+data is served, one path segment deeper. `GET /worlds` on a `serve` process reports the one
+world it holds. The API surface is already shaped for more than one world when a process is
+asked to hold more than one, which this decision does not yet build.
 
 This settles the blocker on issue #10 PR 2 (web view): its routes and MCP calls are written
-against `/worlds/{id}/…` from the first line of code, never against the unscoped paths.
+against `/worlds/{world}/…` from the first line of code, never against the unscoped paths.
 
 ## Tenancy and deployment modes
 
@@ -122,13 +181,14 @@ future multi-world process would dispatch on.
 - The membership log's storage location (new store vs. new table in an existing one) is
   decided at implementation time; this record settles the semantics, not the schema.
 - Cross-world queries (a join or diff across two worlds) are asked for; nothing here defines
-  one, and `/diff` remains within a single world's id.
+  one, and `/diff` remains scoped to a single `world`.
 
 ## Follow-up issues (Part of #92)
 
 - World manifest + membership log: implement the directory manifest and the append-only
-  membership log described above, with fold-to-offset membership queries.
-- World-scoped HTTP routes + MCP `world_id` parameter: apply the route table above across
+  membership log described above, with fold-to-offset membership queries and the
+  `/worlds/{world}/sources?at=` read endpoint.
+- World-scoped HTTP routes + MCP `world` parameter: apply the route table above across
   `s2w-app::query`, unblocking issue #10 PR 2's web view.
 - Multi-world single-process server: the "eventually one server hosting many worlds" case
   from issue #92, deferred here.
