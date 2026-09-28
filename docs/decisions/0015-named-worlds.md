@@ -1,0 +1,137 @@
+# 0015: Named worlds as the container — world-scoped API, membership history, deployment modes
+
+Date: 2026-09-27 · Status: accepted · Gate 3 · Issue #92
+
+## Decision
+
+A **world** — one directory holding a manifest, its event log and its verdict store (already
+the unit 0014 locks and serves) — becomes a named, addressable container. Every HTTP route and
+MCP tool is **world-scoped from the start**: `/worlds/{id}/…` and a required `world_id`
+parameter on every MCP tool, even though today exactly one world is served per process. `s2w
+serve <source>` keeps its current single-source, single-directory shape and needs no new
+flag: it serves world id `default` unless `--world-id` is given. Nothing about 0014's process
+model, locks or lifecycle changes; this decision adds identity and a scoped API in front of it.
+
+A world's source set is not fixed at creation. **Source membership is its own append-only,
+ordered log**, following the event log's own precedent (0002: INSERT-only, SQLite triggers
+reject UPDATE and DELETE) rather than a mutable field on the manifest. A new source can fold
+from `now` or from a chosen offset; a removed source's past stays in the world's history and
+only its future stops. "Which sources were live at offset N" is answered by folding this log
+up to N, exactly as the world itself is a fold over events (0005) — membership is a second,
+smaller fold alongside the first, not a mutation of the first.
+
+Two worlds may read the same stream: sources are addresses (URIs), not owned resources, and a
+source has no notion of which worlds consume it.
+
+## Why a manifest plus a separate membership log, not one mutable file
+
+The manifest (world id, display name, created-at, engine set, policy set) is small,
+whole-file-replaceable identity — nothing here needs history. Membership is exactly the kind
+of fact this codebase already refuses to store as a mutable row: 0002 and the `s2w-log`
+AGENTS.md invariants exist because "what happened, in order, permanently" is cheaper to answer
+correctly from an append-only log than from a value that gets edited in place and loses its
+past. Putting "sources: [...]" in the manifest and editing it on add/remove would answer "what
+is the world's source set now" but not "what was it at offset 4,000" — which query-at-time
+requires, per Dave's ruling (issue #92, 2026-09-27 20:49): *"i envision a world being
+incrementally improved by adding or removing sources over time... query-at-time must know which
+sources were members then."*
+
+The membership log lives beside the event log and verdict store in the same directory,
+following 0014's one-directory-one-world shape: a third small store (or a table in an existing
+one — the implementation issue below decides which), never a second manifest field for
+history. Each row: source id, `Added { effective_from: Offset(n) | Now }` or `Removed`, and the
+world offset at which the admin action itself was recorded. A re-added source after removal is
+a new `Added` row, never a revived one — its prior history stays exactly where it was, under
+its own membership span.
+
+## World-scoped API
+
+| Today (0006/0009, unscoped) | This decision |
+|---|---|
+| `GET /world` | `GET /worlds/{id}/world` |
+| `GET /events` | `GET /worlds/{id}/events` |
+| `GET /branches` | `GET /worlds/{id}/branches` |
+| `GET /diff` | `GET /worlds/{id}/diff` |
+| `GET /entity/{eid}/history` | `GET /worlds/{id}/entity/{eid}/history` |
+| `GET /time` | `GET /worlds/{id}/time` |
+| (none) | `GET /worlds` — lists worlds this process serves: `id`, `name`, `head` offset |
+
+MCP: the same five tools (`world_view`, `world_diff`, `entity_history`, `branches`, `time`)
+each gain a required `world_id` string parameter, resolved the same way the HTTP path segment
+is. One tool set, not one registered per world — rmcp's typed macros make a per-world dynamic
+tool registry far more machinery than a parameter for a value that changes per call, not per
+process.
+
+`s2w serve <source>` maps to `world_id = "default"` unless `--world-id <id>` is passed, so a
+single-source user's URLs are `/worlds/default/world`, etc. — one more path segment than today,
+otherwise unchanged. `GET /worlds` on a `serve` process reports the one world it holds. No
+existing single-world behavior regresses; the API surface is already shaped for more than one
+world when a process is asked to hold more than one, which this decision does not yet build.
+
+This settles the blocker on issue #10 PR 2 (web view): its routes and MCP calls are written
+against `/worlds/{id}/…` from the first line of code, never against the unscoped paths.
+
+## Tenancy and deployment modes
+
+A tenant owns worlds; s2w itself carries no global, cross-world state, so isolation between
+tenants is structural rather than enforced by an access-control layer inside the binary.
+Deployment modes — local, self-hosted enterprise, third-party-over-Tailscale, hosted cloud —
+run the same binary and differ only in the fronting layer: auth, TLS and network policy live
+outside s2w (reverse proxy, Tailscale, a cloud gateway), never inside it. For a cloud offering,
+start with one process or container per tenant — the strongest isolation and the simplest
+implementation — and share processes across tenants only if cost measurements force it later.
+
+Bias to automation, not per-proposal approval (Dave, issue #92): humans write policies (which
+sources a world may add, what an engine is allowed to act on); day-to-day source add/remove
+and engine evaluation run without a human clicking approve on each one.
+
+## Not now
+
+Auth, billing, and a shared multi-tenant process are explicitly deferred, matching the
+proposal in issue #92. Also deferred by this decision specifically: **serving more than one
+world from a single process.** 0014 already commits one process to one directory's locks;
+extending that to many directories in one process is a real feature (a routing layer over
+several `QueryState`s, several lock sets, lifecycle for opening/closing a world without
+restarting the process) and nothing here should be read as having built it. Nothing in the
+world-scoped API precludes it later — the path and MCP parameter already carry the id a
+future multi-world process would dispatch on.
+
+## Alternatives considered
+
+- **Sources fixed at world creation.** Rejected: Dave's ruling is explicit that a world is
+  incrementally improved by adding and removing sources over time, and the design must carry
+  that cost rather than assume it away.
+- **Membership as a mutable manifest field, with a separate change-history file for
+  auditing.** Rejected: two sources of truth for the same fact, one of which (the manifest)
+  would need to stay in lockstep with the other by convention rather than by the log's own
+  append-only enforcement (0002's triggers). A single append-only log is both the record and
+  the query surface.
+- **One MCP tool per world (dynamically registered as worlds are created).** Rejected:
+  worlds come and go at runtime; a tool set that must be re-registered on every world create/
+  delete is more moving parts than a parameter, and rmcp's tool discovery is not designed to
+  churn per world.
+- **Unscoped routes now, world-scoped routes later when a second world exists.** Rejected per
+  the issue's own reasoning and Dave's framing: cheap now, a breaking change once #10 PR2 and
+  any external client exist against the unscoped shape.
+
+## Revisit when
+
+- Multi-world-per-process serving is needed (a demonstrated cost or operational reason to share
+  one process across worlds, per the cloud-offering note above) — tracked by a follow-up issue
+  (below), not built speculatively.
+- The membership log's storage location (new store vs. new table in an existing one) is
+  decided at implementation time; this record settles the semantics, not the schema.
+- Cross-world queries (a join or diff across two worlds) are asked for; nothing here defines
+  one, and `/diff` remains within a single world's id.
+
+## Follow-up issues (Part of #92)
+
+- World manifest + membership log: implement the directory manifest and the append-only
+  membership log described above, with fold-to-offset membership queries.
+- World-scoped HTTP routes + MCP `world_id` parameter: apply the route table above across
+  `s2w-app::query`, unblocking issue #10 PR 2's web view.
+- Multi-world single-process server: the "eventually one server hosting many worlds" case
+  from issue #92, deferred here.
+
+verify: none — this record contains no code change; the follow-up issues each carry their own
+build gate.
