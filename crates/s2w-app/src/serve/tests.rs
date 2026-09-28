@@ -169,6 +169,7 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
         let verdicts = SqliteVerdictStore::open(dir.path()).expect("verdicts open");
         let (events_tx, events_rx) = tokio::sync::mpsc::channel(1);
         let started = Started {
+            sources: vec![SourceId::new("stdin").expect("source")],
             stream: Box::pin(tokio_stream::wrappers::ReceiverStream::new(events_rx)),
             ends: Ending::AtEndOfInput,
             notes: Vec::new(),
@@ -561,5 +562,41 @@ fn web_live_sse_observes_an_append_after_opening() {
         let text = String::from_utf8(chunk.to_vec()).expect("text");
         assert!(text.contains("id: 2\n"), "{text}");
         assert!(!text.contains("id: 1\n"), "exclusive resume: {text}");
+    });
+}
+
+#[test]
+fn serving_start_gate_bootstraps_and_preserves_removal() {
+    run(false, async {
+        let dir = TestDirectory::new("serve-start-gate");
+        let mut log = SqliteEventLog::open(dir.path()).unwrap();
+        let source = SourceId::new("stdin").unwrap();
+        log.record_source_removed(&source).unwrap();
+        let started = resolve("-", None)
+            .unwrap()
+            .start(None, &ServingCursors(RefCell::new(&mut log)))
+            .await
+            .unwrap();
+        assert_eq!(started.sources, vec![source]);
+        assert_eq!(started.ends, Ending::Never);
+        assert!(started.notes[0].contains("removed"));
+        assert_eq!(log.membership_history().unwrap().len(), 1);
+        // SSE's start gate runs before connecting, and uses the adapter's real hashed ID.
+        let started = resolve("http://127.0.0.1:1/events", None)
+            .unwrap()
+            .start(None, &ServingCursors(RefCell::new(&mut log)))
+            .await
+            .unwrap();
+        let source = started.sources[0].clone();
+        drop(started);
+        log.record_source_removed(&source).unwrap();
+        let restarted = resolve("http://127.0.0.1:1/events", None)
+            .unwrap()
+            .start(None, &ServingCursors(RefCell::new(&mut log)))
+            .await
+            .unwrap();
+        assert!(restarted.notes[0].contains("removed"));
+        assert_eq!(restarted.sources, vec![source]);
+        assert_eq!(log.membership_history().unwrap().len(), 3);
     });
 }

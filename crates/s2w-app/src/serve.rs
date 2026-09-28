@@ -12,17 +12,17 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use s2w_log::{
     AppendOutcome, EventLog, LogError, LogPosition, LogReader, SqliteEventLog, SqliteVerdictStore,
-    StoredEvent,
+    StoredEvent, WorldManifest,
 };
-use s2w_model::{Cursor, RawEvent, SourceId};
+use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
 use s2w_sources::registry::resolve;
-use s2w_sources::source::{Ending, Started};
+use s2w_sources::source::{CursorLookup, Ending, SourceError, Started};
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
 use crate::query::{QueryState, router};
-use crate::{AppError, LogCursors, current_thread_runtime, group_commit, open_error};
+use crate::{AppError, current_thread_runtime, group_commit, open_error};
 
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -60,13 +60,31 @@ pub fn run_serve(state: QueryState, args: ServeArgs) -> Result<(), AppError> {
 async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppError> {
     let source = resolve(&args.uri, args.wiki.as_deref())
         .map_err(|error| AppError::Usage(error.to_string()))?;
-    let log = SqliteEventLog::open(&args.log_dir)
+    let mut log = SqliteEventLog::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let verdicts = SqliteVerdictStore::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "verdict store"))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| AppError::Usage(e.to_string()))?;
+    let now = i64::try_from(now.as_millis()).map_err(|e| AppError::Usage(e.to_string()))?;
+    let engines = EngineRegistry::with_defaults().names();
+    let manifest = WorldManifest::create_if_absent(
+        &mut log,
+        &args.world,
+        &args.world,
+        Timestamp::from_millis(now),
+        &engines,
+        &[],
+    )?;
     let name = source.name();
     // Start before sharing: no RefCell borrow survives an await, even during cursor lookup.
-    let started = source.start(None, &LogCursors(&log)).await?;
+    let started = source
+        .start(None, &ServingCursors(RefCell::new(&mut log)))
+        .await?;
+    let state = state
+        .with_world(args.world.clone())
+        .with_metadata(Some(manifest), log.membership_history()?);
     for note in &started.notes {
         eprintln!("s2w: {name}: {note}");
     }
@@ -94,6 +112,23 @@ async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppEr
         tokio::signal::ctrl_c().await.map_err(AppError::Serve)
     })
     .await
+}
+
+// Adapters call the gate after discovering real source IDs but before spawning producers.
+struct ServingCursors<'a>(RefCell<&'a mut SqliteEventLog>);
+impl CursorLookup for ServingCursors<'_> {
+    fn is_member(&self, source: &SourceId) -> Result<bool, SourceError> {
+        let mut log = self.0.borrow_mut();
+        log.bootstrap_source(source)
+            .and_then(|()| log.is_source_member(source))
+            .map_err(|e| SourceError::Lookup(e.to_string()))
+    }
+    fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, SourceError> {
+        self.0
+            .borrow()
+            .cursor(source)
+            .map_err(|e| SourceError::Lookup(e.to_string()))
+    }
 }
 
 struct SharedLogReader {
@@ -192,7 +227,7 @@ async fn serve_live(
         config,
     )
     .map_err(|error| AppError::BridgeStopped(error.to_string()))?;
-    let mut writer = SharedLogWriter(shared);
+    let writer = SharedLogWriter(shared.clone());
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let app = app(state);
@@ -208,13 +243,24 @@ async fn serve_live(
     };
     supervise(
         async {
-            group_commit::pump_events(
-                &mut writer,
+            let mut removed = false;
+            group_commit::pump_events_gated(
+                |events, generations| writer.0.borrow_mut().append_batch_with_generations(events, generations),
                 started.stream,
                 name,
                 &mut group_commit::HumanReporter,
+                &started.sources,
+                |source| {
+                    let state = shared.borrow().source_membership(source)?;
+                    removed |= !state.0;
+                    Ok(state)
+                },
             )
             .await?;
+            if removed {
+                eprintln!("s2w: source removed; HTTP remains available; re-add with a cursor and restart to resume");
+                return std::future::pending::<Result<(), AppError>>().await;
+            }
             match started.ends {
                 Ending::AtEndOfInput => Ok(()),
                 Ending::Never => Err(AppError::StreamEnded(name)),

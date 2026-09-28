@@ -2,6 +2,16 @@
 
 Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #92 · Amends [0006](0006-world-query-api.md), [0009](0009-mcp-server.md)
 
+## Scope note — implementation plan v3 (2026-09-27)
+
+The binding #95 implementation plan stores immutable manifest tables in `events.sqlite3`
+and records the raw event-log head inside the membership writer transaction. Raw event
+positions and timeline fold offsets are different spaces (one event can yield zero or many
+claims), so `/sources?at=` currently has that display limitation; a live mutation API must
+resolve it. Re-add with `Now` is rejected until adapters can resolve a live tail; re-add with
+an explicit cursor takes effect on restart. Admin mutation and live worker resume remain
+follow-ups. These implementation limits do not weaken commit-time ingestion rejection.
+
 ## Decision
 
 A **world** — one directory holding a manifest, its event log and its verdict store (already

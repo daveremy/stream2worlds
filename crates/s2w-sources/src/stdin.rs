@@ -46,7 +46,7 @@ impl Source for StdinSource {
     fn start<'a>(
         self: Box<Self>,
         since: Option<&'a str>,
-        _cursors: &'a dyn CursorLookup,
+        cursors: &'a dyn CursorLookup,
     ) -> StartFuture<'a> {
         Box::pin(async move {
             if since.is_some() {
@@ -56,8 +56,13 @@ impl Source for StdinSource {
                 });
             }
             let source_id = SourceId::new(STDIN_SOURCE)?;
+            if !cursors.is_member(&source_id)? {
+                return Ok(Started::removed(source_id));
+            }
+            let sources = vec![source_id.clone()];
             let stream = NdjsonSource::new(self.reader).map(move |item| raw(&source_id, item));
             Ok(Started {
+                sources,
                 stream: Box::pin(stream),
                 ends: Ending::AtEndOfInput,
                 notes: Vec::new(),

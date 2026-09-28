@@ -78,6 +78,16 @@ impl EngineRegistry {
         }
     }
 
+    /// Engine identities persisted when a serving world is first created.
+    pub(crate) fn names(&self) -> Vec<String> {
+        self.routes
+            .iter()
+            .map(|(_, engine)| engine.name().to_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    }
+
     /// Adds `engine` on `route`, after every engine already registered.
     ///
     /// Registering the same name and version on a second route is allowed (overlapping routes

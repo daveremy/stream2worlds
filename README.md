@@ -96,6 +96,7 @@ s2w serve wikipedia --log-dir ./s2w-data --port 4310 --world default
 curl http://localhost:4310/worlds/default/world
 # Or open http://localhost:4310/ in a browser for the web view (evidence table and graph);
 # add ?at=<offset> to the URL to pin a moment.
+curl http://localhost:4310/worlds/default/sources
 
 # --wiki restricts ingestion to one wiki (readable page titles come from the event itself,
 # so this is what actually makes /world's output legible instead of a mix of every wiki):
@@ -119,6 +120,25 @@ kcat -C -b broker:9092 -t orders | s2w watch - --log-dir ./s2w-data
 ```
 
 Stop it with Ctrl-C. Run it again on the same `--log-dir` and it resumes from the stored cursor (Wikipedia's `Last-Event-ID`, a generic SSE stream's `id:`, or a Kafka partition's last offset), not from now. Events redelivered on resume are collapsed by the log, which dedupes on source plus payload content, so two distinct events sharing a millisecond are both kept. Passing `--since` to a log that already has a cursor is a usage error; a generic SSE or stdin source never accepts `--since` at all.
+
+`serve` creates an immutable world manifest in `events.sqlite3` on first open. Reusing that
+same directory with a different `--world` is an error. Existing schema-v2 event logs migrate
+atomically to v3, preserving events and cursors. `/worlds` uses the stored display name.
+
+`GET /worlds/{world}/sources?at=N` returns a sorted JSON array of source IDs active at `N`;
+omitting `at` uses the current timeline head. An addition is visible at its recorded offset,
+a removal is already absent at its offset, and the latest sequence wins equal-offset ties.
+Membership offsets currently record the event-log head, as required by the #95 storage plan;
+raw events can produce zero or multiple fold events, so these offsets do not generally equal
+timeline offsets. This precision limitation needs resolution before a live admin mutation API.
+
+Membership changes currently use the `s2w-log` library; there is no add/remove CLI or HTTP
+mutation endpoint. Removed sources stop ingestion while HTTP remains available. Re-add with
+an explicit source cursor, then restart `serve` to resume; `EffectiveFrom::Now` on a re-add
+returns `ReaddRequiresCursor` until adapters support resolving a live tail. First-time
+membership uses the adapter's normal initial position. Kafka bootstraps each partition ID
+and skips removed partitions at startup; a removal during a running multiplexed worker stops
+that worker until restart. Past events remain in the world.
 
 If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log ([decision 0007](docs/decisions/0007-kafka-client.md)).
 
@@ -223,7 +243,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms | target (gate 2) | Targets until the scale fitness function measures them. Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |
-| World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/worlds/{world}/world` at any offset and level of detail, `/worlds/{world}/events` (optionally bounded by `at=`), `/worlds/{world}/branches`, `/worlds/{world}/diff`, `/worlds/{world}/entity/{id}/history`, `/worlds/{world}/time`, plus `/worlds` discovery ([decision 0006](docs/decisions/0006-world-query-api.md), [decision 0015](docs/decisions/0015-named-worlds.md)) | built (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual branch of one named world per process (`branch=` other than actual and `lod=cluster` answer 501); `s2w mcp` exposes its five world-scoped read tools over stdio; the loopback HTTP listener ships as `s2w serve <source>` ([decision 0014](docs/decisions/0014-serve-topology.md)) with a cap of 32 concurrent event streams and an `Origin` allowlist ([decision 0016](docs/decisions/0016-web-delivery.md)). |
+| World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/worlds/{world}/world` at any offset and level of detail, `/worlds/{world}/events` (optionally bounded by `at=`), `/worlds/{world}/branches`, `/worlds/{world}/diff`, `/worlds/{world}/entity/{id}/history`, `/worlds/{world}/time`, `/worlds/{world}/sources?at=`, plus `/worlds` discovery ([decision 0006](docs/decisions/0006-world-query-api.md), [decision 0015](docs/decisions/0015-named-worlds.md)) | built (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual branch of one named world per process (`branch=` other than actual and `lod=cluster` answer 501); `s2w mcp` exposes its five world-scoped read tools over stdio; the loopback HTTP listener ships as `s2w serve <source>` ([decision 0014](docs/decisions/0014-serve-topology.md)) with a cap of 32 concurrent event streams and an `Origin` allowlist ([decision 0016](docs/decisions/0016-web-delivery.md)). |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
 | System 1 engines | Rules; JSON claims; local embeddings (`model2vec-rs`, potion-base-8M) | building (gate 2–3) | Three engines ship behind one verdict/confidence/abstain trait: Wikimedia page-change rules, JSON claims (a payload that already is a claim), and local embeddings, which classify an English edit comment's category by similarity to fixed prototypes and abstain below threshold or on a near-tie ([decision 0013](docs/decisions/0013-local-embeddings-engine.md)). Every verdict is stored before its claims are served, and a restart replays stored verdicts instead of re-running engines ([decision 0012](docs/decisions/0012-verdict-log.md)). |
 | System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it joins through the bake-off, p50/p99 and accuracy per engine. |

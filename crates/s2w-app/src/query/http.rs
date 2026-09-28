@@ -11,6 +11,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use s2w_core::{FOLD_VERSION, World, WorldEvent};
+use s2w_log::{MembershipRow, WorldManifest, members_at};
 use s2w_model::Timestamp;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
@@ -29,6 +30,8 @@ pub struct QueryState {
     head: Arc<watch::Sender<u64>>,
     world: Arc<str>,
     sse_slots: Arc<tokio::sync::Semaphore>,
+    manifest: Option<Arc<WorldManifest>>,
+    membership: Arc<Vec<MembershipRow>>,
 }
 
 impl QueryState {
@@ -41,6 +44,8 @@ impl QueryState {
             head: Arc::new(head),
             world: Arc::from("default"),
             sse_slots: Arc::new(tokio::sync::Semaphore::new(32)),
+            manifest: None,
+            membership: Arc::new(Vec::new()),
         }
     }
 
@@ -48,6 +53,18 @@ impl QueryState {
     #[must_use]
     pub fn with_world(mut self, world: impl Into<Arc<str>>) -> Self {
         self.world = world.into();
+        self
+    }
+
+    /// Attaches immutable directory metadata loaded before the serving pump starts.
+    #[must_use]
+    pub fn with_metadata(
+        mut self,
+        manifest: Option<WorldManifest>,
+        membership: Vec<MembershipRow>,
+    ) -> Self {
+        self.manifest = manifest.map(Arc::new);
+        self.membership = Arc::new(membership);
         self
     }
 
@@ -161,6 +178,7 @@ pub fn router(state: QueryState) -> Router {
         .route("/worlds/{world}/diff", get(world_diff))
         .route("/worlds/{world}/entity/{id}/history", get(history))
         .route("/worlds/{world}/time", get(time))
+        .route("/worlds/{world}/sources", get(sources))
         .with_state(state)
 }
 
@@ -251,7 +269,7 @@ async fn world(
 pub struct WorldSummary {
     /// The world's string identifier.
     pub world: String,
-    /// The world's display name. Until manifests exist, this deliberately reuses `world`.
+    /// The manifest's display name, falling back to the world identifier for legacy worlds.
     pub name: String,
     /// The world's latest fold offset.
     pub head: u64,
@@ -268,7 +286,10 @@ async fn list_worlds(State(state): State<QueryState>) -> Response {
             let world = state.world().to_owned();
             Ok(Worlds {
                 worlds: vec![WorldSummary {
-                    name: world.clone(),
+                    name: state
+                        .manifest
+                        .as_ref()
+                        .map_or_else(|| world.clone(), |m| m.name.clone()),
                     world,
                     head: timeline.head(),
                 }],
@@ -515,5 +536,149 @@ impl tokio_stream::Stream for CappedStream {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         std::pin::Pin::new(&mut self.get_mut().inner).poll_next(cx)
+    }
+}
+
+async fn sources(
+    State(state): State<QueryState>,
+    Path(world): Path<String>,
+    Query(p): Query<Params>,
+) -> Response {
+    let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
+        let at = parse("at", p.at.as_deref())?;
+        state.read(|timeline| {
+            let at = at.unwrap_or_else(|| timeline.head());
+            if at > timeline.head() {
+                return Err(QueryError::OffsetBeyondHead {
+                    at,
+                    head: timeline.head(),
+                });
+            }
+            Ok(members_at(&state.membership, at)
+                .into_iter()
+                .map(|s| s.as_str().to_owned())
+                .collect::<Vec<_>>())
+        })
+    };
+    run().map(Json).into_response()
+}
+
+#[cfg(test)]
+mod membership_tests {
+    use super::*;
+    use axum::{body::Body, http::Request};
+    use s2w_log::{EffectiveFrom, EventLog, SqliteEventLog};
+    use s2w_model::{Cursor, RawEvent, SourceId};
+    use tower::ServiceExt;
+    async fn get(app: &Router, path: &str) -> (StatusCode, serde_json::Value) {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+    #[test]
+    fn sources_at_boundary_tests() {
+        crate::tests::run(false, async {
+            let dir = crate::tests::TestDirectory::new("sources-http");
+            let mut log = SqliteEventLog::open(dir.path()).unwrap();
+            let source = SourceId::new("member").unwrap();
+            let clock = SourceId::new("clock").unwrap();
+            let mut timeline = Timeline::new(3);
+            log.bootstrap_source(&source).unwrap();
+            for n in 1..=3 {
+                log.append(RawEvent {
+                    source: clock.clone(),
+                    cursor: Cursor::new(vec![n]).unwrap(),
+                    received_at: Timestamp::from_millis(i64::from(n)),
+                    payload: vec![n],
+                })
+                .unwrap();
+                timeline.append(
+                    Timestamp::from_millis(i64::from(n)),
+                    WorldEvent::EntityObserved {
+                        key: s2w_core::NaturalKey::new(format!("e{n}")),
+                        entity_type: "thing".into(),
+                        attrs: Default::default(),
+                    },
+                );
+                if n == 2 {
+                    log.record_source_removed(&source).unwrap();
+                }
+            }
+            log.record_source_added(
+                &source,
+                EffectiveFrom::FromCursor(Cursor::new(vec![3]).unwrap()),
+            )
+            .unwrap();
+            // Equal-offset transitions: the last sequence wins, even across a second source.
+            let tied = SourceId::new("tied").unwrap();
+            log.bootstrap_source(&tied).unwrap();
+            log.record_source_removed(&tied).unwrap();
+            let manifest = WorldManifest::create_if_absent(
+                &mut log,
+                "default",
+                "Display name",
+                Timestamp::from_millis(0),
+                &[],
+                &[],
+            )
+            .unwrap();
+            assert_eq!(log.membership_at(1).unwrap(), vec![source.clone()]);
+            assert!(log.membership_at(2).unwrap().is_empty());
+            let app = router(
+                QueryState::new(timeline)
+                    .with_metadata(Some(manifest), log.membership_history().unwrap()),
+            );
+            for (path, expected) in [
+                (
+                    "/worlds/default/sources?at=0",
+                    serde_json::json!(["member"]),
+                ),
+                (
+                    "/worlds/default/sources?at=1",
+                    serde_json::json!(["member"]),
+                ),
+                ("/worlds/default/sources?at=2", serde_json::json!([])),
+                (
+                    "/worlds/default/sources?at=3",
+                    serde_json::json!(["member"]),
+                ),
+                ("/worlds/default/sources", serde_json::json!(["member"])),
+            ] {
+                assert_eq!(get(&app, path).await, (StatusCode::OK, expected));
+            }
+            for (path, status, code) in [
+                (
+                    "/worlds/unknown/sources",
+                    StatusCode::NOT_FOUND,
+                    "unknown_world",
+                ),
+                (
+                    "/worlds/default/sources?at=4",
+                    StatusCode::NOT_FOUND,
+                    "offset_beyond_head",
+                ),
+                (
+                    "/worlds/default/sources?at=no",
+                    StatusCode::BAD_REQUEST,
+                    "bad_parameter",
+                ),
+            ] {
+                let (actual, body) = get(&app, path).await;
+                assert_eq!(actual, status);
+                assert_eq!(body["error"], code);
+            }
+            assert_eq!(
+                get(&app, "/worlds").await.1["worlds"][0]["name"],
+                "Display name"
+            );
+        });
     }
 }

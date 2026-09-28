@@ -8,8 +8,8 @@
 use std::cell::Cell;
 use std::time::Duration;
 
-use s2w_log::{AppendOutcome, EventLog, LogPosition};
-use s2w_model::RawEvent;
+use s2w_log::{AppendOutcome, EventLog, LogError, LogPosition};
+use s2w_model::{RawEvent, SourceId};
 use s2w_sources::source::{EventStream, SourceError};
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio_stream::{Stream, StreamExt};
@@ -102,17 +102,27 @@ impl Reporter for HumanReporter {
 /// # Errors
 ///
 /// Returns the first error from the log, `convert` or `on_error`.
-pub(crate) async fn pump<L, S, T, E>(
-    log: &mut L,
+pub(crate) async fn pump<S, T, E>(
+    mut write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     mut source: S,
     mut convert: impl FnMut(T) -> Result<RawEvent, AppError>,
     mut on_error: impl FnMut(E) -> Result<(String, bool), AppError>,
     report: &mut dyn Reporter,
+    sources: &[SourceId],
+    mut membership: impl FnMut(&SourceId) -> Result<(bool, i64), AppError>,
 ) -> Result<(), AppError>
 where
-    L: EventLog,
     S: Stream<Item = Result<T, E>> + Unpin,
 {
+    let mut generations = Vec::new();
+    for source in sources {
+        let (member, generation) = membership(source)?;
+        if !member {
+            return Ok(());
+        }
+        generations.push((source.clone(), generation));
+    }
+    let mut stopped = false;
     let mut buffer: Vec<RawEvent> = Vec::with_capacity(MAX_BATCH);
     let mut deadline: Option<Instant> = None;
     let mut appended: u64 = 0;
@@ -123,13 +133,33 @@ where
     let mut reconnects: u64 = 0;
     let mut last_cursor: Option<String> = None;
     loop {
+        // Never poll a removed source, including on a restart with an already-removed row.
+        if stopped {
+            return Ok(());
+        }
+        for (source, _) in &generations {
+            if !membership(source)?.0 {
+                return Ok(());
+            }
+        }
+        let mut commit = |events| {
+            let outcomes = write(events, &generations)?;
+            if outcomes.contains(&AppendOutcome::StaleGeneration) {
+                for (source, generation) in &mut generations {
+                    let (member, current) = membership(source)?;
+                    stopped |= !member;
+                    *generation = current;
+                }
+            }
+            Ok(outcomes)
+        };
         let next = match deadline {
             Some(at) => {
                 if let Ok(next) = tokio::time::timeout_at(at, source.next()).await {
                     next
                 } else {
                     flush_and_report(
-                        log,
+                        &mut commit,
                         &mut buffer,
                         &mut appended,
                         &mut duplicates,
@@ -146,7 +176,7 @@ where
         let outcome = match next {
             None => {
                 flush_and_report(
-                    log,
+                    &mut commit,
                     &mut buffer,
                     &mut appended,
                     &mut duplicates,
@@ -172,7 +202,7 @@ where
         };
         if let Err(error) = outcome {
             flush_and_report(
-                log,
+                &mut commit,
                 &mut buffer,
                 &mut appended,
                 &mut duplicates,
@@ -184,7 +214,7 @@ where
         }
         if buffer.len() >= MAX_BATCH {
             flush_and_report(
-                log,
+                &mut commit,
                 &mut buffer,
                 &mut appended,
                 &mut duplicates,
@@ -213,6 +243,25 @@ pub(crate) async fn pump_events<L: EventLog>(
     name: &str,
     report: &mut dyn Reporter,
 ) -> Result<(), AppError> {
+    pump_events_gated(
+        |events, _| log.append_batch(events),
+        stream,
+        name,
+        report,
+        &[],
+        |_| Ok((true, 0)),
+    )
+    .await
+}
+
+pub(crate) async fn pump_events_gated(
+    write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
+    stream: EventStream,
+    name: &str,
+    report: &mut dyn Reporter,
+    sources: &[SourceId],
+    membership: impl FnMut(&SourceId) -> Result<(bool, i64), AppError>,
+) -> Result<(), AppError> {
     // `pump_future` and `report_progress` are only ever joined here with `select!`, never
     // spawned onto another task, so a plain borrow (no `Rc`, no `Send` bound) is enough — the
     // borrow checker itself is the proof that both stay on this one task.
@@ -233,13 +282,16 @@ pub(crate) async fn pump_events<L: EventLog>(
     };
     if report.wants_ticker() {
         tokio::select! {
-            result = pump(log, stream, convert, on_error, report) => result,
+            result = pump(write, stream, convert, on_error, report, sources, membership) => result,
             // report_progress never returns, so `never` can never be constructed; this is the
             // exhaustive match for an empty type, not a fallback branch.
             never = report_progress(name, &total, &last_event_at) => match never {},
         }
     } else {
-        pump(log, stream, convert, on_error, report).await
+        pump(
+            write, stream, convert, on_error, report, sources, membership,
+        )
+        .await
     }
 }
 
@@ -279,8 +331,8 @@ async fn report_progress(
 
 /// Flushes the buffer, if there's anything in it, and reports the batch's duplicates and the
 /// running totals so far.
-fn flush_and_report<L: EventLog>(
-    log: &mut L,
+fn flush_and_report(
+    log: &mut impl FnMut(Vec<RawEvent>) -> Result<Vec<AppendOutcome>, AppError>,
     buffer: &mut Vec<RawEvent>,
     appended: &mut u64,
     duplicates: &mut u64,
@@ -303,17 +355,18 @@ fn flush_and_report<L: EventLog>(
 
 /// Writes the buffer as one batch. Returns how many events were newly inserted and the log
 /// positions of any duplicates collapsed among them; the buffer is always empty on return.
-fn flush<L: EventLog>(
-    log: &mut L,
+fn flush(
+    log: &mut impl FnMut(Vec<RawEvent>) -> Result<Vec<AppendOutcome>, AppError>,
     buffer: &mut Vec<RawEvent>,
 ) -> Result<(u64, Vec<LogPosition>), AppError> {
     let events = std::mem::replace(buffer, Vec::with_capacity(MAX_BATCH));
     let mut inserted = 0_u64;
     let mut duplicates = Vec::new();
-    for outcome in log.append_batch(events)? {
+    for outcome in log(events)? {
         match outcome {
             AppendOutcome::Inserted(_) => inserted += 1,
             AppendOutcome::Duplicate(position) => duplicates.push(position),
+            AppendOutcome::Rejected | AppendOutcome::StaleGeneration => {}
         }
     }
     Ok((inserted, duplicates))
@@ -391,11 +444,13 @@ mod tests {
             let (mut log, record) = counting_log();
             let items: Vec<Result<u64, AppError>> = (1..=250).map(Ok).collect();
             let outcome = pump(
-                &mut log,
+                |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
                 event,
                 Err,
                 &mut HumanReporter,
+                &[],
+                |_| Ok((true, 0)),
             )
             .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
@@ -410,11 +465,13 @@ mod tests {
             let (sender, receiver) = tokio::sync::mpsc::channel::<Result<u64, AppError>>(8);
             let task = tokio::spawn(async move {
                 pump(
-                    &mut log,
+                    |events, _| log.append_batch(events),
                     ReceiverStream::new(receiver),
                     event,
                     Err,
                     &mut HumanReporter,
+                    &[],
+                    |_| Ok((true, 0)),
                 )
                 .await
             });
@@ -447,11 +504,13 @@ mod tests {
             let items: Vec<Result<u64, AppError>> =
                 vec![Ok(1), Ok(2), Err(AppError::Usage("stop".to_owned())), Ok(3)];
             let outcome = pump(
-                &mut log,
+                |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
                 event,
                 Err,
                 &mut HumanReporter,
+                &[],
+                |_| Ok((true, 0)),
             )
             .await;
             assert!(
@@ -540,7 +599,7 @@ mod tests {
             let mut reporter = RecordingReporter::default();
             let mut errors_seen = 0_u32;
             let outcome = pump(
-                &mut log,
+                |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
                 event,
                 |error: AppError| {
@@ -550,6 +609,8 @@ mod tests {
                     Ok((error.to_string(), errors_seen == 1))
                 },
                 &mut reporter,
+                &[],
+                |_| Ok((true, 0)),
             )
             .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
@@ -593,15 +654,155 @@ mod tests {
             let items: Vec<Result<u64, AppError>> =
                 vec![Ok(1), Err(AppError::Usage("skip".to_owned())), Ok(2)];
             let outcome = pump(
-                &mut log,
+                |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
                 event,
                 |_| Ok((String::new(), false)),
                 &mut HumanReporter,
+                &[],
+                |_| Ok((true, 0)),
             )
             .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
             assert_eq!(batches(&record), vec![2]);
+        });
+    }
+}
+
+#[cfg(test)]
+mod membership_tests {
+    use super::*;
+    use s2w_log::{EffectiveFrom, SqliteEventLog};
+    use s2w_model::{Cursor, Timestamp};
+    use std::{
+        cell::RefCell,
+        pin::Pin,
+        rc::Rc,
+        task::{Context, Poll},
+    };
+    struct CountPolls(Rc<Cell<usize>>);
+    impl Stream for CountPolls {
+        type Item = Result<RawEvent, AppError>;
+        fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.0.set(self.0.get() + 1);
+            Poll::Ready(None)
+        }
+    }
+    #[test]
+    fn restart_after_removal_never_fetches() {
+        crate::tests::run(false, async {
+            let dir = crate::tests::TestDirectory::new("never-fetch");
+            let mut log = SqliteEventLog::open(dir.path()).unwrap();
+            let source = SourceId::new("removed").unwrap();
+            log.record_source_removed(&source).unwrap();
+            drop(log);
+            let log = Rc::new(RefCell::new(SqliteEventLog::open(dir.path()).unwrap()));
+            let polls = Rc::new(Cell::new(0));
+            pump(
+                |events, generations| {
+                    log.borrow_mut()
+                        .append_batch_with_generations(events, generations)
+                },
+                CountPolls(polls.clone()),
+                Ok,
+                Err,
+                &mut HumanReporter,
+                &[source],
+                |source| Ok(log.borrow().source_membership(source)?),
+            )
+            .await
+            .unwrap();
+            assert_eq!(polls.get(), 0);
+        });
+    }
+    #[test]
+    fn stale_flush_adopts_generation_before_next_fetch() {
+        crate::tests::run(false, async {
+            let dir = crate::tests::TestDirectory::new("pump-generation");
+            let log = Rc::new(RefCell::new(SqliteEventLog::open(dir.path()).unwrap()));
+            let source = SourceId::new("member").unwrap();
+            log.borrow_mut().bootstrap_source(&source).unwrap();
+            let old = log.borrow().membership_generation(&source).unwrap();
+            let mut batches = 0;
+            let items = (0..101)
+                .map(|n| {
+                    Ok::<_, AppError>(RawEvent {
+                        source: source.clone(),
+                        cursor: Cursor::new(n.to_string().into_bytes()).unwrap(),
+                        received_at: Timestamp::from_millis(n),
+                        payload: n.to_string().into_bytes(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            pump(
+                |events, generations| {
+                    batches += 1;
+                    if batches == 1 {
+                        assert_eq!(generations[0].1, old);
+                        log.borrow_mut().record_source_removed(&source)?;
+                        log.borrow_mut().record_source_added(
+                            &source,
+                            EffectiveFrom::FromCursor(Cursor::new(b"reset".to_vec()).unwrap()),
+                        )?;
+                    } else {
+                        assert!(generations[0].1 > old);
+                    }
+                    log.borrow_mut()
+                        .append_batch_with_generations(events, generations)
+                },
+                tokio_stream::iter(items),
+                Ok,
+                Err,
+                &mut HumanReporter,
+                std::slice::from_ref(&source),
+                |source| Ok(log.borrow().source_membership(source)?),
+            )
+            .await
+            .unwrap();
+            assert_eq!(batches, 2);
+            assert_eq!(log.borrow().replay(None).unwrap().count(), 1);
+            assert_eq!(
+                log.borrow().cursor(&source).unwrap().unwrap().as_bytes(),
+                b"100"
+            );
+        });
+    }
+    #[test]
+    fn removal_before_next_poll_discards_buffer() {
+        crate::tests::run(false, async {
+            let dir = crate::tests::TestDirectory::new("pump-removed-buffer");
+            let log = Rc::new(RefCell::new(SqliteEventLog::open(dir.path()).unwrap()));
+            let source = SourceId::new("member").unwrap();
+            log.borrow_mut().bootstrap_source(&source).unwrap();
+            let polls = Cell::new(0);
+            let stream = tokio_stream::iter((0..2).map(|n| {
+                polls.set(polls.get() + 1);
+                Ok::<_, AppError>(RawEvent {
+                    source: source.clone(),
+                    cursor: Cursor::new(vec![n]).unwrap(),
+                    received_at: Timestamp::from_millis(0),
+                    payload: vec![n],
+                })
+            }));
+            pump(
+                |events, generations| {
+                    log.borrow_mut()
+                        .append_batch_with_generations(events, generations)
+                },
+                stream,
+                |event| {
+                    log.borrow_mut().record_source_removed(&source)?;
+                    Ok(event)
+                },
+                Err,
+                &mut HumanReporter,
+                std::slice::from_ref(&source),
+                |source| Ok(log.borrow().source_membership(source)?),
+            )
+            .await
+            .unwrap();
+            assert_eq!(polls.get(), 1);
+            assert_eq!(log.borrow().replay(None).unwrap().count(), 0);
         });
     }
 }

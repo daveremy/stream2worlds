@@ -98,6 +98,10 @@ impl Source for SseSource {
                 reason: error.to_string(),
             })?;
             let source_id = SourceId::new(source_id)?;
+            if !cursors.is_member(&source_id)? {
+                return Ok(Started::removed(source_id));
+            }
+            let sources = vec![source_id.clone()];
             let stored = cursors.cursor(&source_id)?;
             let plan = start::choose(
                 name,
@@ -129,6 +133,7 @@ impl Source for SseSource {
             );
             drop(task);
             Ok(Started {
+                sources,
                 stream: Box::pin(stream),
                 ends: Ending::Never,
                 notes: vec![note],
