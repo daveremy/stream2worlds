@@ -5,12 +5,13 @@ use s2w_log::{LogError, LogPosition, LogReader, StoredEvent, StoredVerdict, Verd
 use s2w_model::{Timestamp, WorldEvent};
 use s2w_system1::{AbstainReason, Verdict};
 
-use super::{Bridge, BridgeStats, evaluate_one};
+use super::{Bridge, BridgeStats, RECENT_UNROUTED_CAP, SourceStats, evaluate_one};
 
 /// One poll batch, judged but not yet committed or served.
 #[derive(Default)]
 pub(super) struct Judged {
     pub(super) stats: BridgeStats,
+    pub(super) per_source: std::collections::BTreeMap<s2w_model::SourceId, SourceStats>,
     pub(super) new_rows: Vec<StoredVerdict>,
     pub(super) claims: Vec<(Timestamp, WorldEvent)>,
     pub(super) through: Option<LogPosition>,
@@ -83,8 +84,18 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             consumed: 1,
             ..BridgeStats::default()
         };
+        let per_source = judged
+            .per_source
+            .entry(event.event.source.clone())
+            .or_default();
+        per_source.consumed += 1;
         if engines.is_empty() {
             stats.unrouted += 1;
+            per_source.unrouted += 1;
+            per_source.recent_unrouted.push_back(event.clone());
+            while per_source.recent_unrouted.len() > RECENT_UNROUTED_CAP {
+                per_source.recent_unrouted.pop_front();
+            }
             if !self.warned_unrouted.contains(&event.event.source) {
                 self.warned_unrouted.insert(event.event.source.clone());
                 eprintln!(

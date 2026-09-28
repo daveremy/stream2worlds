@@ -16,7 +16,9 @@ use thiserror::Error;
 
 pub use delta::{Delta, fold_with_delta};
 pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
-pub use http::{Branch, QueryState, TimeAt, TimeResult, WorldSummary, router};
+pub use http::{
+    Branch, QueryState, RawEventInfo, SourceInfo, TimeAt, TimeResult, WorldSummary, router,
+};
 pub use timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,

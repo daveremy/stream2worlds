@@ -499,7 +499,16 @@ mod tests {
                     &format!("/worlds/default/sources?at={}", head.as_u64())
                 )
                 .await,
-                (StatusCode::OK, serde_json::json!(["test.replay"]))
+                // The read-only replay path runs no bridge, so the member reports zeros.
+                (
+                    StatusCode::OK,
+                    serde_json::json!([{
+                        "source": "test.replay",
+                        "consumed": 0,
+                        "unrouted": 0,
+                        "recent_unrouted": []
+                    }])
+                )
             );
         });
     }
@@ -574,7 +583,10 @@ mod tests {
                 .await,
                 (
                     StatusCode::OK,
-                    serde_json::json!(["initial.peer", "test.replay"])
+                    serde_json::json!([
+                        { "source": "initial.peer", "consumed": 0, "unrouted": 0, "recent_unrouted": [] },
+                        { "source": "test.replay", "consumed": 0, "unrouted": 0, "recent_unrouted": [] },
+                    ])
                 )
             );
         });

@@ -1,6 +1,7 @@
 //! The query API over HTTP (axum), with SSE deltas. Handlers parse parameters and call the
 //! pure functions; every error is `{ "error": <code>, "message": <text> }`.
 
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::{Arc, RwLock};
 
@@ -12,7 +13,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use s2w_core::{FOLD_VERSION, World, WorldEvent};
 use s2w_log::{MembershipRow, WorldManifest, members_at};
-use s2w_model::Timestamp;
+use s2w_model::{SourceId, Timestamp};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
@@ -22,6 +23,7 @@ use super::delta::{Delta, fold_with_delta};
 use super::diff::{WorldDiff, diff};
 use super::timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 use super::view::{ACTUAL_BRANCH, Lod, ViewParams, world_view};
+use crate::bridge::SourceStats;
 
 /// Shared server state: the timeline and a head-offset signal that wakes SSE subscribers.
 #[derive(Clone)]
@@ -32,6 +34,7 @@ pub struct QueryState {
     sse_slots: Arc<tokio::sync::Semaphore>,
     manifest: Option<Arc<WorldManifest>>,
     membership: Arc<Vec<MembershipRow>>,
+    source_stats: Arc<watch::Sender<BTreeMap<SourceId, SourceStats>>>,
 }
 
 impl QueryState {
@@ -39,6 +42,7 @@ impl QueryState {
     #[must_use]
     pub fn new(timeline: Timeline) -> Self {
         let (head, _) = watch::channel(timeline.head());
+        let (source_stats, _) = watch::channel(BTreeMap::new());
         Self {
             timeline: Arc::new(RwLock::new(timeline)),
             head: Arc::new(head),
@@ -46,6 +50,7 @@ impl QueryState {
             sse_slots: Arc::new(tokio::sync::Semaphore::new(32)),
             manifest: None,
             membership: Arc::new(Vec::new()),
+            source_stats: Arc::new(source_stats),
         }
     }
 
@@ -86,6 +91,13 @@ impl QueryState {
             .append(at, event);
         self.head.send_replace(head);
         Ok(head)
+    }
+
+    /// Replaces the per-source bridge statistics `/worlds/{world}/sources` serves. The live
+    /// bridge publishes after each poll; a process with no bridge (the read-only MCP replay
+    /// path) never does, so every source there reports zeros.
+    pub(crate) fn publish_source_stats(&self, stats: BTreeMap<SourceId, SourceStats>) {
+        self.source_stats.send_replace(stats);
     }
 
     fn read<T>(&self, f: impl FnOnce(&Timeline) -> Result<T, QueryError>) -> Result<T, QueryError> {
@@ -539,12 +551,45 @@ impl tokio_stream::Stream for CappedStream {
     }
 }
 
+/// One unrouted raw event kept for the sources view, so a viewer can see the stream is alive
+/// before any engine claims it.
+#[derive(Serialize)]
+pub struct RawEventInfo {
+    /// The event's log position.
+    pub offset: u64,
+    /// When the shell received the event, in milliseconds since the Unix epoch.
+    pub received_at: i64,
+    /// The event's payload, decoded as JSON when it parses and as a lossy string when not.
+    pub payload: serde_json::Value,
+}
+
+/// `/worlds/{world}/sources`'s answer for one member source: its membership name plus what the
+/// bridge has done with its events.
+#[derive(Serialize)]
+pub struct SourceInfo {
+    /// The member's source id.
+    pub source: String,
+    /// Events of this source the bridge has consumed.
+    pub consumed: u64,
+    /// Consumed events no engine is routed for.
+    pub unrouted: u64,
+    /// The most recent unrouted events, most recent first, capped by the bridge.
+    pub recent_unrouted: Vec<RawEventInfo>,
+}
+
+/// The payload bytes as JSON when they decode, or as a lossy string when they do not: the log
+/// never interprets them, so both shapes are legitimate.
+fn payload_json(bytes: &[u8]) -> serde_json::Value {
+    serde_json::from_slice(bytes)
+        .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(bytes).into_owned()))
+}
+
 async fn sources(
     State(state): State<QueryState>,
     Path(world): Path<String>,
     Query(p): Query<Params>,
 ) -> Response {
-    let run = || -> Result<_, QueryError> {
+    let run = || -> Result<Vec<SourceInfo>, QueryError> {
         check_world(&state, &world)?;
         let at = parse("at", p.at.as_deref())?;
         state.read(|timeline| {
@@ -555,10 +600,31 @@ async fn sources(
                     head: timeline.head(),
                 });
             }
+            // The join key is the SourceId itself: membership rows and the bridge's counters
+            // both name sources by it, so a member the bridge has not read yet reports zeros.
+            let stats = state.source_stats.borrow();
             Ok(members_at(&state.membership, at)
                 .into_iter()
-                .map(|s| s.as_str().to_owned())
-                .collect::<Vec<_>>())
+                .map(|source| {
+                    let empty = SourceStats::default();
+                    let stats = stats.get(&source).unwrap_or(&empty);
+                    SourceInfo {
+                        source: source.as_str().to_owned(),
+                        consumed: stats.consumed,
+                        unrouted: stats.unrouted,
+                        recent_unrouted: stats
+                            .recent_unrouted
+                            .iter()
+                            .rev()
+                            .map(|stored| RawEventInfo {
+                                offset: stored.position.as_u64(),
+                                received_at: stored.event.received_at.as_millis(),
+                                payload: payload_json(&stored.event.payload),
+                            })
+                            .collect(),
+                    }
+                })
+                .collect())
         })
     };
     run().map(Json).into_response()
@@ -568,7 +634,7 @@ async fn sources(
 mod membership_tests {
     use super::*;
     use axum::{body::Body, http::Request};
-    use s2w_log::{EffectiveFrom, EventLog, SqliteEventLog};
+    use s2w_log::{EffectiveFrom, EventLog, SqliteEventLog, SqliteVerdictStore};
     use s2w_model::{Cursor, RawEvent, SourceId};
     use tower::ServiceExt;
     async fn get(app: &Router, path: &str) -> (StatusCode, serde_json::Value) {
@@ -636,21 +702,19 @@ mod membership_tests {
                 QueryState::new(timeline)
                     .with_metadata(Some(manifest), log.membership_history().unwrap()),
             );
+            // No bridge runs here, so the member reports zeros alongside its name.
+            let member = serde_json::json!([{
+                "source": "member",
+                "consumed": 0,
+                "unrouted": 0,
+                "recent_unrouted": []
+            }]);
             for (path, expected) in [
-                (
-                    "/worlds/default/sources?at=0",
-                    serde_json::json!(["member"]),
-                ),
-                (
-                    "/worlds/default/sources?at=1",
-                    serde_json::json!(["member"]),
-                ),
+                ("/worlds/default/sources?at=0", member.clone()),
+                ("/worlds/default/sources?at=1", member.clone()),
                 ("/worlds/default/sources?at=2", serde_json::json!([])),
-                (
-                    "/worlds/default/sources?at=3",
-                    serde_json::json!(["member"]),
-                ),
-                ("/worlds/default/sources", serde_json::json!(["member"])),
+                ("/worlds/default/sources?at=3", member.clone()),
+                ("/worlds/default/sources", member.clone()),
             ] {
                 assert_eq!(get(&app, path).await, (StatusCode::OK, expected));
             }
@@ -678,6 +742,69 @@ mod membership_tests {
             assert_eq!(
                 get(&app, "/worlds").await.1["worlds"][0]["name"],
                 "Display name"
+            );
+        });
+    }
+
+    /// A bridge that has consumed an unrouted member's events is visible through the route:
+    /// per-source counters and the most recent raw events, most recent first, with payloads
+    /// decoded as JSON when they parse and kept as text when they do not.
+    #[test]
+    fn sources_serve_per_source_bridge_consumption() {
+        crate::tests::run(false, async {
+            let dir = crate::tests::TestDirectory::new("sources-bridge");
+            let mut log = SqliteEventLog::open(dir.path()).unwrap();
+            let unrouted = SourceId::new("feed.unrouted").unwrap();
+            log.bootstrap_source(&unrouted).unwrap();
+            for (n, payload) in [r#"{"n":1}"#, "not json", r#"{"n":3}"#]
+                .into_iter()
+                .enumerate()
+            {
+                log.append(RawEvent {
+                    source: unrouted.clone(),
+                    cursor: Cursor::new(vec![u8::try_from(n).unwrap() + 1]).unwrap(),
+                    received_at: Timestamp::from_millis(i64::try_from(n).unwrap() + 1),
+                    payload: payload.as_bytes().to_vec(),
+                })
+                .unwrap();
+            }
+            let manifest = WorldManifest::create_if_absent(
+                &mut log,
+                "default",
+                "Unrouted",
+                Timestamp::from_millis(0),
+                &[],
+                &[],
+            )
+            .unwrap();
+            let state = QueryState::new(Timeline::new(3))
+                .with_metadata(Some(manifest), log.membership_history().unwrap());
+            let mut bridge = crate::bridge::Bridge::new(
+                log,
+                SqliteVerdictStore::open(dir.path()).unwrap(),
+                crate::bridge::EngineRegistry::with_defaults(),
+                state.clone(),
+                crate::bridge::BridgeConfig::default(),
+            )
+            .unwrap();
+            bridge.poll_once().unwrap();
+
+            let app = router(state);
+            assert_eq!(
+                get(&app, "/worlds/default/sources").await,
+                (
+                    StatusCode::OK,
+                    serde_json::json!([{
+                        "source": "feed.unrouted",
+                        "consumed": 3,
+                        "unrouted": 3,
+                        "recent_unrouted": [
+                            { "offset": 3, "received_at": 3, "payload": { "n": 3 } },
+                            { "offset": 2, "received_at": 2, "payload": "not json" },
+                            { "offset": 1, "received_at": 1, "payload": { "n": 1 } },
+                        ]
+                    }])
+                )
             );
         });
     }

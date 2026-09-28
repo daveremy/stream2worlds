@@ -15,7 +15,7 @@
 mod judge;
 mod registry;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::Duration;
 
@@ -107,6 +107,23 @@ impl BridgeStats {
         self.replayed_stale_version += other.replayed_stale_version;
         self.evaluated += other.evaluated;
     }
+}
+
+/// How many of a source's most recent unrouted events are kept for the sources view, so a
+/// viewer can see the stream is alive however long it runs.
+pub const RECENT_UNROUTED_CAP: usize = 20;
+
+/// What the bridge did with one source's events: [`BridgeStats`]'s aggregates, broken out per
+/// source so the query API can name an unrouted stream instead of saying nothing arrived.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SourceStats {
+    /// Stored events of this source read from the log.
+    pub consumed: u64,
+    /// Consumed events of this source no engine is routed for.
+    pub unrouted: u64,
+    /// The most recent unrouted events, in log order (oldest first), capped at
+    /// [`RECENT_UNROUTED_CAP`].
+    pub recent_unrouted: VecDeque<StoredEvent>,
 }
 
 /// One [`Bridge::poll_once`].
@@ -232,6 +249,7 @@ pub struct Bridge<R: LogReader, V: VerdictStore> {
     store_cursor: Option<LogPosition>,
     warned_unrouted: BTreeSet<SourceId>,
     stats: BridgeStats,
+    per_source: BTreeMap<SourceId, SourceStats>,
 }
 
 impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
@@ -271,6 +289,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             store_cursor,
             warned_unrouted: BTreeSet::new(),
             stats: BridgeStats::default(),
+            per_source: BTreeMap::new(),
         })
     }
 
@@ -278,6 +297,13 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
     #[must_use]
     pub const fn stats(&self) -> BridgeStats {
         self.stats
+    }
+
+    /// Everything this bridge has done so far, per source: the same counters as
+    /// [`Self::stats`] plus each unrouted source's most recent unrouted events.
+    #[must_use]
+    pub fn source_stats(&self) -> BTreeMap<SourceId, SourceStats> {
+        self.per_source.clone()
     }
 
     /// The verdict store, e.g. to inspect what a poll stored.
@@ -334,7 +360,30 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         report.stats = judged.stats;
         self.last = Some(through);
         self.stats.add(&report.stats);
+        self.absorb_source_stats(&judged.per_source);
         Ok(self.finish(report))
+    }
+
+    /// Folds a committed batch's per-source counters into the bridge's totals and republishes
+    /// them to the query API. Called on the same path [`Self::stats`] advances, so a batch
+    /// whose commit failed counts nowhere.
+    fn absorb_source_stats(&mut self, batch: &BTreeMap<SourceId, SourceStats>) {
+        if batch.is_empty() {
+            return;
+        }
+        for (source, stats) in batch {
+            let entry = self.per_source.entry(source.clone()).or_default();
+            entry.consumed += stats.consumed;
+            entry.unrouted += stats.unrouted;
+            entry
+                .recent_unrouted
+                .extend(stats.recent_unrouted.iter().cloned());
+            while entry.recent_unrouted.len() > RECENT_UNROUTED_CAP {
+                entry.recent_unrouted.pop_front();
+            }
+        }
+        // Telemetry, not claims: the one write to QueryState besides `append` (see AGENTS.md).
+        self.state.publish_source_stats(self.per_source.clone());
     }
 
     fn finish(&self, report: PollReport) -> PollReport {

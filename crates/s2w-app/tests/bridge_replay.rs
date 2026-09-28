@@ -102,6 +102,27 @@ fn replay_and_check<R: LogReader, V: VerdictStore>(log: R, verdicts: V) -> TestR
         }
     );
 
+    // The same replay, per source: each unrouted source keeps its newest raw events, and the
+    // routed one counts consumption with none kept.
+    let per_source = bridge.source_stats();
+    let preset = &per_source[&SourceId::new(WIKI)?];
+    assert_eq!((preset.consumed, preset.unrouted), (5, 5));
+    assert_eq!(preset.recent_unrouted.len(), 5);
+    let stdin = &per_source[&SourceId::new("stdin")?];
+    assert_eq!(
+        (stdin.consumed, stdin.unrouted, stdin.recent_unrouted.len()),
+        (1, 0, 0)
+    );
+    let orders = &per_source[&SourceId::new("kafka.orders")?];
+    assert_eq!(
+        (
+            orders.consumed,
+            orders.unrouted,
+            orders.recent_unrouted.len()
+        ),
+        (1, 1, 1)
+    );
+
     // The claim reached the shared state: the handle a server would hold sees the head.
     assert_eq!(observer.branches()?[0].head, 1);
 
@@ -146,6 +167,46 @@ fn bridge_replays_the_sqlite_log() -> TestResult {
     let mut log = SqliteEventLog::open(&directory.0)?;
     log.append_batch(fixture_events()?)?;
     replay_and_check(log, SqliteVerdictStore::open(&directory.0)?)
+}
+
+/// Per-source stats keep only the newest unrouted events, however long an unrouted stream
+/// runs, so the sources view stays bounded and shows the stream is alive.
+#[test]
+fn per_source_stats_keep_the_newest_unrouted_events_capped() -> TestResult {
+    let mut log = InMemoryEventLog::new();
+    let mut events = Vec::new();
+    for i in 0..25u8 {
+        // Distinct payloads: the log dedupes by source plus payload content hash.
+        events.push(event(WIKI, i, format!("{{\"seq\":{i}}}").as_bytes())?);
+    }
+    log.append_batch(events)?;
+    let mut bridge = Bridge::new(
+        log,
+        InMemoryVerdictStore::new(),
+        EngineRegistry::with_defaults(),
+        new_state(),
+        batch_of(100),
+    )?;
+    bridge.poll_once()?;
+
+    let stats = bridge.source_stats();
+    let preset = &stats[&SourceId::new(WIKI)?];
+    assert_eq!((preset.consumed, preset.unrouted), (25, 25));
+    // Log order internally (oldest first): the five earliest were evicted, the newest kept.
+    let offsets = preset
+        .recent_unrouted
+        .iter()
+        .map(|stored| stored.position.as_u64())
+        .collect::<Vec<_>>();
+    assert_eq!(offsets, (6..=25).collect::<Vec<_>>());
+    assert_eq!(
+        preset
+            .recent_unrouted
+            .back()
+            .map(|stored| stored.event.payload.as_slice()),
+        Some(&br#"{"seq":24}"#[..])
+    );
+    Ok(())
 }
 
 #[test]
