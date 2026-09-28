@@ -70,6 +70,14 @@ async fn run_serve_async(state: QueryState, args: ServeArgs) -> Result<(), AppEr
     for note in &started.notes {
         eprintln!("s2w: {name}: {note}");
     }
+    if let Some(wiki) = &args.wiki {
+        // The filter only ever applies to events not yet stored (s2w#101): it never
+        // retroactively purges a `--log-dir` already populated from other wikis.
+        eprintln!(
+            "s2w: {name}: --wiki {wiki:?} filters new ingestion only; events already in {} from other wikis are unaffected",
+            args.log_dir.display()
+        );
+    }
     let listener = TcpListener::bind(("127.0.0.1", args.port))
         .await
         .map_err(|error| {
