@@ -492,12 +492,17 @@ mod tests {
                 },
             ),
             (
-                "/* History */ added a paragraph about the founding",
-                ClassifyResult::NoMatch {
-                    top1_bps: 4629,
-                    top2_bps: 4257,
-                    threshold_bps: THRESHOLD_BPS,
-                    margin_bps: MARGIN_BPS,
+                // Production (`engines::embeddings::decide`) strips a leading `/* Section */`
+                // marker via `normalize_comment` before calling `classify` — this case is
+                // already normalized so the golden values describe actual production behavior
+                // on the comment "/* History */ added a paragraph about the founding" (code
+                // review round 2, s2w#64: the raw, un-normalized string was pinned here before,
+                // which this test's own claim of "real evidence on real comments" contradicted).
+                "added a paragraph about the founding",
+                ClassifyResult::Match {
+                    label: "content_addition",
+                    top1_bps: 5040,
+                    top2_bps: 4365,
                 },
             ),
             (

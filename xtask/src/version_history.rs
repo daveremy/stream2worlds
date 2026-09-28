@@ -92,15 +92,27 @@ pub(super) fn check(root: &Path) -> Vec<String> {
         Ok(r) => r,
         Err(e) => return vec![format!("{REL_PATH}: {e}")],
     };
+    // Fail closed if `origin/main` itself isn't a resolvable ref (missing fetch, shallow
+    // clone without history, git failure) — mirrors `module_size::ratchet`, which demands
+    // explicit authorization rather than silently allowing growth when its own base read
+    // fails. CI requires checkout fetch-depth: 0, so `origin/main` is always a real reachable
+    // ref there; a local run without that fetch should refuse rather than pass silently.
+    if let Err(e) = git(root, &["rev-parse", "--verify", "origin/main"]) {
+        return vec![format!(
+            "{REL_PATH}: cannot verify origin/main ({e}) — fetch it first \
+             (`git fetch origin main`) so VERSION_HISTORY's append-only check has a real \
+             baseline to compare against; refusing to pass without one."
+        )];
+    }
     let base_ref = format!("origin/main:{REL_PATH}");
     let base_rows = match git(root, &["show", &base_ref]) {
         Ok(s) => match rows(&s) {
             Ok(r) => r,
             Err(e) => return vec![format!("origin/main {REL_PATH}: {e}")],
         },
-        // File doesn't exist on origin/main yet (e.g. this PR is the one introducing it) —
-        // nothing to compare against, so nothing to enforce yet. The next PR to touch this
-        // file gets a real baseline.
+        // origin/main resolves, but the file doesn't exist there yet (e.g. this PR is the one
+        // introducing it) — nothing to compare against, so nothing to enforce yet. The next PR
+        // to touch this file gets a real baseline.
         Err(_) => return Vec::new(),
     };
     if current_rows.len() < base_rows.len() || current_rows[..base_rows.len()] != base_rows[..] {

@@ -69,15 +69,23 @@ place instead of appending a new one; `cargo xtask check`'s version-history appe
 (`xtask/src/version_history.rs`) compares the working tree's table against `origin/main`'s
 committed copy and fails the build if any already-shipped row is edited, reordered, or
 removed. The two checks together are what make a bump-avoiding edit fail by construction.
+This convention isn't limited to the model file or taxonomy config: a change to
+`normalize_comment`'s stripping rules, `to_bps`'s rounding, or `decide`'s scoring logic changes
+the engine's actual output on the same input just as much as a new model would, so it also
+needs a new `VERSION_HISTORY` row (a new `config_hash`, at minimum) even though neither check
+above can detect that class of change by itself — reviewers should treat it as should-fix on
+any PR that touches that code path.
 
 **A golden-output test is the real regression net for what the two hashes cannot see.** Neither
 hash changes when a `Cargo.lock` bump of `model2vec-rs`/`tokenizers`, or a change to
 normalization or scoring code, changes a verdict. `embedding::tests::
 golden_classifications_for_fixed_real_comments` pins the full expected result (label, top1_bps,
-top2_bps) for 8 fixed real English edit comments. Two of the eight — a revert comment and a
-`/* History */`-prefixed section edit, both plausible but not clearly worded — land in
-`NoMatch`: real evidence that the abstain-first design is doing its job on real text, not proof
-by construction alone.
+top2_bps) for 8 fixed real English edit comments, each passed through the same
+`normalize_comment` step production runs before classification (code review round 2, s2w#64:
+an earlier version of this test pinned one case's raw, un-normalized text, which described a
+classification production never actually produces). One of the eight — a revert comment,
+plausible but not clearly worded — lands in `NoMatch`: real evidence that the abstain-first
+design is doing its job on real text, not proof by construction alone.
 
 **Threshold and margin are named as unvalidated** (`threshold_bps = 4_000`, `margin_bps = 500`).
 Static-embedding cosine similarity on short text tends to cluster high; these starting values
@@ -120,8 +128,8 @@ architecture table) is about the shipped artifact, not a build-time toolchain gu
 compiler is already required at build time either way.
 
 **License and advisory findings.** `cargo deny check` (all four categories) passes:
-`licenses ok`, `bans ok`, `sources ok`. `advisories` needed two `deny.toml` exceptions, both
-unmaintained-not-vulnerable with no safe upgrade available upstream in `tokenizers`:
+`licenses ok`, `bans ok`, `sources ok`. `advisories` needed two `deny.toml` exceptions, both for unmaintained crates with no known
+vulnerability and no safe upgrade available upstream in `tokenizers`:
 
 - `RUSTSEC-2024-0436` (`paste`) — via `tokenizers`, model2vec-rs's own dependency.
 - `RUSTSEC-2025-0119` (`number_prefix`) — via `indicatif`, pulled in by the `fancy-regex`

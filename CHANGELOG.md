@@ -31,15 +31,19 @@ similarity, additive alongside the existing rules engine on the same page.
   table's last row so a hash change and a version bump can't drift apart.
 - **A golden-output test on 8 real English edit comments** catches a `Cargo.lock` bump or
   scoring change that a model/config hash alone would miss, and doubles as a calibration
-  sanity check: two of the eight land in `NoMatch` on real, plausibly-worded text.
+  sanity check: one of the eight lands in `NoMatch` on real, plausibly-worded text.
 - README's "System 1 engines" row moves from "next" to built, and a new "How embeddings fit in"
   section explains the engine at the application level.
 
 **Learned**
-- Two real comments in the golden set — a revert notice and a `/* History */`-prefixed section
-  edit — land in `NoMatch` rather than a confident match, evidence (not just a constructed
-  boundary test) that the starting `threshold_bps`/`margin_bps` values may be too strict on
-  real `enwiki` text. Named as a calibration follow-up in decision 0013, not built here.
+- One real comment in the golden set — a revert notice — lands in `NoMatch` rather than a
+  confident match, evidence (not just a constructed boundary test) that the starting
+  `threshold_bps`/`margin_bps` values may be too strict on real `enwiki` text. Named as a
+  calibration follow-up in decision 0013, not built here.
+- The golden test must run each case through the same `normalize_comment` step production
+  runs before classification — an earlier version pinned one case's raw, marker-prefixed text,
+  which described a classification production never actually produces (code review round 2,
+  s2w#64).
 - `model2vec-rs`'s `default-features = false` alone does not compile: `tokenizers` needs
   `onig` or `fancy-regex`. Chose `fancy-regex` over `onig` (which binds the C Oniguruma
   library) — the plan's round-2 dependency-tree check never actually compiled, so this was

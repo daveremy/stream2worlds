@@ -131,7 +131,8 @@ pub struct VerdictRecord {
     pub version: u32,
     /// The verdict, with a caught panic as `Abstain(Panicked)`.
     pub verdict: Verdict,
-    /// Encoded provenance (decision 0012's reserved keys). `None` from every shipped engine.
+    /// Encoded provenance (decision 0012's reserved keys). `None` when an engine doesn't
+    /// implement it; the embeddings engine returns `Some` (model hash + config hash).
     pub provenance: Option<Vec<u8>>,
 }
 
