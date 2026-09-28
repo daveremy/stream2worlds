@@ -1,6 +1,16 @@
 [advisories]
-# cargo-deny denies every RustSec advisory by default. Keep the exception list explicit and empty.
-ignore = []
+# cargo-deny denies every RustSec advisory by default. Keep the exception list explicit, one
+# entry per advisory, each with the transitive path and why there is no safe upgrade.
+#
+# RUSTSEC-2024-0436 (`paste`, unmaintained, no safe upgrade): pulled in by `tokenizers`, a
+# dependency of `model2vec-rs` (s2w-system1's local embeddings engine, decision 0013). `paste`
+# is a proc-macro helper with no known vulnerability, just an archived repo; no upgrade path
+# exists upstream in `tokenizers` yet.
+#
+# RUSTSEC-2025-0119 (`number_prefix`, unmaintained, no safe upgrade): pulled in by `indicatif`,
+# itself a dependency of `tokenizers` (same path as above, via `model2vec-rs`). Unmaintained,
+# not vulnerable; `tokenizers` does not offer an alternative dependency yet.
+ignore = ["RUSTSEC-2024-0436", "RUSTSEC-2025-0119"]
 
 [licenses]
 # Licenses not listed here are denied by default, including crates with no detectable license.

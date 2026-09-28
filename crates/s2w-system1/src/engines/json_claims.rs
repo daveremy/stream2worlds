@@ -185,9 +185,7 @@ mod tests {
             Verdict::Propose { claims, .. } => claims
                 .into_iter()
                 .find_map(|claim| match claim {
-                    WorldEvent::EntityObserved { key, attrs, .. } if key == page_key => {
-                        Some(attrs)
-                    }
+                    WorldEvent::EntityObserved { key, attrs, .. } if key == page_key => Some(attrs),
                     _ => None,
                 })
                 .ok_or("rules engine's page claim")?,
@@ -197,9 +195,7 @@ mod tests {
             Verdict::Propose { claims, .. } => claims
                 .into_iter()
                 .find_map(|claim| match claim {
-                    WorldEvent::EntityObserved { key, attrs, .. } if key == page_key => {
-                        Some(attrs)
-                    }
+                    WorldEvent::EntityObserved { key, attrs, .. } if key == page_key => Some(attrs),
                     _ => None,
                 })
                 .ok_or("embeddings engine's page claim")?,

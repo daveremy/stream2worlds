@@ -40,7 +40,12 @@ const CATEGORIES: [(&str, &[&str]); 6] = [
     ),
     (
         "minor_edit",
-        &["fixed typo", "minor copyedit", "grammar fix", "formatting cleanup"],
+        &[
+            "fixed typo",
+            "minor copyedit",
+            "grammar fix",
+            "formatting cleanup",
+        ],
     ),
     (
         "structural_edit",
@@ -186,7 +191,10 @@ impl CommentClassifier {
 
         if !top1.1.is_finite() || !top2.1.is_finite() {
             return ClassifyResult::Invalid {
-                reason: format!("non-finite similarity score: top1={}, top2={}", top1.1, top2.1),
+                reason: format!(
+                    "non-finite similarity score: top1={}, top2={}",
+                    top1.1, top2.1
+                ),
             };
         }
 
@@ -342,7 +350,13 @@ mod tests {
         let classifier = CommentClassifier::new()?;
         let result = classifier.classify("Reverted edits by 1.2.3.4 to last revision by Someone");
         assert!(
-            matches!(result, ClassifyResult::Match { label: "revert", .. }),
+            matches!(
+                result,
+                ClassifyResult::Match {
+                    label: "revert",
+                    ..
+                }
+            ),
             "expected a revert match, got {result:?}"
         );
         Ok(())

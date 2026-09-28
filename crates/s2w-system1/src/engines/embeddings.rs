@@ -117,9 +117,9 @@ fn decide(
         .rev_id
         .ok_or_else(|| AbstainReason::Insufficient("missing revision.rev_id".into()))?;
 
-    let classifier = classifier
-        .as_ref()
-        .map_err(|error| AbstainReason::Insufficient(format!("embeddings model unavailable: {error}")))?;
+    let classifier = classifier.as_ref().map_err(|error| {
+        AbstainReason::Insufficient(format!("embeddings model unavailable: {error}"))
+    })?;
 
     let comment = normalize_comment(revision.comment.as_deref().unwrap_or(""));
     match classifier.classify(&comment) {
@@ -146,12 +146,17 @@ fn decide(
                 required_margin_bps: margin_bps,
             }
         }),
-        ClassifyResult::Match { label, top1_bps, .. } => {
+        ClassifyResult::Match {
+            label, top1_bps, ..
+        } => {
             let confidence = Confidence::new(top1_bps)
                 .map_err(|error| AbstainReason::Insufficient(error.to_string()))?;
             let page_key = NaturalKey::new(format!("{wiki}:page:{page_id}"));
             let attrs = BTreeMap::from([
-                ("last_edit_category".into(), AttrValue::Str(label.to_string())),
+                (
+                    "last_edit_category".into(),
+                    AttrValue::Str(label.to_string()),
+                ),
                 ("last_edit_category_rev_id".into(), AttrValue::Int(rev_id)),
             ]);
             Ok(Verdict::Propose {
@@ -218,7 +223,9 @@ mod tests {
     fn schema_and_canary_checks_match_the_rules_engine() -> TestResult {
         let engine = LocalEmbeddingsEngine::new();
         assert_eq!(
-            engine.evaluate(&raw(include_bytes!("../../testdata/page-change-canary.json"))?),
+            engine.evaluate(&raw(include_bytes!(
+                "../../testdata/page-change-canary.json"
+            ))?),
             Verdict::Abstain {
                 reason: AbstainReason::NotMine
             }
@@ -266,7 +273,10 @@ mod tests {
             Verdict::Propose { claims, confidence } => {
                 assert_eq!(claims.len(), 1);
                 assert!(confidence.basis_points() >= 4_000);
-                let WorldEvent::EntityObserved { entity_type, attrs, .. } = &claims[0] else {
+                let WorldEvent::EntityObserved {
+                    entity_type, attrs, ..
+                } = &claims[0]
+                else {
                     return Err("expected an EntityObserved claim".into());
                 };
                 assert_eq!(entity_type, "page");
@@ -306,7 +316,9 @@ mod tests {
     #[test]
     fn provenance_carries_both_hashes() -> TestResult {
         let engine = LocalEmbeddingsEngine::new();
-        let bytes = engine.provenance().ok_or("classifier loaded from vendored bytes")?;
+        let bytes = engine
+            .provenance()
+            .ok_or("classifier loaded from vendored bytes")?;
         let value: Value = serde_json::from_slice(&bytes)?;
         assert!(value["model_hash"].as_str().is_some_and(|s| s.len() == 16));
         assert!(value["config_hash"].as_str().is_some_and(|s| s.len() == 16));
