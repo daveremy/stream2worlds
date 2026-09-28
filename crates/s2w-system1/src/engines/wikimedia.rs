@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 
 use s2w_model::{AttrValue, NaturalKey, RawEvent, WorldEvent};
 use serde::Deserialize;
-use serde_json::Value;
 
 use crate::{AbstainReason, Confidence, Engine, Verdict};
 
@@ -13,11 +12,18 @@ pub struct WikimediaPageChangeEngine;
 
 #[derive(Deserialize)]
 struct Change {
+    #[serde(rename = "$schema")]
+    schema: Option<String>,
+    meta: Option<Meta>,
     wiki_id: Option<String>,
     page_change_kind: Option<String>,
     page: Option<Page>,
     performer: Option<Performer>,
     revision: Option<Revision>,
+}
+#[derive(Deserialize)]
+struct Meta {
+    domain: Option<String>,
 }
 #[derive(Deserialize)]
 struct Page {
@@ -44,7 +50,8 @@ impl Engine for WikimediaPageChangeEngine {
         "wikimedia.page_change"
     }
     fn version(&self) -> u32 {
-        1
+        // v2 (s2w#74): `undelete` now clears `deleted`; a persisted v1 verdict never did.
+        2
     }
     fn evaluate(&self, event: &RawEvent) -> Verdict {
         match claims(&event.payload) {
@@ -62,17 +69,18 @@ fn required<T>(value: Option<T>, field: &str) -> Result<T, AbstainReason> {
 }
 
 fn claims(payload: &[u8]) -> Result<Vec<WorldEvent>, AbstainReason> {
-    let value: Value =
+    // Deserialized once, straight into `Change` — the schema/canary fields ride along with the
+    // rest instead of a separate `Value` pass just to inspect them (s2w#74).
+    let change: Change =
         serde_json::from_slice(payload).map_err(|e| AbstainReason::Unparseable(e.to_string()))?;
-    if !value["$schema"]
-        .as_str()
+    if !change
+        .schema
+        .as_deref()
         .is_some_and(|s| s.starts_with("/mediawiki/page/change/"))
-        || value["meta"]["domain"] == "canary"
+        || change.meta.as_ref().and_then(|m| m.domain.as_deref()) == Some("canary")
     {
         return Err(AbstainReason::NotMine);
     }
-    let change: Change =
-        serde_json::from_value(value).map_err(|e| AbstainReason::Unparseable(e.to_string()))?;
     let wiki = required(change.wiki_id, "wiki_id")?;
     let page = required(change.page, "page")?;
     let page_id = required(page.page_id, "page.page_id")?;
@@ -97,6 +105,11 @@ fn claims(payload: &[u8]) -> Result<Vec<WorldEvent>, AbstainReason> {
     }
     if kind == "delete" {
         page_attrs.insert("deleted".into(), AttrValue::Bool(true));
+    } else if kind == "undelete" {
+        // A restore after a delete: attrs merge by overwrite (`World::observe_entity`), so an
+        // explicit `false` is required to clear the `deleted: true` a prior delete event wrote —
+        // omitting the key here would leave the stale flag in place (s2w#74).
+        page_attrs.insert("deleted".into(), AttrValue::Bool(false));
     }
     let mut claims = Vec::new();
     let user_key = if let Some(user) = change.performer {
@@ -146,6 +159,7 @@ fn claims(payload: &[u8]) -> Result<Vec<WorldEvent>, AbstainReason> {
 mod tests {
     use super::*;
     use crate::raw;
+    use serde_json::Value;
     type TestResult = Result<(), Box<dyn std::error::Error>>;
     const SAMPLE: &[u8] = include_bytes!("../../testdata/page-change-sample.json");
     const ENWIKI_SAMPLE: &[u8] = include_bytes!("../../testdata/page-change-sample-enwiki.json");
@@ -242,6 +256,38 @@ mod tests {
                 matches!(&claims[0], WorldEvent::EntityObserved {key, ..} if key.as_str().ends_with(value["performer"]["user_text"].as_str().ok_or("name")?))
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn delete_sets_deleted_and_a_later_undelete_clears_it() -> TestResult {
+        let mut deleted: Value = serde_json::from_slice(SAMPLE)?;
+        deleted["page_change_kind"] = "delete".into();
+        let page_attrs = |claims: &[WorldEvent]| {
+            claims
+                .iter()
+                .find_map(|c| match c {
+                    WorldEvent::EntityObserved {
+                        entity_type, attrs, ..
+                    } if entity_type == "page" => Some(attrs.clone()),
+                    _ => None,
+                })
+                .expect("a page claim")
+        };
+        let delete_claims = claims(&serde_json::to_vec(&deleted)?).map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            page_attrs(&delete_claims).get("deleted"),
+            Some(&AttrValue::Bool(true))
+        );
+
+        let mut restored: Value = serde_json::from_slice(SAMPLE)?;
+        restored["page_change_kind"] = "undelete".into();
+        let undelete_claims =
+            claims(&serde_json::to_vec(&restored)?).map_err(|e| format!("{e:?}"))?;
+        assert_eq!(
+            page_attrs(&undelete_claims).get("deleted"),
+            Some(&AttrValue::Bool(false))
+        );
         Ok(())
     }
 
