@@ -50,11 +50,10 @@ fn exit_code(result: Result<(), AppError>, format: Format) -> ExitCode {
 fn parse(args: &[String]) -> Result<ServeArgs, String> {
     let uri = match args.first() {
         Some(uri) if !uri.is_empty() && !uri.starts_with("--") => uri.clone(),
-        _ => return Err("missing source after 'serve'. Try: s2w serve wikipedia".to_owned()),
+        _ => return Err("missing source after 'serve'. Try: s2w serve wikipedia".to_owned()), // vocabulary: allow
     };
     let mut log_dir = None;
     let mut port = None;
-    let mut wiki = None;
     let mut world = None;
     let mut index = 1;
     while index < args.len() {
@@ -62,11 +61,10 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
         let slot = match flag {
             "--log-dir" => &mut log_dir,
             "--port" => &mut port,
-            "--wiki" => &mut wiki,
             "--world" => &mut world,
             other => {
                 return Err(format!(
-                    "unexpected argument '{other}': expected --log-dir, --port, --wiki or --world"
+                    "unexpected argument '{other}': expected --log-dir, --port or --world"
                 ));
             }
         };
@@ -92,7 +90,6 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
             p.parse::<u16>()
                 .map_err(|_| "--port needs an integer from 0 to 65535".to_owned())
         })?,
-        wiki,
     })
 }
 
@@ -110,7 +107,6 @@ mod tests {
                 world: "default".to_owned(),
                 log_dir: PathBuf::from("./s2w-data"),
                 port: 4310,
-                wiki: None,
             })
         );
         assert_eq!(
@@ -128,33 +124,6 @@ mod tests {
                 world: "research.v2_test-1".to_owned(),
                 log_dir: PathBuf::from("data"),
                 port: 0,
-                wiki: None,
-            })
-        );
-        assert_eq!(
-            parse(&args(&["wikipedia", "--wiki", "enwiki"])),
-            Ok(ServeArgs {
-                uri: "wikipedia".to_owned(),
-                world: "default".to_owned(),
-                log_dir: PathBuf::from("./s2w-data"),
-                port: 4310,
-                wiki: Some("enwiki".to_owned()),
-            })
-        );
-        assert_eq!(
-            parse(&args(&[
-                "wikipedia",
-                "--wiki",
-                "enwiki",
-                "--world",
-                "research.v2_test-1"
-            ])),
-            Ok(ServeArgs {
-                uri: "wikipedia".to_owned(),
-                world: "research.v2_test-1".to_owned(),
-                log_dir: PathBuf::from("./s2w-data"),
-                port: 4310,
-                wiki: Some("enwiki".to_owned()),
             })
         );
     }
@@ -180,10 +149,7 @@ mod tests {
             vec!["-", "--since", "1"],
             vec!["-", "--json"],
             vec!["-", "extra"],
-            vec!["-", "--wiki"],
-            vec!["-", "--wiki", ""],
-            vec!["-", "--wiki", "  "],
-            vec!["-", "--wiki", "enwiki", "--wiki", "dewiki"],
+            vec!["-", "--wiki", "enwiki"],
         ] {
             assert!(parse(&args(&tail)).is_err(), "accepted {tail:?}");
         }
@@ -215,10 +181,7 @@ mod tests {
     fn json_suffix_is_rejected_as_an_unrecognized_serve_argument() {
         assert_eq!(
             parse(&args(&["-", "--json"])),
-            Err(
-                "unexpected argument '--json': expected --log-dir, --port, --wiki or --world"
-                    .to_owned()
-            )
+            Err("unexpected argument '--json': expected --log-dir, --port or --world".to_owned())
         );
     }
 

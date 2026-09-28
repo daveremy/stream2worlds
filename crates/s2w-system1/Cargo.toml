@@ -1,6 +1,6 @@
 [package]
 name = "s2w-system1"
-description = "System 1 engines: rules and local embeddings, behind one verdict trait."
+description = "System 1 engines behind one verdict trait."
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -16,4 +16,3 @@ s2w-model = { path = "../s2w-model" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-model2vec-rs = { version = "0.3.0", default-features = false, features = ["fancy-regex"] }

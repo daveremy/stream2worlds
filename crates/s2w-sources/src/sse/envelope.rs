@@ -4,10 +4,9 @@
 /// byte-deterministic JSON envelope stored in the log: `{"data":…,"id":…}`.
 ///
 /// The cursor is included so that two distinct events whose `data:` happens to be identical
-/// (arbitrary SSE streams need not carry identity in the payload the way Wikimedia's do) never
-/// collapse into one another under the log's content-hash dedupe — only a genuine redelivery
-/// (same id, same data) does. `data` is never re-parsed, so a redelivered event encodes to
-/// identical bytes.
+/// (nothing requires an SSE payload to carry its own identity) never collapse into one
+/// another under the log's content-hash dedupe — only a genuine redelivery (same id, same
+/// data) does. `data` is never re-parsed, so a redelivered event encodes to identical bytes.
 #[must_use]
 pub(crate) fn envelope(cursor: &str, data: &str) -> String {
     let mut fields = serde_json::Map::new();

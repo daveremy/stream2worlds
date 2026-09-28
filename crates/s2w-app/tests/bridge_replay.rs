@@ -1,20 +1,19 @@
-//! The live bridge against a recorded Wikimedia fixture: log → System 1 → `QueryState`, with no
-//! network. Runs the same scenario over the in-memory log and the durable SQLite log.
+//! The live bridge against a recorded fixture: log → System 1 → `QueryState`, with no network.
+//! Runs the same scenario over the in-memory log and the durable SQLite log. Since decision
+//! 0018 the preset-sourced events run no engine from the default registry, so this exercises
+//! the bridge's routing, batching and resume mechanics over a realistic multi-source log
+//! (routed `stdin`, unrouted preset traffic, unrouted other sources).
 
 use std::cell::Cell;
-use std::collections::BTreeSet;
 use std::time::Duration;
 
-use s2w_app::bridge::{
-    AbstainCounts, Bridge, BridgeConfig, BridgeError, BridgeStats, EngineRegistry, Route,
-};
+use s2w_app::bridge::{Bridge, BridgeConfig, BridgeError, BridgeStats, EngineRegistry, Route};
 use s2w_app::query::{QueryState, Timeline};
-use s2w_core::{AttrValue, NaturalKey, World};
 use s2w_log::{
     EventLog, InMemoryEventLog, InMemoryVerdictStore, LogError, LogPosition, LogReader,
     SqliteEventLog, SqliteVerdictStore, StoredEvent, VerdictStore,
 };
-use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
+use s2w_model::{Cursor, NaturalKey, RawEvent, SourceId, Timestamp};
 use s2w_system1::{AbstainReason, Engine, Verdict};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -35,8 +34,9 @@ fn event(source: &str, i: u8, payload: &[u8]) -> Result<RawEvent, Box<dyn std::e
     })
 }
 
-/// The seven events, in log order: five Wikimedia page changes, one `stdin` merge claim, one
-/// event on a source no engine is routed for.
+/// The seven events, in log order: five recorded page changes (unrouted since decision 0018),
+/// one `stdin` merge claim (routed to the JSON-claims engine), one event on another unrouted
+/// source.
 fn fixture_events() -> Result<Vec<RawEvent>, Box<dyn std::error::Error>> {
     let lines: Vec<&str> = FIXTURE.lines().collect();
     assert_eq!(lines.len(), 5, "fixture holds five page changes");
@@ -46,21 +46,7 @@ fn fixture_events() -> Result<Vec<RawEvent>, Box<dyn std::error::Error>> {
         .iter()
         .map(|line| serde_json::from_str(line))
         .collect::<Result<_, _>>()?;
-    let kinds: Vec<&str> = parsed
-        .iter()
-        .map(|p| p["page_change_kind"].as_str().unwrap_or(""))
-        .collect();
-    assert_eq!(kinds, ["create", "edit", "edit", "move", "delete"]);
-    assert!(
-        parsed.iter().all(|p| p["performer"].is_object()),
-        "every page change carries a performer, so each yields three claims"
-    );
-    assert_eq!(
-        parsed[1]["performer"]["user_id"],
-        parsed[2]["performer"]["user_id"]
-    );
-    assert_eq!(parsed[1]["page"]["page_id"], parsed[2]["page"]["page_id"]);
-    assert_eq!(parsed[1]["wiki_id"], parsed[2]["wiki_id"]);
+    assert!(parsed.iter().all(|p| p["performer"].is_object()));
 
     let mut events = Vec::new();
     for (i, line) in (0u8..).zip(&lines) {
@@ -80,22 +66,6 @@ fn batch_of(batch: usize) -> BridgeConfig {
         batch,
         ..BridgeConfig::default()
     }
-}
-
-fn id(world: &World, key: &str) -> Result<u64, String> {
-    world
-        .id_of(&NaturalKey::new(key))
-        .map(s2w_core::EntityId::get)
-        .ok_or_else(|| format!("no entity for {key}"))
-}
-
-fn edge_weight(world: &World, from: &str, to: &str, kind: &str) -> Result<u64, String> {
-    let (from, to) = (id(world, from)?, id(world, to)?);
-    Ok(world
-        .relationships()
-        .iter()
-        .find(|(r, _)| r.from.get() == from && r.to.get() == to && r.kind == kind)
-        .map_or(0, |(_, weight)| *weight))
 }
 
 fn replay_and_check<R: LogReader, V: VerdictStore>(log: R, verdicts: V) -> TestResult {
@@ -121,82 +91,23 @@ fn replay_and_check<R: LogReader, V: VerdictStore>(log: R, verdicts: V) -> TestR
         totals,
         BridgeStats {
             consumed: 7,
-            proposed_claims: 5 * 3 + 1,
-            unrouted: 1,
-            // Both wikimedia.page_change and the new wikimedia.local_embeddings engine run on
-            // every wikipedia.* event; none of the fixture's five is `enwiki`, so the
-            // embeddings engine abstains `NotMine` on all five (language scope).
-            evaluated: 6 + 5,
-            abstained: AbstainCounts {
-                not_mine: 5,
-                ..AbstainCounts::default()
-            },
+            // Decision 0018's accepted consequence: the five preset events and the kafka
+            // event run no engine from the default registry, so the one `stdin` claim is
+            // the only proposal in the log.
+            proposed_claims: 1,
+            unrouted: 6,
+            evaluated: 1,
             ..BridgeStats::default()
         }
     );
 
-    // Every claim reached the shared state: the handle a server would hold sees the head.
-    assert_eq!(observer.branches()?[0].head, 16);
+    // The claim reached the shared state: the handle a server would hold sees the head.
+    assert_eq!(observer.branches()?[0].head, 1);
 
+    // The merge claim names keys no observation minted, so it folds to a no-op world: the
+    // claim is served, and the world stays empty, exactly as the fold's contract says.
     let world = observer.world_at(None)?;
-    // 4 users and 4 pages were minted; the merge folds the moved page and the deleted page into
-    // one, leaving 7 distinct entities.
-    assert_eq!(world.entities().len(), 8);
-    let distinct: BTreeSet<_> = world.entities().keys().map(|&e| world.resolve(e)).collect();
-    assert_eq!(distinct.len(), 7);
-
-    let deleted = id(&world, "frwiki:page:6998844")?;
-    let state_of_deleted = world
-        .entities()
-        .iter()
-        .find(|(e, _)| e.get() == deleted)
-        .map(|(_, s)| s)
-        .ok_or("deleted page is still an entity")?;
-    assert_eq!(
-        state_of_deleted.attrs.get("deleted"),
-        Some(&AttrValue::Bool(true))
-    );
-
-    assert_eq!(
-        edge_weight(
-            &world,
-            "wikidatawiki:user:1976141",
-            "wikidatawiki:page:135135298",
-            "edit"
-        )?,
-        2,
-        "the repeat edit is one edge seen twice"
-    );
-    assert_eq!(
-        edge_weight(&world, "ptwiki:user:71355", "ptwiki:page:6733701", "move")?,
-        1
-    );
-    assert_eq!(
-        edge_weight(
-            &world,
-            "frwiki:user:621253",
-            "frwiki:page:6998844",
-            "delete"
-        )?,
-        1
-    );
-    assert_eq!(
-        edge_weight(
-            &world,
-            "commonswiki:user:6679151",
-            "commonswiki:page:200412070",
-            "create"
-        )?,
-        1
-    );
-
-    // Order lock: the first event's three claims mint its user before its page, so the prefix
-    // at offset 3 is exactly that user (id 0) and page (id 1) and their one edge.
-    let prefix = observer.world_at(Some(3))?;
-    assert_eq!(prefix.entities().len(), 2);
-    assert_eq!(id(&prefix, "commonswiki:user:6679151")?, 0);
-    assert_eq!(id(&prefix, "commonswiki:page:200412070")?, 1);
-    assert_eq!(prefix.relationships().len(), 1);
+    assert!(world.entities().is_empty());
     Ok(())
 }
 
@@ -358,7 +269,7 @@ fn a_log_error_ends_the_poll_and_the_next_poll_resumes_after_the_last_consumed_e
         "resumes after the one event, no re-fold"
     );
     assert!(second.error.is_none());
-    assert_eq!(observer.branches()?[0].head, 16);
+    assert_eq!(observer.branches()?[0].head, 1);
     Ok(())
 }
 
@@ -388,7 +299,7 @@ fn run_drains_the_log_and_stops_on_shutdown() -> TestResult {
             let task = tokio::spawn(bridge.run(shutdown));
 
             for _ in 0..200 {
-                if observer.branches()?[0].head == 16 {
+                if observer.branches()?[0].head == 1 {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(5)).await;
@@ -396,7 +307,7 @@ fn run_drains_the_log_and_stops_on_shutdown() -> TestResult {
             stop.send(true)?;
             let stats = task.await??;
             assert_eq!(stats.consumed, 7);
-            assert_eq!(stats.proposed_claims, 16);
+            assert_eq!(stats.proposed_claims, 1);
             Ok(())
         })
 }

@@ -3,7 +3,7 @@
 //! payloads to engines.
 
 use s2w_model::SourceId;
-use s2w_system1::{Engine, JsonClaimsEngine, LocalEmbeddingsEngine, WikimediaPageChangeEngine};
+use s2w_system1::{Engine, JsonClaimsEngine};
 
 /// Which source ids a registered engine runs on. Names are compared as text, so routing a name
 /// no source ever produces is not an error; it just never matches.
@@ -11,8 +11,8 @@ use s2w_system1::{Engine, JsonClaimsEngine, LocalEmbeddingsEngine, WikimediaPage
 pub enum Route {
     /// Exactly this source id.
     Exact(&'static str),
-    /// Every source id starting with this prefix. Include the separator (`"wikipedia."`) so
-    /// the prefix cannot match a longer sibling name (`"wikipediafoo"`).
+    /// Every source id starting with this prefix. Include the separator (`"stdin."`) so
+    /// the prefix cannot match a longer sibling name (`"stdinfoo"`).
     Prefix(&'static str),
 }
 
@@ -58,23 +58,13 @@ impl EngineRegistry {
         Self::default()
     }
 
-    /// The first-slice routing: Wikimedia page changes to the rules engine and the local
-    /// embeddings engine (decision 0013), `stdin` to the JSON-claims engine.
+    /// The first-slice routing: `stdin` to the JSON-claims engine. Everything else is
+    /// unrouted until a discovery-based engine exists (decision 0018: no compiled code may
+    /// key on a stream's domain, so the retired domain-bound engines have no successor here).
     #[must_use]
     pub fn with_defaults() -> Self {
-        // Three distinct names, so `register`'s version check cannot fire.
         Self {
-            routes: vec![
-                (
-                    Route::Prefix("wikipedia."),
-                    Box::new(WikimediaPageChangeEngine),
-                ),
-                (
-                    Route::Prefix("wikipedia."),
-                    Box::new(LocalEmbeddingsEngine::new()),
-                ),
-                (Route::Exact("stdin"), Box::new(JsonClaimsEngine)),
-            ],
+            routes: vec![(Route::Exact("stdin"), Box::new(JsonClaimsEngine))],
         }
     }
 
@@ -181,13 +171,12 @@ mod tests {
     }
 
     #[test]
-    fn defaults_route_wikipedia_and_stdin_and_nothing_else() -> Result<(), ModelError> {
+    fn defaults_route_stdin_and_nothing_else() -> Result<(), ModelError> {
+        // Decision 0018's accepted consequence: a preset-sourced event runs no engine from
+        // the default registry until a discovery-based engine exists.
         let registry = EngineRegistry::with_defaults();
-        assert_eq!(
-            names(&registry, "wikipedia.page_change")?,
-            ["wikimedia.page_change", "wikimedia.local_embeddings"]
-        );
         assert_eq!(names(&registry, "stdin")?, ["json_claims"]);
+        assert!(names(&registry, "wikipedia.page_change")?.is_empty());
         assert!(names(&registry, "kafka.orders")?.is_empty());
         Ok(())
     }
@@ -237,10 +226,14 @@ mod tests {
     }
 
     #[test]
-    fn prefix_includes_its_separator() -> Result<(), ModelError> {
-        let registry = EngineRegistry::with_defaults();
-        assert!(names(&registry, "wikipediafoo")?.is_empty());
-        assert!(names(&registry, "stdin.extra")?.is_empty());
+    fn prefix_includes_its_separator() -> TestResult {
+        let mut registry = EngineRegistry::new();
+        registry.register(Route::Prefix("a."), Box::new(Named("one")))?;
+        assert_eq!(names(&registry, "a.b")?, ["one"]);
+        assert!(
+            names(&registry, "afoo")?.is_empty(),
+            "no sibling-name match"
+        );
         Ok(())
     }
 }

@@ -1,5 +1,5 @@
 //! The generic SSE adapter: `sse://`, `https://` and `http://` URIs, and the transport under
-//! presets such as `wikipedia`.
+//! presets such as `wikipedia`. // vocabulary: allow
 //!
 //! Transport failures, non-success HTTP responses and server disconnects are retried with
 //! capped exponential backoff. Once a valid cursor has been seen, reconnects send it as
@@ -10,6 +10,7 @@ mod connect;
 mod dialect;
 mod envelope;
 mod frame;
+mod since_param;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -26,12 +27,13 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
-pub(crate) use dialect::{Opaque, SinceError, SseDialect, header_safe};
+pub(crate) use dialect::{Opaque, SinceError, SseDialect};
 use frame::{FrameParser, RawFrame};
+pub(crate) use since_param::SinceQueryParam;
 
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
 
-/// The `User-Agent` every SSE request sends (Wikimedia's policy asks for a descriptive one).
+/// The `User-Agent` every SSE request sends.
 pub(crate) const USER_AGENT: &str =
     "stream2worlds/0.0.0 (https://github.com/daveremy/stream2worlds)";
 const CHANNEL_CAPACITY: usize = 64;
