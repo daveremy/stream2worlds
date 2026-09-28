@@ -1,6 +1,7 @@
 # s2w-log
 
-The append-only event log with source cursors, receipt times and provenance.
+The durable append-only stores: the event log with source cursors, receipt times and provenance,
+and the System 1 verdict store beside it (s2w#63).
 
 ## Allowed dependencies
 
@@ -31,3 +32,24 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Append-only behavior is enforced by both the Rust API and SQLite triggers. SQLite's
   `recursive_triggers` setting is per connection, so a separate raw connection must enable it
   to prevent `INSERT OR REPLACE` from bypassing a delete trigger.
+- `StoredEvent.content_hash` is the event's FNV-1a payload hash as stored (`i64`); both log
+  implementations compute it with the same function.
+
+## Verdict store
+
+- `VerdictStore` is the seam; `SqliteVerdictStore::open(dir)` keeps `verdicts.sqlite3` beside
+  `events.sqlite3` with its own writer lock (`VERDICTS_LOCK`) and its own `user_version`, so the
+  verdict writer (the bridge) and the event writer (ingest) can be different processes (#10).
+  `InMemoryVerdictStore` meets the same contract.
+- Rows are opaque bytes keyed `UNIQUE(position, engine, version)`, with `seq` (AUTOINCREMENT
+  rowid) as write order and `event_hash` binding each row to the exact event it judged. This
+  crate never decodes a verdict or its provenance; it does not depend on `s2w-system1`.
+- Append-only: SQLite triggers refuse update and delete of verdict rows.
+- `commit_batch` is one transaction: every row plus the bridge cursor, all or nothing, WAL with
+  `synchronous=FULL`. A duplicate key or a row after `through` is `LogError::Corrupt` and
+  stores nothing. An empty batch at or below the cursor is a no-op with no fsync.
+- The bridge cursor is monotonic: `commit_batch` writes `max(cursor, through)` and a trigger
+  refuses lowering or deleting it. It means "positions some bridge consumed", not "every
+  engine evaluated through here": a newly registered engine stores rows below it.
+- There is no foreign key to the events table; the bridge checks `cursor <= log head` and each
+  replayed row's `event_hash` against the event, and a mismatch is loud.
