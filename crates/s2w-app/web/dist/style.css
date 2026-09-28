@@ -29,16 +29,14 @@ td, th { padding: 8px 12px; border-bottom: 1px solid var(--s2w-line-soft, #28394
 td:last-child { overflow-wrap: anywhere; } td:first-child { font-variant-numeric: tabular-nums; }
 footer { margin-top: 20px; font-size: 13px; } a { color: var(--s2w-accent, #70c9ee); }
 
-/* Instance home page (#144 PR 2): a grid of world cards, each accented from its own palette. */
-#worlds { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: 1rem; }
-.world-card { --card-accent: var(--card-accent-light, var(--s2w-accent, #2f6fdb)); display: block;
-  padding: 1rem; border: 1px solid currentColor; border-top: 4px solid var(--card-accent);
-  border-radius: 6px; color: inherit; text-decoration: none; }
-@media (prefers-color-scheme: dark) {
-  .world-card { --card-accent: var(--card-accent-dark, var(--s2w-accent, #6fa0ff)); }
-}
-.world-card:hover, .world-card:focus-visible { outline: 2px solid var(--card-accent); }
-.world-card h2 { margin: 0 0 .25rem; }
-.world-card .tagline { font-style: italic; margin: 0 0 .5rem; }
-.world-card .description { margin: 0 0 .5rem; }
-.world-card .meta, .empty { opacity: .7; margin: 0; }
+/* Instance home page (#144 PR 2): a grid of world cards, each accented from its own palette.
+   The page is dark-only, so the dark accent wins and the light one is only a fallback. */
+#worlds { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.world-card { --card-accent: var(--card-accent-dark, var(--card-accent-light, #70c9ee)); display: block;
+  padding: 12px 14px; border: 1px solid var(--s2w-line, #33485d); border-top: 4px solid var(--card-accent);
+  border-radius: 8px; color: inherit; text-decoration: none; }
+.world-card:hover { border-color: var(--card-accent); }
+.world-card h2 { margin: 0 0 4px; }
+.world-card .tagline { font-style: italic; margin: 0 0 8px; }
+.world-card .description { margin: 0 0 8px; }
+.world-card .meta, #worlds .empty { color: var(--s2w-ink, #9cb1c7); margin: 0; }

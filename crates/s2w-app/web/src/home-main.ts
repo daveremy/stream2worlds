@@ -14,7 +14,6 @@ async function start(signal: AbortSignal, container: HTMLElement, status: HTMLEl
   status.textContent = '';
 }
 
-
 const status = document.querySelector<HTMLElement>('#home-status')!;
 const container = document.querySelector<HTMLElement>('#worlds')!;
 const controller = new AbortController();

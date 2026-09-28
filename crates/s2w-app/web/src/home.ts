@@ -1,12 +1,11 @@
 // Instance home page (stream2worlds#144 PR 2): a dashboard of the worlds this instance serves.
 // Side-effect free and free of runtime imports of api.ts (Node's test loader needs extensions),
 // so tests can load it; the fetching bootstrap lives in home-main.ts.
-import type { WorldPresentation } from './api';
+import type { WorldPresentation, WorldSummary } from './api';
 // @ts-expect-error tsconfig's Bundler resolution forbids the extension; Node's native
 // TypeScript stripping (home.test.mjs importing this file directly) requires it.
 import { worldPathFor } from './url.ts';
 
-export type WorldSummary = { world: string; name: string; head: number; title?: string | null; tagline?: string | null };
 export type WorldCard = {
   world: string; head: number; title: string; tagline?: string; description?: string;
   accentLight?: string; accentDark?: string;

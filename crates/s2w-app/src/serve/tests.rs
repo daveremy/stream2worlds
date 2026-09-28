@@ -480,7 +480,8 @@ fn bare_root_serves_the_home_dashboard_and_the_world_view_serves_the_shell() {
         );
         let (status, _, body) = web_response(&full_app, "/home.js").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(!body.is_empty());
+        let home_js = std::fs::read(dist.join("home.js")).expect("home.js");
+        assert_eq!(body.as_ref(), home_js.as_slice());
         // An unknown path is pinned, not assumed: it must not serve either page as a 200.
         let (status, _, _) = web_response(&full_app, "/nope").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
