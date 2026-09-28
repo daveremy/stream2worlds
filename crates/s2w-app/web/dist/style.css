@@ -8,6 +8,13 @@ input { width: 115px; } button { cursor: pointer; } button:hover { background: #
 :focus-visible { outline: 2px solid #70c9ee; outline-offset: 3px; }
 #status { color: #ffc77d; min-height: 1.5em; } #position { color: #9cb1c7; }
 #graph { height: 48vh; min-height: 260px; overflow: hidden; border: 1px solid #33485d; border-radius: 8px; }
+.graph-details { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+#legend, #active { display: grid; grid-template-columns: auto 1fr; align-content: start; gap: 6px 18px;
+  padding: 12px 14px; border: 1px solid #33485d; border-radius: 8px; background: #101c2b; }
+#legend h3, #active h3 { margin: 0; font-size: 14px; color: #c8d8e8; }
+#legend ul, #active ul { margin: 0; padding: 0; list-style: none; }
+#legend li, #active li { margin-bottom: 3px; font-size: 13px; }
+.swatch { display: inline-block; width: 10px; height: 10px; margin-right: 7px; border-radius: 2px; }
 h2 { font-size: 18px; } small { font-size: 13px; font-weight: normal; margin-left: 12px; }
 .table-scroll { max-height: 42vh; overflow: auto; } table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th { position: sticky; top: 0; background: #17283b; text-align: left; } td, th { padding: 8px 12px; border-bottom: 1px solid #28394d; }
