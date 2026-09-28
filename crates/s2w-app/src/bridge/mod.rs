@@ -126,6 +126,19 @@ pub struct SourceStats {
     pub recent_unrouted: VecDeque<StoredEvent>,
 }
 
+impl SourceStats {
+    /// Pushes one more unrouted event, evicting the oldest until the ring is back at
+    /// [`RECENT_UNROUTED_CAP`]. The one place the cap invariant lives — `judge_event` (per
+    /// batch) and [`Bridge::absorb_source_stats`] (folding a committed batch into the bridge's
+    /// running totals) both push through this.
+    fn push_recent_unrouted(&mut self, event: StoredEvent) {
+        self.recent_unrouted.push_back(event);
+        while self.recent_unrouted.len() > RECENT_UNROUTED_CAP {
+            self.recent_unrouted.pop_front();
+        }
+    }
+}
+
 /// One [`Bridge::poll_once`].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PollReport {
@@ -375,11 +388,8 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             let entry = self.per_source.entry(source.clone()).or_default();
             entry.consumed += stats.consumed;
             entry.unrouted += stats.unrouted;
-            entry
-                .recent_unrouted
-                .extend(stats.recent_unrouted.iter().cloned());
-            while entry.recent_unrouted.len() > RECENT_UNROUTED_CAP {
-                entry.recent_unrouted.pop_front();
+            for event in stats.recent_unrouted.iter().cloned() {
+                entry.push_recent_unrouted(event);
             }
         }
         // Telemetry, not claims: the one write to QueryState besides `append` (see AGENTS.md).

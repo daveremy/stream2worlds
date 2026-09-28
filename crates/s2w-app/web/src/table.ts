@@ -43,8 +43,8 @@ export function renderTable(table: HTMLTableElement, state: ViewState): void {
   // an unrouted source sees the stream is alive (#143). Falls through to the normal judged
   // path — and clears any stale raw-render cache — the moment evidence starts arriving.
   if (state.evidence.length === 0) {
-    if (renderRawEvidence(table, state)) { renderedTables.delete(table); return; }
     renderedTables.delete(table);
+    if (renderRawEvidence(table, state)) return;
   }
   const timestamp = state.evidence.some(row => row.ts !== undefined);
   const rendered = renderedTables.get(table);

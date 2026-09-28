@@ -5,7 +5,7 @@ use s2w_log::{LogError, LogPosition, LogReader, StoredEvent, StoredVerdict, Verd
 use s2w_model::{Timestamp, WorldEvent};
 use s2w_system1::{AbstainReason, Verdict};
 
-use super::{Bridge, BridgeStats, RECENT_UNROUTED_CAP, SourceStats, evaluate_one};
+use super::{Bridge, BridgeStats, SourceStats, evaluate_one};
 
 /// One poll batch, judged but not yet committed or served.
 #[derive(Default)]
@@ -92,10 +92,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         if engines.is_empty() {
             stats.unrouted += 1;
             per_source.unrouted += 1;
-            per_source.recent_unrouted.push_back(event.clone());
-            while per_source.recent_unrouted.len() > RECENT_UNROUTED_CAP {
-                per_source.recent_unrouted.pop_front();
-            }
+            per_source.push_recent_unrouted(event.clone());
             if !self.warned_unrouted.contains(&event.event.source) {
                 self.warned_unrouted.insert(event.event.source.clone());
                 eprintln!(
