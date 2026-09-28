@@ -156,20 +156,25 @@ impl VerdictRecord {
 pub fn evaluate_stored(stored: &StoredEvent, engines: &[&dyn Engine]) -> Vec<VerdictRecord> {
     engines
         .iter()
-        .map(|engine| {
-            let verdict = catch_unwind(AssertUnwindSafe(|| engine.evaluate(&stored.event)))
-                .unwrap_or_else(|panic| Verdict::Abstain {
-                    reason: AbstainReason::Panicked(panic_message(panic.as_ref())),
-                });
-            VerdictRecord {
-                position: stored.position,
-                engine: engine.name(),
-                version: engine.version(),
-                verdict,
-                provenance: None,
-            }
-        })
+        .map(|engine| evaluate_one(stored, *engine))
         .collect()
+}
+
+/// [`evaluate_stored`] for one engine.
+fn evaluate_one(stored: &StoredEvent, engine: &dyn Engine) -> VerdictRecord {
+    let verdict =
+        catch_unwind(AssertUnwindSafe(|| engine.evaluate(&stored.event))).unwrap_or_else(|panic| {
+            Verdict::Abstain {
+                reason: AbstainReason::Panicked(panic_message(panic.as_ref())),
+            }
+        });
+    VerdictRecord {
+        position: stored.position,
+        engine: engine.name(),
+        version: engine.version(),
+        verdict,
+        provenance: None,
+    }
 }
 
 fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
@@ -213,8 +218,10 @@ pub struct Bridge<R: LogReader, V: VerdictStore> {
     state: QueryState,
     config: BridgeConfig,
     last: Option<LogPosition>,
-    /// The verdict store's cursor at start: the log must reach it (store ahead of log is
-    /// corruption).
+    /// The verdict store's cursor at start. The log must reach it: a poll that reaches the end
+    /// of the log below it reports `Corrupt` (the store is ahead of the log). Read once, on
+    /// purpose: every stored row sits at or below the cursor, so a truncated log whose prefix
+    /// still matches serves correctly up to its end, and replaced events fail the hash check.
     store_cursor: Option<LogPosition>,
     warned_unrouted: BTreeSet<SourceId>,
     stats: BridgeStats,
@@ -324,8 +331,13 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
     }
 
     fn finish(&self, report: PollReport) -> PollReport {
-        if let Some(error) = &report.error {
-            eprintln!("s2w: bridge: poll ended early, will retry: {error}");
+        match &report.error {
+            Some(error @ LogError::Corrupt(_)) => eprintln!(
+                "s2w: bridge: the verdict store and the log disagree; the bridge cannot advance \
+                 past this point until that is repaired: {error}"
+            ),
+            Some(error) => eprintln!("s2w: bridge: poll ended early, will retry: {error}"),
+            None => {}
         }
         report
     }

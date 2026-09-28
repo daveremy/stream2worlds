@@ -5,7 +5,7 @@ use s2w_log::{LogError, LogPosition, LogReader, StoredEvent, StoredVerdict, Verd
 use s2w_model::{Timestamp, WorldEvent};
 use s2w_system1::{AbstainReason, Verdict};
 
-use super::{Bridge, BridgeStats, evaluate_stored};
+use super::{Bridge, BridgeStats, evaluate_one};
 
 /// One poll batch, judged but not yet committed or served.
 #[derive(Default)]
@@ -111,20 +111,19 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
                 }
                 verdicts.push(verdict);
             } else {
-                for record in evaluate_stored(event, &[engine]) {
-                    stats.evaluated += 1;
-                    if let Verdict::Abstain {
-                        reason: AbstainReason::Panicked(message),
-                    } = &record.verdict
-                    {
-                        eprintln!(
-                            "s2w: bridge: engine '{}' panicked at log position {at}: {message}",
-                            record.engine
-                        );
-                    }
-                    new_rows.push(record.to_stored(event.content_hash)?);
-                    verdicts.push(record.verdict);
+                let record = evaluate_one(event, engine);
+                stats.evaluated += 1;
+                if let Verdict::Abstain {
+                    reason: AbstainReason::Panicked(message),
+                } = &record.verdict
+                {
+                    eprintln!(
+                        "s2w: bridge: engine '{}' panicked at log position {at}: {message}",
+                        record.engine
+                    );
                 }
+                new_rows.push(record.to_stored(event.content_hash)?);
+                verdicts.push(record.verdict);
             }
         }
 
