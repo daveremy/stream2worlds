@@ -192,7 +192,7 @@ async fn serve_live(
     };
     supervise(
         async {
-            group_commit::pump_events(&mut writer, started.stream).await?;
+            group_commit::pump_events(&mut writer, started.stream, name).await?;
             match started.ends {
                 Ending::AtEndOfInput => Ok(()),
                 Ending::Never => Err(AppError::StreamEnded(name)),

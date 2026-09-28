@@ -23,6 +23,13 @@ jobs:
         run: cargo test --workspace
       - name: fitness functions
         run: cargo run --quiet --package xtask -- check  # not the alias: a .cargo/config would hide it
+      - name: demo scripts (offline only -- demos themselves read a live stream, run them yourself)
+        run: |
+          shopt -s nullglob
+          scripts=(demos/*/run.sh)
+          [ "${#scripts[@]}" -gt 0 ]
+          for script in "${scripts[@]}"; do bash -n "$script"; done
+          shellcheck --severity=error "${scripts[@]}"
       - name: licenses and advisories
         uses: EmbarkStudios/cargo-deny-action@v2
         with:

@@ -114,6 +114,12 @@ impl Source for SseSource {
                 source_id,
                 dialect,
             };
+            // Reported before the move below so a restart's resume point is visible on
+            // stderr, not just inferable from row-count growth (demo evidence, s2w#87).
+            let note = match &plan.initial_cursor {
+                Some(cursor) => format!("resuming from stored cursor {cursor}"),
+                None => "no stored cursor; starting fresh".to_owned(),
+            };
             let (stream, task) = spawn(
                 connector,
                 state,
@@ -125,7 +131,7 @@ impl Source for SseSource {
             Ok(Started {
                 stream: Box::pin(stream),
                 ends: Ending::Never,
-                notes: Vec::new(),
+                notes: vec![note],
             })
         })
     }

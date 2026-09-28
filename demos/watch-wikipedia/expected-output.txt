@@ -1,0 +1,21 @@
+== stream2worlds: watch-wikipedia demo ==
+log dir: .demo-data/watch-wikipedia-2715150 (temporary, removed on exit)
+
+-- first run: 20s --
+s2w: wikipedia: no stored cursor; starting fresh
+s2w: wikipedia: 12.4 events/s, 62 total, last event 47.5ms ago
+s2w: wikipedia: 15.6 events/s, 140 total, last event 129.8ms ago
+s2w: wikipedia: 15.2 events/s, 216 total, last event 66.7ms ago
+log now holds 276 events total
+stored cursor: [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1790568191184},{"topic":"codfw.mediawiki.page_change.v1","partition":0,"offset":-1}]
+
+-- restart against the same log dir: 15s --
+watch the per-run total below start near 0 again (it is not cumulative across restarts) while the log's own row count keeps growing from where it left off
+watch stderr above (once this run starts) for 's2w: wikipedia: resuming from stored cursor ...' -- that line, not just growing counts, is the direct evidence the restart used the saved cursor rather than reconnecting fresh
+s2w: wikipedia: resuming from stored cursor [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1790568191184},{"topic":"codfw.mediawiki.page_change.v1","partition":0,"offset":-1}]
+s2w: wikipedia: 13.2 events/s, 66 total, last event 18.9ms ago
+s2w: wikipedia: 16.2 events/s, 147 total, last event 104.5ms ago
+log now holds 496 events total (was 276 before the restart) -- nothing was replayed from scratch
+stored cursor advanced from [{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1790568191184},{"topic":"codfw.mediawiki.page_change.v1","partition":0,"offset":-1}] to [{"topic":"codfw.mediawiki.page_change.v1","partition":0,"offset":-1},{"topic":"eqiad.mediawiki.page_change.v1","partition":0,"timestamp":1790568206492}] -- the restart resumed from it, it did not start over
+
+== done ==

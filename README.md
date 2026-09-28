@@ -27,6 +27,16 @@
 - **Verdicts survive restarts.** Stored judgments rebuild the world without calling the engine again. [Decision 0012](docs/decisions/0012-verdict-log.md)
 - **In progress:** the evidence view and bundle pipeline ([#10](https://github.com/daveremy/stream2worlds/issues/10)); threshold/margin calibration for the embeddings engine against real `enwiki` traffic.
 
+## Demos
+
+One command each after `cargo build --release`, no other configuration. Newest first — see
+[`demos/`](demos/) for what each one shows and a captured real run.
+
+- **[serve-wikipedia](demos/serve-wikipedia/)**: `./demos/serve-wikipedia/run.sh` — one process
+  ingests Wikipedia's live edits and serves the resulting world over HTTP.
+- **[watch-wikipedia](demos/watch-wikipedia/)**: `./demos/watch-wikipedia/run.sh` — live stream
+  into a durable log, with a progress line while healthy and a resume across restart.
+
 ---
 
 ## The idea

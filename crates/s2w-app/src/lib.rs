@@ -103,7 +103,7 @@ pub async fn run_watch(args: WatchArgs) -> Result<(), AppError> {
     for note in &started.notes {
         eprintln!("s2w: {name}: {note}");
     }
-    group_commit::pump_events(&mut log, started.stream).await?;
+    group_commit::pump_events(&mut log, started.stream, name).await?;
     match started.ends {
         Ending::AtEndOfInput => Ok(()),
         Ending::Never => Err(AppError::StreamEnded(name)),
