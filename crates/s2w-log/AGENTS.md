@@ -5,7 +5,7 @@ and the System 1 verdict store beside it (s2w#63).
 
 ## Allowed dependencies
 
-- `s2w-model`, `rusqlite`
+- `s2w-model`, `rusqlite`, `serde`, `serde_json`
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -57,3 +57,24 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - There is no foreign key to the events table; the bridge checks `cursor <= log head` and each
   replayed row's `event_hash` against the event, and a mismatch is loud.
 - No domain knowledge in this crate; see decision 0018.
+
+## Presentation
+
+- `WorldPresentation` (title, tagline, description, palettes, typefaces) is operator-authored
+  viewer styling, stored in `world_presentation` alongside events and membership: append-only
+  (latest row per world wins, unlike `WorldManifest`'s create-once identity), with an `origin`
+  column (`'operator'` today; `'discovered'` reserved for a follow-up issue) so a proposed
+  record can later be told apart from an accepted one without another schema bump.
+- Two types by design: `WorldPresentationInput` (`#[serde(deny_unknown_fields)]`) is the CLI
+  write-path shape — a typo'd key is a loud error. `WorldPresentation` (`#[serde(default)]` on
+  every field) is the load-path shape — an older or partial row must still deserialize. They
+  are not the same struct because the two attributes cannot both apply to one type.
+- `validate()` runs only on `set` (the write path); `load` never re-validates, and a corrupt
+  (undecodable) row is a loud `LogError::Corrupt`, never a silent `None` — matches the
+  "a cursor that cannot be decoded is a loud error" invariant elsewhere in this crate.
+- `set` refuses a world with no `WorldManifest` row: presentation cannot exist for a world that
+  does not.
+- Schema version 4 (bumped from 3): `migrate_v3_to_v4` adds the table via idempotent
+  `CREATE TABLE IF NOT EXISTS`, mirroring `migrate_v2_to_v3`. `open_sqlite_store`'s dispatch
+  chains a v2 database straight through v3 to v4 in one `open()` call — it never stops at the
+  intermediate version.

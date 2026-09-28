@@ -16,11 +16,13 @@ use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
 
 mod manifest;
 mod membership;
+mod presentation;
 mod reader;
 mod verdicts;
 
 pub use manifest::WorldManifest;
 pub use membership::{EffectiveFrom, MembershipRow, members_at};
+pub use presentation::{Palette, Typefaces, WorldPresentation, WorldPresentationInput};
 pub use reader::LogReader;
 pub use verdicts::{
     InMemoryVerdictStore, ReadOnlySqliteVerdictStore, SqliteVerdictStore, StoredVerdict,
@@ -29,7 +31,7 @@ pub use verdicts::{
 
 const DATABASE_FILE: &str = "events.sqlite3";
 const LOCK_FILE: &str = "LOCK";
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const REPLAY_PAGE_SIZE: i64 = 256;
 const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
@@ -84,8 +86,11 @@ fn open_sqlite_store(
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(map_sqlite)?;
-    if database_file == DATABASE_FILE && version == 2 && schema_version == 3 {
+    if database_file == DATABASE_FILE && version == 2 {
         membership::migrate_v2_to_v3(&mut connection)?;
+        presentation::migrate_v3_to_v4(&mut connection)?;
+    } else if database_file == DATABASE_FILE && version == 3 {
+        presentation::migrate_v3_to_v4(&mut connection)?;
     } else if version != 0 && version != schema_version {
         return Err(LogError::Corrupt(schema_mismatch(version)));
     }
@@ -231,6 +236,8 @@ pub enum LogError {
     InvalidCursor(ModelError),
     /// Re-adding requires a cursor until adapters can resolve a live tail.
     ReaddRequiresCursor,
+    /// A presentation record failed validation before being written.
+    InvalidPresentation(String),
 }
 
 impl fmt::Display for LogError {
@@ -244,6 +251,9 @@ impl fmt::Display for LogError {
                 "re-add requires an explicit cursor: adapters cannot resolve a live tail",
             ),
             Self::InvalidCursor(error) => write!(formatter, "invalid stored cursor: {error}"),
+            Self::InvalidPresentation(message) => {
+                write!(formatter, "invalid presentation: {message}")
+            }
         }
     }
 }
@@ -256,7 +266,8 @@ impl Error for LogError {
             | Self::Corrupt(_)
             | Self::Locked
             | Self::TooLarge
-            | Self::ReaddRequiresCursor => None,
+            | Self::ReaddRequiresCursor
+            | Self::InvalidPresentation(_) => None,
         }
     }
 }
@@ -720,10 +731,11 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
             BEFORE DELETE ON events BEGIN
                 SELECT RAISE(ABORT, 'events are append-only: delete refused');
             END;
-            PRAGMA user_version = 3;",
+            PRAGMA user_version = 4;",
         )
         .map_err(map_sqlite)?;
     membership::initialize(&transaction)?;
+    presentation::initialize(&transaction)?;
     transaction.commit().map_err(map_sqlite)
 }
 

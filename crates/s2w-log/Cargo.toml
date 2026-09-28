@@ -14,3 +14,5 @@ workspace = true
 [dependencies]
 rusqlite = { version = "0.40", features = ["bundled"] }
 s2w-model = { path = "../s2w-model" }
+serde = { workspace = true }
+serde_json = { workspace = true }
