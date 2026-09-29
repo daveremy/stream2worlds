@@ -6,7 +6,9 @@
 //! `MappingEngine`, the executor `serve` runs: every predicted cluster must be an entity the
 //! engine proposes for that record, and every entity it proposes must be a cluster. It then reads
 //! the mapping as a key spec ([`key::KeySpec::from_mapping`]) and checks the key executor
-//! places the same mentions in the same clusters.
+//! places the same mentions in the same clusters, grades the mapping against that key with
+//! [`score`] (it and the oracle ceiling must score 1.0), and prints the contract's frozen
+//! fixtures (B3: the 4/9 case and an all-singletons prediction).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -23,6 +25,7 @@ use serde_json::Value;
 
 pub(crate) mod key;
 pub(crate) mod mentions;
+pub(crate) mod score;
 
 /// Runs `cargo xtask h-measure <args>`.
 pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
@@ -49,7 +52,8 @@ fn selftest(root: &Path) -> Result<String, String> {
     let payloads = jsonl(&read(root, SAMPLE)?)?;
     let mapping: StreamMapping = serde_json::from_str(&read(root, SAMPLE_MAPPING)?)
         .map_err(|e| format!("{SAMPLE_MAPPING}: {e}"))?;
-    let predicted = mentions::mapping_mentions(&mapping, &payloads)?;
+    let corpus = mentions::Decoded::new(&payloads, &mapping.decode);
+    let predicted = mentions::mapping_mentions(&mapping, &corpus)?;
     let proposed = engine_entities(&mapping, &payloads)?;
     let executed: BTreeSet<(usize, String)> = predicted
         .cluster
@@ -73,7 +77,7 @@ fn selftest(root: &Path) -> Result<String, String> {
         ));
     }
     let own_key = key::KeySpec::from_mapping(&mapping)?;
-    let graded = mentions::key_mentions(&own_key, &payloads)?;
+    let graded = mentions::key_mentions(&own_key, &corpus)?.partition;
     if graded != predicted {
         let first = graded
             .cluster
@@ -93,12 +97,61 @@ fn selftest(root: &Path) -> Result<String, String> {
         ));
     }
     let clusters: BTreeSet<&String> = predicted.cluster.values().collect();
+    grades_itself_perfectly(&own_key, &mapping, &payloads)?;
     Ok(format!(
-        "h-measure selftest: executor parity with MappingEngine and with the mapping's own key on {SAMPLE}: {} records, {} mentions, {} clusters",
+        "h-measure selftest: executor parity with MappingEngine and with the mapping's own key on {SAMPLE}: {} records, {} mentions, {} clusters; graded against its own key: F1 1, recovery 1, ceiling 1\n{}",
         payloads.len(),
         predicted.cluster.len(),
-        clusters.len()
+        clusters.len(),
+        reference_fixtures()?
     ))
+}
+
+/// The mapping graded against its own key, and the key's oracle, both score 1.0.
+fn grades_itself_perfectly(
+    own_key: &key::KeySpec,
+    mapping: &StreamMapping,
+    payloads: &[Value],
+) -> Result<(), String> {
+    let own = score::grade(own_key, mapping, payloads)?;
+    for (row, graded) in [("mapping", &own.mapping), ("ceiling", &own.ceiling)] {
+        if graded.micro.f1 != Some(1.0) || graded.recovery != Some(1.0) {
+            return Err(format!(
+                "scorer: {SAMPLE_MAPPING} graded against its own key does not score 1.0 ({row}: {graded:?})"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The contract's frozen fixtures ([`score::frozen_fixtures`]), scored and checked, as a
+/// printed table.
+fn reference_fixtures() -> Result<String, String> {
+    let ninths = |got: Option<f64>, n: f64| got.is_some_and(|x| (9.0 * x - n).abs() < 1e-12);
+    let exact = |got: Option<f64>| ninths(got, 4.0);
+    let mut table = "fixture         P       R       F1      false-merge  recovery".to_owned();
+    for (name, key, prediction) in score::frozen_fixtures() {
+        let row = score::score(&key, &prediction, &BTreeSet::new());
+        let b = row.micro;
+        let holds = match name {
+            "4/9" => {
+                exact(b.precision) && exact(b.recall) && exact(b.f1) && ninths(row.false_merge, 5.0)
+            }
+            _ => row.recovery == Some(0.0),
+        };
+        if !holds {
+            return Err(format!("scorer: the {name} fixture scores {row:?}"));
+        }
+        table.push_str(&format!(
+            "\n{name:<15} {:<7} {:<7} {:<7} {:<12} {}",
+            score::shown(b.precision),
+            score::shown(b.recall),
+            score::shown(b.f1),
+            score::shown(row.false_merge),
+            score::shown(row.recovery)
+        ));
+    }
+    Ok(table)
 }
 
 /// `(record, natural key)` for every entity `MappingEngine` proposes.
