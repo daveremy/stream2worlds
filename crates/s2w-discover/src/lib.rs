@@ -22,7 +22,7 @@ pub use roles::Role;
 /// version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
-pub const PROFILER_VERSION: &str = "3";
+pub const PROFILER_VERSION: &str = "4";
 
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +55,12 @@ pub struct Config {
     pub decode_pct: usize,
     /// Most values an event-type field (stage 3) or a `Category` (stage 4) may have.
     pub category_max: usize,
+    /// The second entity test (s2w#250 PR 2): at least this share of a key's repeat groups must
+    /// come back apart, first event to last spanning `spread_window_pct` of the events profiled.
+    pub spread_groups_pct: usize,
+    /// How far apart, as a share of the events profiled, a repeat group's first and last events
+    /// must be to count toward `spread_groups_pct`.
+    pub spread_window_pct: usize,
 }
 
 impl Default for Config {
@@ -72,6 +78,8 @@ impl Default for Config {
             alias_pct: 99,
             decode_pct: 100,
             category_max: 32,
+            spread_groups_pct: 25,
+            spread_window_pct: 10,
         }
     }
 }
