@@ -172,7 +172,7 @@ H-lite has no user type.
 | base | 0.2843 / 0.2929 | 0.5868 / 0.5661 | |
 | q1-no-wiki (page identity without `wiki`) | 0.2840 / 0.2928 | 0.5868 / 0.5661 | Almost nothing. Pages with one namespace and title on two wikis become one gold entity; H-lite keeps them apart (`title_url` carries the domain), which costs 0.0001 of recall on each span (F1 falls 0.0003 and 0.0001). |
 | q3-rcid-scored (rcid is an entity) | 0.2600 / 0.2672 | 0.6421 / 0.6268 | H-lite mints no rcid entity, so recall falls. |
-| q4-separate (four wiki types) | 0.3898 / 0.4004 | 0.9089 / 0.9054 | The wiki aliases vanish, so both rise (the page alias remains, so the ceiling is 0.91, not 1.0). H-lite's P falls to 0.65 because its `server_name` + `meta.domain` join is now a merge across two types. |
+| q4-separate (four wiki types) | 0.3898 / 0.4004 | 0.9089 / 0.9054 | The wiki aliases vanish, so both rise (the page alias remains, so the ceiling is 0.91, not 1.0). H-lite's P falls to 0.65 to 0.66 because its `server_name` + `meta.domain` join is now a merge across two types. |
 | user-global (user identity without `wiki`) | 0.2843 / 0.2929 | 0.5868 / 0.5661 | Nothing for F1: no user type. |
 | canonical-mention | undefined / undefined | 1.0 / 1.0 | See above. |
 
