@@ -123,7 +123,7 @@ fn start(producer: Producer, dir: &Path, cfg: &DiscoverConfig) -> (bool, Notes) 
     let log = SqliteEventLog::open(dir).expect("log");
     let resolution = routes::load(dir).expect("routes");
     let mut notes = Notes::default();
-    let wrote = run_with(producer, &log, dir, &resolution, cfg, &mut notes);
+    let wrote = run_with(producer, (&log, dir), &resolution, cfg, &mut notes);
     (wrote, notes)
 }
 

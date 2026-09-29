@@ -137,13 +137,12 @@ pub(crate) fn run(
     cfg: &DiscoverConfig,
     reporter: &mut dyn Reporter,
 ) -> bool {
-    run_with(REAL, log, log_dir, resolution, cfg, reporter)
+    run_with(REAL, (log, log_dir), resolution, cfg, reporter)
 }
 
 fn run_with(
     producer: Producer,
-    log: &SqliteEventLog,
-    log_dir: &Path,
+    (log, log_dir): (&SqliteEventLog, &Path),
     resolution: &Resolution,
     cfg: &DiscoverConfig,
     reporter: &mut dyn Reporter,
