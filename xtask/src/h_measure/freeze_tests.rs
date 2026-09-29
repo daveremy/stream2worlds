@@ -207,6 +207,7 @@ fn profile_reads_only_the_development_corpus() {
     }
     let table = super::freeze::profile(&root, &dir, "dev", 3).unwrap();
     assert!(table.contains("| `data` | 3 | 3 | Sparse |"), "{table}");
-    assert!(super::freeze::profile(&root, &dir, "dev", 4).is_err());
+    let err = super::freeze::profile(&root, &dir, "dev", 4).expect_err("window past the corpus");
+    assert!(err.contains("--window 4"), "{err:?}");
     let _ = fs::remove_dir_all(&root);
 }
