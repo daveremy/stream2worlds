@@ -23,13 +23,16 @@
 //!   a freed copy's pages stay resident and pad whichever window comes next.)
 //! - `viewer`: the `bridge` backfill with a reader thread attached before the first poll,
 //!   issuing one `/world` and one `/diff?from=<head>&to=<head>` through the real router every
-//!   [`VIEWER_TICK`] and draining each body, as a page does (at 1 s, the page's old rate, a
-//!   worst case). It asserts the whole-process peak stays under [`VIEWER_PEAK_LIMIT`], and
+//!   tick and draining each body, as a page does. The `/world` carries the last `ETag` in
+//!   `If-None-Match`, so an unchanged head answers 304 before any projection, as the page's
+//!   refresh does. The tick is [`VIEWER_TICK_MS`] milliseconds: 5000 by default (the page's
+//!   `WORLD_REFRESH_MS`), 1000 for the page's old rate, a worst case. It asserts the whole-process peak stays under [`VIEWER_PEAK_LIMIT`], and
 //!   reports the slowest `/world` (an upper bound on how long one read held the fold's lock:
 //!   the guard is held until the last chunk is queued, and the reader drains as it goes) and
 //!   the slowest `poll_once`, which is where the fold waits for that lock.
 //!
-//! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants.
+//! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants;
+//! `S2W_BACKFILL_MEMORY_VIEWER_TICK_MS=1000` sets the `viewer` tick.
 //!
 //! The fixture (11,667 events) is cycled to 1.5x10^5 with every string leaf suffixed by the
 //! cycle number (`fresh`, as in `discover_volume.rs`), so every cycle observes new entities:
@@ -51,7 +54,8 @@ mod backfill {
     use std::time::{Duration, Instant};
 
     use axum::body::Body;
-    use axum::http::{Request, StatusCode};
+    use axum::http::header::{ETAG, IF_NONE_MATCH};
+    use axum::http::{HeaderValue, Request, StatusCode};
     use tokio_stream::StreamExt;
     use tower::ServiceExt;
 
@@ -80,8 +84,17 @@ mod backfill {
     /// The demo box's `MemoryMax`: the most a serve process may hold at its peak with a viewer
     /// connected (s2w#216's finish line).
     const VIEWER_PEAK_LIMIT: usize = 1024 * 1024 * 1024;
-    /// How often the `viewer` reader asks for the world.
-    const VIEWER_TICK: Duration = Duration::from_millis(1000);
+    /// How often, in milliseconds, the `viewer` reader asks for the world. Unset: 5000, the
+    /// page's `WORLD_REFRESH_MS` (the real client); 1000 is the page's old rate, a worst case.
+    const VIEWER_TICK_MS: &str = "S2W_BACKFILL_MEMORY_VIEWER_TICK_MS";
+    const VIEWER_TICK_DEFAULT: Duration = Duration::from_millis(5000);
+
+    /// The `viewer` tick from [`VIEWER_TICK_MS`].
+    fn viewer_tick() -> Duration {
+        std::env::var(VIEWER_TICK_MS).map_or(VIEWER_TICK_DEFAULT, |ms| {
+            Duration::from_millis(ms.parse().expect("S2W_BACKFILL_MEMORY_VIEWER_TICK_MS: ms"))
+        })
+    }
 
     /// A `/proc/self/status` field in bytes (`VmRSS`: resident now, `VmHWM`: peak resident).
     fn status(field: &str) -> usize {
@@ -325,29 +338,34 @@ mod backfill {
     #[derive(Default)]
     struct Viewed {
         worlds: usize,
+        /// `/world` reads answered 304: the head had not moved since the last one.
+        unchanged: usize,
         diffs: usize,
         refused: usize,
         largest_body: usize,
         slowest_world: Duration,
     }
 
-    /// A page's reads until `stop`: every [`VIEWER_TICK`], one `/world` and one `/diff` of the
-    /// head with itself through the real router, each body drained so the JSON is counted.
-    fn viewer(state: &QueryState, stop: &AtomicBool) -> Viewed {
+    /// A page's reads until `stop`: every `tick`, one `/world` (with the last `ETag` in
+    /// `If-None-Match`, so an unmoved head is a 304) and one `/diff` of the head with itself
+    /// through the real router, each body drained so the JSON is counted.
+    fn viewer(state: &QueryState, stop: &AtomicBool, tick_every: Duration) -> Viewed {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         let app = router(state.clone());
         let mut seen = Viewed::default();
-        let get = |uri: String| {
+        let get = |uri: String, etag: Option<&HeaderValue>| {
             let app = app.clone();
+            let mut req = Request::get(uri);
+            if let Some(etag) = etag {
+                req = req.header(IF_NONE_MATCH, etag);
+            }
             runtime.block_on(async move {
-                let res = app
-                    .oneshot(Request::get(uri).body(Body::empty()).unwrap())
-                    .await
-                    .unwrap();
+                let res = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
                 let status = res.status();
+                let etag = res.headers().get(ETAG).cloned();
                 // Chunk by chunk, as a streaming client reads: the reader never holds the
                 // whole body, so the peak is the server's.
                 let mut body = res.into_body().into_data_stream();
@@ -355,26 +373,31 @@ mod backfill {
                 while let Some(chunk) = body.next().await {
                     len += chunk.unwrap().len();
                 }
-                (status, len)
+                (status, len, etag)
             })
         };
+        let mut last_etag: Option<HeaderValue> = None;
         while !stop.load(Ordering::Relaxed) {
             let tick = Instant::now();
-            let (status, len) = get("/worlds/default/world".to_owned());
+            let (status, len, etag) = get("/worlds/default/world".to_owned(), last_etag.as_ref());
             seen.slowest_world = seen.slowest_world.max(tick.elapsed());
-            assert_eq!(status, StatusCode::OK, "/world");
+            match status {
+                StatusCode::OK => last_etag = Some(etag.expect("/world sends an ETag")),
+                StatusCode::NOT_MODIFIED => seen.unchanged += 1,
+                other => panic!("/world answered {other}"),
+            }
             seen.worlds += 1;
             seen.largest_body = seen.largest_body.max(len);
             let (_, head, _) = state.bounds().unwrap();
             // The head can move between the two reads; below the base that is a 410, fine.
-            let (status, len) = get(format!("/worlds/default/diff?from={head}&to={head}"));
+            let (status, len, _) = get(format!("/worlds/default/diff?from={head}&to={head}"), None);
             match status {
                 StatusCode::OK => seen.diffs += 1,
                 StatusCode::GONE => seen.refused += 1,
                 other => panic!("/diff answered {other}"),
             }
             seen.largest_body = seen.largest_body.max(len);
-            std::thread::sleep(VIEWER_TICK.saturating_sub(tick.elapsed()));
+            std::thread::sleep(tick_every.saturating_sub(tick.elapsed()));
         }
         seen
     }
@@ -382,8 +405,11 @@ mod backfill {
     /// Prints what the `viewer` reader saw and asserts the whole-process `peak`.
     fn report_viewer(viewed: &Viewed, peak: usize) {
         eprintln!(
-            "viewer: {} /world, {} /diff ({} refused), largest body {}, slowest /world {} ms",
+            "viewer (tick {} ms): {} /world ({} unchanged, 304), {} /diff ({} refused), \
+             largest body {}, slowest /world {} ms",
+            viewer_tick().as_millis(),
             viewed.worlds,
+            viewed.unchanged,
             viewed.diffs,
             viewed.refused,
             mib(viewed.largest_body),
@@ -442,7 +468,7 @@ mod backfill {
         let stop = Arc::new(AtomicBool::new(false));
         let reader = with_viewer.then(|| {
             let (state, stop) = (state.clone(), Arc::clone(&stop));
-            std::thread::spawn(move || viewer(&state, &stop))
+            std::thread::spawn(move || viewer(&state, &stop, viewer_tick()))
         });
         let (consumed, slowest_poll) = poll_to_end(&mut bridge);
         stop.store(true, Ordering::Relaxed);
