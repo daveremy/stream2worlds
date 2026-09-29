@@ -11,3 +11,5 @@ mod since;
 pub mod source;
 mod sse;
 mod stdin;
+
+pub use sse::replay_frames;

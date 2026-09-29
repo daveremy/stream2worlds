@@ -7,6 +7,12 @@
 //! counted either: it checks the world holds every generated entity (so a fold or generator that
 //! silently drops work cannot pass with a cheaper count) and drops both. Total instructions
 //! divided by [`scale_generator::IR_EVENTS`] is the gated number.
+//!
+//! A second benchmark folds the recorded fixture instead (s2w#174): its setup loads the pinned
+//! recording and runs the committed mapping over it (both uncounted), the measured region folds
+//! every claim in emission order, and the teardown checks the pinned entity and relationship
+//! counts. Its total divided by the fixture's raw event count (`[ir.recorded] events`) is the
+//! second gated number. The two supplies answer different questions and both are gated.
 #![expect(
     missing_docs,
     reason = "gungraun's macros generate undocumented modules, constants and functions"
@@ -19,6 +25,9 @@
 )]
 mod scale_generator;
 
+#[path = "../tests/support/recorded.rs"]
+mod recorded;
+
 use std::hint::black_box;
 
 use gungraun::{library_benchmark, library_benchmark_group, main};
@@ -26,6 +35,11 @@ use s2w_core::{World, fold};
 use s2w_model::WorldEvent;
 
 use scale_generator::{IR_EVENTS, SEED, mixed_events};
+
+/// Entities and relationships after folding every claim of the recorded fixture; the same pins
+/// as `tests/recorded_fixture.rs` and `[memory.recorded]`.
+const RECORDED_ENTITIES: usize = 11_462;
+const RECORDED_RELATIONSHIPS: usize = 19_512;
 
 /// Entities in [`mixed_events`]`(IR_EVENTS, _)`: its 80% entity-observed share.
 const IR_ENTITIES: usize = IR_EVENTS - IR_EVENTS / 5;
@@ -40,6 +54,25 @@ fn check_entities((world, events): (World, Vec<WorldEvent>)) {
     );
 }
 
+/// The setup, outside the measured region: every claim the mapping makes of the fixture.
+fn recorded_claims() -> Vec<WorldEvent> {
+    let claims = recorded::load().and_then(|events| recorded::claims(events, recorded::mapping()?));
+    match claims {
+        Ok(c) => c.claims,
+        Err(e) => panic!("cannot load the recorded fixture: {e}"),
+    }
+}
+
+/// The teardown for the recorded fold: the pinned world, so dropped work cannot measure cheaper.
+fn check_recorded((world, claims): (World, Vec<WorldEvent>)) {
+    assert_eq!(
+        (world.entity_count(), world.relationships().len()),
+        (RECORDED_ENTITIES, RECORDED_RELATIONSHIPS),
+        "the fold of {} recorded claims did not hold the pinned entities and relationships",
+        claims.len()
+    );
+}
+
 #[library_benchmark]
 #[bench::events(args = (mixed_events(IR_EVENTS, SEED)), teardown = check_entities)]
 fn fold_ir_per_event(events: Vec<WorldEvent>) -> (World, Vec<WorldEvent>) {
@@ -47,5 +80,15 @@ fn fold_ir_per_event(events: Vec<WorldEvent>) -> (World, Vec<WorldEvent>) {
     (black_box(world), events)
 }
 
-library_benchmark_group!(name = scale; benchmarks = fold_ir_per_event);
+#[library_benchmark]
+#[bench::fixture(args = (recorded_claims()), teardown = check_recorded)]
+fn fold_ir_per_event_recorded(claims: Vec<WorldEvent>) -> (World, Vec<WorldEvent>) {
+    let world = fold(World::default(), black_box(&claims));
+    (black_box(world), claims)
+}
+
+library_benchmark_group!(
+    name = scale;
+    benchmarks = fold_ir_per_event, fold_ir_per_event_recorded
+);
 main!(library_benchmark_groups = scale);

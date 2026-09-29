@@ -96,3 +96,51 @@ pub(super) struct RawFrame {
     pub(super) id: Option<String>,
     pub(super) data: Option<String>,
 }
+
+/// The frames of a recorded event stream that carry both an `id:` and a `data:` field, as
+/// `(id, data)` in stream order, cut by the same framing a live SSE source uses. For replaying a
+/// recording (the scale fixtures in `s2w-app`, xtask's check 12), so every reader of a recording
+/// shares this one parser. A live source also runs its dialect over each frame; this does not.
+/// A final frame with no terminating blank line is dropped, as a live source never delivers it.
+///
+/// # Errors
+///
+/// A line that is not valid UTF-8, with the parser's reason.
+pub fn replay_frames(bytes: &[u8]) -> Result<Vec<(String, String)>, String> {
+    let mut parser = FrameParser::default();
+    let mut frames = parser.push(bytes);
+    frames.extend(parser.finish());
+    let mut out = Vec::with_capacity(frames.len());
+    for frame in frames {
+        if let RawFrame {
+            id: Some(id),
+            data: Some(data),
+        } = frame?
+        {
+            out.push((id, data));
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replay_frames;
+
+    #[test]
+    fn replay_keeps_frames_with_an_id_and_data_and_joins_multi_line_data() {
+        let text = ": comment\nevent: m\nid: 1\ndata: a\ndata: b\n\ndata: orphan\n\nid: 2\n\nid: 3\r\ndata: c\r\n\r\nid: 4\ndata: unterminated\n";
+        assert_eq!(
+            replay_frames(text.as_bytes()),
+            Ok(vec![
+                ("1".to_owned(), "a\nb".to_owned()),
+                ("3".to_owned(), "c".to_owned()),
+            ])
+        );
+    }
+
+    #[test]
+    fn replay_refuses_a_line_that_is_not_utf8() {
+        assert!(replay_frames(b"id: 1\ndata: \xff\n\n").is_err());
+    }
+}

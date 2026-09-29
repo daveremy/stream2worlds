@@ -30,6 +30,7 @@ use tokio_stream::{Stream, StreamExt};
 use connect::{Backoff, Connect, ConnectError, ReqwestConnect};
 pub(crate) use dialect::{Opaque, SinceError, SseDialect};
 pub(crate) use filtered::FilteredDialect;
+pub use frame::replay_frames;
 use frame::{FrameParser, RawFrame};
 pub(crate) use since_param::SinceQueryParam;
 

@@ -19,10 +19,9 @@ fn the_recorded_fixture_replays_clean() {
 #[test]
 fn envelopes_join_multi_line_data_and_need_an_id() {
     let sse = ": comment\nevent: message\nid: 1\ndata: {\"a\":\ndata: 2}\n\ndata: {}\n\n";
-    let got = envelopes(sse);
     assert_eq!(
-        got,
-        vec![serde_json::json!({"data": "{\"a\":\n2}", "id": "1"})]
+        envelopes(sse),
+        Ok(vec![serde_json::json!({"data": "{\"a\":\n2}", "id": "1"})])
     );
 }
 

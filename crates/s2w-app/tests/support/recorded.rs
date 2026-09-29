@@ -19,8 +19,10 @@
 
 use std::error::Error;
 use std::fs;
+use std::sync::OnceLock;
 
 use s2w_model::{Cursor, Fnv64, RawEvent, SourceId, StreamMapping, Timestamp, WorldEvent};
+use s2w_sources::replay_frames;
 use s2w_system1::{Engine, MappingEngine, Verdict};
 
 /// A fallible result with a boxed error, for test code.
@@ -59,34 +61,17 @@ pub(crate) fn mapping() -> Fallible<StreamMapping> {
     Ok(serde_json::from_str(&fs::read_to_string(MAPPING)?)?)
 }
 
-/// The SSE frames in `text` that carry both a `data` and an `id` field, as `(data, id)`, in
-/// file order. It mirrors xtask's `discover_replay::envelopes` (s2w-sources keeps its own frame
-/// parser private); change both together. Comment lines (`:`) and other fields are skipped; multi-line `data` joins with
-/// `\n`, as the SSE format specifies. A frame missing either field is dropped.
-pub(crate) fn frames(text: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let (mut data, mut id): (Option<String>, Option<String>) = (None, None);
-    for line in text.lines().chain(std::iter::once("")) {
-        if line.is_empty() {
-            if let (Some(d), Some(i)) = (data.take(), id.take()) {
-                out.push((d, i));
-            }
-            continue;
-        }
-        let (field, value) = line.split_once(':').unwrap_or((line, ""));
-        let value = value.strip_prefix(' ').unwrap_or(value);
-        match field {
-            "data" => data = Some(data.map_or_else(|| value.to_owned(), |d| d + "\n" + value)),
-            "id" => id = Some(value.to_owned()),
-            _ => {}
-        }
+/// Every frame of the fixture as a stored envelope, in file order, read, hashed and parsed once
+/// per test binary. Fails if the fixture's bytes are not the pinned ones.
+pub(crate) fn load() -> Fallible<&'static [RawEvent]> {
+    static LOADED: OnceLock<Result<Vec<RawEvent>, String>> = OnceLock::new();
+    match LOADED.get_or_init(|| read_pinned().map_err(|e| e.to_string())) {
+        Ok(events) => Ok(events),
+        Err(e) => Err(e.clone().into()),
     }
-    out
 }
 
-/// Every frame of the fixture as a stored envelope, in file order. Fails if the fixture's bytes
-/// are not the pinned ones.
-pub(crate) fn load() -> Fallible<Vec<RawEvent>> {
+fn read_pinned() -> Fallible<Vec<RawEvent>> {
     let bytes = bytes()?;
     let actual = hash(&bytes);
     if actual != FIXTURE_HASH {
@@ -96,12 +81,12 @@ pub(crate) fn load() -> Fallible<Vec<RawEvent>> {
         )
         .into());
     }
-    let text = String::from_utf8(bytes)?;
     let source = SourceId::new(SOURCE)?;
-    frames(&text)
+    // The live SSE adapter's own framing (s2w-sources), shared with xtask's check 12.
+    replay_frames(&bytes)?
         .into_iter()
         .zip(0_i64..)
-        .map(|((data, id), index)| {
+        .map(|((id, data), index)| {
             let payload = serde_json::to_vec(&serde_json::json!({ "data": data, "id": id }))?;
             Ok(RawEvent {
                 source: source.clone(),

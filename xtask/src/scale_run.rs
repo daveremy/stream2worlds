@@ -12,12 +12,17 @@ use std::process::{Command, ExitCode};
 
 use serde::Deserialize;
 
-use crate::scale::{self, Baseline};
+use crate::scale::{self, Baseline, Supply};
 
 /// The benchmark's output directory under the target directory.
 const OUTPUT: &str = "gungraun/s2w-app/scale_ir";
-/// Its summary, under [`OUTPUT`].
-const SUMMARY: &str = "scale/fold_ir_per_event.events/summary.json";
+/// Each supply's summary, under [`OUTPUT`]: `<group>/<function>.<bench id>`.
+fn summary(supply: Supply) -> &'static str {
+    match supply {
+        Supply::Synthetic => "scale/fold_ir_per_event.events/summary.json",
+        Supply::Recorded => "scale/fold_ir_per_event_recorded.fixture/summary.json",
+    }
+}
 /// The generator whose `IR_EVENTS` the benchmark folds.
 const GENERATOR: &str = "crates/s2w-app/tests/support/scale_generator.rs";
 /// Decision 0004's ingest target, events per second.
@@ -36,7 +41,7 @@ struct Wall {
 pub(super) fn run(root: &Path) -> ExitCode {
     let mut problems = Vec::new();
     match gated(root) {
-        Ok(line) => println!("✓ {line}"),
+        Ok(lines) => lines.iter().for_each(|line| println!("✓ {line}")),
         Err(e) => problems.extend(e),
     }
     match wall(root) {
@@ -55,8 +60,8 @@ pub(super) fn run(root: &Path) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Preflight, the benchmark, and the `[ir]` judgment.
-fn gated(root: &Path) -> Result<String, Vec<String>> {
+/// Preflight, the fixture pin, the benchmarks, and both `[ir]` judgments.
+fn gated(root: &Path) -> Result<Vec<String>, Vec<String>> {
     let baseline = scale::read(root).map_err(|e| vec![e])?;
     preflight(root)?;
     let events = ir_events(root).map_err(|e| vec![e])?;
@@ -67,10 +72,28 @@ fn gated(root: &Path) -> Result<String, Vec<String>> {
             scale::BASELINE
         )]);
     }
+    let fixture = std::fs::read(root.join(scale::FIXTURE)).map_err(|e| {
+        vec![format!(
+            "recorded fixture: UNKNOWN, {}: {e}",
+            scale::FIXTURE
+        )]
+    })?;
+    scale::judge_fixture(&baseline, &fixture).map_err(|e| vec![e])?;
     let target = crate::metadata(root)?.target_directory;
-    let total = bench(root, &target).map_err(|e| vec![e])?;
+    let output = bench(root, &target).map_err(|e| vec![e])?;
     stamp(&baseline);
-    scale::judge_ir(&baseline, total).map_err(|e| vec![e])
+    let (mut lines, mut problems) = (Vec::new(), Vec::new());
+    for supply in Supply::ALL {
+        match summary_total(&output, supply).and_then(|t| scale::judge_ir(&baseline, supply, t)) {
+            Ok(line) => lines.push(line),
+            Err(e) => problems.push(e),
+        }
+    }
+    if problems.is_empty() {
+        Ok(lines)
+    } else {
+        Err(problems)
+    }
 }
 
 /// Prints what the gated number was measured with, and notes a compiler that moved.
@@ -164,8 +187,8 @@ fn ir_events(root: &Path) -> Result<u64, String> {
         .ok_or_else(|| format!("{GENERATOR}: no integer-literal `const IR_EVENTS`; the benchmark's event count must stay a literal xtask can read"))
 }
 
-/// Runs the benchmark fresh and returns its total Callgrind `Ir`.
-fn bench(root: &Path, target: &Path) -> Result<u64, String> {
+/// Runs both benchmarks fresh and returns their output directory.
+fn bench(root: &Path, target: &Path) -> Result<PathBuf, String> {
     let output = target.join(OUTPUT);
     if output.exists() {
         std::fs::remove_dir_all(&output)
@@ -195,15 +218,20 @@ fn bench(root: &Path, target: &Path) -> Result<u64, String> {
             args.join(" ")
         ));
     }
-    // The output directory was deleted above, so a summary that exists is this run's.
-    let summary = output.join(SUMMARY);
+    Ok(output)
+}
+
+/// One supply's total Callgrind `Ir`. [`bench`] deleted the output directory first, so a
+/// summary that exists is this run's.
+fn summary_total(output: &Path, supply: Supply) -> Result<u64, String> {
+    let (summary, name) = (output.join(summary(supply)), supply.label());
     let text = std::fs::read_to_string(&summary).map_err(|e| {
         format!(
-            "fold Ir: UNKNOWN, no summary written by this run at {} ({e}); the benchmark or gungraun's output layout changed",
+            "fold Ir{name}: UNKNOWN, no summary written by this run at {} ({e}); the benchmark or gungraun's output layout changed",
             summary.display()
         )
     })?;
-    scale::summary_ir(&text).map_err(|e| format!("fold Ir: UNKNOWN, {e}"))
+    scale::summary_ir(&text).map_err(|e| format!("fold Ir{name}: UNKNOWN, {e}"))
 }
 
 /// The append rate: the benchmark must run and print its JSON line; the value is reported, not
