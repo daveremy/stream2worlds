@@ -92,10 +92,11 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/report.rs`: `cargo xtask h-measure score --mapping FROZEN --corpus NAME --key
     FILE... [--json FILE] [--dir DIR]`. Refuses, before reading the corpus: pins changed since
     the freeze, a mapping not frozen on the pinned development corpus, a `reserved` corpus, no
-    key, a key given twice, an unpinned or mismatched key. An abstention is graded as the empty prediction. Writes
-    a markdown report (alias limit first; per key the mapping and ceiling rows, per type, per
-    path, context collisions, spurious, abstained and excluded counts) and, with `--json`, every
-    number. Refusals are tested in `h_measure/report_tests.rs`.
+    key, a key given twice, an unpinned or mismatched key. An abstention is graded as the
+    empty prediction. Writes a markdown report (alias limit first; per key the mapping and
+    ceiling rows, per type, per path, context collisions, spurious, abstained and excluded
+    counts) and, with `--json`, every number. Refusals are tested in
+    `h_measure/report_tests.rs`.
   - `h_measure/context.rs`: the context-collision rows (the unfloored composite-key
     sub-metric; definition in `research/h-measure/README.md`), added to `Grade.contexts`.
     Fixtures live in `h_measure/context/tests.rs`.

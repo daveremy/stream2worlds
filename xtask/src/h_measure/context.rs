@@ -54,7 +54,8 @@ fn row_name(label: &str, context: &str) -> String {
 /// Per mention path id, the rows its gold mentions feed and the context part's index in the
 /// identity. A row comes from a rule whose identity includes its own path; every rule of the
 /// type with that same identity (an alias path included) feeds the row, so an entity seen only
-/// at an alias path still joins its collision group.
+/// at an alias path still joins its collision group. Identity equality is ordered: a gold
+/// cluster has one part per identity path in order, and `at` is a position in it.
 fn contexts(spec: &KeySpec) -> BTreeMap<String, Vec<(String, usize)>> {
     let mut contexts: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
     for kind in &spec.types {
