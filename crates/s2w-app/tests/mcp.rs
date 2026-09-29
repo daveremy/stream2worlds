@@ -62,6 +62,7 @@ mod tests {
                 server.entity_history(Parameters(serde_json::from_value(args).unwrap()))
             }
             "branches" => server.branches(Parameters(serde_json::from_value(args).unwrap())),
+            "sources" => server.sources(Parameters(serde_json::from_value(args).unwrap())),
             "time" => server.time(Parameters(serde_json::from_value(args).unwrap())),
             _ => panic!("unexpected tool {tool}"),
         }
@@ -288,6 +289,7 @@ mod tests {
             ("world_diff", json!({"world":"nope"})),
             ("entity_history", json!({"world":"nope","id":1})),
             ("branches", json!({"world":"nope"})),
+            ("sources", json!({"world":"nope"})),
             ("time", json!({"world":"nope"})),
         ] {
             let result = call(&server, tool, args);
