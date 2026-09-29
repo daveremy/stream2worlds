@@ -325,7 +325,11 @@ fn rebuilding(
 ) -> BTreeMap<SourceId, Rebuilding> {
     new.routes
         .iter()
-        .filter(|(source, resolved)| old.routes.get(*source) != Some(*resolved))
+        .filter(|(source, resolved)| {
+            old.routes
+                .get(*source)
+                .is_none_or(|was| was.identity != resolved.identity)
+        })
         .map(|(source, resolved)| {
             (
                 source.clone(),

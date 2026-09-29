@@ -162,12 +162,59 @@ fn a_stop_as_soon_as_a_rebuild_starts_restarts_to_the_cold_fold() {
         let expected = cold("serve-rebuild-crash-cold", mapping_b(), "p-b", 0..20).await;
         let mut restart = mapped(10..20, None);
         restart.until = Until::World(expected.clone());
+        // Reaching `expected` within the harness timeout is the check; no rebuild on restart.
         let restarted = serve_until(&dir, SNAPSHOT_ON_STOP, restart)
             .await
             .expect("sockets allowed once");
-        assert_eq!(
-            restarted.world, expected,
-            "restart under B == cold fold under B"
+        assert!(!noted(&restarted, "rebuild:"), "{:?}", restarted.notes);
+    });
+}
+
+/// Mapping B with its first entity rule's type label changed again: a third identity.
+fn mapping_c() -> StreamMapping {
+    let mut mapping = mapping_b();
+    let rule = mapping.entities.first_mut().expect("an entity rule");
+    rule.type_label = format!("{}-c", rule.type_label);
+    mapping
+}
+
+#[test]
+fn two_accepts_before_the_next_check_rebuild_once_under_the_last() {
+    run(false, async {
+        let dir = TestDirectory::new("serve-rebuild-coalesce");
+        accept_mapping(dir.path(), "p-a", mapping_a());
+        let (fp_a, fp_b, fp_c) = (
+            fingerprint(mapping_a(), "p-a"),
+            fingerprint(mapping_b(), "p-b"),
+            fingerprint(mapping_c(), "p-c"),
+        );
+        let mut feed = mapped(0..10, None);
+        // Both land in one synchronous step, so no check can run between them.
+        feed.then = vec![step(
+            |dir| {
+                accept_mapping(dir, "p-b", mapping_b());
+                accept_mapping(dir, "p-c", mapping_c());
+            },
+            Until::Rebuilt {
+                feed: fp_c,
+                consumed: 10,
+            },
+        )];
+        let Some(live) = serve_until(&dir, NO_SNAPSHOT, feed).await else {
+            return;
+        };
+        let expected = cold("serve-rebuild-coalesce-cold", mapping_c(), "p-c", 0..10).await;
+        assert_eq!(live.world, expected, "world == cold fold under C");
+        let swaps: Vec<_> = live
+            .notes
+            .iter()
+            .filter(|note| note.starts_with("rebuild: feed "))
+            .collect();
+        assert_eq!(swaps.len(), 1, "{swaps:?}");
+        assert!(
+            swaps[0].contains(&format!("{fp_a:016x} -> {fp_c:016x}"))
+                && !swaps[0].contains(&format!("{fp_b:016x}")),
+            "{swaps:?}"
         );
     });
 }

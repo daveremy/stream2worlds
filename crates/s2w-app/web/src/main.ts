@@ -25,7 +25,7 @@ let staleTimer: ReturnType<typeof setTimeout> | undefined;
 // The served history was replaced: start over from a fresh snapshot, backing off when it keeps
 // happening (#184, deferred from 2b-i).
 function restartStale(): void {
-  dispose();
+  dispose(); clearTimeout(staleTimer);
   const now = Date.now();
   staleRestarts = now - lastStaleRestart < STALE_WINDOW_MS ? staleRestarts + 1 : 0;
   lastStaleRestart = now;
@@ -99,11 +99,14 @@ async function start(): Promise<void> {
         if (signal.aborted) return;
         // Another history is served: this page's offsets name another world, so rebuild.
         if (view.epoch !== state.epoch) { restartStale(); return; }
-        // A rebuild in progress: keep its count current until the server says it is done.
+        // A rebuild in progress: keep its count current, and keep refreshing on a quiet log,
+        // until the server says it is done (it clears the field on its next idle poll).
         if (rebuildingStatus(state.sources) !== undefined) {
           try { state.sources = await fetchSources(params, signal); } catch { /* non-essential */ }
           if (signal.aborted) return;
-          status.textContent = rebuildingStatus(state.sources) ?? '';
+          const rebuilding = rebuildingStatus(state.sources);
+          if (rebuilding !== undefined) dirty = true;
+          status.textContent = rebuilding ?? (view.nodes.length ? '' : 'Waiting for events');
         }
         state.snapshot(view); renderer.update(state); paint();
       } catch (error) {
@@ -183,7 +186,7 @@ async function start(): Promise<void> {
       status.textContent = rebuildingStatus(state.sources) ??
         (view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
           (unroutedStatus(state.sources) ?? 'Waiting for events'));
-      if (!params.has('at')) open();
+      if (!params.has('at')) { open(); if (rebuildingStatus(state.sources) !== undefined) scheduleRefresh(); }
     } catch (error) {
       if (signal.aborted) return;
       // The history was replaced between the snapshot and the evidence read: start over.
