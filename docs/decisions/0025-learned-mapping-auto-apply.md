@@ -31,9 +31,12 @@ so grading by (actor, version) never pools two profilers.
 **Rules.**
 
 1. Only a source with no effective mapping is profiled. A routed source is never re-profiled.
-2. Idempotent by lookup. Under the writer lock, if a `stream-mapping` proposal for the same
-   (source, identity) exists from any actor, nothing is written. A restart, a human-rejected
-   identity and a same-bytes proposal filed through `s2w proposals` are all left alone.
+2. Idempotent by lookup, under the writer lock. The producer re-reads the store after taking
+   the lock: if a decision recorded since start-up routes the source, it writes nothing. If a
+   `stream-mapping` proposal for the same (source, identity) exists from any actor, nothing is
+   written, so a restart, a human-rejected identity and a same-bytes proposal filed through
+   `s2w proposals` are all left alone. The one exception: this producer's own proposal with
+   the same id and no decision at all (a stop between the two appends) gets its policy accept.
 3. The proposal id is `fnv1a64_hex` over the actor, source, first and last window position, and
    identity, each length-prefixed. The same log gives the same id; a moved window (after
    retention truncates the first positions, #33) gives a new one.
