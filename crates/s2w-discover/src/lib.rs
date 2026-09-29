@@ -22,7 +22,7 @@ pub use roles::Role;
 /// version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
-pub const PROFILER_VERSION: &str = "2";
+pub const PROFILER_VERSION: &str = "3";
 
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,7 +53,7 @@ pub struct Config {
     /// Parses as a JSON object in at least this share of events: a decode step. 100 by default:
     /// the executor abstains on a whole event whose decode step fails.
     pub decode_pct: usize,
-    /// Most values an event-type field may have.
+    /// Most values an event-type field (stage 3) or a `Category` (stage 4) may have.
     pub category_max: usize,
 }
 

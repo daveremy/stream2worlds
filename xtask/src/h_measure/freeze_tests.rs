@@ -196,3 +196,17 @@ fn a_flag_is_never_taken_as_the_previous_flags_value() {
     let err = super::flags(&args).expect_err("--out has no value");
     assert!(err.contains("--out needs a value"), "{err:?}");
 }
+
+#[test]
+fn profile_reads_only_the_development_corpus() {
+    let (root, dir) = fixture("profile");
+    for corpus in ["held", "res"] {
+        let err =
+            super::freeze::profile(&root, &dir, corpus, 3).expect_err("profile should refuse");
+        assert!(err.contains("only on the development corpus"), "{err:?}");
+    }
+    let table = super::freeze::profile(&root, &dir, "dev", 3).unwrap();
+    assert!(table.contains("| `data` | 3 | 3 | Sparse |"), "{table}");
+    assert!(super::freeze::profile(&root, &dir, "dev", 4).is_err());
+    let _ = fs::remove_dir_all(&root);
+}
