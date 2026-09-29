@@ -44,7 +44,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer; its `git` and `trailer` helpers are shared with `scale.rs`.
 - `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64 and `[ir.recorded] events`), the pure `[ir]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
   - `scale/supply.rs`: the two event supplies each scale number is measured on, the seeded generator (`[ir]`, `[memory]`) and the recorded fixture (`[ir.recorded]`, `[memory.recorded]`), gated side by side (s2w#174).
-- `h_measure.rs`: `cargo xtask h-measure selftest | freeze` (s2w#56, contract B3). The selftest runs the mapping
+- `h_measure.rs`: `cargo xtask h-measure selftest | freeze | score` (s2w#56, contract B3). The selftest runs the mapping
   executor over `crates/s2w-system1/testdata/raw-sample.jsonl` with `sample.mapping.json` and
   checks it against `MappingEngine` (every predicted cluster is an entity the engine proposes
   for that record, and the reverse), then reads the mapping as its own key spec and checks the
@@ -89,6 +89,16 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     the mapping (or the abstain reason) with the corpus hash, window, profiler version, config,
     every pin (a corpus pin includes its role, file and event count), and the profile's abstained paths by role. Refusals are tested in
     `h_measure/freeze_tests.rs` on a temporary root.
+  - `h_measure/report.rs`: `cargo xtask h-measure score --mapping FROZEN --corpus NAME --key
+    FILE... [--json FILE] [--dir DIR]`. Refuses, before reading the corpus: pins changed since
+    the freeze, a mapping not frozen on the pinned development corpus, a `reserved` corpus, no
+    key, an unpinned or mismatched key. An abstention is graded as the empty prediction. Writes
+    a markdown report (alias limit first; per key the mapping and ceiling rows, per type, per
+    path, context collisions, spurious, abstained and excluded counts) and, with `--json`, every
+    number. Refusals are tested in `h_measure/report_tests.rs`.
+  - `h_measure/context.rs`: the context-collision rows (the unfloored composite-key
+    sub-metric; definition in `research/h-measure/README.md`), added to `Grade.contexts`.
+    Fixtures live in `h_measure/context/tests.rs`.
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
 - `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory after checking the recorded fixture's pin, the `[ir]` and `[ir.recorded]` judgments, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` baseline belongs to that job's image.

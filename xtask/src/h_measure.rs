@@ -23,15 +23,16 @@ use s2w_system1::{Engine, MappingEngine, Verdict};
 use crate::obfuscation_raw::{MAPPING as SAMPLE_MAPPING, RAW as SAMPLE};
 use serde_json::Value;
 
+mod context;
 mod freeze;
 pub(crate) mod key;
 pub(crate) mod mentions;
 mod pins;
+mod report;
 pub(crate) mod score;
 
 /// The command's usage line.
-pub(crate) const USAGE: &str =
-    "cargo xtask h-measure selftest | freeze --corpus NAME --window N --out FILE [--dir DIR]";
+pub(crate) const USAGE: &str = "cargo xtask h-measure selftest | freeze --corpus NAME --window N --out FILE [--dir DIR] | score --mapping FILE --corpus NAME --key FILE [--key FILE ...] [--json FILE] [--dir DIR]";
 
 /// Where the corpora live when `--dir` is not given, under `$HOME`.
 const CORPUS_DIR: &str = ".local/share/stream2worlds/h-measure";
@@ -40,7 +41,7 @@ const CORPUS_DIR: &str = ".local/share/stream2worlds/h-measure";
 pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
     let result = match args.split_first() {
         Some((one, [])) if one == "selftest" => selftest(root),
-        Some((verb, rest)) if verb == "freeze" => {
+        Some((verb, rest)) if verb == "freeze" || verb == "score" => {
             flags(rest).and_then(|f| subcommand(root, verb, &f))
         }
         _ => {
@@ -92,7 +93,11 @@ fn one<'a>(flags: &'a Flags, name: &str) -> Result<&'a str, String> {
 }
 
 fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> {
-    let known: &[&str] = &["corpus", "window", "out", "dir"];
+    let known: &[&str] = if verb == "freeze" {
+        &["corpus", "window", "out", "dir"]
+    } else {
+        &["mapping", "corpus", "key", "json", "dir"]
+    };
     if let Some(name) = flags.keys().find(|n| !known.contains(&n.as_str())) {
         return Err(format!("{verb} takes no --{name}; usage: {USAGE}"));
     }
@@ -102,9 +107,23 @@ fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> 
             .join(CORPUS_DIR),
     };
     let corpus = one(flags, "corpus")?;
-    let raw = one(flags, "window")?;
-    let window = raw.parse().map_err(|e| format!("--window {raw:?}: {e}"))?;
-    freeze::freeze(root, &dir, corpus, window, Path::new(one(flags, "out")?))
+    if verb == "freeze" {
+        let raw = one(flags, "window")?;
+        let window = raw.parse().map_err(|e| format!("--window {raw:?}: {e}"))?;
+        return freeze::freeze(root, &dir, corpus, window, Path::new(one(flags, "out")?));
+    }
+    let json = flags
+        .get("json")
+        .map(|_| one(flags, "json").map(Path::new))
+        .transpose()?;
+    let request = report::Request {
+        frozen: Path::new(one(flags, "mapping")?),
+        corpus,
+        keys: flags.get("key").map_or(&[], Vec::as_slice),
+        dir: &dir,
+        json,
+    };
+    report::run(root, &request)
 }
 
 fn selftest(root: &Path) -> Result<String, String> {
@@ -254,5 +273,7 @@ fn jsonl(text: &str) -> Result<Vec<Value>, String> {
 
 #[cfg(test)]
 mod freeze_tests;
+#[cfg(test)]
+mod report_tests;
 #[cfg(test)]
 mod tests;
