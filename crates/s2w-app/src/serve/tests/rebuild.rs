@@ -444,6 +444,7 @@ fn revoking_the_only_accepted_mapping_unroutes_the_source_and_empties_the_world(
         assert_eq!(node_count(&live), 0, "no entities without a mapping");
         // The watcher sinks its route lines after "proposal store changed" and before the
         // swap notes "rebuild: feed", so the unrouting shows between those two notes.
+        // Start-up's route line is reported, not sunk, so it precedes every sink note.
         let routed = |notes: &[String]| notes.iter().any(|note| note.starts_with("route: source "));
         let changed = live
             .notes
@@ -457,7 +458,11 @@ fn revoking_the_only_accepted_mapping_unroutes_the_source_and_empties_the_world(
                 note.starts_with(&format!("rebuild: feed {fp_a:016x} -> {fp_none:016x}"))
             })
             .expect("the revoke rebuild starts");
-        assert!(changed < swapped, "{:?}", live.notes);
+        assert!(
+            changed < swapped,
+            "the reject precedes the revoke rebuild: {:?}",
+            live.notes
+        );
         assert!(
             routed(&live.notes[..changed]),
             "routed under A first: {:?}",
