@@ -57,11 +57,6 @@ fn the_fixture_parses_maps_and_folds_to_the_pinned_counts() -> Fallible<()> {
         .iter()
         .filter(|c| matches!(c, WorldEvent::RelationshipObserved { .. }))
         .count();
-    assert_eq!(
-        mapped.proposed + mapped.abstained,
-        EVENTS,
-        "one verdict per event"
-    );
     assert_eq!(mapped.abstained, ABSTAINED, "abstentions");
     assert_eq!(mapped.claims.len(), CLAIMS, "claims");
     assert_eq!(entity_claims, ENTITY_CLAIMS, "entity-observed claims");
@@ -82,11 +77,12 @@ fn the_fixture_parses_maps_and_folds_to_the_pinned_counts() -> Fallible<()> {
 
 #[test]
 fn replay_is_deterministic() -> Fallible<()> {
-    let first = claims(&load()?, mapping()?)?.claims;
-    let second = claims(&load()?, mapping()?)?.claims;
+    let events = load()?;
+    let first = claims(&events, mapping()?)?.claims;
+    let second = claims(&events, mapping()?)?.claims;
     assert!(
         first == second,
-        "two replays of the same bytes proposed different claims"
+        "two runs of the mapping over the same events proposed different claims"
     );
     Ok(())
 }

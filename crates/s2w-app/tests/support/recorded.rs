@@ -7,14 +7,15 @@
 //! for a scale measurement, and neither replaces the other.
 //!
 //! Shared through `#[path]` like the generator, so it is test code and adds no crate-graph
-//! edge. The pipeline is the one a live source runs: SSE frames become stored envelopes
-//! (`{"data": <payload>, "id": <event id>}`, the shape of `s2w-system1/testdata/raw-sample.jsonl`),
-//! the committed stream mapping turns each envelope into claims, and the fold turns claims into
-//! a world. Nothing reads a clock: replay order is file order and `received_at` is the frame's
+//! edge. SSE frames become stored envelopes of the same shape a live source stores
+//! (`{"data": <payload>, "id": <event id>}`, as in `s2w-system1/testdata/raw-sample.jsonl`;
+//! the cursor here is the raw `id:` text), the committed stream mapping turns each envelope
+//! into claims, and the fold turns claims into a world. Nothing reads a clock: replay order is file order and `received_at` is the frame's
 //! index, so every run over the same bytes produces the same claims.
 //!
-//! The fixture is pinned (`FIXTURE_HASH`, and the counts in `tests/recorded_fixture.rs`): it is
-//! human-owned like a golden file, never re-recorded or edited to make a measurement pass.
+//! The fixture is pinned: [`load`] refuses bytes whose hash is not [`FIXTURE_HASH`], so no
+//! measurement runs on a changed recording, and `tests/recorded_fixture.rs` pins the counts. It
+//! is human-owned like a golden file, never re-recorded or edited to make a measurement pass.
 
 use std::error::Error;
 use std::fs;
@@ -26,13 +27,13 @@ use s2w_system1::{Engine, MappingEngine, Verdict};
 pub(crate) type Fallible<T> = Result<T, Box<dyn Error>>;
 
 /// The recorded stream, raw SSE text.
-pub(crate) const FIXTURE: &str = concat!(
+const FIXTURE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/recorded-10min.raw.sse"
 );
 
 /// The stream mapping, a symlink to the one check 11 replays, so the two cannot drift.
-pub(crate) const MAPPING: &str = concat!(
+const MAPPING: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/recorded.mapping.json"
 );
@@ -48,7 +49,7 @@ pub(crate) fn bytes() -> Fallible<Vec<u8>> {
     Ok(fs::read(FIXTURE)?)
 }
 
-/// FNV-1a 64 of `bytes`.
+/// FNV-1a 64 of `bytes`, the fixture's pin.
 pub(crate) fn hash(bytes: &[u8]) -> u64 {
     Fnv64::new().write(bytes).finish()
 }
@@ -59,7 +60,8 @@ pub(crate) fn mapping() -> Fallible<StreamMapping> {
 }
 
 /// The SSE frames in `text` that carry both a `data` and an `id` field, as `(data, id)`, in
-/// file order. Comment lines (`:`) and other fields are skipped; multi-line `data` joins with
+/// file order. It mirrors xtask's `discover_replay::envelopes` (s2w-sources keeps its own frame
+/// parser private); change both together. Comment lines (`:`) and other fields are skipped; multi-line `data` joins with
 /// `\n`, as the SSE format specifies. A frame missing either field is dropped.
 pub(crate) fn frames(text: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -82,9 +84,19 @@ pub(crate) fn frames(text: &str) -> Vec<(String, String)> {
     out
 }
 
-/// Every frame of the fixture as a stored envelope, in file order.
+/// Every frame of the fixture as a stored envelope, in file order. Fails if the fixture's bytes
+/// are not the pinned ones.
 pub(crate) fn load() -> Fallible<Vec<RawEvent>> {
-    let text = String::from_utf8(bytes()?)?;
+    let bytes = bytes()?;
+    let actual = hash(&bytes);
+    if actual != FIXTURE_HASH {
+        return Err(format!(
+            "the recorded fixture's FNV-1a 64 is {actual:#x}, not the pinned {FIXTURE_HASH:#x}; \
+             restore it (see tests/fixtures/README.md)"
+        )
+        .into());
+    }
+    let text = String::from_utf8(bytes)?;
     let source = SourceId::new(SOURCE)?;
     frames(&text)
         .into_iter()
@@ -105,8 +117,6 @@ pub(crate) fn load() -> Fallible<Vec<RawEvent>> {
 pub(crate) struct Claims {
     /// Every proposed claim, in event order, and within an event in emission order.
     pub(crate) claims: Vec<WorldEvent>,
-    /// Events the engine proposed for (with or without claims).
-    pub(crate) proposed: usize,
     /// Events the engine abstained on.
     pub(crate) abstained: usize,
 }
@@ -116,15 +126,11 @@ pub(crate) fn claims(events: &[RawEvent], mapping: StreamMapping) -> Fallible<Cl
     let engine = MappingEngine::new(mapping)?;
     let mut out = Claims {
         claims: Vec::new(),
-        proposed: 0,
         abstained: 0,
     };
     for event in events {
         match engine.evaluate(event) {
-            Verdict::Propose { claims, .. } => {
-                out.proposed += 1;
-                out.claims.extend(claims);
-            }
+            Verdict::Propose { claims, .. } => out.claims.extend(claims),
             Verdict::Abstain { .. } => out.abstained += 1,
         }
     }
