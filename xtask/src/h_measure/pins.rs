@@ -92,17 +92,18 @@ impl Pins {
         Ok(Self { keys, corpora })
     }
 
-    /// Every pin, as `key <file>` and `corpus <name>` to sha256: what `freeze` records and
-    /// `score` compares against.
+    /// Every pin, as `key <file>` to its sha256 and `corpus <name>` to its role, file, event
+    /// count and sha256: what `freeze` records and `score` compares against, so relabelling a
+    /// corpus's role after a freeze counts as a changed pin.
     pub(crate) fn all(&self) -> BTreeMap<String, String> {
         let keys = self
             .keys
             .values()
             .map(|pin| (format!("key {}", pin.file), pin.sha256.clone()));
-        let corpora = self
-            .corpora
-            .iter()
-            .map(|(name, pin)| (format!("corpus {name}"), pin.sha256.clone()));
+        let corpora = self.corpora.iter().map(|(name, pin)| {
+            let value = format!("{:?} {} {} {}", pin.role, pin.file, pin.events, pin.sha256);
+            (format!("corpus {name}"), value)
+        });
         keys.chain(corpora).collect()
     }
 

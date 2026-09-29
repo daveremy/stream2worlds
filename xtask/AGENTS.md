@@ -84,10 +84,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     whose sha256 does not match its pin, is refused, as is a corpus whose SSE frame count is not
     its pinned `events`.
   - `h_measure/freeze.rs`: `cargo xtask h-measure freeze --corpus NAME --window N --out FILE
-    [--dir DIR]`. Checks every pinned key and the corpus first, refuses any corpus whose role is
-    not `development` and any `--out` that exists, then profiles the first N events and writes
+    [--dir DIR]`. Refuses an `--out` that exists, checks every pinned key, refuses any corpus
+    whose role is not `development`, checks the corpus against its pin, then profiles the first N events and writes
     the mapping (or the abstain reason) with the corpus hash, window, profiler version, config,
-    every pin, and the profile's abstained paths by role. Refusals are tested in
+    every pin (a corpus pin includes its role, file and event count), and the profile's abstained paths by role. Refusals are tested in
     `h_measure/freeze_tests.rs` on a temporary root.
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.

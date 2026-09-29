@@ -128,7 +128,13 @@ pub(crate) fn freeze(
         abstain,
     };
     let text = serde_json::to_string_pretty(&frozen).map_err(|e| e.to_string())? + "\n";
-    fs::write(out, &text).map_err(|e| format!("{}: {e}", out.display()))?;
+    // `create_new` refuses an `--out` that appeared since the check above.
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(out)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, text.as_bytes()))
+        .map_err(|e| format!("{}: {e}", out.display()))?;
     let outcome = frozen.abstain.as_ref().map_or_else(
         || {
             format!(
