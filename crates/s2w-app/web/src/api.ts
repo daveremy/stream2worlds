@@ -34,16 +34,34 @@ export function endpoint(params: URLSearchParams, route: string): URL {
   url.searchParams.delete('world');
   return url;
 }
-async function checked(url: URL | string, signal: AbortSignal): Promise<Response> {
-  const response = await fetch(url, { signal });
-  if (!response.ok) {
+async function checked(url: URL | string, signal: AbortSignal, init: RequestInit = {}): Promise<Response> {
+  const response = await fetch(url, { ...init, signal });
+  if (!response.ok && response.status !== 304) {
     const body = await response.json();
     throw new ApiError(response.status, body.error, body.message);
   }
   return response;
 }
+// The last `/world` entity tag and the URL it answered (#216). A refresh sends it back as
+// If-None-Match, so a view that has not changed costs a 304 instead of the whole graph.
+let lastWorld: { href: string; etag: string } | undefined;
+async function fetchWorld(params: URLSearchParams, signal: AbortSignal, conditional: boolean): Promise<WorldView | null> {
+  const url = endpoint(params, 'world');
+  const headers: Record<string, string> = {};
+  if (conditional && lastWorld?.href === url.href) headers['If-None-Match'] = lastWorld.etag;
+  // `no-store`: the page keeps the view itself; a large body in the HTTP cache helps no one.
+  const response = await checked(url, signal, { headers, cache: 'no-store' });
+  if (response.status === 304) return null;
+  const etag = response.headers.get('ETag');
+  lastWorld = etag ? { href: url.href, etag } : undefined;
+  return response.json();
+}
 export async function snapshot(params: URLSearchParams, signal: AbortSignal): Promise<WorldView> {
-  return (await checked(endpoint(params, 'world'), signal)).json();
+  return (await fetchWorld(params, signal, false))!;
+}
+// `null`: the server answered 304, so the view from the last fetch of this URL is current.
+export async function refreshSnapshot(params: URLSearchParams, signal: AbortSignal): Promise<WorldView | null> {
+  return fetchWorld(params, signal, true);
 }
 export type WorldSummary = { world: string; name: string; head: number; title?: string | null; tagline?: string | null };
 export async function worlds(signal: AbortSignal): Promise<{ worlds: WorldSummary[] }> {
