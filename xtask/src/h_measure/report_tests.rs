@@ -289,3 +289,56 @@ fn score_grades_an_abstained_freeze_as_the_empty_prediction() {
     assert!(micro["precision"].is_null(), "{micro}");
     assert_eq!(micro["recall"], 0.0);
 }
+
+/// Replaces the fixture corpus with `n` frames, enough for the profiler to propose a mapping,
+/// and re-pins every corpus row to it.
+fn large_corpus(root: &Path, dir: &Path, n: usize) {
+    let text: String = (1..=n)
+        .map(|i| {
+            format!(
+                "id: [{{\"offset\":{i}}}]\ndata: {{\"type\":\"edit\",\"title\":\"P{}\",\"ns\":\"n{}\",\"user\":\"U{}\"}}\n\n",
+                i % 60,
+                i % 60 / 2,
+                i % 13
+            )
+        })
+        .collect();
+    let old = sha256(&fs::read(dir.join("c.sse")).unwrap());
+    fs::write(dir.join("c.sse"), &text).unwrap();
+    let path = root.join(DATA).join("corpora.toml");
+    let rows = fs::read_to_string(&path)
+        .unwrap()
+        .replace(&old, &sha256(text.as_bytes()))
+        .replace("events = 3", &format!("events = {n}"));
+    fs::write(&path, rows).unwrap();
+}
+
+#[test]
+fn score_accepts_a_real_mapping_freeze_and_refuses_an_edited_one() {
+    let (root, dir) = fixture("score-mapping");
+    large_corpus(&root, &dir, 1200);
+    let out = root.join("frozen.json");
+    freeze(&root, &dir, "dev", 1200, &out).expect("freezes");
+    let pristine = fs::read(&out).unwrap();
+    let mut frozen: serde_json::Value = serde_json::from_slice(&pristine).unwrap();
+    assert!(frozen["mapping"].is_object(), "{frozen}");
+    score(&root, &dir, &out, "held", &[KEY]).expect("a real freeze scores");
+    let entities = frozen["mapping"]["entities"].as_array_mut().unwrap();
+    assert!(!entities.is_empty(), "{frozen}");
+    entities.pop();
+    fs::write(&out, serde_json::to_vec_pretty(&frozen).unwrap()).unwrap();
+    refused(
+        score(&root, &dir, &out, "held", &[KEY]),
+        "not what freeze writes",
+    );
+}
+
+#[test]
+fn score_names_the_freeze_re_run_when_its_recorded_window_is_impossible() {
+    let (root, dir, out) = frozen("window-0");
+    edit(&out, "window", 0.into());
+    refused(
+        score(&root, &dir, &out, "dev", &[KEY]),
+        "re-running the freeze recorded in",
+    );
+}

@@ -643,5 +643,5 @@ version or config. A hand-written or edited mapping therefore never scores. The 
 records every pin, but `score` compares only the pins it uses: the freeze corpus, the scored
 corpus if the freeze recorded it, and each scored key, which must have been pinned before the
 freeze. Adding a corpus or key row no longer invalidates an earlier freeze. `score` proves the
-file's content; the commit that adds the frozen file proves its timing and names the build to
-score it with. This note changes no arm, metric, threshold or stream.
+mapping and profile the file records. It takes the recorded pins as written: the commit that adds
+the frozen file proves its timing and that of each pin, and names the build to score it with. This note changes no arm, metric, threshold or stream.

@@ -11,6 +11,7 @@
 use std::fs;
 use std::path::Path;
 
+use s2w_discover::{Config, PROFILER_VERSION};
 use s2w_model::{MAPPING_VERSION, StreamMapping};
 use serde::Serialize;
 
@@ -130,9 +131,10 @@ fn admissible(
 /// Compares, recorded against current, only the pins this score depends on: the freeze
 /// corpus, the scored corpus when the freeze recorded it (a row added later is fine), and each
 /// `--key`, which the freeze must have recorded (a key pinned later could be fitted to the
-/// mapping). Any other row may be added, removed or changed (s2w#238).
+/// mapping). Any other row may be added, removed or changed (s2w#238). The recorded pins are
+/// taken as written: code cannot prove when a pin existed, the commit history does.
 fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), String> {
-    let now = pins.all();
+    let current = pins.all();
     let file = request.frozen.display();
     let corpora = [
         (format!("corpus {}", frozen.corpus), true),
@@ -140,7 +142,7 @@ fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), 
     ];
     let keys = request.keys.iter().map(|key| (format!("key {key}"), true));
     for (name, required) in corpora.into_iter().chain(keys) {
-        match (frozen.pins.get(&name), now.get(&name)) {
+        match (frozen.pins.get(&name), current.get(&name)) {
             (None, _) if required => {
                 return Err(format!(
                     "{name} was not pinned when {file} was frozen; a scored key and the freeze corpus are pinned before the freeze"
@@ -162,13 +164,17 @@ fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), 
 /// hand-written or edited mapping never scores (s2w#238).
 fn reproduced(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), String> {
     let file = request.frozen.display();
-    let mut derived = derive(pins, request.dir, &frozen.corpus, frozen.window)?;
-    if (&derived.profiler_version, &derived.config) != (&frozen.profiler_version, &frozen.config) {
+    let config = format!("{:?}", Config::default());
+    if (PROFILER_VERSION, config.as_str())
+        != (frozen.profiler_version.as_str(), frozen.config.as_str())
+    {
         return Err(format!(
-            "{file} was frozen by profiler {} with {}; this build has profiler {} with {}: score with the build that froze it",
-            frozen.profiler_version, frozen.config, derived.profiler_version, derived.config
+            "{file} was frozen by profiler {} with {}; this build has profiler {PROFILER_VERSION} with {config}: score with the build that froze it",
+            frozen.profiler_version, frozen.config
         ));
     }
+    let mut derived = derive(pins, request.dir, &frozen.corpus, frozen.window)
+        .map_err(|e| format!("re-running the freeze recorded in {file}: {e}"))?;
     derived.pins.clone_from(&frozen.pins);
     if derived != *frozen {
         return Err(format!(

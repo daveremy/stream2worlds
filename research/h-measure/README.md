@@ -54,8 +54,9 @@ mapping). Any other row may be added or changed without affecting an existing fr
 differs from what that run writes, so a hand-written or edited mapping never scores (s2w#238).
 The development corpus must therefore be in `--dir` for every score. A freeze from a different
 profiler version or config is refused with the advice to score with the build that froze it: the
-commit that adds the frozen file names that build. `score` proves what the file contains, not
-when it was written; the commit history proves the timing. An abstaining mapping is graded
+commit that adds the frozen file names that build. `score` proves the mapping and profile the
+file records, not when it was written: the recorded pins are taken as written, and the commit
+history proves the timing of the freeze and of each pin. An abstaining mapping is graded
 as the empty prediction. The report marks a score **In sample** when the scored corpus is the
 freeze corpus by name or by bytes (two `corpora.toml` names may pin one file).
 The markdown report opens with the alias limit, then gives per key the mapping and ceiling
