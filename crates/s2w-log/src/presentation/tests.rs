@@ -45,6 +45,7 @@ fn round_trips_set_and_load() -> TestResult {
             body: "system-ui".to_owned(),
             mono: "monospace".to_owned(),
         }),
+        stylesheet: Some("h1 { font-weight: 300; }".to_owned()),
     };
     WorldPresentation::set(&mut log, "w1", &presentation, Timestamp::from_millis(2))?;
     let loaded = WorldPresentation::load(&log.connection, "w1")?;
@@ -316,4 +317,66 @@ fn migrates_v3_fixture_adding_presentation_table() -> TestResult {
     );
     assert_eq!(log.replay(None)?.next().ok_or("missing event")??.event, raw);
     Ok(())
+}
+
+fn css_presentation(css: &str) -> WorldPresentation {
+    WorldPresentation {
+        stylesheet: Some(css.to_owned()),
+        ..WorldPresentation::default()
+    }
+}
+
+#[test]
+fn stylesheet_accepts_plain_css_and_round_trips() -> TestResult {
+    let dir = TestDirectory::new("presentation-stylesheet")?;
+    let mut log = SqliteEventLog::open(dir.path())?;
+    make_world(&mut log, "w1")?;
+    let css = "html { scroll-behavior: smooth; } /* calm */ body { letter-spacing: .02em; }\n@media (prefers-color-scheme: light) { h1 { color: #123; } }";
+    WorldPresentation::set(
+        &mut log,
+        "w1",
+        &css_presentation(css),
+        Timestamp::from_millis(2),
+    )?;
+    let loaded = WorldPresentation::load(&log.connection, "w1")?.ok_or("missing")?;
+    assert_eq!(loaded.stylesheet.as_deref(), Some(css));
+    Ok(())
+}
+
+#[test]
+fn stylesheet_rejects_resource_loading_and_escapes() {
+    for css in [
+        "@import 'x.css';",
+        "@IMPORT url(x)",
+        "body{background:url(data:image/png;base64,AA)}",
+        "body{background:URL (x)}",
+        "body{background:image-set('a' 1x)}",
+        "@font-face{font-family:x}",
+        "body{background:red} </style><script>",
+        "body{color:\\72 ed}",
+        "a{b:c} /* open",
+        "a{background:http://evil.example/x}",
+        "a{-moz-binding:foo}",
+        "a{width:expression(1)}",
+        "a{\u{0}}",
+        "a{content:\"/*\"} b{background:url(//evil.example/p.png)} c{content:\"*/\"}",
+        "a{content:\"/*\"} @import 'x'; c{content:\"*/\"}",
+    ] {
+        assert!(
+            matches!(
+                css_presentation(css).validate(),
+                Err(LogError::InvalidPresentation(_))
+            ),
+            "should reject {css:?}"
+        );
+    }
+}
+
+#[test]
+fn stylesheet_rejects_oversize() {
+    let ok = format!("a{{b:c}}{}", " ".repeat(MAX_STYLESHEET_BYTES - 6));
+    assert_eq!(ok.len(), MAX_STYLESHEET_BYTES);
+    assert!(css_presentation(&ok).validate().is_ok());
+    let big = format!("{ok} ");
+    assert!(css_presentation(&big).validate().is_err());
 }

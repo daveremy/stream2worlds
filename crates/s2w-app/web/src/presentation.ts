@@ -29,6 +29,22 @@ const defaultTitle = document.title;
 const defaultHeading = titleEl?.textContent ?? defaultTitle;
 const defaultTagline = taglineEl?.textContent ?? '';
 
+// The per-world stylesheet lives in one <style> element that only this module creates. This
+// module is imported by the world viewer (main.ts) and never by the home page (home-main.ts), so
+// a world's CSS cannot reach `/` or another world's page: each is a separate document. The text
+// goes in via `textContent`, never `innerHTML`; the server has already refused anything that
+// loads a resource or closes the element (`s2w-log`'s stylesheet validation).
+let styleEl: HTMLStyleElement | undefined;
+function applyStylesheet(css: string | null | undefined): void {
+  if (!css) { styleEl?.remove(); styleEl = undefined; return; }
+  if (!styleEl) {
+    styleEl = document.createElement('style');
+    styleEl.id = 'world-stylesheet';
+    document.head.append(styleEl);
+  }
+  styleEl.textContent = css;
+}
+
 let current: WorldPresentation = {};
 let renderer: Force2D | undefined;
 
@@ -87,6 +103,7 @@ export function applyPresentation(p: WorldPresentation, graphRenderer?: Force2D)
     if (p.description) { descriptionEl.textContent = p.description; descriptionEl.hidden = false; }
     else { descriptionEl.textContent = ''; descriptionEl.hidden = true; }
   }
+  applyStylesheet(p.stylesheet);
   applyColors();
 }
 

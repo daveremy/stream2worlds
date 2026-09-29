@@ -48,6 +48,7 @@ export type Typefaces = { display: string; body: string; mono: string };
 export type WorldPresentation = {
   title?: string | null; tagline?: string | null; description?: string | null;
   palette_light?: Palette | null; palette_dark?: Palette | null; typefaces?: Typefaces | null;
+  stylesheet?: string | null;
 };
 export async function presentation(world: string, signal: AbortSignal): Promise<WorldPresentation> {
   const url = new URL(`/worlds/${encodeURIComponent(world)}/presentation`, location.origin);
