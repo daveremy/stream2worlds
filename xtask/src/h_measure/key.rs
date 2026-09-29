@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 
 use s2w_discover::rule_id;
-use s2w_model::{FieldPath, KEY_SEPARATOR, Segment, StreamMapping};
+use s2w_model::{EntityRule, FieldPath, KEY_SEPARATOR, MAPPING_VERSION, Segment, StreamMapping};
 use serde::Deserialize;
 
 /// The one key-spec version this harness reads.
@@ -92,6 +92,43 @@ impl KeySpec {
         };
         spec.validate()?;
         Ok(spec)
+    }
+
+    /// The oracle v0 mapping: the best the mapping format can do with this key. One entity rule
+    /// per mention rule whose path is among its identity paths, keyed by those paths with the
+    /// mention path moved last (where [`super::mentions::mapping_mentions`] places the mention),
+    /// labelled with the key's type. A mention rule whose path is not an identity path is an
+    /// alias of another value, which no v0 rule can join, so it gets no rule: grading this
+    /// mapping measures the format's ceiling, not a discoverer.
+    pub(crate) fn oracle(&self) -> Result<StreamMapping, String> {
+        self.validate()?;
+        let mut entities = Vec::new();
+        for kind in &self.types {
+            for rule in &kind.mentions {
+                let Some(at) = rule.identity.iter().position(|p| *p == rule.path) else {
+                    continue;
+                };
+                let mut key = rule.identity.clone();
+                let mention = key.remove(at);
+                key.push(mention);
+                entities.push(EntityRule {
+                    id: format!("oracle-{}", entities.len()),
+                    type_label: kind.label.clone(),
+                    key,
+                    attrs: Vec::new(),
+                });
+            }
+        }
+        let mapping = StreamMapping {
+            version: MAPPING_VERSION,
+            decode: self.decode.clone(),
+            entities,
+            relationships: Vec::new(),
+        };
+        mapping
+            .validate()
+            .map_err(|e| format!("the oracle mapping is not valid: {e}"))?;
+        Ok(mapping)
     }
 
     /// Fails closed on anything that would make the key partition ambiguous.

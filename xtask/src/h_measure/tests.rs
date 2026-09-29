@@ -4,7 +4,15 @@ use s2w_model::StreamMapping;
 use serde_json::{Value, json};
 
 use super::key::KeySpec;
-use super::mentions::{key_mentions, mapping_mentions};
+use super::mentions::{Decoded, KeyMentions, Partition};
+
+fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Result<KeyMentions, String> {
+    super::mentions::key_mentions(spec, &Decoded::new(payloads, &spec.decode))
+}
+
+fn mapping_mentions(rules: &StreamMapping, payloads: &[Value]) -> Result<Partition, String> {
+    super::mentions::mapping_mentions(rules, &Decoded::new(payloads, &rules.decode))
+}
 
 fn spec(value: &Value) -> KeySpec {
     serde_json::from_value(value.clone()).expect("the spec deserializes")
@@ -141,7 +149,10 @@ fn an_index_segment_reads_an_array_element() {
         ] }]
     }));
     let payloads = [json!({ "items": [{ "id": 3 }] }), json!({ "items": [] })];
-    let got = key_mentions(&key, &payloads).expect("valid").cluster;
+    let got = key_mentions(&key, &payloads)
+        .expect("valid")
+        .partition
+        .cluster;
     assert_eq!(
         got.keys().collect::<Vec<_>>(),
         [&(0, "items.0.id".to_owned())]
@@ -168,7 +179,10 @@ fn aliases_with_equal_identity_values_join_one_cluster() {
         json!({ "name": "x", "alias": "x" }),
         json!({ "alias": "y" }),
     ];
-    let got = key_mentions(&key, &payloads).expect("valid").cluster;
+    let got = key_mentions(&key, &payloads)
+        .expect("valid")
+        .partition
+        .cluster;
     assert_eq!(got.len(), 3);
     assert_eq!(got[&(0, "name".to_owned())], got[&(0, "alias".to_owned())]);
     assert_ne!(got[&(0, "alias".to_owned())], got[&(1, "alias".to_owned())]);
@@ -186,7 +200,10 @@ fn a_non_scalar_mention_path_gives_no_mention_even_with_a_full_identity() {
         json!({ "a": { "nested": 1 }, "id": "x" }),
         json!({ "a": "y", "id": "x" }),
     ];
-    let got = key_mentions(&key, &payloads).expect("valid").cluster;
+    let got = key_mentions(&key, &payloads)
+        .expect("valid")
+        .partition
+        .cluster;
     assert_eq!(got.keys().collect::<Vec<_>>(), [&(1, "a".to_owned())]);
 }
 
@@ -205,7 +222,9 @@ fn a_non_scalar_identity_gives_no_mention() {
         json!({ "a": null, "ctx": "c" }),
     ];
     let got = key_mentions(&key, &payloads).expect("valid");
-    assert!(got.cluster.is_empty(), "{got:?}");
+    assert!(got.partition.cluster.is_empty(), "{got:?}");
+    // Records 0-2 hold the mention but not a scalar context: abstained, not scored.
+    assert_eq!(got.abstained, [("a".to_owned(), 3)].into());
 }
 
 #[test]
@@ -222,7 +241,10 @@ fn an_undecodable_payload_mentions_nothing() {
         json!({ "data": "not json" }),
         json!({ "data": 7 }),
     ];
-    let got = key_mentions(&key, &payloads).expect("valid").cluster;
+    let got = key_mentions(&key, &payloads)
+        .expect("valid")
+        .partition
+        .cluster;
     assert_eq!(got.len(), 1);
     assert!(got.contains_key(&(0, "data.a".to_owned())), "{got:?}");
 }
@@ -279,7 +301,7 @@ fn a_mapping_read_as_its_own_key_reproduces_its_mentions() {
     let key = KeySpec::from_mapping(&rules).expect("valid key");
     assert_eq!(key.types.len(), 2);
     assert_eq!(
-        key_mentions(&key, &payloads).expect("valid"),
+        key_mentions(&key, &payloads).expect("valid").partition,
         mapping_mentions(&rules, &payloads).expect("no conflict")
     );
 }

@@ -35,32 +35,90 @@ fn decoded(payload: &Value, decode: &[FieldPath]) -> Option<Value> {
     Some(value)
 }
 
+/// A corpus with one list of decode steps applied, built once and shared by every executor
+/// whose key spec or mapping names the same steps (the key, its oracle and a discovered
+/// mapping usually do), so a corpus-scale run parses each payload's JSON text once.
+pub(crate) struct Decoded {
+    steps: Vec<FieldPath>,
+    /// One entry per record: the decoded payload, or `None` when it cannot be decoded.
+    records: Vec<Option<Value>>,
+}
+
+impl Decoded {
+    /// Applies `steps` to every payload.
+    pub(crate) fn new(payloads: &[Value], steps: &[FieldPath]) -> Self {
+        Self {
+            steps: steps.to_vec(),
+            records: payloads.iter().map(|p| decoded(p, steps)).collect(),
+        }
+    }
+
+    /// The decode steps these records were built with.
+    pub(crate) fn steps(&self) -> &[FieldPath] {
+        &self.steps
+    }
+
+    /// Records whose decode failed; both executors see no mention in them.
+    pub(crate) fn undecodable(&self) -> usize {
+        self.records.iter().filter(|r| r.is_none()).count()
+    }
+
+    /// The records, if they were decoded with `steps`; an executor given records decoded
+    /// another way would read the wrong values.
+    fn records(&self, steps: &[FieldPath]) -> Result<&[Option<Value>], String> {
+        if self.steps == steps {
+            Ok(&self.records)
+        } else {
+            Err(format!(
+                "the corpus was decoded with {:?}, not {steps:?}",
+                self.steps
+            ))
+        }
+    }
+}
+
+/// What the key executor found.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct KeyMentions {
+    /// The gold partition.
+    pub partition: Partition,
+    /// Abstained paths: per mention path id, the records whose mention path held a key part
+    /// but some identity path did not, so the key places no mention there. Reported beside the
+    /// score, never scored.
+    pub abstained: BTreeMap<String, usize>,
+}
+
 /// Applies a key spec, after validating it: a record mentions an entity at a rule's path when
 /// that path and every identity path hold a key part. The gold cluster is the type and the
 /// identity parts, encoded as a natural key; its type is the key's label part.
-pub(crate) fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Result<Partition, String> {
+pub(crate) fn key_mentions(spec: &KeySpec, corpus: &Decoded) -> Result<KeyMentions, String> {
     spec.validate()?;
-    let mut partition = Partition::default();
-    for (record, payload) in payloads.iter().enumerate() {
-        let Some(value) = decoded(payload, &spec.decode) else {
+    let mut found = KeyMentions::default();
+    for (record, value) in corpus.records(&spec.decode)?.iter().enumerate() {
+        let Some(value) = value else {
             continue;
         };
         for kind in &spec.types {
             for rule in &kind.mentions {
-                if lookup(&value, &rule.path).and_then(key_part).is_none() {
+                if lookup(value, &rule.path).and_then(key_part).is_none() {
                     continue;
                 }
+                let id = rule_id(&rule.path);
                 // A validated spec has one rule per mention id, so this insert never replaces
                 // a mention; relaxing that rule would need the mapping executor's conflict error.
-                if let Some(gold) = natural_key(&value, &kind.label, &rule.identity) {
-                    partition
-                        .cluster
-                        .insert((record, rule_id(&rule.path)), gold.as_str().to_owned());
+                match natural_key(value, &kind.label, &rule.identity) {
+                    Some(gold) => {
+                        found
+                            .partition
+                            .cluster
+                            .insert((record, id), gold.as_str().to_owned());
+                    }
+                    None => *found.abstained.entry(id).or_default() += 1,
                 }
             }
         }
     }
-    Ok(partition)
+    Ok(found)
 }
 
 /// Applies a stream mapping. Each matching entity rule mentions its entity at the rule's last
@@ -70,19 +128,19 @@ pub(crate) fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Result<Partiti
 /// clusters are an error naming both, never a silent choice.
 pub(crate) fn mapping_mentions(
     mapping: &StreamMapping,
-    payloads: &[Value],
+    corpus: &Decoded,
 ) -> Result<Partition, String> {
     mapping
         .validate()
         .map_err(|e| format!("the mapping is not valid: {e}"))?;
     // Each mention's cluster and the rule that placed it there, for the conflict message.
     let mut placed: BTreeMap<Mention, (String, &str)> = BTreeMap::new();
-    for (record, payload) in payloads.iter().enumerate() {
-        let Some(value) = decoded(payload, &mapping.decode) else {
+    for (record, value) in corpus.records(&mapping.decode)?.iter().enumerate() {
+        let Some(value) = value else {
             continue;
         };
         for rule in &mapping.entities {
-            let (Some(cluster), Some(last)) = (entity_key(&value, rule), rule.key.last()) else {
+            let (Some(cluster), Some(last)) = (entity_key(value, rule), rule.key.last()) else {
                 continue;
             };
             let cluster = cluster.as_str().to_owned();

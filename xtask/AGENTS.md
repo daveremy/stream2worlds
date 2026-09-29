@@ -47,17 +47,28 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   executor over `crates/s2w-system1/testdata/raw-sample.jsonl` with `sample.mapping.json` and
   checks it against `MappingEngine` (every predicted cluster is an entity the engine proposes
   for that record, and the reverse), then reads the mapping as its own key spec and checks the
-  key executor gives the same partition. An empty result fails. Self-tests live in
+  key executor gives the same partition. An empty result fails. It then grades the mapping
+  against its own key (mapping and oracle ceiling must both score 1.0) and scores and prints the
+  contract's frozen fixtures (the 4/9 case, all-singletons). Self-tests live in
   `h_measure/tests.rs`, which also runs the selftest, so `cargo test` enforces parity.
   - `h_measure/key.rs`: the answer-key spec, format version 0 (`decode`, `types` with mention
-    rules `{path, identity}`, `unscored`), its fail-closed validation, and `from_mapping`.
+    rules `{path, identity}`, `unscored`), its fail-closed validation, `from_mapping`, and
+    `oracle`: the best v0 mapping for the key (one rule per mention rule whose path is an
+    identity path, mention path last; alias mentions get no rule), graded as the ceiling row.
     Domain knowledge lives in the spec file, never here.
   - `h_measure/mentions.rs`: the key and mapping executors. A mention is `(record index,
     s2w_discover::rule_id(path))`. A mapping rule mentions its entity at its **last** key path:
     a composite key lists context parts first, and the context usually keys a type of its own.
     Two rules that place one mention in different clusters are an error naming both. Both
     build keys with `s2w_system1::decode::natural_key`, the engine's own builder, never a copy.
-    `key_mentions` validates its spec first.
+    `key_mentions` validates its spec first, and reports as abstained paths the mentions it
+    skips because an identity path held no key part. `Decoded` applies one list of decode steps
+    to a corpus once; every executor whose steps match shares it.
+  - `h_measure/score.rs`: B-cubed P/R/F1 (micro, per type, and without singleton-only types),
+    the mention-weighted false-merge rate, entity recovery (≥ 90% both ways, integer
+    comparisons), the per-path table and spurious mentions; `grade` scores a mapping and the
+    oracle ceiling on one corpus. A zero denominator is `None` (undefined). Fixtures live in
+    `h_measure/score/tests.rs`.
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
 - `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory after checking the recorded fixture's pin, the `[ir]` and `[ir.recorded]` judgments, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` baseline belongs to that job's image.
