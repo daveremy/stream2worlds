@@ -211,6 +211,14 @@ impl QueryState {
             .map_or(0, |stats| stats.consumed)
     }
 
+    /// The served epoch and the sources reported as rebuilding, read with no await between
+    /// them, so a test on the current-thread runtime sees both from one side of a rebuild swap.
+    #[cfg(test)]
+    pub(crate) fn epoch_and_rebuilding(&self) -> (Epoch, usize) {
+        let epoch = self.timeline.read().expect("timeline lock").epoch();
+        (epoch, self.rebuilding.borrow().len())
+    }
+
     /// The events between the served base and head, in order.
     #[cfg(test)]
     pub(crate) fn timeline_events(&self) -> Vec<super::TimedEvent> {
@@ -1123,7 +1131,7 @@ mod membership_tests {
 
             let app = router(state.clone());
             let (status, http_body) = get(&app, "/worlds/default/sources").await;
-            let mcp = crate::mcp::WorldMcp::new(state);
+            let mcp = crate::mcp::WorldMcp::new(state.clone());
             let tool = mcp.sources(rmcp::handler::server::wrapper::Parameters(
                 serde_json::from_value(serde_json::json!({"world": "default"})).unwrap(),
             ));
@@ -1150,6 +1158,33 @@ mod membership_tests {
                     }])
                 )
             );
+
+            // A live rebuild in progress (s2w#184) is reported on the source it is for, by
+            // both surfaces; with none in progress the field is absent (above).
+            state_rebuilding(&state, &unrouted);
+            let (_, http_body) = get(&app, "/worlds/default/sources").await;
+            let tool = mcp.sources(rmcp::handler::server::wrapper::Parameters(
+                serde_json::from_value(serde_json::json!({"world": "default"})).unwrap(),
+            ));
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&tool.content[0].as_text().unwrap().text)
+                    .unwrap(),
+                http_body
+            );
+            assert_eq!(
+                http_body[0]["rebuilding"],
+                serde_json::json!({"identity": "m-1", "since_position": 42})
+            );
         });
+    }
+
+    fn state_rebuilding(state: &QueryState, source: &SourceId) {
+        state.publish_rebuilding(BTreeMap::from([(
+            source.clone(),
+            Rebuilding {
+                identity: "m-1".to_owned(),
+                since_position: 42,
+            },
+        )]));
     }
 }

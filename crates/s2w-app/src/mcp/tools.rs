@@ -289,8 +289,9 @@ const TIME: &str = "Requires the world string parameter. The world's time index.
     history the offsets belong to (16 hex digits); pass it back with those offsets.";
 const SOURCES: &str = "Requires the world string parameter. The world's member sources at a \
     fold offset (the head by default), each with consumed and unrouted event counts and \
-    recent_unrouted, the most recent events no engine is routed for, most recent first. Mirrors \
-    GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet. \
+    recent_unrouted, the most recent events no engine is routed for, most recent first, and, \
+    while serve rebuilds the world under a newly accepted mapping, rebuilding (identity, \
+    since_position). Mirrors GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet. \
     Takes epoch (see world_view).";
 const PROPOSALS_LIST: &str = "Requires the world string parameter. The stored proposals \
     (without payloads; payload_hash is the stored value, not re-verified), every decision \

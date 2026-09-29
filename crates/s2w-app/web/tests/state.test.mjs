@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ViewState, unroutedStatus } from '../src/state.ts';
+import { ViewState, rebuildingStatus, staleEpochDelay, unroutedStatus } from '../src/state.ts';
 
 test('evidence retains 500 offsets and reconnect replay is idempotent', () => {
   const state = new ViewState(new URLSearchParams());
@@ -47,4 +47,18 @@ test('unroutedStatus names the busiest unrouted source, ignores routed and idle 
     '4000 events logged from b, no engine routed yet (#71)',
     'the busiest unrouted source wins when several are unrouted',
   );
+});
+
+test('rebuildingStatus names the mapping a source is being rebuilt under', () => {
+  const idle = { source: 'a', consumed: 5, unrouted: 0, recent_unrouted: [] };
+  assert.equal(rebuildingStatus([]), undefined);
+  assert.equal(rebuildingStatus([idle]), undefined, 'no rebuild in progress');
+  assert.equal(
+    rebuildingStatus([idle, { ...idle, source: 'b', consumed: 42, rebuilding: { identity: 'm-1', since_position: 7 } }]),
+    'Rebuilding world under mapping m-1: 42 events so far',
+  );
+});
+
+test('staleEpochDelay restarts at once, then backs off to a cap', () => {
+  assert.deepEqual([0, 1, 2, 3, 6, 50].map(staleEpochDelay), [0, 1000, 2000, 4000, 30_000, 30_000]);
 });

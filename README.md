@@ -174,7 +174,9 @@ Each `SourceInfo` also reports the bridge's current counters for that source —
 `unrouted`, and the most recent unrouted raw events (`recent_unrouted`, newest first, capped)
 — independent of `at`: the counters always reflect the bridge's live state, not history as of
 the pinned offset (#143). The web view uses this to name an unrouted source instead of saying
-nothing arrived.
+nothing arrived. While `serve` rebuilds the world after a mapping change (decision 0023,
+"Rebuild"), a source whose mapping changed also carries `rebuilding` (`identity`,
+`since_position`); the field is absent otherwise.
 
 Membership changes currently use the `s2w-log` library; there is no add/remove CLI or HTTP
 mutation endpoint. Removed sources stop ingestion while HTTP remains available. Re-add with

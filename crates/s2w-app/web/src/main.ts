@@ -1,7 +1,7 @@
 import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, snapshot,
   sources as fetchSources, streamStatus, proposals as fetchProposals } from './api';
 import type { Message } from './api';
-import { ViewState, isStaleEpoch, unroutedStatus } from './state';
+import { ViewState, isStaleEpoch, rebuildingStatus, staleEpochDelay, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
 import { renderProposals } from './proposals';
@@ -18,6 +18,20 @@ const active = document.querySelector<HTMLElement>('#active')!;
 const proposalsPanel = document.querySelector<HTMLElement>('#proposals')!;
 let dispose = () => {};
 let activeState: ViewState;
+// Consecutive `stale_epoch` restarts: reset once a restart has lasted STALE_WINDOW_MS.
+const STALE_WINDOW_MS = 30_000;
+let staleRestarts = 0, lastStaleRestart = 0;
+let staleTimer: ReturnType<typeof setTimeout> | undefined;
+// The served history was replaced: start over from a fresh snapshot, backing off when it keeps
+// happening (#184, deferred from 2b-i).
+function restartStale(): void {
+  dispose();
+  const now = Date.now();
+  staleRestarts = now - lastStaleRestart < STALE_WINDOW_MS ? staleRestarts + 1 : 0;
+  lastStaleRestart = now;
+  status.textContent = 'The world was rebuilt; reloading';
+  staleTimer = setTimeout(() => void start(), staleEpochDelay(staleRestarts));
+}
 const keys = ['world', 'at', 'branch', 'lod', 'focus', 'hops'];
 // The proposal ledger changes on System 2's cadence, not per event: poll it on its own slow timer.
 const PROPOSALS_POLL_MS = 5000;
@@ -42,6 +56,7 @@ function visibleUrl(params: URLSearchParams): string {
 }
 async function start(): Promise<void> {
   dispose(); // Abort outstanding fetches, close the stream and cancel every timer first.
+  clearTimeout(staleTimer);
   const controller = new AbortController();
   const { signal } = controller;
   const params = currentParams();
@@ -83,7 +98,7 @@ async function start(): Promise<void> {
         const view = await snapshot(params, signal);
         if (signal.aborted) return;
         // Another history is served: this page's offsets name another world, so rebuild.
-        if (view.epoch !== state.epoch) { void start(); return; }
+        if (view.epoch !== state.epoch) { restartStale(); return; }
         state.snapshot(view); renderer.update(state); paint();
       } catch (error) {
         if (!signal.aborted) {
@@ -118,7 +133,7 @@ async function start(): Promise<void> {
     current.onerror = async event => {
       if (signal.aborted || source !== current) return;
       // The stream's final `event: error` frame names a replaced history: rebuild, skip the probe.
-      if (isStaleEpoch(event)) { current.close(); void start(); return; }
+      if (isStaleEpoch(event)) { current.close(); restartStale(); return; }
       // CONNECTING means the browser wants to retry; close it and own retry timing instead.
       const readyState = current.readyState;
       current.close(); source = undefined;
@@ -126,7 +141,7 @@ async function start(): Promise<void> {
       try { await streamStatus(params, state.lastAppliedOffset, state.epoch, AbortSignal.any([signal, AbortSignal.timeout(10_000)])); }
       catch (error) {
         if (signal.aborted) return;
-        if (isStaleEpoch(error)) { void start(); return; }
+        if (isStaleEpoch(error)) { restartStale(); return; }
         if (error instanceof ApiError && error.status === 403) {
           status.textContent = `Connection rejected: ${error.message}`; return;
         }
@@ -151,21 +166,22 @@ async function start(): Promise<void> {
       state.epoch = view.epoch;
       state.snapshot(view); seed.forEach(message => state.apply(message));
       state.lastAppliedOffset = view.offset;
-      // Empty live view only: learn whether the log has unrouted traffic so the page can name
-      // that state instead of reading as broken (#143). Best-effort — a failed fetch here
-      // must not block the graph itself; it just leaves the idle copy in place.
-      if (view.nodes.length === 0 && !params.has('at')) {
+      // Live view only: learn whether a rebuild is in progress (#184) or the log has unrouted
+      // traffic (#143), so the page can name that state instead of reading as broken.
+      // Best-effort — a failed fetch here must not block the graph itself.
+      if (!params.has('at')) {
         try { state.sources = await fetchSources(params, signal); } catch { /* non-essential */ }
         if (signal.aborted) return;
       }
       renderer.mount(graph, state); paint(); void pollProposals();
-      status.textContent = view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
-        (unroutedStatus(state.sources) ?? 'Waiting for events');
+      status.textContent = rebuildingStatus(state.sources) ??
+        (view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
+          (unroutedStatus(state.sources) ?? 'Waiting for events'));
       if (!params.has('at')) open();
     } catch (error) {
       if (signal.aborted) return;
       // The history was replaced between the snapshot and the evidence read: start over.
-      if (isStaleEpoch(error)) { void start(); return; }
+      if (isStaleEpoch(error)) { restartStale(); return; }
       if (error instanceof ApiError && error.status !== 503) { status.textContent = describe(error); return; }
       status.textContent = `Reconnecting: ${describe(error)}`;
       retry = setTimeout(() => void initialize(), delay); delay = Math.min(delay * 2, 30_000);

@@ -985,15 +985,30 @@ struct Feed {
     until: Until,
     /// The learned-mapping producer's settings when `registry` is `None`.
     discover: DiscoverConfig,
+    /// Changes made while serving, each once the previous stop condition holds, each with the
+    /// condition that ends it: `(act on the log directory, until)`.
+    then: Vec<Step>,
 }
 
+/// A change made to the log directory while serving, and when the run moves on after it.
+type Step = (Box<dyn FnOnce(&std::path::Path)>, Until);
+
 /// When a [`serve_until`] run stops.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Until {
     /// The world holds this many entities.
     Nodes(usize),
     /// The bridge has consumed this many events of the feed's source in this run.
     Consumed(u64),
+    /// The world is served under epoch `feed`, no source is rebuilding, and the bridge has
+    /// consumed `consumed` events of the feed's source since its last (re)start.
+    Rebuilt { feed: u64, consumed: u64 },
+    /// The world is served under epoch `feed`, whether or not its backfill has finished.
+    Epoch(u64),
+    /// A note containing this text was reported through the note sink.
+    Noted(&'static str),
+    /// The served world is exactly this one.
+    World(serde_json::Value),
 }
 
 impl Feed {
@@ -1013,6 +1028,7 @@ impl Feed {
             registry: Some(EngineRegistry::with_defaults()),
             until: Until::Nodes(nodes),
             discover: DiscoverConfig::default(),
+            then: Vec::new(),
         }
     }
 }
@@ -1059,6 +1075,7 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
         &mut reporter,
     )
     .expect("prepare");
+    let sunk = reporter.sunk.clone();
     let (events_tx, events_rx) = tokio::sync::mpsc::channel(8);
     let started = Started {
         sources: vec![feed.source.clone()],
@@ -1099,28 +1116,11 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
                 .expect("send event");
         }
         let app = router(state.clone()).layer(middleware::from_fn(host_allowlist));
-        let world = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                // Read the counter BEFORE the world: the bridge serves a batch's claims before
-                // it publishes the batch's counters, so this world includes every counted event.
-                let consumed = state.consumed(&feed.source);
-                let (status, _, bytes) = web_response(&app, "/worlds/default/world").await;
-                assert_eq!(status, StatusCode::OK);
-                let world: serde_json::Value = serde_json::from_slice(&bytes).expect("world");
-                let done = match feed.until {
-                    Until::Nodes(nodes) => {
-                        world["nodes"].as_array().is_some_and(|n| n.len() == nodes)
-                    }
-                    Until::Consumed(count) => consumed >= count,
-                };
-                if done {
-                    break world;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .expect("every event should reach the world");
+        let mut world = reached((&state, &app, &*sunk), &feed.source, feed.until).await;
+        for (act, until) in feed.then {
+            act(dir.path());
+            world = reached((&state, &app, &*sunk), &feed.source, until).await;
+        }
         let (base, head, _) = state.bounds().expect("bounds");
         stop_tx.send(()).expect("stop server");
         // Keep ingestion alive until after stop; otherwise EOF could win the select.
@@ -1144,6 +1144,48 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
         world,
         state,
     })
+}
+
+/// Polls `app`'s world until `until` holds for `source`; that world.
+async fn reached(
+    (state, app, notes): (&QueryState, &Router, &std::sync::Mutex<Vec<String>>),
+    source: &SourceId,
+    until: Until,
+) -> serde_json::Value {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            // Read the counters BEFORE the world: the bridge serves a batch's claims before
+            // it publishes the batch's counters, so this world includes every counted event.
+            // Epoch, rebuilding and counter are read with no await between them, so all three
+            // come from one side of a rebuild swap.
+            let consumed = state.consumed(source);
+            let (epoch, rebuilding) = state.epoch_and_rebuilding();
+            let (status, _, bytes) = web_response(app, "/worlds/default/world").await;
+            assert_eq!(status, StatusCode::OK);
+            let world: serde_json::Value = serde_json::from_slice(&bytes).expect("world");
+            let done = match &until {
+                Until::Nodes(nodes) => world["nodes"].as_array().is_some_and(|n| n.len() == *nodes),
+                Until::Consumed(count) => consumed >= *count,
+                Until::Rebuilt {
+                    feed,
+                    consumed: count,
+                } => epoch.0 == *feed && rebuilding == 0 && consumed >= *count,
+                Until::Epoch(feed) => epoch.0 == *feed,
+                Until::World(expected) => world == *expected,
+                Until::Noted(needle) => notes
+                    .lock()
+                    .expect("notes")
+                    .iter()
+                    .any(|note| note.contains(needle)),
+            };
+            if done {
+                break world;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("every event should reach the world")
 }
 
 /// Snapshots on, written only by the final snapshot at stop.
@@ -1248,13 +1290,13 @@ fn store_offsets(dir: &TestDirectory) -> Vec<u64> {
 
 // Routes from stored stream mappings (decision 0023).
 
-const MAPPED: &str = "test.mapped";
+pub(super) const MAPPED: &str = "test.mapped";
 const NO_SNAPSHOT: SnapshotConfig = SnapshotConfig {
     enabled: false,
     ..SNAPSHOT_ON_STOP
 };
 
-fn mapping_a() -> StreamMapping {
+pub(super) fn mapping_a() -> StreamMapping {
     serde_json::from_str(include_str!(
         "../../../s2w-system1/testdata/sample.mapping.json"
     ))
@@ -1263,7 +1305,7 @@ fn mapping_a() -> StreamMapping {
 
 /// Mapping A with its first entity rule's type label changed: a different mapping identity
 /// that folds a different world from the same events.
-fn mapping_b() -> StreamMapping {
+pub(super) fn mapping_b() -> StreamMapping {
     let mut mapping = mapping_a();
     let rule = mapping.entities.first_mut().expect("an entity rule");
     rule.type_label = format!("{}-b", rule.type_label);
@@ -1293,11 +1335,12 @@ fn mapped(range: std::ops::Range<usize>, registry: Option<EngineRegistry>) -> Fe
         events: raw_events(range),
         registry,
         discover: DiscoverConfig::default(),
+        then: Vec::new(),
     }
 }
 
 /// Stores `mapping` for [`MAPPED`] as proposal `id` with a human accept, as a reviewer would.
-fn accept_mapping(dir: &TestDirectory, id: &str, mapping: StreamMapping) {
+pub(super) fn accept_mapping(dir: &std::path::Path, id: &str, mapping: StreamMapping) {
     use s2w_log::{
         Actor, Decider, NewDecision, NewProposal, Outcome, ProposalStore, SqliteProposalStore,
     };
@@ -1306,7 +1349,7 @@ fn accept_mapping(dir: &TestDirectory, id: &str, mapping: StreamMapping) {
         source: MAPPED.to_owned(),
         mapping,
     };
-    let mut store = SqliteProposalStore::open(dir.path()).expect("proposal store");
+    let mut store = SqliteProposalStore::open(dir).expect("proposal store");
     store
         .append_proposal(&NewProposal {
             id: id.to_owned(),
@@ -1371,7 +1414,7 @@ fn node_count(run: &ServedRun) -> usize {
 fn serve_routes_a_source_from_its_accepted_stream_mapping_proposal() {
     run(false, async {
         let stored = TestDirectory::new("serve-routes-stored");
-        accept_mapping(&stored, "p-a", mapping_a());
+        accept_mapping(stored.path(), "p-a", mapping_a());
         let Some(from_store) = serve_until(&stored, NO_SNAPSHOT, mapped(0..20, None)).await else {
             return;
         };
@@ -1400,12 +1443,12 @@ fn serve_routes_a_source_from_its_accepted_stream_mapping_proposal() {
 fn a_snapshot_taken_under_another_mapping_is_ignored_and_the_restart_folds_cold() {
     run(false, async {
         let dir = TestDirectory::new("serve-routes-remapped");
-        accept_mapping(&dir, "p-a", mapping_a());
+        accept_mapping(dir.path(), "p-a", mapping_a());
         let Some(_first) = serve_until(&dir, SNAPSHOT_ON_STOP, mapped(0..10, None)).await else {
             return;
         };
         assert_eq!(store_offsets(&dir).len(), 1, "a snapshot under mapping A");
-        accept_mapping(&dir, "p-b", mapping_b());
+        accept_mapping(dir.path(), "p-b", mapping_b());
         // Ignored, so the restart replays all 20 events, not only the 10 new ones.
         let mut tail = mapped(10..20, None);
         tail.until = Until::Consumed(20);
@@ -1626,6 +1669,7 @@ fn learned() -> Feed {
         registry: None,
         until: Until::Consumed(400),
         discover: small(),
+        then: Vec::new(),
     }
 }
 
@@ -1738,3 +1782,6 @@ fn an_abstaining_profiler_leaves_serve_unrouted_and_empty() {
         assert_eq!(node_count(&run), 0);
     });
 }
+
+// Live rebuild on a mapping change while serving (s2w#184, PR 2b-ii).
+mod rebuild;

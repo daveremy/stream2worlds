@@ -316,3 +316,6 @@ fn rebuilding(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

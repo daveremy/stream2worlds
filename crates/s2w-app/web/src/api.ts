@@ -17,7 +17,11 @@ export type Message = Delta & { offset: number };
 export const kinds = ['entity', 'link', 'hub_ref', 'merge', 'split', 'noop'] as const;
 // Mirrors query/http.rs's SourceInfo: what the bridge did with one member source.
 export type RawEventInfo = { offset: number; received_at: number; payload: unknown };
-export type SourceInfo = { source: string; consumed: number; unrouted: number; recent_unrouted: RawEventInfo[] };
+// `rebuilding`: present while `serve` rebuilds the world under a newly accepted mapping (#184).
+export type SourceInfo = {
+  source: string; consumed: number; unrouted: number; recent_unrouted: RawEventInfo[];
+  rebuilding?: { identity: string; since_position: number };
+};
 // Explicit fields, not parameter properties: Node's type stripping (tests/*.test.mjs) rejects those.
 export class ApiError extends Error {
   status: number;
