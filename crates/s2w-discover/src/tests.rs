@@ -153,6 +153,24 @@ fn a_near_unique_key_names_no_type_unless_the_threshold_allows_it() {
 }
 
 #[test]
+fn the_near_unique_threshold_is_inclusive_on_the_rounded_down_ratio() {
+    // `h` is 92% distinct (integer, rounded down): 92 makes it near-unique, 93 lets it key a type.
+    let bytes: Vec<Vec<u8>> = stream(1200)
+        .iter()
+        .map(|v| v.to_string().into_bytes())
+        .collect();
+    let refs: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
+    for (pct, want) in [(92, Role::NearUnique), (93, Role::Entity)] {
+        let cfg = Config {
+            type_uniqueness_pct: pct,
+            ..Config::default()
+        };
+        let (profile, _) = discover(&refs, &cfg);
+        assert_eq!(role(&profile, &["h"]), want, "type_uniqueness_pct {pct}");
+    }
+}
+
+#[test]
 fn one_to_one_classes_merge_under_the_integer_key() {
     let m = mapping(run(&stream(1200), &[]).1);
     assert!(m.entities.iter().all(|e| e.id != "cc"));

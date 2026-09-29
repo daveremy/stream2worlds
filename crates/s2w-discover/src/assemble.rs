@@ -29,7 +29,10 @@ pub(crate) fn assemble(
         .filter(|&p| roles[p] == Role::Entity)
         .collect();
     if keys.is_empty() {
-        return Err("no path passed the entity test below type_uniqueness_pct".to_owned());
+        return Err(
+            "every path that passed the entity test is near-unique (type_uniqueness_pct)"
+                .to_owned(),
+        );
     }
     let types = merge_one_to_one(table, alias_classes(table, &keys, cfg), cfg);
     let key_set: BTreeSet<usize> = keys.iter().copied().collect();

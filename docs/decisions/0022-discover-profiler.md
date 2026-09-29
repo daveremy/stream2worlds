@@ -95,7 +95,8 @@ unoptimized `cargo xtask check` (two profiler passes over 1,615 events).
 
 `crates/s2w-sources/testdata/wikipedia-page-change.raw.sse` (1,615 events, recorded
 2026-09-27), parsed to the stored `{"data":…,"id":…}` envelope: decode `data`; event-type field
-`data.page_change_kind`; **12 types and 143 relationship rules** (78 `n:1`, 65 `n:m`). The first
+`data.page_change_kind`; **12 types and 143 relationship rules** (78 `n:1`, 65 `n:m`) at
+`PROFILER_VERSION` 1 (the amendment below gives the version 2 figures). The first
 run, before plan review's fixes to the dependency denominator, the grey band, the 1:1 merge and
 relationship endpoints, gave 17 types and 318 relationship rules. The types include the page
 (`page_id`, aliased across the event key), editor and performer ids (aliased), the wiki, the
