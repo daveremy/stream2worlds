@@ -30,7 +30,7 @@ pub(crate) fn assemble(
         .collect();
     if keys.is_empty() {
         return Err(
-            "every path that passed the entity test is near-unique (type_uniqueness_pct)"
+            "no path keys a type: none passed the entity test, or each that did is near-unique (type_uniqueness_pct)"
                 .to_owned(),
         );
     }
