@@ -52,8 +52,8 @@ pub struct WorldDiff {
     pub merges: Changes<MergeEdge>,
 }
 
-impl<T> Changes<T> {
-    fn none() -> Self {
+impl<T> Default for Changes<T> {
+    fn default() -> Self {
         Self {
             added: Vec::new(),
             removed: Vec::new(),
@@ -66,13 +66,13 @@ impl WorldDiff {
     /// The diff of a world with itself, at offset `at`: nothing added, removed or changed.
     /// What [`diff`] returns for two equal worlds, without projecting either.
     #[must_use]
-    pub fn unchanged(at: u64) -> Self {
+    pub(crate) fn unchanged(at: u64) -> Self {
         Self {
             from: at,
             to: at,
-            nodes: Changes::none(),
-            links: Changes::none(),
-            merges: Changes::none(),
+            nodes: Changes::default(),
+            links: Changes::default(),
+            merges: Changes::default(),
         }
     }
 }
@@ -82,7 +82,7 @@ fn changes<K: Ord, T: Clone + PartialEq>(
     before: &BTreeMap<K, &T>,
     after: &BTreeMap<K, &T>,
 ) -> Changes<T> {
-    let mut out = Changes::none();
+    let mut out = Changes::default();
     for (k, &a) in after {
         match before.get(k) {
             None => out.added.push(a.clone()),
@@ -112,15 +112,15 @@ fn links(v: &WorldView) -> BTreeMap<(&str, &str, &str), &Link> {
         .collect()
 }
 
-fn merges(w: &World) -> BTreeMap<EntityId, MergeEdge> {
+fn merges(w: &World) -> Vec<MergeEdge> {
     w.merges()
         .iter()
-        .map(|(&absorbed, &survivor)| (absorbed, MergeEdge { absorbed, survivor }))
+        .map(|(&absorbed, &survivor)| MergeEdge { absorbed, survivor })
         .collect()
 }
 
-fn borrowed<K: Ord + Copy, T>(m: &BTreeMap<K, T>) -> BTreeMap<K, &T> {
-    m.iter().map(|(&k, v)| (k, v)).collect()
+fn by_absorbed(edges: &[MergeEdge]) -> BTreeMap<EntityId, &MergeEdge> {
+    edges.iter().map(|e| (e.absorbed, e)).collect()
 }
 
 /// Diffs two worlds at entity level of detail. The two views are compared through borrowed
@@ -137,6 +137,6 @@ pub fn diff(from: &World, to: &World) -> Result<WorldDiff, QueryError> {
         to: to.offset(),
         nodes: changes(&nodes(&a), &nodes(&b)),
         links: changes(&links(&a), &links(&b)),
-        merges: changes(&borrowed(&from_merges), &borrowed(&to_merges)),
+        merges: changes(&by_absorbed(&from_merges), &by_absorbed(&to_merges)),
     })
 }

@@ -99,7 +99,9 @@ real router (same host, same run order, `main` at 3fc07c0 against this change):
 Still over the 1 GiB finish line: the owned view (138,462 nodes, 1,225,116 links) and its body
 are the rest, which the streamed `/world` of PR 2b removes. Holding the lock through the
 projection slows the fold by about half under a 1 s viewer; the page now refetches at most
-every 5 s.
+every 5 s. The projection still runs on the HTTP runtime's thread, as it did before, but now
+with the lock held: once the bridge is waiting to append, every other read waits behind it too.
+PR 2b moves the projection to `spawn_blocking`.
 
 ## Alternatives considered
 

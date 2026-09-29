@@ -24,7 +24,8 @@
 //!   issuing one `/world` and one `/diff?from=<head>&to=<head>` through the real router every
 //!   [`VIEWER_TICK`] and draining each body, as a page does (at 1 s, the page's old rate, a
 //!   worst case). It reports the whole-process peak against [`VIEWER_PEAK_LIMIT`] and the
-//!   slowest `/world`, an upper bound on how long one read held the fold's lock.
+//!   slowest `/world`, an upper bound on how long one read held the fold's lock (it also counts
+//!   the wait for an append and the JSON serialized after release).
 //!
 //! The fixture (11,667 events) is cycled to 1.5x10^5 with every string leaf suffixed by the
 //! cycle number (`fresh`, as in `discover_volume.rs`), so every cycle observes new entities:
@@ -314,19 +315,18 @@ mod backfill {
         };
         while !stop.load(Ordering::Relaxed) {
             let tick = Instant::now();
-            let started = Instant::now();
             let (status, len) = get("/worlds/default/world".to_owned());
-            seen.slowest_world = seen.slowest_world.max(started.elapsed());
+            seen.slowest_world = seen.slowest_world.max(tick.elapsed());
             assert_eq!(status, StatusCode::OK, "/world");
             seen.worlds += 1;
             seen.largest_body = seen.largest_body.max(len);
             let (_, head, _) = state.bounds().unwrap();
             // The head can move between the two reads; below the base that is a 410, fine.
             let (status, len) = get(format!("/worlds/default/diff?from={head}&to={head}"));
-            if status == StatusCode::OK {
-                seen.diffs += 1;
-            } else {
-                seen.refused += 1;
+            match status {
+                StatusCode::OK => seen.diffs += 1,
+                StatusCode::GONE => seen.refused += 1,
+                other => panic!("/diff answered {other}"),
             }
             seen.largest_body = seen.largest_body.max(len);
             std::thread::sleep(VIEWER_TICK.saturating_sub(tick.elapsed()));
@@ -337,9 +337,7 @@ mod backfill {
     /// Prints what the `viewer` reader saw against the whole-process `peak`.
     fn report_viewer(viewed: &Viewed, peak: usize) {
         eprintln!(
-            "viewer: {} /world, {} /diff ({} refused), largest body {}, slowest /world {} ms \
-         (upper bound on one read-lock hold: includes the wait for an append and the JSON \
-         after release)",
+            "viewer: {} /world, {} /diff ({} refused), largest body {}, slowest /world {} ms",
             viewed.worlds,
             viewed.diffs,
             viewed.refused,
