@@ -442,7 +442,8 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
     ///
     /// # Errors
     /// [`BridgeError::Query`] if the timeline is unavailable. That is fatal: the lock is
-    /// poisoned for good, and the batch in progress may be partly appended.
+    /// poisoned for good. The batch's claims are appended under one lock, so that
+    /// error leaves none of them appended.
     pub fn poll_once(&mut self) -> Result<PollReport, BridgeError> {
         let mut report = PollReport::default();
         let (events, read_error) = self.read_batch();
@@ -471,9 +472,9 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             report.error = Some(error);
             return Ok(self.finish(report));
         }
-        for (at, claim) in judged.claims {
-            self.state.append(at, claim)?;
-        }
+        // One write lock per batch, not per claim (s2w#216): a reader holding the lock (a
+        // `/world` projection) then delays the fold once per batch.
+        self.state.append_batch(judged.claims)?;
         report.stats = judged.stats;
         self.last = Some(through);
         self.last_hash = events

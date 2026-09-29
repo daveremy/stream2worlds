@@ -155,6 +155,36 @@ impl QueryState {
         Ok(head)
     }
 
+    /// Appends a batch of events under ONE write lock (see [`Timeline::append`], called once
+    /// per event, so every event keeps its own offset and delta) and wakes live subscribers
+    /// once with the final head (s2w#216). The bridge calls this once per poll batch rather
+    /// than [`Self::append`] once per claim, so a long read (a `/world` projection) delays a
+    /// batch at most once instead of once per claim. An empty batch takes no write lock and
+    /// wakes nobody; it returns the current head (under a read lock).
+    ///
+    /// # Errors
+    /// [`QueryError::Unavailable`] if the lock was poisoned; nothing in the batch is appended.
+    pub fn append_batch(
+        &self,
+        events: impl IntoIterator<Item = (Timestamp, WorldEvent)>,
+    ) -> Result<u64, QueryError> {
+        let mut events = events.into_iter().peekable();
+        if events.peek().is_none() {
+            return self.read(|t| Ok(t.head()));
+        }
+        // The guard drops at the end of this block, before subscribers are woken.
+        let head = {
+            let mut timeline = self.timeline.write().map_err(|_| QueryError::Unavailable)?;
+            let mut head = timeline.head();
+            for (at, event) in events {
+                head = timeline.append(at, event);
+            }
+            head
+        };
+        self.head.send_replace(head);
+        Ok(head)
+    }
+
     /// Installs a timeline (decision 0024) and wakes subscribers with its head. World and
     /// [`Epoch`] are one value, so they are swapped under one write lock and every read sees a
     /// consistent pair; an SSE follower notices the new epoch on its next read and ends with

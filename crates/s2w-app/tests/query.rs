@@ -661,6 +661,32 @@ mod golden {
         assert_eq!(range["clamped"], 1);
         assert_eq!(range["last_ts"], 23_000);
     }
+
+    /// `append_batch` (s2w#216) is `append` per event under one lock: same head, same world at
+    /// every offset, same `/time` bounds; an empty batch changes nothing.
+    #[test]
+    fn append_batch_matches_append_per_event() {
+        run(async {
+            let batched = QueryState::new(Timeline::new(CAP));
+            let stamped = events()
+                .into_iter()
+                .enumerate()
+                .map(|(i, e)| (Timestamp::from_millis(i64::try_from(i).unwrap() * 1000), e));
+            assert_eq!(batched.append_batch(stamped).unwrap(), 24);
+            assert_eq!(batched.append_batch(Vec::new()).unwrap(), 24);
+            let batched = router(batched);
+            let single = router(QueryState::new(timeline()));
+            for uri in [
+                "/worlds/default/time".to_owned(),
+                "/worlds/default/world".to_owned(),
+            ]
+            .into_iter()
+            .chain((0..=24).map(|at| format!("/worlds/default/world?at={at}")))
+            {
+                assert_eq!(get(&batched, &uri).await, get(&single, &uri).await, "{uri}");
+            }
+        });
+    }
 }
 
 /// A hub relating to another hub (#42): not in the golden log, so a small in-test world.
