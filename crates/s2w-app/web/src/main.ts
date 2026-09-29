@@ -66,6 +66,7 @@ async function start(): Promise<void> {
   // Best-effort: a missing or failing proposals route must never block the graph. The next poll
   // is scheduled only after this one settles, and the generation check drops any stale response.
   async function pollProposals(): Promise<void> {
+    clearTimeout(proposalsTimer);
     const generation = ++proposalsGeneration;
     try {
       const data = await fetchProposals(params, signal);

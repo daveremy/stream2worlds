@@ -350,6 +350,7 @@ mod tests {
             let server = WorldMcp::new(state_at(dir.path())).with_decisions();
             let (client, task) = connect(server).await;
             let result = call(&client, "decision_record", &record_args("p1", "why")).await;
+            assert_eq!(result.is_error, Some(true));
             assert_eq!(body(&result)["error"], "store_locked");
             let result = call(&client, "decision_record", &record_args("p1", "  ")).await;
             assert_eq!(result.is_error, Some(true));

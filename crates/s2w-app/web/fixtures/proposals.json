@@ -1,11 +1,11 @@
 {
   "proposals": [
     { "seq": 1, "id": "p-1", "class": "class-a", "actor": { "kind": "human", "id": "reviewer-1" },
-      "snapshot_offset": 10, "payload_hash": 11, "proposed_at_ms": 1000 },
+      "snapshot_offset": 10, "payload_hash": "000000000000000b", "proposed_at_ms": 1000 },
     { "seq": 2, "id": "p-2", "class": "class-a", "actor": { "kind": "agent", "model": "model-x", "version": "1" },
-      "snapshot_offset": 12, "payload_hash": 22, "proposed_at_ms": 2000 },
+      "snapshot_offset": 12, "payload_hash": "0000000000000016", "proposed_at_ms": 2000 },
     { "seq": 3, "id": "p-3", "class": "class-b", "actor": { "kind": "agent", "model": "model-x", "version": "1" },
-      "snapshot_offset": 15, "payload_hash": 33, "proposed_at_ms": 3000 }
+      "snapshot_offset": 15, "payload_hash": "0000000000000021", "proposed_at_ms": 3000 }
   ],
   "decisions": [
     { "seq": 4, "proposal_id": "p-2", "decider": "policy", "outcome": "accept", "basis": "<b>rule-1</b>", "decided_at_ms": 2100 },

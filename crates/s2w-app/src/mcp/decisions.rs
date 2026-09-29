@@ -96,6 +96,7 @@ fn record(state: &QueryState, args: &DecisionRecordArgs) -> Result<DecisionDto, 
             "decision_record needs a log directory".to_owned(),
         ));
     };
+    // Proposals are append-only, so a known id cannot become unknown before the writer opens.
     check_known(log_dir, &args.proposal_id)?;
     let mut store = SqliteProposalStore::open(log_dir).map_err(|error| match error {
         LogError::Locked => QueryError::StoreLocked,

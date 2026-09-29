@@ -62,8 +62,10 @@ pub struct ProposalDto {
     pub actor: ActorDto,
     /// The event-log position the proposal was made against.
     pub snapshot_offset: u64,
-    /// Stored payload hash, not re-verified by summaries.
-    pub payload_hash: i64,
+    /// Stored payload hash as 16 lowercase hex digits (the unsigned 64-bit
+    /// value), a string because JSON numbers above 2^53 lose precision in JS.
+    /// Not re-verified by summaries.
+    pub payload_hash: String,
     /// Caller-supplied Unix milliseconds.
     pub proposed_at_ms: i64,
 }
@@ -76,7 +78,10 @@ impl From<&ProposalSummary> for ProposalDto {
             class: summary.class.clone(),
             actor: ActorDto::from(&summary.actor),
             snapshot_offset: summary.snapshot_offset.as_u64(),
-            payload_hash: summary.payload_hash,
+            payload_hash: format!(
+                "{:016x}",
+                u64::from_ne_bytes(summary.payload_hash.to_ne_bytes())
+            ),
             proposed_at_ms: summary.proposed_at_ms,
         }
     }

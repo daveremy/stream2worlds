@@ -299,7 +299,11 @@ where
 pub(crate) fn open_proposal_reader(
     log_dir: &std::path::Path,
 ) -> Result<Option<ReadOnlySqliteProposalStore>, QueryError> {
-    if !log_dir.join(s2w_log::PROPOSAL_DATABASE_FILE).exists() {
+    let exists = log_dir
+        .join(s2w_log::PROPOSAL_DATABASE_FILE)
+        .try_exists()
+        .map_err(|error| QueryError::Storage(error.to_string()))?;
+    if !exists {
         return Ok(None);
     }
     Ok(Some(ReadOnlySqliteProposalStore::open(log_dir)?))
