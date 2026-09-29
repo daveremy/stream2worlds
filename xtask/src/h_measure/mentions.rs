@@ -115,11 +115,11 @@ pub(crate) fn key_mentions(spec: &KeySpec, corpus: &Decoded) -> Result<KeyMentio
         };
         for kind in &spec.types {
             for rule in &kind.mentions {
-                if lookup(value, &rule.path).and_then(key_part).is_none() {
+                let Some(part) = lookup(value, &rule.path).and_then(key_part) else {
                     continue;
-                }
+                };
                 let id = rule_id(&rule.path);
-                if rule.excludes(value) {
+                if rule.excludes(&part) {
                     found.excluded.insert((record, id));
                     continue;
                 }

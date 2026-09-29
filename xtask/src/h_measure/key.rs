@@ -5,8 +5,10 @@
 use std::collections::BTreeSet;
 
 use s2w_discover::rule_id;
-use s2w_model::{EntityRule, FieldPath, KEY_SEPARATOR, MAPPING_VERSION, Segment, StreamMapping};
-use s2w_system1::decode::{key_part, lookup};
+use s2w_model::{
+    EntityRule, FieldPath, KEY_SEPARATOR, KeyPart, MAPPING_VERSION, Segment, StreamMapping,
+};
+use s2w_system1::decode::key_part;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -66,14 +68,11 @@ pub(crate) struct MentionRule {
 }
 
 impl MentionRule {
-    /// Whether `record` (decoded) holds one of this rule's `no_identity` values at `path`.
-    pub(crate) fn excludes(&self, record: &Value) -> bool {
-        let Some(part) = lookup(record, &self.path).and_then(key_part) else {
-            return false;
-        };
+    /// Whether `part`, the key part at this rule's `path`, is one of its `no_identity` values.
+    pub(crate) fn excludes(&self, part: &KeyPart) -> bool {
         self.no_identity
             .iter()
-            .any(|sentinel| key_part(sentinel).as_ref() == Some(&part))
+            .any(|sentinel| key_part(sentinel).as_ref() == Some(part))
     }
 }
 
@@ -252,7 +251,7 @@ impl KeySpec {
                 rule.path
             ));
         }
-        let mut seen = Vec::new();
+        let mut seen = BTreeSet::new();
         for sentinel in &rule.no_identity {
             let Some(part) = key_part(sentinel) else {
                 return Err(format!(
@@ -260,13 +259,12 @@ impl KeySpec {
                     rule.path
                 ));
             };
-            if seen.contains(&part) {
+            if !seen.insert(part) {
                 return Err(format!(
                     "type {label:?}: no_identity value {sentinel} at {:?} is listed twice",
                     rule.path
                 ));
             }
-            seen.push(part);
         }
         Ok(())
     }
