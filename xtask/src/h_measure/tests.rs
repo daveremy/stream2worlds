@@ -470,3 +470,11 @@ fn a_key_read_from_a_mapping_is_the_newest_format_without_exclusions() {
             .all(|m| m.no_identity.is_empty())
     );
 }
+
+#[test]
+fn an_identity_listing_a_path_twice_is_rejected() {
+    let value = json!({ "version": 0, "types": [{ "type": "P", "mentions": [
+        { "path": ["id"], "identity": [["wiki"], ["id"], ["wiki"]] }
+    ] }] });
+    rejects(&value, "lists an identity path twice");
+}

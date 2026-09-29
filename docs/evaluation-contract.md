@@ -624,7 +624,8 @@ the gated hash domains, so no gate's pass or fail depends on it. Definition: s2w
 [`research/h-measure/README.md` § Context collisions](../research/h-measure/README.md#context-collisions)
 and implemented in `xtask/src/h_measure/context.rs`. For the plain `mediawiki.recentchange` key
 the cross-wiki sub-metric is the `<type> @ data.wiki` rows. A key's excluded (`no_identity`)
-mentions are dropped from every prediction before these rows are scored, as for B3's metrics.
+mentions are not gold mentions and are dropped from every prediction before these rows are
+scored, as for B3's metrics.
 
 **Supporting measurement, not part of the decision** (s2w#17 comment, 2026-09-29; s2w#56 PR 2a
 capture: 200,000 events, 231 wikis, replicate windows of 10,000 events). With no fold, the worst

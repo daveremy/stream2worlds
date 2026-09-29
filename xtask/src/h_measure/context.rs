@@ -52,7 +52,9 @@ fn row_name(label: &str, context: &str) -> String {
 }
 
 /// Per mention path id, the rows its gold mentions feed and the context part's index in the
-/// rule's identity.
+/// identity. A row comes from a rule whose identity includes its own path; every rule of the
+/// type with that same identity (an alias path included) feeds the row, so an entity seen only
+/// at an alias path still joins its collision group.
 fn contexts(spec: &KeySpec) -> BTreeMap<String, Vec<(String, usize)>> {
     let mut contexts: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
     for kind in &spec.types {
@@ -61,12 +63,15 @@ fn contexts(spec: &KeySpec) -> BTreeMap<String, Vec<(String, usize)>> {
                 continue;
             }
             for (at, context) in rule.identity.iter().enumerate() {
-                if *context != rule.path {
-                    let row = row_name(&kind.label, &rule_id(context));
-                    contexts
-                        .entry(rule_id(&rule.path))
-                        .or_default()
-                        .push((row, at));
+                if *context == rule.path {
+                    continue;
+                }
+                let row = row_name(&kind.label, &rule_id(context));
+                for feeder in kind.mentions.iter().filter(|m| m.identity == rule.identity) {
+                    let fed = contexts.entry(rule_id(&feeder.path)).or_default();
+                    if !fed.contains(&(row.clone(), at)) {
+                        fed.push((row.clone(), at));
+                    }
                 }
             }
         }
@@ -76,21 +81,30 @@ fn contexts(spec: &KeySpec) -> BTreeMap<String, Vec<(String, usize)>> {
 
 /// Every row of `spec`, with the gold mentions of the entities in its collision groups. A row
 /// with no group is still listed.
-fn collisions<'a>(spec: &KeySpec, gold: &'a Partition) -> BTreeMap<String, Collisions<'a>> {
+fn collisions<'a>(
+    spec: &KeySpec,
+    gold: &'a Partition,
+) -> Result<BTreeMap<String, Collisions<'a>>, String> {
     let contexts = contexts(spec);
     let mut groups: BTreeMap<(&str, Vec<KeyPart>), BTreeSet<&str>> = BTreeMap::new();
     for (mention, cluster) in &gold.cluster {
         let Some(rows) = contexts.get(&mention.1) else {
             continue;
         };
-        let Ok((_, parts)) = NaturalKey::new(cluster.as_str()).parts() else {
-            continue;
-        };
+        // A gold cluster is a natural key the key itself built, one part per identity path; a
+        // key that does not parse, or has too few parts, is a broken invariant, never skipped.
+        let (_, parts) = NaturalKey::new(cluster.as_str())
+            .parts()
+            .map_err(|e| format!("gold entity {cluster:?}: {e}"))?;
         for (row, at) in rows {
             let mut rest = parts.clone();
-            if *at < rest.len() {
-                rest.remove(*at);
+            if *at >= rest.len() {
+                return Err(format!(
+                    "gold entity {cluster:?} has {} identity parts; row {row:?} drops part {at}",
+                    rest.len()
+                ));
             }
+            rest.remove(*at);
             groups
                 .entry((row.as_str(), rest))
                 .or_default()
@@ -119,7 +133,7 @@ fn collisions<'a>(spec: &KeySpec, gold: &'a Partition) -> BTreeMap<String, Colli
             .map(|(mention, _)| mention.clone())
             .collect();
     }
-    rows
+    Ok(rows)
 }
 
 fn restricted(partition: &Partition, to: &BTreeSet<Mention>) -> Partition {
@@ -139,9 +153,11 @@ pub(crate) fn rows(
     gold: &Partition,
     predicted: &Partition,
     oracle: &Partition,
-) -> BTreeMap<String, ContextRow> {
-    let unscored = spec.unscored_ids();
-    collisions(spec, gold)
+) -> Result<BTreeMap<String, ContextRow>, String> {
+    // The restricted set holds gold mentions only, and a mention path is never also unscored
+    // (`KeySpec::validate`), so no unscored path can reach this scorer.
+    let unscored = BTreeSet::new();
+    Ok(collisions(spec, gold)?
         .into_iter()
         .map(|(name, found)| {
             let key = restricted(gold, &found.mentions);
@@ -157,7 +173,7 @@ pub(crate) fn rows(
             };
             (name, row)
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]

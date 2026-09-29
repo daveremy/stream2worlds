@@ -95,6 +95,7 @@ fn score_refuses_no_key_and_an_unpinned_key() {
         score(&root, &dir, &out, "dev", &["other.json"]),
         "is not pinned",
     );
+    refused(score(&root, &dir, &out, "dev", &[KEY, KEY]), "given twice");
 }
 
 #[test]
@@ -122,4 +123,58 @@ fn score_refuses_a_corpus_relabelled_since_the_freeze() {
     )
     .unwrap();
     refused(score(&root, &dir, &out, "res", &[KEY]), "changed since");
+}
+
+#[test]
+fn score_marks_a_corpus_with_the_frozen_bytes_in_sample_under_any_name() {
+    // `held` pins the same file as `dev` in the fixture.
+    let (root, dir, out) = frozen("same-bytes");
+    let markdown = score(&root, &dir, &out, "held", &[KEY]).expect("scores");
+    assert!(markdown.contains("**In sample**"), "{markdown}");
+}
+
+#[test]
+fn score_grades_a_heldout_corpus_out_of_sample() {
+    let (root, dir) = fixture("score-heldout");
+    let text: String = (1..=2)
+        .map(|i| {
+            format!(
+                "id: [{{\"offset\":{i}}}]\ndata: {{\"type\":\"edit\",\"title\":\"Q{i}\",\"wiki\":\"dewiki\",\"user\":\"V{i}\"}}\n\n"
+            )
+        })
+        .collect();
+    fs::write(dir.join("h.sse"), &text).unwrap();
+    let manifest = root.join(DATA).join("corpora.toml");
+    let mut rows = fs::read_to_string(&manifest).unwrap();
+    rows.push_str(&format!(
+        "[corpus.other]\nrole = \"heldout\"\nfile = \"h.sse\"\nevents = 2\nsha256 = \"{}\"\n",
+        sha256(text.as_bytes())
+    ));
+    fs::write(&manifest, rows).unwrap();
+    let out = root.join("frozen.json");
+    freeze(&root, &dir, "dev", 3, &out).expect("freezes");
+    let markdown = score(&root, &dir, &out, "other", &[KEY]).expect("scores");
+    assert!(!markdown.contains("In sample"), "{markdown}");
+    let json: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("score.json")).unwrap()).unwrap();
+    assert_eq!(json["records"], 2);
+}
+
+#[test]
+fn score_grades_an_abstained_freeze_as_the_empty_prediction() {
+    let (root, dir, out) = frozen("abstain");
+    let mut frozen: serde_json::Value = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    frozen["mapping"] = serde_json::Value::Null;
+    frozen["abstain"] = "test abstention".into();
+    fs::write(&out, serde_json::to_vec_pretty(&frozen).unwrap()).unwrap();
+    let markdown = score(&root, &dir, &out, "dev", &[KEY]).expect("scores");
+    assert!(
+        markdown.contains("abstained: test abstention"),
+        "{markdown}"
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("score.json")).unwrap()).unwrap();
+    let micro = &json["keys"][0]["grade"]["mapping"]["micro"];
+    assert!(micro["precision"].is_null(), "{micro}");
+    assert_eq!(micro["recall"], 0.0);
 }

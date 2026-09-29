@@ -45,11 +45,14 @@ cargo xtask h-measure score --mapping FILE --corpus NAME --key FILE [--key FILE 
 ```
 
 `score` refuses, before it reads the corpus: pins that changed since the freeze, a mapping not
-frozen on the pinned development corpus, the `reserved` corpus, no `--key`, and a key that is
-not pinned or does not match its pin. An abstaining mapping is graded as the empty prediction.
+frozen on the pinned development corpus, the `reserved` corpus, no `--key`, a `--key` given
+twice, and a key that is not pinned or does not match its pin. An abstaining mapping is graded
+as the empty prediction. The report marks a score **In sample** when the scored corpus is the
+freeze corpus by name or by bytes (two `corpora.toml` names may pin one file).
 The markdown report opens with the alias limit, then gives per key the mapping and ceiling
 rows (with and without singleton-only types), per type, per path, context collisions, and the
-spurious, abstained and excluded counts; `--json` writes every number.
+spurious, abstained and excluded counts; `--json` writes every number, replacing FILE if it
+exists (a report is recomputable; a frozen mapping is the file that is never overwritten).
 
 ## Context collisions
 
@@ -57,12 +60,15 @@ The unfloored composite-key sub-metric (evaluation contract, cross-wiki composit
 discovery; accepted as proposed on s2w#56, 2026-09-29). A row is one key type and one
 **context path**: an identity path of a mention rule whose identity has two or more paths and
 includes the rule's own path, other than that path. Drop the context part from each gold
-entity's identity; gold entities of the type that are then equal form a **collision group**,
+entity's identity; gold entities of the type that are then equal form a **collision group**.
+An entity is found through any gold mention at a path whose rule has the row's identity, an
+alias path included. The groups are
 the entities a mapping keying the type without the context would merge. The row scores B-cubed
 on every gold mention (alias paths included) of the entities in groups of two or more, with
 the graded mapping's and the ceiling's predictions both restricted to those mentions. A row
-with no group is listed with every metric undefined. A key's excluded (`no_identity`) mentions
-are dropped from every prediction first (#225), so they never form a group.
+with no group is listed with every metric undefined. The markdown table shows P, R and F1 for
+both. A key's excluded (`no_identity`) mentions are not gold mentions and are dropped from every
+prediction (#225), so they never form a group.
 
 For the plain stream's key, the cross-wiki sub-metric is the `<type> @ data.wiki` rows. The
 rows are reported beside B3's metrics and are never a floor.

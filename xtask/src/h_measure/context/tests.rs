@@ -56,11 +56,9 @@ fn a_mapping_keyed_without_the_context_merges_the_collision_group() {
     // Both entities' mentions at `id` and at the alias `title` are in the set; `(en, 2)` is not.
     assert_eq!(row.mentions, 4);
     // The oracle has no rule for the alias path, so even the ceiling misses those mentions.
-    assert!(
-        row.ceiling.recall.is_some_and(|r| r < 1.0),
-        "{:?}",
-        row.ceiling
-    );
+    // Recall averages over the 4 gold mentions; each entity's alias mention is missed.
+    assert_eq!(row.ceiling.recall, Some(0.25));
+    assert_eq!(row.mapping.recall, Some(0.25));
     assert_eq!(row.mapping.precision, Some(0.5));
     assert_eq!(row.ceiling.precision, Some(1.0));
 }
@@ -117,4 +115,23 @@ fn an_excluded_mention_never_forms_a_collision_group() {
     let (_, row) = only_row(&got);
     assert_eq!(row.groups, 0);
     assert_eq!(row.mapping.precision, None);
+}
+
+#[test]
+fn an_entity_seen_only_at_an_alias_path_joins_its_collision_group() {
+    // `id` 0 carries no identity at the canonical path, but the alias rule still mentions the
+    // entity at `title`: the two entities collide without the wiki.
+    let key = spec(
+        &json!({ "version": 1, "types": [{ "type": "P", "mentions": [
+        { "path": ["id"], "identity": [["wiki"], ["id"]], "no_identity": [0] },
+        { "path": ["title"], "identity": [["wiki"], ["id"]] }
+    ] }] }),
+    );
+    let payloads = [
+        json!({ "wiki": "en", "id": 0, "title": "A" }),
+        json!({ "wiki": "de", "id": 0, "title": "B" }),
+    ];
+    let got = grade(&key, &keyed_on(json!([["id"]])), &payloads).expect("grades");
+    let (_, row) = only_row(&got);
+    assert_eq!((row.groups, row.entities, row.mentions), (1, 2, 2));
 }

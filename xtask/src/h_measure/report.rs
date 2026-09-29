@@ -53,7 +53,8 @@ pub(crate) fn run(root: &Path, request: &Request<'_>) -> Result<String, String> 
         fs::read(request.frozen).map_err(|e| format!("{}: {e}", request.frozen.display()))?;
     let frozen: Frozen =
         serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", request.frozen.display()))?;
-    admissible(&pins, &frozen, request)?;
+    let scored = pins.corpus(request.corpus)?;
+    admissible(&pins, &frozen, scored.role, request)?;
     let specs = request
         .keys
         .iter()
@@ -80,7 +81,7 @@ pub(crate) fn run(root: &Path, request: &Request<'_>) -> Result<String, String> 
         frozen: &frozen,
         frozen_sha256: sha256(&bytes),
         corpus: request.corpus,
-        corpus_sha256: &pins.corpus(request.corpus)?.sha256,
+        corpus_sha256: &scored.sha256,
         records: payloads.len(),
         keys,
     };
@@ -92,7 +93,12 @@ pub(crate) fn run(root: &Path, request: &Request<'_>) -> Result<String, String> 
 }
 
 /// The refusals that need no corpus bytes.
-fn admissible(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), String> {
+fn admissible(
+    pins: &Pins,
+    frozen: &Frozen,
+    scored: Role,
+    request: &Request<'_>,
+) -> Result<(), String> {
     if frozen.pins != pins.all() {
         return Err(format!(
             "the pins in keys.toml or corpora.toml changed since {} was frozen; freeze again under the current pins",
@@ -106,7 +112,7 @@ fn admissible(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(),
             request.frozen.display()
         ));
     }
-    if pins.corpus(request.corpus)?.role == Role::Reserved {
+    if scored == Role::Reserved {
         return Err(format!(
             "{} is reserved for a later change and is never scored here",
             request.corpus
@@ -114,6 +120,10 @@ fn admissible(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(),
     }
     if request.keys.is_empty() {
         return Err("score needs at least one --key".to_owned());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    if let Some(twice) = request.keys.iter().find(|file| !seen.insert(file.as_str())) {
+        return Err(format!("--key {twice} given twice"));
     }
     Ok(())
 }
@@ -181,7 +191,7 @@ const PER_PATH: [&str; 5] = [
     "recall",
     "ceiling recall",
 ];
-const CONTEXT: [&str; 8] = [
+const CONTEXT: [&str; 10] = [
     "type @ context",
     "groups",
     "entities",
@@ -189,6 +199,8 @@ const CONTEXT: [&str; 8] = [
     "P",
     "R",
     "F1",
+    "ceiling P",
+    "ceiling R",
     "ceiling F1",
 ];
 
@@ -212,7 +224,7 @@ fn key_section(key: &KeyReport) -> String {
     });
     let contexts = g.contexts.iter().map(|(name, c)| {
         let counts = [c.groups, c.entities, c.mentions].map(|n| n.to_string());
-        let scores = [prf(&c.mapping).to_vec(), vec![shown(c.ceiling.f1)]].concat();
+        let scores = [prf(&c.mapping), prf(&c.ceiling)].concat();
         [vec![name.clone()], counts.to_vec(), scores].concat()
     });
     format!(
@@ -248,7 +260,8 @@ fn markdown(report: &Report<'_>, request: &Request<'_>) -> String {
         || "a mapping".to_owned(),
         |reason| format!("no mapping (abstained: {reason}; graded as the empty prediction)"),
     );
-    let in_sample = if f.corpus == report.corpus {
+    // Compared by bytes as well as name: two corpora.toml names may pin one file.
+    let in_sample = if f.corpus == report.corpus || f.corpus_sha256 == *report.corpus_sha256 {
         " **In sample**: the mapping was frozen on this corpus."
     } else {
         ""

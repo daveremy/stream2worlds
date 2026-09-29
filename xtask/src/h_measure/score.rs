@@ -359,7 +359,7 @@ pub(crate) fn grade(
     Ok(Grade {
         mapping: score(&gold.partition, &predicted, &unscored),
         ceiling: score(&gold.partition, &oracle, &unscored),
-        contexts: rows(spec, &gold.partition, &predicted, &oracle),
+        contexts: rows(spec, &gold.partition, &predicted, &oracle)?,
         excluded: gold.excluded_per_path(),
         abstained: gold.abstained,
         undecodable: corpus.undecodable(),
