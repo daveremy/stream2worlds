@@ -69,7 +69,7 @@ proposed and accepted for it yet. Alongside, the scale gates went live and the f
 
 ---
 
-## World memory: 438 to 360 bytes per entity — #190 (2026-09-29)
+## World memory: 438 to 360 bytes per entity — #198 (2026-09-29)
 
 **Shipped:** the world keeps its entities in a `Vec` indexed by id instead of a `BTreeMap`, and an
 entity with no hub references no longer carries an empty map inline (`EntityState` is 56 B, was
