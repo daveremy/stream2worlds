@@ -302,12 +302,13 @@ impl QueryState {
     /// What changed between `from` and `to`, or the head when `to` is absent.
     ///
     /// # Errors
-    /// [`QueryError::StaleEpoch`] (checked first), [`QueryError::OffsetBeyondHead`] past the
-    /// head, or [`QueryError::Unavailable`] if the lock was poisoned. Both worlds come from one
-    /// read, so a diff never spans two histories, and the diff is computed under it: the head
-    /// is borrowed, never copied (#216). Appends wait for both projections, and for the fold
-    /// of `from` below the head (full history only). `from == to` is empty without projecting
-    /// anything; once the history window has dropped, head..head is the only diff there is.
+    /// [`QueryError::StaleEpoch`] (checked first), [`QueryError::OffsetBeforeBase`] below the
+    /// base, [`QueryError::OffsetBeyondHead`] past the head, or [`QueryError::Unavailable`] if
+    /// the lock was poisoned. Both worlds come from one read, so a diff never spans two
+    /// histories, and the diff is computed under it: the head is borrowed, never copied
+    /// (#216). Appends wait for both projections, and for the fold of `from` below the head
+    /// (full history only). `from == to` is empty without projecting anything; once the
+    /// history window has dropped, head..head is the only diff there is.
     pub fn diff(
         &self,
         from: u64,
