@@ -35,10 +35,16 @@ thiserror.workspace = true
 # `macros` and `sync` for the query API's SSE broadcast.
 tokio = { version = "1", features = ["macros", "net", "rt", "signal", "sync", "time"] }
 tokio-stream = "0.1"
+# `statfs` for the status line's filesystem check and free-space figure (s2w#32).
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 
 [dev-dependencies]
 # The snapshot golden-equivalence test generates event streams (decision 0021).
 proptest = "1"
+# Heap profiling for the ignored `scale_mem` test (s2w#32).
+dhat = "=0.3.3"
+# Instruction-count benchmark `scale_ir`, run under valgrind by `cargo xtask scale` (s2w#32).
+gungraun = "=0.20.0"
 # `client` turns rmcp into an in-process MCP client for the stdio round-trip test.
 rmcp = { version = "=3.4.1", default-features = false, features = ["client"] }
 # Produces records for the ignored real-broker test; pinned like s2w-sources (decision 0007).
@@ -47,6 +53,14 @@ rskafka = "=0.6.0"
 # time-mocking in the group-commit / kafka-cursor tests.
 tokio = { version = "1", features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
 tower = { version = "0.5", features = ["util"] }
+
+[[bench]]
+name = "scale_ir"
+harness = false
+
+[[bench]]
+name = "scale_wall"
+harness = false
 
 [build-dependencies]
 memory-serve = "=2.4.0"

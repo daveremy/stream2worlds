@@ -1,6 +1,7 @@
 # xtask
 
-The workspace's fitness functions: `cargo xtask check`.
+The workspace's fitness functions: `cargo xtask check`, and `cargo xtask scale` for the
+Valgrind-measured scale numbers (s2w#32).
 
 ## Allowed dependencies
 
@@ -14,7 +15,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 ## Invariants
 
-- Rust source is read only as `syn` ASTs, never as text or regexes. Other inputs: Cargo metadata, this crate's own TOML config, rustc dep-info files (the walker backstop), and `git show`/`git log` for the exemption ratchet (decision 0001, amendment).
+- Rust source is read only as `syn` ASTs, never as text or regexes. Other inputs: Cargo metadata, this crate's own TOML config, rustc dep-info files (the walker backstop), `git show`/`git log` for the exemption and scale-baseline ratchets (decision 0001, amendment), and the JSON the scale measurements print or write (s2w#32).
+- A measurement that cannot be read (no JSON line, a failed run, a stale or missing summary, a zero) is a failure, never a pass.
 - Every violation message says what to do next.
 - A new check is shown to fire (break the rule on purpose, watch it fail) before it is trusted.
 
@@ -36,11 +38,20 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.
-  - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer.
+  - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer; its `git` and `trailer` helpers are shared with `scale.rs`.
+- `scale.rs`: `xtask/scale-baseline.toml` (every key required), the pure `[ir]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
+- `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` and needs the JSON line that test prints.
+- `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory, the `[ir]` judgment, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` baseline belongs to that job's image.
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual
-counts; it never raises them. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
+counts, and also rewrites `[memory]` in `xtask/scale-baseline.toml` down to the measurement;
+it never raises anything and never touches `[ir]`. The asymmetry is deliberate: `[memory]` is
+measured by `cargo xtask check` on any machine, so tightening it is automatic, while `[ir]` is
+owned by the CI image, so an `[ir]` improvement past tolerance stays a printed hint to lower
+`fold_ir_per_event` by hand from the CI job's number. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
 dep-info, build failure) are report-only until
 `module-size.toml` enables enforcement; baseline growth always blocks without an authorized
-`Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`. CI needs full git history.
+`Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`; the same trailer rule covers
+raising `fold_ir_per_event`, `bytes_per_entity`, `target_bytes_per_entity`,
+`budget_bytes_per_entity` or `tolerance_percent` in `xtask/scale-baseline.toml` (a file absent on `origin/main` is all growth). CI needs full git history.
 - No domain knowledge in this crate; see decision 0018.

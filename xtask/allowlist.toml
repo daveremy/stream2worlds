@@ -25,8 +25,8 @@ normal = ["s2w-model", "serde_json"]
 normal = ["s2w-model"]
 
 [crates.s2w-app]
-normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2", "memory-serve", "axum", "postcard", "rmcp", "serde", "serde_json", "thiserror", "tokio", "tokio-stream"]
-dev = ["proptest", "rmcp", "rskafka", "tokio", "tower"]
+normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2", "memory-serve", "axum", "postcard", "rmcp", "serde", "serde_json", "thiserror", "tokio", "tokio-stream", "rustix"]
+dev = ["proptest", "rmcp", "rskafka", "tokio", "tower", "gungraun", "dhat"]
 build = ["memory-serve"]
 
 [crates.s2w]
@@ -92,3 +92,12 @@ readme_row = "Fitness functions"
 
 [external.memory-serve]
 readme_row = "Dashboard"
+
+[external.rustix]
+readme_row = "Scale"
+
+[external.gungraun]
+readme_row = "Scale"
+
+[external.dhat]
+readme_row = "Scale"

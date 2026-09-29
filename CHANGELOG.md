@@ -13,6 +13,49 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Scale fitness function: fold Ir and bytes per entity gated — #175 (2026-09-28)
+
+**Shipped:** the first scale numbers as fitness functions. `cargo xtask scale` (Linux, Valgrind,
+new CI job `scale` on `ubuntu-24.04`) runs a `gungraun` benchmark that folds 100,000 generated
+events and judges instructions per event against `xtask/scale-baseline.toml` at a 5% tolerance.
+`cargo xtask check` gains check 13: an ignored `dhat` test
+measures heap bytes per entity after the fold and gates it against the same file, with a
+hard interim ceiling. Raising a baseline
+needs a `Baseline-growth: s2w#<N>` trailer, the same rule as module-size exemptions, and a
+measurement that cannot be read fails instead of passing. `cargo xtask scale` also runs an append
+benchmark, one event per transaction: it must run, and its events/s is reported, not judged (a
+tmpfs number is labelled and excluded from comparison). `s2w watch`'s progress line now shows
+the store's size (every SQLite file in the log directory) and days until its disk is full.
+
+**#32's literal finish line is not fully met.** No recorded 10-minute Wikipedia fixture was
+committed; a seeded synthetic generator (`crates/s2w-app/tests/support/scale_generator.rs`)
+feeds every measurement instead. Not measured, deferred to follow-ups: parse instructions per
+event (#166), fork cost (#167, blocked on the gate-4 fork API), source lag per
+partition (#168), and fold-thread utilisation plus the entities and bytes-per-entity status
+fields (#169). The `[ir]` baseline (9093 Ir/event) comes from the first run of CI job `scale`
+(run 36527045232): it belongs to the CI image, so only a CI run sets it. Raising `[ir] events`
+or `[memory] entities` counts as baseline growth, because a larger run lowers the per-unit figure.
+
+**Learned:** measured on the synthetic generator, the fold holds **830 bytes per entity** (dhat
+live heap, test profile), 2.77× the 300 B that decision 0004 planned from arithmetic. That is
+past the record's 2× line, so the record now carries a dated note and the ruling (karpathy) accepts an interim 900 B ceiling; the 300 B target stands and #172 tracks the cut. Options were: a new
+memory target or a smaller footprint. At 830 B, 10^6 entities are about 0.83 GB of live heap,
+but that figure leaves out relationships (234 B each), allocator overhead and a real stream's
+entity distribution (the generator's is chosen, not observed), while the 1 GB target is RSS, so
+it does not show that 10^6 entities fit in 1 GB. Instruction counts measured locally (about 8,860 per event) are
+not the baseline; only the CI image's count is. `cargo test --exact` with a wrong name runs
+zero tests and exits 0, so the memory check requires the test's JSON line rather than trusting
+the exit code.
+
+**Changed course:** the recorded Wikipedia fixture from research 0006 §12 gave way to a synthetic
+generator, so the numbers are reproducible without committing tens of megabytes of stream data;
+parse and fork measurements moved to their own issues rather than holding this PR.
+
+**Next:** #172 (cut bytes per entity toward 300 B, decision 0004);
+ the four follow-ups above.
+
+---
+
 ## World snapshots, part 1b: `serve` restarts from a snapshot — #33 (2026-09-28)
 
 **Shipped:** `serve` now writes world snapshots and restarts from them

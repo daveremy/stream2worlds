@@ -2,7 +2,6 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +32,7 @@ mod walk;
 
 use depinfo::{dep_check, dep_files};
 use ratchet::growth;
+pub(super) use ratchet::{git, trailer};
 use walk::Scan;
 
 fn exemptions(config: &Config, scan: &Scan) -> Vec<String> {
@@ -67,7 +67,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
         Err(e) => return e,
     };
     // Always ask Cargo to refresh artifacts: its incremental build reuses an already-built tree.
-    let build = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+    let build = super::cargo()
         .args(["build", "--workspace", "--offline"])
         .current_dir(root)
         .status();

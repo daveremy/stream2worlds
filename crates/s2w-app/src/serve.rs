@@ -377,7 +377,7 @@ async fn serve_live(
                             .append_batch_with_generations(events, generations)
                     },
                     started.stream,
-                    name,
+                    crate::status::Progress::named(name),
                     reporter,
                     &started.sources,
                     |source| Ok(shared.borrow().source_membership(source)?),

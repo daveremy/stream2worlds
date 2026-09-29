@@ -8,6 +8,7 @@ pub mod query;
 pub mod routes;
 pub mod serve;
 pub mod snapshot;
+pub mod status;
 
 /// `s2w`'s `--json` reporter lives on the CLI side (it needs `output.rs`'s rendering seam,
 /// which this crate cannot depend on — see `crates/s2w/AGENTS.md`'s dependency direction);
@@ -131,7 +132,8 @@ pub async fn run_watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(),
     for note in &started.notes {
         report.note(&format!("{name}: {note}"));
     }
-    group_commit::pump_events(&mut log, started.stream, name, report).await?;
+    let progress = status::Progress::named(name).with_log_dir(&args.log_dir);
+    group_commit::pump_events(&mut log, started.stream, progress, report).await?;
     match started.ends {
         Ending::AtEndOfInput => Ok(()),
         Ending::Never => Err(AppError::StreamEnded(name)),

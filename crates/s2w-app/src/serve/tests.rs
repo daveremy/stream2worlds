@@ -427,7 +427,7 @@ fn shared_log_ingestion_and_bridge_feed_the_http_router_without_sockets() {
         group_commit::pump_events(
             &mut writer,
             Box::pin(tokio_stream::iter(events)),
-            "stdin",
+            crate::status::Progress::named("stdin"),
             &mut group_commit::HumanReporter,
         )
         .await
