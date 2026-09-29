@@ -200,6 +200,13 @@ impl QueryState {
             .map_or(0, |stats| stats.consumed)
     }
 
+    /// The events between the served base and head, in order.
+    #[cfg(test)]
+    pub(crate) fn timeline_events(&self) -> Vec<super::TimedEvent> {
+        self.read(|t| Ok(t.events_after(t.base())?.to_vec()))
+            .unwrap_or_default()
+    }
+
     fn read<T>(&self, f: impl FnOnce(&Timeline) -> Result<T, QueryError>) -> Result<T, QueryError> {
         f(&*self.timeline.read().map_err(|_| QueryError::Unavailable)?)
     }
