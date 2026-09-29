@@ -91,7 +91,7 @@ relationships. Both supplies, side by side in `xtask/scale-baseline.toml`:
 
 | | Fold Ir per event (CI job `scale`) | Heap bytes per entity (`cargo xtask check`) |
 |---|---|---|
-| Synthetic generator | 5,764 (run 36563251251) | 360 B (1.20×) |
+| Synthetic generator | 5,764 (the gate; run 36563251251 measured 5,763) | 360 B (1.20×) |
 | Recorded fixture | **15,285** per raw event (run 36569430562) | **346 B** (1.15×), 409 B per relationship |
 
 The two Ir figures are not the same unit of work: a synthetic event is one fold input, and a

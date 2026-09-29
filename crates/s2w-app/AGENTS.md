@@ -104,8 +104,8 @@ recorded stream.
   `tests/fixtures/recorded.mapping.json` (a symlink to check 11's `sample.mapping.json`).
   `tests/recorded_fixture.rs` checks its bytes and counts (58,335 claims; `ENTITIES` 11,462 and
   `RELATIONSHIPS` 19,512 after the fold) and that replay is deterministic. A re-recording
-  re-pins `FIXTURE_HASH`, those counts and `[recorded]` in `xtask/scale-baseline.toml` in the
-  same PR.
+  re-pins `FIXTURE_HASH`, those counts, and `[recorded]`, `[ir.recorded] events` and the
+  `[memory.recorded]` counts in `xtask/scale-baseline.toml` in the same PR.
 - `benches/scale_ir.rs`: gungraun library benchmark `fold_ir_per_event` (total instructions for
   folding `IR_EVENTS` events; setup not counted). Needs Valgrind and `gungraun-runner` at the
   same version as the `gungraun` pin. The summary lands in

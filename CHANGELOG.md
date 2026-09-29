@@ -39,13 +39,13 @@ entities, 19,512 relationships). Fold instructions per event are gated in CI job
 heap bytes per entity in `cargo xtask check`, for both supplies. The SSE frame parser the
 fixture uses is now the live adapter's, shared with xtask's replay.
 
-**Learned:** real traffic folds at 15,285 Ir per raw event against the generator's 5,764, but
-a raw event maps to about 5 claims, so per claim it is about 3,060. It holds 346 bytes per
-entity against the generator's 360, both inside decision 0004's 2× line: the gap to the 300 B
-planning figure is about the same on observed data as on chosen data. Live traffic ran at about 19.4 events/s, more than twice the
-rate in the earlier 3-minute capture, so the fixture is 34.2 MB rather than the planned 15 MB;
-it is still committed raw, without LFS. It contains 17 distinct IPv4 addresses of logged-out
-editors, which is public Wikimedia data under CC BY-SA.
+**Learned:** real traffic folds at 15,285 Ir per raw event against the generator's 5,764, but a
+raw event maps to about 5 claims, so per claim it is about 3,060. It holds 346 bytes per entity
+against the generator's 360, both inside decision 0004's 2× line: the gap to the 300 B planning
+figure is about the same on observed data as on chosen data. Live traffic ran at about 19.4
+events/s, more than twice the rate in the earlier 3-minute capture, so the fixture is 34.2 MB
+rather than the planned 15 MB; it is still committed raw, without LFS. It contains 17 distinct
+IPv4 addresses of logged-out editors, which is public Wikimedia data under CC BY-SA.
 
 **Changed course:** the issue asked to replay the recording *instead of* the generator. The
 two answer different questions (regression on a 10^6-event world versus real-workload shape),
