@@ -127,13 +127,16 @@ fn grades_itself_perfectly(
 /// The contract's frozen fixtures ([`score::frozen_fixtures`]), scored and checked, as a
 /// printed table.
 fn reference_fixtures() -> Result<String, String> {
-    let exact = |got: Option<f64>| got.is_some_and(|x| (9.0 * x - 4.0).abs() < 1e-12);
+    let ninths = |got: Option<f64>, n: f64| got.is_some_and(|x| (9.0 * x - n).abs() < 1e-12);
+    let exact = |got: Option<f64>| ninths(got, 4.0);
     let mut table = "fixture         P       R       F1      false-merge  recovery".to_owned();
     for (name, key, prediction) in score::frozen_fixtures() {
         let row = score::score(&key, &prediction, &BTreeSet::new());
         let b = row.micro;
         let holds = match name {
-            "4/9" => exact(b.precision) && exact(b.recall) && exact(b.f1),
+            "4/9" => {
+                exact(b.precision) && exact(b.recall) && exact(b.f1) && ninths(row.false_merge, 5.0)
+            }
             _ => row.recovery == Some(0.0),
         };
         if !holds {

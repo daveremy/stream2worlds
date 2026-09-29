@@ -54,6 +54,8 @@ fn the_four_ninths_case() {
     exactly(got.micro.recall, 4.0, 9.0);
     exactly(got.micro.f1, 4.0, 9.0);
     exactly(got.false_merge, 5.0, 9.0);
+    assert_eq!(got.recovery, Some(0.0));
+    assert_eq!(got.per_path["c"].predicted, 0);
     assert_eq!(got.spurious, [("d".to_owned(), 1)].into());
 }
 

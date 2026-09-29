@@ -158,11 +158,8 @@ impl<'a> Tables<'a> {
             }
         }
         let key_size = sizes(key.cluster.values());
-        let kind: BTreeMap<&str, String> = key
-            .cluster
-            .values()
-            .map(|c| (c.as_str(), type_of(c)))
-            .collect();
+        let clusters: BTreeSet<&str> = key.cluster.values().map(String::as_str).collect();
+        let kind: BTreeMap<&str, String> = clusters.into_iter().map(|c| (c, type_of(c))).collect();
         let mut singleton_types: BTreeSet<String> = kind.values().cloned().collect();
         for (cluster, size) in &key_size {
             if *size > 1 {
