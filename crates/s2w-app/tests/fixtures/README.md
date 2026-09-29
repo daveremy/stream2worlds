@@ -3,6 +3,9 @@
 Never regenerate or edit a fixture here to make a test pass. A deliberate re-recording is a
 reviewed change that re-pins its hash and counts in the same PR.
 
+`wikipedia-page-change.jsonl` (pre-existing) is replayed by `../bridge_replay.rs`; this README
+documents the recorded stream below.
+
 ## `recorded-10min.raw.sse` (s2w#174)
 
 Ten minutes of the Wikimedia EventStreams `mediawiki.page_change.v1` stream, raw SSE,
