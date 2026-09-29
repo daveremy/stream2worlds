@@ -61,7 +61,8 @@
 //!   default run always asserted. A named `bridge` or `viewer` child under an allocator variable reports
 //!   and does not assert.
 //! - The `backfill_memory_heap` target includes this file with dhat as the global allocator
-//!   and runs `bridge` only, printing dhat's `max_bytes` (Rust heap peak) beside `VmHWM`.
+//!   and runs `bridge` by default, printing dhat's `max_bytes` (Rust heap peak) beside `VmHWM`;
+//!   a named `queries` child there prints each clone's exact heap bytes (s2w#243).
 //!   Compare its `max_bytes` with this target's `bridge` `VmHWM`: the gap is non-heap resident
 //!   memory (SQLite's C heap, stacks, the binary) plus allocator overhead and fragmentation.
 //!   (dhat's own bookkeeping makes that target's `VmHWM` meaningless.)
@@ -380,7 +381,10 @@ mod backfill {
             let diff = state.diff(head, Some(head), None).unwrap();
             drop(diff);
             report("query /diff head..head", before, started, "");
-            state.with_head(|world, _| clone_breakdown(world)).unwrap();
+            let timings = state.read_timings();
+            state
+                .with_head(|world, _| clone_breakdown(world, timings.as_ref()))
+                .unwrap();
         }
     }
 
@@ -388,39 +392,18 @@ mod backfill {
     /// snapshot that copies the maps would cost). Every copy is kept until the end, so no window
     /// reuses another's freed pages; pages freed by the windows before this one can still be
     /// reused, so a resident delta can read low. The heap target's `heap` figure (dhat's live
-    /// bytes) is the exact size.
-    fn clone_breakdown(world: &World) {
-        let heap = || heap_target().then(|| dhat::HeapStats::get().curr_bytes);
+    /// bytes) is the exact size. `timings` is the streamed read's hold split, for the `result`.
+    fn clone_breakdown(world: &World, timings: Option<&ReadTimingsSnapshot>) {
         let mut rows = Vec::new();
-        let mut kept: Vec<Box<dyn std::any::Any>> = Vec::new();
-        let mut measure = |part: &str, clone: &dyn Fn() -> Box<dyn std::any::Any>| {
-            let (before, heap_before) = (reset_peak(), heap());
-            let started = Instant::now();
-            kept.push(clone());
-            let seconds = started.elapsed().as_secs_f64();
-            let resident = status("VmRSS:").saturating_sub(before);
-            let heap_bytes = heap().zip(heap_before).map(|(after, b)| after - b);
-            eprintln!(
-                "clone {part}: {:.0} ms, resident {}{}",
-                seconds * 1000.0,
-                mib(resident),
-                heap_bytes.map_or_else(String::new, |b| format!(", heap {}", mib(b)))
-            );
-            rows.push(serde_json::json!({
-                "part": part,
-                "ms": seconds * 1000.0,
-                "resident_bytes": resident,
-                "heap_bytes": heap_bytes,
-            }));
-        };
-        measure("world", &|| Box::new(world.clone()));
-        measure("entities", &|| {
-            Box::new(world.entities().map(|(_, s)| s.clone()).collect::<Vec<_>>())
+        let whole = timed_clone(&mut rows, "world", || world.clone());
+        let entities = timed_clone(&mut rows, "entities", || {
+            world.entities().map(|(_, s)| s.clone()).collect::<Vec<_>>()
         });
-        measure("keys", &|| Box::new(world.keys().clone()));
-        measure("merges", &|| Box::new(world.merges().clone()));
-        measure("relationships", &|| Box::new(world.relationships().clone()));
-        measure("hub_counters", &|| Box::new(world.hub_counters().clone()));
+        let keys = timed_clone(&mut rows, "keys", || world.keys().clone());
+        let merges = timed_clone(&mut rows, "merges", || world.merges().clone());
+        let relationships =
+            timed_clone(&mut rows, "relationships", || world.relationships().clone());
+        let hubs = timed_clone(&mut rows, "hub_counters", || world.hub_counters().clone());
         eprintln!(
             "result {}",
             serde_json::json!({
@@ -429,10 +412,40 @@ mod backfill {
                 "entities": world.entity_count(),
                 "relationships": world.relationships().len(),
                 "keys": world.keys().len(),
+                "read_timings": timings.map(timings_json),
                 "clone": rows,
             })
         );
-        drop(kept);
+        drop((whole, entities, keys, merges, relationships, hubs));
+    }
+
+    /// Runs `clone` in its own peak window, prints and records its time and size, and returns
+    /// the copy so the caller keeps it alive.
+    fn timed_clone<T>(
+        rows: &mut Vec<serde_json::Value>,
+        part: &str,
+        clone: impl FnOnce() -> T,
+    ) -> T {
+        let heap = || heap_target().then(|| dhat::HeapStats::get().curr_bytes);
+        let (before, heap_before) = (reset_peak(), heap());
+        let started = Instant::now();
+        let copy = clone();
+        let elapsed = started.elapsed();
+        let resident = status("VmRSS:").saturating_sub(before);
+        let heap_bytes = heap().zip(heap_before).map(|(after, b)| after - b);
+        eprintln!(
+            "clone {part}: {} ms, resident {}{}",
+            elapsed.as_millis(),
+            mib(resident),
+            heap_bytes.map_or_else(String::new, |b| format!(", heap {}", mib(b)))
+        );
+        rows.push(serde_json::json!({
+            "part": part,
+            "ms": ms(elapsed),
+            "resident_bytes": resident,
+            "heap_bytes": heap_bytes,
+        }));
+        copy
     }
 
     /// One `/world` through the real router, its body drained chunk by chunk and counted, never
@@ -482,9 +495,6 @@ mod backfill {
     /// What one `viewer` reader saw.
     #[derive(Default)]
     struct Viewed {
-        /// Which reader, from 0, of how many.
-        reader: usize,
-        readers: usize,
         worlds: usize,
         /// `/world` reads answered 304: the head had not moved since the last one.
         unchanged: usize,
@@ -504,7 +514,7 @@ mod backfill {
                 "diffs": self.diffs,
                 "refused": self.refused,
                 "largest_body_bytes": self.largest_body,
-                "slowest_world_ms": self.slowest_world.as_millis(),
+                "slowest_world_ms": ms(self.slowest_world),
             })
         }
     }
@@ -520,30 +530,33 @@ mod backfill {
         (0..count)
             .map(|reader| {
                 let (state, stop) = (state.clone(), Arc::clone(stop));
-                let offset = tick.mul_f64(reader as f64 / count as f64);
+                let offset = tick / u32::try_from(count).unwrap() * u32::try_from(reader).unwrap();
                 std::thread::spawn(move || {
                     let started = Instant::now();
                     while started.elapsed() < offset && !stop.load(Ordering::Relaxed) {
                         std::thread::sleep(Duration::from_millis(10));
                     }
-                    let mut seen = viewer(&state, &stop, tick);
-                    (seen.reader, seen.readers) = (reader, count);
-                    seen
+                    viewer(&state, &stop, tick)
                 })
             })
             .collect()
+    }
+
+    /// Milliseconds with the fraction kept, for a `result` field.
+    fn ms(duration: Duration) -> f64 {
+        duration.as_secs_f64() * 1000.0
     }
 
     /// The server-side `/world` hold split as a `result` field, in milliseconds.
     fn timings_json(timings: &ReadTimingsSnapshot) -> serde_json::Value {
         serde_json::json!({
             "bodies": timings.bodies,
-            "wait_ms_sum": timings.wait.total.as_millis(),
-            "wait_ms_max": timings.wait.max.as_millis(),
-            "build_ms_sum": timings.build.total.as_millis(),
-            "build_ms_max": timings.build.max.as_millis(),
-            "write_ms_sum": timings.write.total.as_millis(),
-            "write_ms_max": timings.write.max.as_millis(),
+            "wait_ms_sum": ms(timings.wait.total),
+            "wait_ms_max": ms(timings.wait.max),
+            "build_ms_sum": ms(timings.build.total),
+            "build_ms_max": ms(timings.build.max),
+            "write_ms_sum": ms(timings.write.total),
+            "write_ms_max": ms(timings.write.max),
             "build_share": timings.build_share(),
             "build_share_of_max": timings.build_share_of_max(),
         })
@@ -631,22 +644,26 @@ mod backfill {
         peak: usize,
         measuring: bool,
     ) {
-        for viewed in viewed {
+        for (reader, seen) in viewed.iter().enumerate() {
             eprintln!(
                 "viewer {}/{} (tick {} ms): {} /world ({} unchanged, 304), \
                  {} /diff ({} refused), largest body {}, slowest /world {} ms",
-                viewed.reader + 1,
-                viewed.readers,
-                viewed.tick.as_millis(),
-                viewed.worlds,
-                viewed.unchanged,
-                viewed.diffs,
-                viewed.refused,
-                mib(viewed.largest_body),
-                viewed.slowest_world.as_millis()
+                reader + 1,
+                viewed.len(),
+                seen.tick.as_millis(),
+                seen.worlds,
+                seen.unchanged,
+                seen.diffs,
+                seen.refused,
+                mib(seen.largest_body),
+                seen.slowest_world.as_millis()
             );
-            assert!(viewed.worlds > 0, "a viewer never read the world");
         }
+        // A reader staggered past the end of a short backfill may never read; one must.
+        assert!(
+            viewed.iter().any(|v| v.worlds > 0),
+            "the viewer never read the world"
+        );
         report_timings(timings.expect("the viewer child records the /world hold"));
         if measuring {
             eprintln!("viewer: assert skipped (measurement variant)");
@@ -943,8 +960,8 @@ mod backfill {
         for variant in variants {
             let tuning = tuning(variant);
             assert!(
-                !heap_target() || variant == "bridge",
-                "{variant}: the heap target measures bridge only"
+                !heap_target() || matches!(variant, "bridge" | "queries"),
+                "{variant}: the heap target measures bridge and queries only"
             );
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([filter.as_str(), "--exact", "--ignored", "--nocapture"])
