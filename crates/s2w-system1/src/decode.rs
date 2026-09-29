@@ -1,9 +1,10 @@
 //! JSON path lookup and in-place decode for [`s2w_model::StreamMapping`] payloads. The one
 //! implementation: [`crate::MappingEngine`] runs it per event and `cargo xtask check` 11
 //! (raw obfuscation replay) runs the same decode and lookups to rename payloads, so the check
-//! cannot drift from the engine.
+//! cannot drift from the engine. [`entity_key`] is the engine's one key builder; `cargo xtask
+//! h-measure` reads mentions with it, so a scored cluster is the entity `serve` would fold.
 
-use s2w_model::{FieldPath, Segment};
+use s2w_model::{EntityRule, FieldPath, KeyPart, NaturalKey, Segment};
 use serde_json::Value;
 
 /// Replaces the JSON text at `path` with its parsed value.
@@ -46,4 +47,28 @@ pub fn lookup_mut<'v>(value: &'v mut Value, path: &FieldPath) -> Option<&'v mut 
             Segment::Key(key) => node.as_object_mut()?.get_mut(key),
             Segment::Index(index) => node.as_array_mut()?.get_mut(*index),
         })
+}
+
+/// The key part a JSON value can be: a string, an integer that fits `i64`, or a bool. Floats,
+/// larger numbers, nulls, arrays and objects are not key parts.
+#[must_use]
+pub fn key_part(value: &Value) -> Option<KeyPart> {
+    match value {
+        Value::String(text) => Some(KeyPart::Str(text.clone())),
+        Value::Number(number) => number.as_i64().map(KeyPart::Int),
+        Value::Bool(flag) => Some(KeyPart::Bool(*flag)),
+        _ => None,
+    }
+}
+
+/// The rule's natural key in a decoded payload, when every key path holds a key part.
+#[must_use]
+pub fn entity_key(value: &Value, rule: &EntityRule) -> Option<NaturalKey> {
+    let parts = rule
+        .key
+        .iter()
+        .map(|path| key_part(lookup(value, path)?))
+        .collect::<Option<Vec<_>>>()?;
+    // A validated mapping's labels never hold the separator, so this never declines.
+    NaturalKey::from_parts(&rule.type_label, &parts).ok()
 }

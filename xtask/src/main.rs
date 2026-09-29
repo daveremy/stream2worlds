@@ -69,6 +69,7 @@ mod clippy_config;
 mod decision_numbers;
 mod discover_replay;
 mod golden;
+mod h_measure;
 mod module_size;
 mod obfuscation;
 mod obfuscation_raw;
@@ -84,9 +85,14 @@ fn main() -> ExitCode {
     if args == ["scale"] {
         return scale_run::run(&workspace_root());
     }
+    if args.first().is_some_and(|a| a == "h-measure") {
+        return h_measure::run(&workspace_root(), &args[1..]);
+    }
     let tighten = args == ["check", "--tighten-baseline"];
     if args != ["check"] && !tighten {
-        eprintln!("usage: cargo xtask check [--tighten-baseline] | cargo xtask scale");
+        eprintln!(
+            "usage: cargo xtask check [--tighten-baseline] | cargo xtask scale | cargo xtask h-measure selftest"
+        );
         return ExitCode::from(2);
     }
     match check(&workspace_root(), tighten) {

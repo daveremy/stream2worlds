@@ -5,12 +5,12 @@
 use std::collections::BTreeMap;
 
 use s2w_model::{
-    AttrValue, EntityRule, KeyPart, MappingError, NaturalKey, RawEvent, StreamMapping, WorldEvent,
+    AttrValue, EntityRule, MappingError, NaturalKey, RawEvent, StreamMapping, WorldEvent,
     fnv1a64_hex,
 };
 use serde_json::Value;
 
-use crate::decode::{decode_path, lookup};
+use crate::decode::{decode_path, entity_key, lookup};
 
 /// Every mapping engine's name is this prefix and the mapping identity (decision 0023).
 const NAME_PREFIX: &str = "mapping-";
@@ -173,22 +173,6 @@ fn provenance(mapping_hash: &str, proposal_id: Option<&str>) -> Vec<u8> {
 
 fn abstain(reason: AbstainReason) -> Verdict {
     Verdict::Abstain { reason }
-}
-
-/// The rule's natural key, when every key path holds a scalar.
-fn entity_key(value: &Value, rule: &EntityRule) -> Option<NaturalKey> {
-    let parts = rule
-        .key
-        .iter()
-        .map(|path| match lookup(value, path)? {
-            Value::String(text) => Some(KeyPart::Str(text.clone())),
-            Value::Number(number) => number.as_i64().map(KeyPart::Int),
-            Value::Bool(flag) => Some(KeyPart::Bool(*flag)),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()?;
-    // A validated mapping's labels never hold the separator, so this never declines.
-    NaturalKey::from_parts(&rule.type_label, &parts).ok()
 }
 
 fn attrs(value: &Value, rule: &EntityRule) -> BTreeMap<String, AttrValue> {
