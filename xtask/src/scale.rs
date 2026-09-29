@@ -105,10 +105,11 @@ pub(super) fn parse(text: &str) -> Result<Baseline, String> {
         b.memory.entities,
         b.ir.recorded.events,
         b.memory.recorded.entities,
+        b.memory.recorded.relationships,
     ];
     if b.ir.profile != "bench" || sizes.contains(&0) {
         return Err(format!(
-            "{BASELINE}: [ir] profile must be \"bench\" and every events / entities count must be > 0; fix the file"
+            "{BASELINE}: [ir] profile must be \"bench\" and every events / entities / relationships count must be > 0; fix the file"
         ));
     }
     Ok(b)

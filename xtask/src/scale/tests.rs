@@ -40,6 +40,7 @@ fn parse_requires_every_field_and_refuses_unknown_ones() {
     assert!(parse(&renamed).is_err());
     assert!(parse(&TEXT.replace("\"bench\"", "\"release\"")).is_err());
     assert!(parse(&TEXT.replace("tolerance_percent = 5", "tolerance_percent = 0")).is_err());
+    assert!(parse(&TEXT.replace("relationships = 4", "relationships = 0")).is_err());
 }
 
 #[test]

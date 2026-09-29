@@ -33,7 +33,7 @@ profile = "bench"
 # The recorded fixture's claims, folded in emission order (s2w-app bench
 # fold_ir_per_event_recorded), divided by its raw events. Same image, rustc and profile as [ir].
 [ir.recorded]
-fold_ir_per_event = 0 # unset: set from the first CI run of job `scale`
+fold_ir_per_event = 15285 # measured by CI run 36569430562 (job scale), 2026-09-29
 events = 11667 # frames with id and data in the fixture; xtask counts them and checks
 
 # Heap bytes per entity after folding entity-observed events, counted by dhat (test profile).
