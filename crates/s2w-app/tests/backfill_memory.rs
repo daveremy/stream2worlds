@@ -137,6 +137,7 @@ mod backfill {
             ],
         ),
         (
+            // Replaces any GLIBC_TUNABLES the caller set.
             "notcache",
             &[("GLIBC_TUNABLES", "glibc.malloc.tcache_count=0")],
         ),
@@ -562,16 +563,16 @@ mod backfill {
         reason = "one child's measurement reads top to bottom: configure, peak window, report"
     )]
     fn bridge(directory: &PathBuf, variant: &str) {
-        let (base, _allocator) = variant.split_once('+').unwrap_or((variant, ""));
+        let (base, _) = split(variant);
         let with_viewer = base == "viewer";
         let blocking = base == "bridge-run";
         let history_cap = knob(HISTORY_CAP);
-        let batch = knob(BATCH);
+        let batch_knob = knob(BATCH);
         // Only the default configuration asserts: a knob, an allocator tuning, another thread
         // topology or dhat measures something else.
         let measuring = (variant != "bridge" && variant != "viewer")
             || history_cap.is_some()
-            || batch.is_some()
+            || batch_knob.is_some()
             || heap_target();
         let (log, verdicts, registry) = bridge_inputs(directory);
         let mut timeline = Timeline::new(CAP);
@@ -580,7 +581,7 @@ mod backfill {
         }
         let state = QueryState::new(timeline);
         let config = BridgeConfig {
-            batch: batch.unwrap_or(BridgeConfig::default().batch),
+            batch: batch_knob.unwrap_or(BridgeConfig::default().batch),
             ..BridgeConfig::default()
         };
         let batch = config.batch;
@@ -590,6 +591,9 @@ mod backfill {
                 .unwrap()
         });
         let before = reset_peak();
+        // dhat's max_bytes counts from the child's start, VmHWM from here: the heap baseline
+        // puts both on one footing.
+        let heap_before = heap_target().then(|| dhat::HeapStats::get().curr_bytes);
         let started = Instant::now();
         let mut bridge = Bridge::new(log, verdicts, registry, state.clone(), config).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
@@ -630,11 +634,12 @@ mod backfill {
                 "peak_bytes": peak,
                 "baseline_bytes": before,
                 "heap_max_bytes": heap_max,
+                "heap_baseline_bytes": heap_before,
                 "seconds": seconds,
                 "slowest_poll_ms": slowest_poll.as_millis(),
                 "raw_events": consumed,
                 "world_events": head,
-                "asserted": !measuring && !with_viewer,
+                "asserted": with_viewer || !measuring,
             })
         );
         let Some(viewed) = viewed else {
@@ -671,9 +676,17 @@ mod backfill {
         }
     }
 
+    /// A variant's base and its allocator tuning: `bridge-run+arena2` is
+    /// `("bridge-run", Some("arena2"))`.
+    fn split(variant: &str) -> (&str, Option<&str>) {
+        variant
+            .split_once('+')
+            .map_or((variant, None), |(base, allocator)| (base, Some(allocator)))
+    }
+
     /// The glibc tuning `variant` (`<base>+<allocator>`) sets on its child, if any.
     fn tuning(variant: &str) -> &'static [(&'static str, &'static str)] {
-        let Some((base, allocator)) = variant.split_once('+') else {
+        let (base, Some(allocator)) = split(variant) else {
             return &[];
         };
         assert!(
@@ -712,6 +725,17 @@ mod backfill {
         eprintln!("log populated in {:.1} s", started.elapsed().as_secs_f64());
         let only = std::env::var(VARIANTS).ok();
         let variants = variants(only.as_deref());
+        // A bridge-type child stores verdicts in the shared log directory; a second one in the
+        // same invocation replays them. The default sweep's `viewer` after `bridge` predates this.
+        let measurement = variants.iter().any(|v| !DEFAULT_VARIANTS.contains(v));
+        let bridges = variants
+            .iter()
+            .filter(|v| matches!(split(v).0, "bridge" | "bridge-run" | "viewer"))
+            .count();
+        assert!(
+            !measurement || bridges <= 1,
+            "run one bridge-type variant per invocation when measuring: {variants:?}"
+        );
         let filter = format!(
             "{}::child",
             module_path!()
@@ -752,10 +776,7 @@ mod backfill {
                 .trim_backtraces(Some(1))
                 .build()
         });
-        let base = variant
-            .split_once('+')
-            .map_or(variant.as_str(), |(base, _)| base);
-        if matches!(base, "bridge" | "bridge-run" | "viewer") {
+        if matches!(split(&variant).0, "bridge" | "bridge-run" | "viewer") {
             bridge(&PathBuf::from(std::env::var(LOG_DIR).unwrap()), &variant);
             return;
         }
