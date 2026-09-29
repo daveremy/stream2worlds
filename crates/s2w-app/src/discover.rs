@@ -133,7 +133,7 @@ pub fn basis(
 pub(crate) enum Trigger {
     /// Before the registry is built: a mapping filed now routes this start.
     Start,
-    /// After a bridge poll (s2w#197 PR 4b): the rows land, the routes change at the next start.
+    /// After a bridge poll (s2w#197 PR 4b): the rows land and the live rebuild routes them.
     InRun,
 }
 
@@ -169,7 +169,8 @@ pub(crate) fn run(
 }
 
 /// As [`run`], for one source only, after a bridge poll: it reads that source's window and
-/// stops, and its notes say the routes change at the next start.
+/// stops, and its notes say the live rebuild applies the mapping. It resolves the routes
+/// first, so a source routed since start-up (by another actor) is not read or profiled.
 /// Returns whether the rows met a held writer lock, so the caller tries again later.
 pub(crate) fn run_one(
     log: &SqliteEventLog,
@@ -178,8 +179,9 @@ pub(crate) fn run_one(
     cfg: &DiscoverConfig,
     reporter: &mut dyn Reporter,
 ) -> bool {
-    // The lock-held re-resolution in `file` decides whether the source is routed by now.
-    let resolution = Resolution::default();
+    // A source routed since start-up is filtered out before its window is read; an unreadable
+    // store falls through to `file`, whose lock-held re-resolution reports it.
+    let resolution = routes::load(log_dir).unwrap_or_default();
     run_with(
         REAL,
         (log, log_dir),

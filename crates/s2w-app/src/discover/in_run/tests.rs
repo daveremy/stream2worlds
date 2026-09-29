@@ -73,10 +73,10 @@ fn a_held_writer_lock_keeps_the_source_pending_and_backs_off() {
     let mut notes = Notes::default();
     in_run.after_poll(&SqliteEventLog::open(dir.path()).expect("log"), &mut notes);
     assert!(
-        notes
-            .0
-            .iter()
-            .any(|n| n.ends_with("routes unchanged, retried in 20 polls")),
+        notes.0.iter().any(|n| n.ends_with(&format!(
+            "routes unchanged, retried in {} polls",
+            super::LOCK_RETRY_POLLS
+        ))),
         "{:?}",
         notes.0
     );

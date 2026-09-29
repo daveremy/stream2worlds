@@ -1,7 +1,7 @@
 //! The in-run trigger (s2w#197 PR 4b, decision 0025). A source that was unrouted at start and
 //! had not yet filled its window is profiled once, after the bridge poll in which the log's
-//! count of its events reaches the window. The rows land at once; the routes change at the next
-//! start, or live once a rebuild watcher (s2w#184 2b-ii) sees the store move.
+//! count of its events reaches the window. The rows land at once; the live-rebuild watcher
+//! (s2w#184 2b-ii) sees the store move and routes the source.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
