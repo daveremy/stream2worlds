@@ -34,6 +34,29 @@
 //! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants;
 //! `S2W_BACKFILL_MEMORY_VIEWER_TICK_MS=1000` sets the `viewer` tick.
 //!
+//! Measurement variants (s2w#220, where the bridge's ~170 MiB over the head world goes). They
+//! run only when named in `S2W_BACKFILL_MEMORY_VARIANTS`, and never assert the 600 MiB limit:
+//!
+//! - `bridge-run`: the `bridge` child with every `poll_once` on a tokio blocking-pool thread, as
+//!   `Bridge::run` does in serve (a per-thread glibc arena, not the main one).
+//! - `<base>+<allocator>`, base `bridge` or `bridge-run`: the parent sets one glibc tuning on
+//!   that child only, never on itself (it populates the log). [`ALLOCATORS`] lists them;
+//!   `arena2` only means something under `bridge-run` (the main-thread child has one arena).
+//! - `S2W_BACKFILL_MEMORY_HISTORY_CAP=<n>` and `S2W_BACKFILL_MEMORY_BATCH=<n>`, read by the
+//!   bridge child: the timeline's history cap and `BridgeConfig::batch`. The default sweep
+//!   (no `VARIANTS`) refuses to run with either set, so a green default run always asserted.
+//! - The `backfill_memory_heap` target includes this file with dhat as the global allocator
+//!   and runs `bridge` only, printing dhat's `max_bytes` (Rust heap peak) beside `VmHWM`.
+//!   Compare its `max_bytes` with this target's `bridge` `VmHWM`: the gap is non-heap resident
+//!   memory (SQLite's C heap, stacks, the binary) plus allocator overhead and fragmentation.
+//!   (dhat's own bookkeeping makes that target's `VmHWM` meaningless.)
+//!
+//! Every child prints one `result {json}` line for aggregation. Run one variant per invocation:
+//! the bridge child stores verdicts in the shared log directory, so a second bridge-type child
+//! in the same invocation replays them and measures a different workload. The sweep:
+//! `S2W_BACKFILL_MEMORY_VARIANTS=bridge-run+arena2 timeout -s KILL 600 cargo test --release -p
+//! s2w-app --test backfill_memory -- --ignored --nocapture 2>&1 | grep '^result'`.
+//!
 //! The fixture (11,667 events) is cycled to 1.5x10^5 with every string leaf suffixed by the
 //! cycle number (`fresh`, as in `discover_volume.rs`), so every cycle observes new entities:
 //! the upper bound, and the only variant the log accepts (it dedupes identical payloads).
@@ -61,7 +84,7 @@ mod backfill {
 
     use s2w_app::bridge::{Bridge, BridgeConfig, EngineRegistry, Route};
     use s2w_app::discover::DISCOVER_WINDOW;
-    use s2w_app::query::{QueryState, Timeline, ViewParams, router};
+    use s2w_app::query::{DEFAULT_HISTORY_CAP, QueryState, Timeline, ViewParams, router};
     use s2w_core::{World, fold};
     use s2w_discover::{Config, Discovery, discover};
     use s2w_log::{EventLog, SqliteEventLog, SqliteVerdictStore};
@@ -95,6 +118,29 @@ mod backfill {
             Duration::from_millis(ms.parse().expect("S2W_BACKFILL_MEMORY_VIEWER_TICK_MS: ms"))
         })
     }
+    /// The variants the default sweep (no `VARIANTS`) runs.
+    const DEFAULT_VARIANTS: [&str; 5] = ["world", "timeline", "queries", "bridge", "viewer"];
+    /// The bridge child's timeline history cap, when set (s2w#220).
+    const HISTORY_CAP: &str = "S2W_BACKFILL_MEMORY_HISTORY_CAP";
+    /// The bridge child's `BridgeConfig::batch`, when set (s2w#220).
+    const BATCH: &str = "S2W_BACKFILL_MEMORY_BATCH";
+    /// The glibc tunings a `<base>+<allocator>` variant sets on its child (s2w#220).
+    const ALLOCATORS: [(&str, &[(&str, &str)]); 4] = [
+        ("arena2", &[("MALLOC_ARENA_MAX", "2")]),
+        // A fixed threshold: every buffer of 64 KiB or more is mmapped and unmapped on free.
+        ("mmap64k", &[("MALLOC_MMAP_THRESHOLD_", "65536")]),
+        (
+            "trim",
+            &[
+                ("MALLOC_TRIM_THRESHOLD_", "131072"),
+                ("MALLOC_TOP_PAD_", "0"),
+            ],
+        ),
+        (
+            "notcache",
+            &[("GLIBC_TUNABLES", "glibc.malloc.tcache_count=0")],
+        ),
+    ];
 
     /// A `/proc/self/status` field in bytes (`VmRSS`: resident now, `VmHWM`: peak resident).
     fn status(field: &str) -> usize {
@@ -108,6 +154,22 @@ mod backfill {
     fn reset_peak() -> usize {
         std::fs::write("/proc/self/clear_refs", "5").unwrap();
         status("VmRSS:")
+    }
+
+    /// A measurement knob: `None` when unset; a value that is not a count panics.
+    fn knob(name: &str) -> Option<usize> {
+        let value = std::env::var(name).ok()?;
+        Some(
+            value
+                .parse()
+                .unwrap_or_else(|_| panic!("{name}={value} is not a count")),
+        )
+    }
+
+    /// True in the `backfill_memory_heap` target, which includes this file with dhat as the
+    /// global allocator.
+    fn heap_target() -> bool {
+        env!("CARGO_CRATE_NAME") == "backfill_memory_heap"
     }
 
     fn mib(bytes: usize) -> String {
@@ -447,10 +509,37 @@ mod backfill {
         }
     }
 
-    /// The `bridge` child starts like a serve process: it reads the mapping and the source
-    /// the parent wrote, never loading the fixture or running the profiler, so its whole-process
-    /// peak is what serve would hold. With `with_viewer`, a [`viewer`] thread reads throughout.
-    fn bridge(directory: &PathBuf, with_viewer: bool) {
+    /// [`poll_to_end`] with every `poll_once` on a tokio blocking-pool thread, as `Bridge::run`
+    /// does in serve (s2w#220): glibc gives that thread its own arena.
+    fn poll_to_end_blocking(
+        runtime: &tokio::runtime::Runtime,
+        mut bridge: Bridge<SqliteEventLog, SqliteVerdictStore>,
+    ) -> (u64, Duration) {
+        runtime.block_on(async move {
+            let mut consumed = 0;
+            let mut slowest = Duration::ZERO;
+            loop {
+                let poll = Instant::now();
+                let (returned, report) = tokio::task::spawn_blocking(move || {
+                    let report = bridge.poll_once();
+                    (bridge, report)
+                })
+                .await
+                .unwrap();
+                bridge = returned;
+                slowest = slowest.max(poll.elapsed());
+                let report = report.unwrap();
+                if report.stats.consumed == 0 {
+                    return (consumed, slowest);
+                }
+                consumed += report.stats.consumed;
+            }
+        })
+    }
+
+    /// The log, verdict store and registry a serve process would open on `directory`: the
+    /// mapping and source the parent wrote, never the fixture or the profiler.
+    fn bridge_inputs(directory: &PathBuf) -> (SqliteEventLog, SqliteVerdictStore, EngineRegistry) {
         let mapping: StreamMapping =
             serde_json::from_slice(&std::fs::read(directory.join(MAPPING_FILE)).unwrap()).unwrap();
         let source = std::fs::read_to_string(directory.join(SOURCE_FILE)).unwrap();
@@ -461,27 +550,62 @@ mod backfill {
         registry
             .register(Route::Exact(source), Box::new(engine))
             .unwrap();
-        let state = QueryState::new(Timeline::new(CAP));
+        (log, verdicts, registry)
+    }
+
+    /// The `bridge` child starts like a serve process: it reads the mapping and the source
+    /// the parent wrote, never loading the fixture or running the profiler, so its whole-process
+    /// peak is what serve would hold. `variant` is `bridge`, `viewer` (a [`viewer`] thread reads
+    /// throughout), or a measurement variant (module doc), which reports and never asserts.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one child's measurement reads top to bottom: configure, peak window, report"
+    )]
+    fn bridge(directory: &PathBuf, variant: &str) {
+        let (base, _allocator) = variant.split_once('+').unwrap_or((variant, ""));
+        let with_viewer = base == "viewer";
+        let blocking = base == "bridge-run";
+        let history_cap = knob(HISTORY_CAP);
+        let batch = knob(BATCH);
+        // Only the default configuration asserts: a knob, an allocator tuning, another thread
+        // topology or dhat measures something else.
+        let measuring = (variant != "bridge" && variant != "viewer")
+            || history_cap.is_some()
+            || batch.is_some()
+            || heap_target();
+        let (log, verdicts, registry) = bridge_inputs(directory);
+        let mut timeline = Timeline::new(CAP);
+        if let Some(cap) = history_cap {
+            timeline = timeline.with_history_cap(cap);
+        }
+        let state = QueryState::new(timeline);
+        let config = BridgeConfig {
+            batch: batch.unwrap_or(BridgeConfig::default().batch),
+            ..BridgeConfig::default()
+        };
+        let batch = config.batch;
+        let runtime = blocking.then(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+        });
         let before = reset_peak();
         let started = Instant::now();
-        let mut bridge = Bridge::new(
-            log,
-            verdicts,
-            registry,
-            state.clone(),
-            BridgeConfig::default(),
-        )
-        .unwrap();
+        let mut bridge = Bridge::new(log, verdicts, registry, state.clone(), config).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let reader = with_viewer.then(|| {
             let (state, stop) = (state.clone(), Arc::clone(&stop));
             std::thread::spawn(move || viewer(&state, &stop, viewer_tick()))
         });
-        let (consumed, slowest_poll) = poll_to_end(&mut bridge);
+        let (consumed, slowest_poll) = match &runtime {
+            Some(runtime) => poll_to_end_blocking(runtime, bridge),
+            None => poll_to_end(&mut bridge),
+        };
         stop.store(true, Ordering::Relaxed);
         let viewed = reader.map(|r| r.join().unwrap());
         let (_, head, _) = state.bounds().unwrap();
-        let name = if with_viewer { "viewer" } else { "bridge" };
+        let name = if with_viewer { "viewer" } else { variant };
+        let seconds = started.elapsed().as_secs_f64();
         report(
             name,
             before,
@@ -489,13 +613,35 @@ mod backfill {
             &format!(", {consumed} raw events, {head} world events"),
         );
         let peak = status("VmHWM:");
+        let heap_max = heap_target().then(|| dhat::HeapStats::get().max_bytes);
         eprintln!(
             "{name}: whole-process peak {} (baseline {} before the bridge), slowest poll_once {} ms",
             mib(peak),
             mib(before),
             slowest_poll.as_millis()
         );
+        eprintln!(
+            "result {}",
+            serde_json::json!({
+                "target": env!("CARGO_CRATE_NAME"),
+                "variant": variant,
+                "history_cap": history_cap.unwrap_or(DEFAULT_HISTORY_CAP),
+                "batch": batch,
+                "peak_bytes": peak,
+                "baseline_bytes": before,
+                "heap_max_bytes": heap_max,
+                "seconds": seconds,
+                "slowest_poll_ms": slowest_poll.as_millis(),
+                "raw_events": consumed,
+                "world_events": head,
+                "asserted": !measuring && !with_viewer,
+            })
+        );
         let Some(viewed) = viewed else {
+            if measuring {
+                eprintln!("{name}: assert skipped (measurement variant)");
+                return;
+            }
             assert!(
                 peak < SERVE_PEAK_LIMIT,
                 "serve peak {} is over {}",
@@ -507,6 +653,40 @@ mod backfill {
         report_viewer(&viewed, peak);
     }
 
+    /// The variants to run: the named ones, else the default sweep, which refuses a
+    /// measurement knob so that a green default run always asserted.
+    fn variants(only: Option<&str>) -> Vec<&str> {
+        match only {
+            Some(only) => only.split(',').collect(),
+            None if heap_target() => vec!["bridge"],
+            None => {
+                for name in [HISTORY_CAP, BATCH] {
+                    assert!(
+                        std::env::var_os(name).is_none(),
+                        "{name} is set: name the variants to measure; the default sweep asserts"
+                    );
+                }
+                DEFAULT_VARIANTS.to_vec()
+            }
+        }
+    }
+
+    /// The glibc tuning `variant` (`<base>+<allocator>`) sets on its child, if any.
+    fn tuning(variant: &str) -> &'static [(&'static str, &'static str)] {
+        let Some((base, allocator)) = variant.split_once('+') else {
+            return &[];
+        };
+        assert!(
+            base == "bridge" || base == "bridge-run",
+            "{variant}: an allocator tuning needs base bridge or bridge-run"
+        );
+        ALLOCATORS
+            .iter()
+            .find(|(name, _)| *name == allocator)
+            .unwrap_or_else(|| panic!("{variant}: unknown allocator tuning {allocator}"))
+            .1
+    }
+
     #[test]
     #[ignore = "folds 1.5x10^5 events in five children; run by hand with --release"]
     fn backfill_memory_breakdown() {
@@ -514,8 +694,11 @@ mod backfill {
         let discovered = mapping(events);
         let id = discovered.identity().unwrap();
         eprintln!("mapping {id} (window {DISCOVER_WINDOW}), {EVENTS} raw events, fresh cycles");
-        let directory =
-            PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("backfill-memory-sqlite-log");
+        let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(if heap_target() {
+            "backfill-memory-heap-sqlite-log"
+        } else {
+            "backfill-memory-sqlite-log"
+        });
         let _ignored = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
         let started = Instant::now();
@@ -528,17 +711,24 @@ mod backfill {
         std::fs::write(directory.join(SOURCE_FILE), events[0].source.as_str()).unwrap();
         eprintln!("log populated in {:.1} s", started.elapsed().as_secs_f64());
         let only = std::env::var(VARIANTS).ok();
-        for variant in ["world", "timeline", "queries", "bridge", "viewer"] {
-            if only
-                .as_deref()
-                .is_some_and(|only| !only.split(',').any(|v| v == variant))
-            {
-                continue;
-            }
+        let variants = variants(only.as_deref());
+        let filter = format!(
+            "{}::child",
+            module_path!()
+                .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+                .unwrap()
+        );
+        for variant in variants {
+            let tuning = tuning(variant);
+            assert!(
+                !heap_target() || variant == "bridge",
+                "{variant}: the heap target measures bridge only"
+            );
             let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args(["backfill::child", "--exact", "--ignored", "--nocapture"])
+                .args([filter.as_str(), "--exact", "--ignored", "--nocapture"])
                 .env(VARIANT, variant)
                 .env(LOG_DIR, &directory)
+                .envs(tuning.iter().copied())
                 .output()
                 .unwrap();
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
@@ -555,11 +745,18 @@ mod backfill {
         let Ok(variant) = std::env::var(VARIANT) else {
             return;
         };
-        if variant == "bridge" || variant == "viewer" {
-            bridge(
-                &PathBuf::from(std::env::var(LOG_DIR).unwrap()),
-                variant == "viewer",
-            );
+        // In the heap target, count every allocation the child makes (s2w#220).
+        let _profiler = heap_target().then(|| {
+            dhat::Profiler::builder()
+                .testing()
+                .trim_backtraces(Some(1))
+                .build()
+        });
+        let base = variant
+            .split_once('+')
+            .map_or(variant.as_str(), |(base, _)| base);
+        if matches!(base, "bridge" | "bridge-run" | "viewer") {
+            bridge(&PathBuf::from(std::env::var(LOG_DIR).unwrap()), &variant);
             return;
         }
         let events = load().unwrap();
