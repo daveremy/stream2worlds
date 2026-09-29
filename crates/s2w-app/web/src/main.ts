@@ -99,6 +99,12 @@ async function start(): Promise<void> {
         if (signal.aborted) return;
         // Another history is served: this page's offsets name another world, so rebuild.
         if (view.epoch !== state.epoch) { restartStale(); return; }
+        // A rebuild in progress: keep its count current until the server says it is done.
+        if (rebuildingStatus(state.sources) !== undefined) {
+          try { state.sources = await fetchSources(params, signal); } catch { /* non-essential */ }
+          if (signal.aborted) return;
+          status.textContent = rebuildingStatus(state.sources) ?? '';
+        }
         state.snapshot(view); renderer.update(state); paint();
       } catch (error) {
         if (!signal.aborted) {
@@ -126,7 +132,7 @@ async function start(): Promise<void> {
       try {
         const message = JSON.parse((event as MessageEvent<string>).data) as Message;
         if (!state.apply(message)) return;
-        delay = 1000; status.textContent = ''; paint();
+        delay = 1000; status.textContent = rebuildingStatus(state.sources) ?? ''; paint();
         if (message.type !== 'noop') scheduleRefresh();
       } catch (error) { current.close(); status.textContent = describe(error); }
     });
@@ -207,7 +213,7 @@ document.querySelector('#live')!.addEventListener('click', () => {
   history.replaceState(null, '', visibleUrl(params)); void start();
 });
 window.addEventListener('popstate', () => void start());
-window.addEventListener('pagehide', () => dispose());
+window.addEventListener('pagehide', () => { dispose(); clearTimeout(staleTimer); });
 void start();
 
 function renderLegend(element: HTMLElement, state: ViewState): void {

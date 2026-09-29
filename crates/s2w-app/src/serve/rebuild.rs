@@ -170,7 +170,15 @@ impl Reporter for Notes {
 struct InFlight {
     started: Instant,
     identities: Vec<String>,
+    /// The routes of the last world whose backfill completed, and the log position it was
+    /// served to: a superseding change is compared with these, not with the unfinished one.
+    from: (Resolution, u64),
+    /// The backfill replays the whole log (no snapshot restored), so its counts cover it all.
+    whole_log: bool,
 }
+
+/// How often the proposal store is checked at most: each check opens it read-only.
+const CHECK_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// The live-rebuild driver `local_bridge` runs after each poll.
 pub(super) struct Rebuild {
@@ -180,6 +188,7 @@ pub(super) struct Rebuild {
     snapshotter: Option<std::rc::Rc<std::cell::RefCell<Snapshotter>>>,
     notes: NoteSink,
     in_flight: Option<InFlight>,
+    checked: Option<Instant>,
 }
 
 impl Rebuild {
@@ -197,6 +206,7 @@ impl Rebuild {
             snapshotter,
             notes,
             in_flight: None,
+            checked: None,
         }
     }
 
@@ -214,6 +224,10 @@ impl Rebuild {
         if report.stats.consumed == 0 && report.error.is_none() {
             self.complete(&bridge.stats());
         }
+        if self.checked.is_some_and(|at| at.elapsed() < CHECK_EVERY) {
+            return Ok(bridge);
+        }
+        self.checked = Some(Instant::now());
         let Some(change) = self.watcher.check(&self.notes) else {
             return Ok(bridge);
         };
@@ -233,7 +247,8 @@ impl Rebuild {
             stats.proposed_claims,
             stats.abstained
         ));
-        if stats.proposed_claims == 0 {
+        // Only a whole-log backfill's counts say anything about the mapping over the log.
+        if done.whole_log && stats.proposed_claims == 0 {
             for identity in &done.identities {
                 (self.notes)(&format!(
                     "mapping {identity} produced no claims over {} events (abstained: {:?})",
@@ -250,9 +265,13 @@ impl Rebuild {
         change: Change,
     ) -> Result<Bridge<R, V>, BridgeError> {
         let position = bridge.mark().map_or(0, |(position, _)| position.as_u64());
-        if self.in_flight.is_some() {
-            (self.notes)(&format!("rebuild: superseded at position {position}"));
-        }
+        let from = match self.in_flight.take() {
+            Some(superseded) => {
+                (self.notes)(&format!("rebuild: superseded at position {position}"));
+                superseded.from
+            }
+            None => (self.watcher.resolution.clone(), position),
+        };
         let (old, new) = (self.watcher.feed, change.registry.feed_fingerprint());
         let (_, head, hub_cap) = self.state.bounds()?;
         (self.notes)(&format!(
@@ -282,12 +301,14 @@ impl Rebuild {
             )),
             None => (self.notes)("rebuild: replaying the log from the start"),
         }
-        let rebuilding = rebuilding(&self.watcher.resolution, &change.resolution, position);
+        let rebuilding = rebuilding(&from.0, &change.resolution, from.1);
         let identities = rebuilding.values().map(|r| r.identity.clone()).collect();
         self.state.publish_rebuilding(rebuilding);
         self.in_flight = Some(InFlight {
             started: Instant::now(),
             identities,
+            from,
+            whole_log: resume.is_none(),
         });
         self.watcher.feed = new;
         self.watcher.resolution = change.resolution;

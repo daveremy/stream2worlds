@@ -72,7 +72,7 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   branch, before the bridge is dropped, never after a fatal error.
 - `serve/rebuild.rs` (decision 0023 "Rebuild") is the only code that changes the registry
   while serving. `RouteWatcher` reads the proposal store's watermark, then its rows (never the
-  other order), after each successful poll; a changed feed fingerprint swaps the world with no
+  other order) after a poll, at most every 250 ms; a changed feed fingerprint swaps the world with no
   `.await`: retire the snapshot writer, `replace_timeline` under the new epoch, `prepare`,
   `Bridge::restart`.
 - `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no

@@ -128,7 +128,7 @@ epoch 0 and an id-only design that serves a bare reconnect, show what the epoch 
 
 ## Rebuild (PR 2b-ii)
 
-`serve` watches the proposal store while it runs. After every successful bridge poll it reads
+`serve` watches the proposal store while it runs. After a bridge poll, at most every 250 ms, it reads
 the store's watermark (the highest proposal and decision `seq`, one read transaction). When the
 watermark moved, it resolves the routes again; when the new registry's feed fingerprint differs
 from the served one, it rebuilds the world in-process with the start-up sequence:
@@ -152,7 +152,8 @@ evaluated and stored, so a revoke back to a mapping served before replays its ve
   the effective routes as they were, is noted (`routes: unchanged ... no rebuild`) and rebuilds
   nothing.
 - **Watermark before rows.** Each check reads the watermark first, then the rows. A row written
-  between the two reads is applied now and read again on the next check, never missed.
+  between the two reads is applied now and, because the watermark moved again, read again (and
+  noted as unchanged) on the next check: re-read, never missed.
 - **Epoch correctness rests on deterministic engines.** A rebuild does not re-derive the old
   world to compare; it trusts that the same routes over the same log fold the same world, as
   the epoch already does across restarts.
@@ -163,13 +164,16 @@ evaluated and stored, so a revoke back to a mapping served before replays its ve
 - **Progress.** While the backfill runs, `/worlds/{world}/sources` and the MCP `sources` tool
   carry `rebuilding` (`identity`, `since_position`) on each source whose mapping changed, and
   the viewer says so. `rebuild complete` is noted with the counts on the first idle poll after
-  the backfill; a mapping that produced no claims over the whole log is noted by name. A
-  change during a backfill supersedes it (`rebuild: superseded`) and starts again.
+  the backfill. When the backfill replayed the whole log and no engine produced a claim, each
+  new mapping is noted by name (`produced no claims`); per-engine counts are not kept. A
+  change during a backfill supersedes it (`rebuild: superseded`) and starts again; sources are
+  compared with the last world whose backfill completed.
 - **Snapshots are per fingerprint.** Files are named
   `snapshot-<16 hex feed fingerprint>-<20 digit offset>.s2w`; listing, restore and pruning read
   only the serving fingerprint's files, so a rebuild never prunes another mapping's snapshots
   and a revoke can restore its own. The old `snapshot-<20 digits>.s2w` name is not read (a cold
-  fold rebuilds it). Rule 4 stays as the header check behind the name.
+  fold rebuilds it). Neither those files nor other fingerprints' files are pruned; they stay on
+  disk until snapshot housekeeping (#33). Rule 4 stays as the header check behind the name.
 - **Snapshot validity rule 5b.** A snapshot is restored only if the verdict store holds a row at
   the snapshot position for every registered engine name routed to that event's source. After
   a rebuild the bridge cursor keeps the old routing's high-water mark, so rule 5's cursor check
