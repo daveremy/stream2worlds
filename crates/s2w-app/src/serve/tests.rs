@@ -1706,6 +1706,12 @@ fn serve_files_routes_and_folds_a_learned_mapping_at_start_and_a_restart_changes
             "{:?}",
             first.notes
         );
+        // The watcher's baseline is read after the producer's write: no change on the first poll.
+        assert!(
+            !noted(&first, "routes: proposal store changed"),
+            "{:?}",
+            first.notes
+        );
         assert!(
             node_count(&first) > 0,
             "the learned mapping fills the world"
