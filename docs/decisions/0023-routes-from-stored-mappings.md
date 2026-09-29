@@ -8,7 +8,8 @@ Date: 2026-09-29 · Status: accepted · Gate 3 · Issue #163 (PR 2a of 5) · Ame
 with any writer, 0019), resolves the effective `stream-mapping` proposal per source, and
 registers `Route::Exact(source) -> MappingEngine` for each one on top of
 `EngineRegistry::with_defaults()`. A source with no accepted mapping stays unrouted, exactly
-as before. The routes are reported at start-up, one line per routed source and one per
+as before. A mapping for a source a default already routes (`stdin`) runs next to the default
+engine, not instead of it; both feed the world. The routes are reported at start-up, one line per routed source and one per
 proposal excluded from routing (an unusable payload), with the reason.
 
 **Envelope.** One proposal class, `stream-mapping`. The payload is
@@ -21,19 +22,22 @@ auto-apply per class; one class per source would split that denominator.
 1. Group `stream-mapping` proposals by the envelope's source.
 2. Per proposal, take the latest decision per decider by decision `seq` (the selection
    `grade()` uses; sequence, never timestamp, 0019).
-3. A proposal is **accepted** when its latest `human` decision is `accept`, or it has no
-   `human` decision and its latest `policy` decision is `accept`. A human reject beats a policy
-   accept in either write order. `agent` decisions never count (0020: context, not authority).
+3. **Human decisions bind the mapping identity, not the proposal id.** For each
+   (source, identity), the latest `human` decision by `seq` across every proposal carrying that
+   identity decides: `accept` accepts all of them, `reject` rejects all of them. With no `human`
+   decision on the identity, a proposal is accepted when its own latest `policy` decision is
+   `accept`. A human reject beats a policy accept in either write order. `agent` decisions never count (0020: context, not authority).
    `evidence` decisions never count in v0; a policy that acts on them is a later record.
 4. The effective mapping is the accepted proposal with the **largest proposal `seq`**.
    `proposed_at_ms` is caller-supplied (0019) and never breaks a tie.
-5. **Revoke** is one appended `human` `reject` on the effective proposal. It binds the
-   *mapping identity* for that source, not only the proposal id: a later proposal for the same
-   source with the same identity is not accepted whatever `policy` says, so a producer that
-   re-proposes the same bytes cannot undo a revoke. A later human accept lifts it.
+5. **Revoke** is one appended `human` `reject` on the effective proposal. By rule 3 it binds
+   the identity: a later proposal for the same source with the same bytes is not accepted
+   whatever `policy` says, so a producer that re-proposes them cannot undo a revoke. A later
+   human accept on any proposal of that identity lifts it for all of them.
 6. Two accepted proposals with the same identity are one mapping. The proposal id reported and
    written into the engine's provenance is the **earliest-seq accepted proposal** with that
-   identity, so a same-bytes re-proposal changes nothing a restart can see.
+   identity, so a same-bytes re-proposal changes nothing a restart can see. After a revoke is
+   lifted, that earliest proposal may itself carry the human reject; it is still the one named.
 7. A payload that does not decode, names an invalid source, or holds an invalid mapping is
    excluded and reported by proposal id; other rows still route. A proposal store that exists
    but cannot be read stops `serve` (`AppError::Proposals`); a missing store means no routes.
@@ -67,7 +71,10 @@ hash input added here.
 
 **Replay reads registered names only.** `VerdictStore::read_range_of(after, through, names)`
 filters on the registry's engine names (SQLite in the query, via `json_each`), so after k
-mapping changes a replay batch does not read and discard k orphaned rows per position.
+mapping changes a replay batch does not read and discard k orphaned rows per position. It is
+an optimization: the bridge already served only rows of the engine it is judging. One
+consequence: the per-position integrity checks (position, event hash) no longer see rows of
+unregistered engines, so corruption confined to orphaned rows goes unreported.
 
 **`serde_json` becomes a normal dependency of `s2w-model`** (it was a dev-dependency): the
 canonical bytes are `serde_json` output. The allowlist entry is updated. `s2w-model` still

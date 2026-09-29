@@ -369,7 +369,8 @@ fn cursor_from(connection: &Connection) -> Result<Option<LogPosition>, LogError>
 
 /// Rows in `(after, through]`; with `engines`, only rows of those engine names. The name list
 /// travels as one JSON array parameter (`json_each`), so the statement text is fixed and
-/// cached whatever the number of engines.
+/// cached whatever the number of engines. `json_each` is SQLite's built-in JSON support
+/// (always present since 3.38, and in the bundled build).
 fn read_range_from(
     connection: &Connection,
     after: Option<LogPosition>,

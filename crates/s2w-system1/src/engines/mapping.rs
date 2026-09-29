@@ -33,7 +33,8 @@ pub struct MappingEngine {
     /// `mapping-<identity>` (decision 0023).
     name: String,
     mapping_hash: String,
-    proposal_id: Option<String>,
+    /// Computed once per engine: the bridge asks for it on every evaluated event.
+    provenance: Vec<u8>,
 }
 
 /// Why a [`MappingEngine`] could not be built.
@@ -55,11 +56,12 @@ impl MappingEngine {
     pub fn new(mapping: StreamMapping) -> Result<Self, MappingEngineError> {
         let name = format!("{NAME_PREFIX}{}", mapping.identity()?);
         let mapping_hash = fnv1a64_hex(&serde_json::to_vec(&mapping)?);
+        let provenance = provenance(&mapping_hash, None);
         Ok(Self {
             mapping,
             name,
             mapping_hash,
-            proposal_id: None,
+            provenance,
         })
     }
 
@@ -68,7 +70,8 @@ impl MappingEngine {
     /// the same mapping under another proposal id is the same engine.
     #[must_use]
     pub fn with_proposal_id(mut self, proposal_id: impl Into<String>) -> Self {
-        self.proposal_id = Some(proposal_id.into());
+        let proposal_id: String = proposal_id.into();
+        self.provenance = provenance(&self.mapping_hash, Some(&proposal_id));
         self
     }
 
@@ -153,13 +156,19 @@ impl Engine for MappingEngine {
         }
     }
     fn provenance(&self) -> Option<Vec<u8>> {
-        let mut fields = serde_json::Map::new();
-        fields.insert("mapping_hash".to_owned(), self.mapping_hash.clone().into());
-        if let Some(id) = &self.proposal_id {
-            fields.insert("proposal_id".to_owned(), id.clone().into());
-        }
-        serde_json::to_vec(&fields).ok()
+        Some(self.provenance.clone())
     }
+}
+
+/// `{"mapping_hash":…}` plus `"proposal_id"` when known, keys in sorted order.
+fn provenance(mapping_hash: &str, proposal_id: Option<&str>) -> Vec<u8> {
+    let mut fields = serde_json::Map::new();
+    fields.insert("mapping_hash".to_owned(), mapping_hash.into());
+    if let Some(id) = proposal_id {
+        fields.insert("proposal_id".to_owned(), id.into());
+    }
+    // Displaying a `Value` cannot fail, unlike `to_vec`, so no verdict loses its provenance.
+    serde_json::Value::Object(fields).to_string().into_bytes()
 }
 
 fn abstain(reason: AbstainReason) -> Verdict {
