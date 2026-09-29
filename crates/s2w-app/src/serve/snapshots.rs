@@ -184,8 +184,8 @@ struct Job {
     consumed: u64,
 }
 
-/// Decides when to snapshot, captures the head world at a poll boundary, and hands it to the
-/// writer thread. One per `serve` process; only it writes into the snapshot directory.
+/// Decides when to snapshot, encodes the head world at a poll boundary, and hands the bytes to
+/// the writer thread. One per `serve` process; only it writes into the snapshot directory.
 pub(super) struct Snapshotter {
     dir: PathBuf,
     config: SnapshotConfig,
@@ -248,8 +248,8 @@ impl Snapshotter {
     }
 
     /// Runs right after a successful `poll_once`, before anything awaits: records the
-    /// checkpoint and, when one is due and the writer is idle, captures the head world and
-    /// queues it. A busy writer leaves the snapshot due, so the next poll tries again.
+    /// checkpoint and, when one is due and the writer is idle, encodes the head world and
+    /// queues the bytes. A busy writer leaves the snapshot due, so the next poll tries again.
     ///
     /// A poll that reported an error still committed a consistent prefix: `poll_once` appends
     /// only the claims of the events it judged and moves `mark` to the last of them, so the
@@ -281,6 +281,7 @@ impl Snapshotter {
         if self.shared.busy.load(Ordering::Acquire) {
             return;
         }
+        let Some(jobs) = &self.jobs else { return };
         // Due now; whatever happens below, the next attempt waits another `every` events.
         self.next_attempt = self.consumed.saturating_add(self.config.every.max(1));
         let (offset, bytes) = match self.capture(state) {
@@ -290,7 +291,6 @@ impl Snapshotter {
                 return;
             }
         };
-        let Some(jobs) = &self.jobs else { return };
         self.shared.busy.store(true, Ordering::Release);
         let job = Job {
             offset,
@@ -386,7 +386,7 @@ impl Snapshotter {
 
 impl Drop for Snapshotter {
     /// Lets an in-flight write finish on every exit path, which can delay exit after a fatal
-    /// error by one encode and `fsync`. The file is written atomically, so even a killed
+    /// error by one write and `fsync`. The file is written atomically, so even a killed
     /// process leaves the previous snapshot intact.
     fn drop(&mut self) {
         self.stop_writer();
@@ -419,10 +419,10 @@ impl Drop for Idle<'_> {
 fn write_one(dir: &Path, job: Job, shared: &Shared, notes: &(dyn Fn(&str) + Send + Sync)) {
     let started = Instant::now();
     let offset = job.offset;
+    let bytes = job.bytes.len();
     match store::write_bytes(dir, offset, &job.bytes) {
         Ok(path) => {
             shared.written_at.fetch_max(job.consumed, Ordering::AcqRel);
-            let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());
             notes(&format!(
                 "snapshot written at offset {offset}: {} ({bytes} bytes, {} ms)",
                 path.display(),

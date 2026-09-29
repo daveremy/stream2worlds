@@ -32,7 +32,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   from the base to the head only; anything below is `offset_before_base` (410). Index the event
   list only through `events_after`, never by absolute offset. Without a snapshot the base is 0 and
   every answer is unchanged. Base and head share one world (`Arc`) until the first append after a
-  restore copies it (#179); never hand out the `Arc` itself, or every append would clone.
+  restore copies it (#179); never hand out the `Arc` itself, or the next append copies the whole
+  world and the old one stays alive.
   `QueryState::replace_timeline` is the one way to install a restored
   timeline, and only `serve`'s startup restore calls it, before the bridge exists.
 - `snapshot/` (decision 0021): a snapshot is derived and never trusted. It is loaded only when

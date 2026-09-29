@@ -179,7 +179,8 @@ impl QueryState {
 
     /// Runs `f` on the head world and its time bounds under one read lock: what a snapshot
     /// records (decision 0021). `serve` encodes the snapshot inside `f`, so the head is never
-    /// cloned (#179); the bridge, the only writer, waits for `f`.
+    /// cloned (#179). `f` runs on the caller's thread with the read lock held: other readers
+    /// proceed, appends wait. Only the bridge appends, and it calls this between polls.
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.

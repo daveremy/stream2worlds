@@ -28,7 +28,8 @@ decoding the rest), `fold_hash`, `feed_hash`, `hub_cap`, `offset` (= `world.offs
 recorded for portability and never consulted at load), `time` (`first_ts`, `last_ts`,
 `clamped` of the folded events) and `world`. There are no paths or host details, so the bytes
 can move to object storage later; `codec::encode`/`decode` are pure and a future backend reuses
-them. `postcard` is chosen because it is compact, has no `deserialize_any`, and is deterministic
+them. `serve` writes through `codec::encode_ref`, which encodes a `SnapshotRefV1` borrowing the
+live world to the same bytes as the owned snapshot (#179; pinned by a unit test). `postcard` is chosen because it is compact, has no `deserialize_any`, and is deterministic
 for a world made only of ordered maps and sets with no floats. That determinism is load-bearing,
 so **no `World` field may ever gain `#[serde(default)]`, `skip` or `flatten`** (s2w-core
 AGENTS.md).

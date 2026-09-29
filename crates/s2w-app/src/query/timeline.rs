@@ -70,7 +70,7 @@ pub struct BaseTime {
 /// Base and head share one world until the first append (#179): a restored timeline holds one
 /// copy of the snapshot's world, and the first [`Timeline::append`] copies it into a separate
 /// head (`Arc::make_mut`). From then on the timeline holds two worlds, base and head.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Timeline {
     base: Arc<World>,
     base_time: BaseTime,

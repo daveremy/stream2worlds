@@ -30,17 +30,20 @@ pub fn encode(snapshot: &SnapshotV1) -> Result<Vec<u8>, SnapshotError> {
 pub fn encode_ref(snapshot: &SnapshotRefV1<'_>) -> Result<Vec<u8>, SnapshotError> {
     let mut out = Vec::with_capacity(HEADER + TRAILER);
     out.extend_from_slice(&MAGIC);
-    out.extend_from_slice(&[0; 4]);
+    // The length, patched in once the payload is written.
+    out.extend_from_slice(&[0; HEADER - MAGIC.len()]);
     let mut out =
         postcard::to_extend(snapshot, out).map_err(|e| SnapshotError::Encode(e.to_string()))?;
     let payload_len = out.len().saturating_sub(HEADER);
     let len = u32::try_from(payload_len).map_err(|_| {
         SnapshotError::Encode(format!("payload of {payload_len} bytes exceeds u32"))
     })?;
+    // `out` starts with the full header, so both ranges exist.
     if let Some(slot) = out.get_mut(MAGIC.len()..HEADER) {
         slot.copy_from_slice(&len.to_le_bytes());
     }
     let checksum = fnv1a64(out.get(HEADER..).unwrap_or_default());
+    out.reserve_exact(TRAILER);
     out.extend_from_slice(&checksum.to_le_bytes());
     Ok(out)
 }
