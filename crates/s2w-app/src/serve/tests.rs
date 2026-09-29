@@ -15,8 +15,8 @@ enum Report {
 #[derive(Default)]
 struct TestReporter {
     reports: Vec<Report>,
-    /// Notes from the snapshot writer and the live-rebuild driver, which report through
-    /// [`Reporter::note_sink`].
+    /// Notes from the snapshot writer, the live-rebuild driver and the in-run producer, which
+    /// report through [`Reporter::note_sink`].
     sunk: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
@@ -351,6 +351,7 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
                 resume: None,
                 snapshots: None,
                 watch: None,
+                discover: None,
             },
             started,
             "stdin",
@@ -1053,18 +1054,13 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
     let verdicts = SqliteVerdictStore::open(dir.path()).expect("verdicts open");
     let state = state();
     let mut reporter = TestReporter::default();
-    let (registry, watch) = match feed.registry {
-        Some(registry) => (registry, None),
+    let (registry, watch, discover) = match feed.registry {
+        Some(registry) => (registry, None, None),
         None => {
-            let (registry, watcher) = RouteWatcher::start(
-                dir.path().to_path_buf(),
-                &mut reporter,
-                |resolution, reporter| {
-                    crate::discover::run(&log, dir.path(), resolution, &feed.discover, reporter)
-                },
-            )
-            .expect("routes resolve");
-            (registry, Some((watcher, config)))
+            let (registry, watcher, seed) =
+                routed_registry(&log, dir.path(), &feed.discover, &mut reporter)
+                    .expect("routes resolve");
+            (registry, Some((watcher, config)), Some(seed))
         }
     };
     let (resume, snapshots) = snapshots::prepare(
@@ -1093,6 +1089,7 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
             resume,
             snapshots,
             watch,
+            discover,
         },
         started,
         "stdin",
@@ -1753,7 +1750,7 @@ fn a_human_reject_unroutes_a_learned_mapping_and_its_entities_leave_the_world() 
         assert!(
             noted(
                 &revoked,
-                &format!("is already proposed (proposal {})", ids[0])
+                &format!("decided (proposal {}); not profiled again", ids[0])
             ),
             "{:?}",
             revoked.notes
@@ -1790,4 +1787,5 @@ fn an_abstaining_profiler_leaves_serve_unrouted_and_empty() {
 }
 
 // Live rebuild on a mapping change while serving (s2w#184, PR 2b-ii).
+mod learned;
 mod rebuild;

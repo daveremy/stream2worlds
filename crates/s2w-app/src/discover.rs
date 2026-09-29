@@ -15,7 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use s2w_discover::{Discovery, PROFILER_VERSION};
 use s2w_log::{
     Actor, Decider, LogError, LogPosition, LogReader, NewDecision, NewProposal, Outcome,
-    ProposalStore, SqliteEventLog, SqliteProposalStore, StoredProposal, members_at,
+    PROPOSAL_DATABASE_FILE, ProposalStore, ReadOnlySqliteProposalStore, SqliteEventLog,
+    SqliteProposalStore, StoredProposal, members_at,
 };
 use s2w_model::{SourceId, StreamMapping, fnv1a64_hex};
 
@@ -127,40 +128,100 @@ pub fn basis(
     )
 }
 
+/// When the producer runs, which only changes what its notes promise.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Trigger {
+    /// Before the registry is built: a mapping filed now routes this start.
+    Start,
+    /// After a bridge poll (s2w#197 PR 4b): the rows land and the live rebuild routes them.
+    InRun,
+}
+
+/// What one producer pass did.
+#[derive(Debug, Default)]
+pub(crate) struct Ran {
+    /// Routes should be resolved again: rows were written, or a decision recorded since the
+    /// caller's resolution routes a source.
+    pub(crate) resolve_again: bool,
+    /// Sources whose window was full, whatever the pass then did with them.
+    pub(crate) windowed: BTreeSet<SourceId>,
+    /// Sources whose rows were not written because another writer held the store.
+    pub(crate) locked: BTreeSet<SourceId>,
+}
+
 /// Profiles every unrouted member source with a full window and files what the profiler
-/// proposes. Returns whether the caller should resolve routes again: rows were written, or a
-/// decision recorded since the caller's resolution routes a source.
-/// Never fails: every problem is a `discover:` note and the source keeps its current routes.
+/// proposes. Never fails: every problem is a `discover:` note and the source keeps its current
+/// routes.
 pub(crate) fn run(
     log: &SqliteEventLog,
     log_dir: &Path,
     resolution: &Resolution,
     cfg: &DiscoverConfig,
     reporter: &mut dyn Reporter,
+) -> Ran {
+    run_with(
+        REAL,
+        (log, log_dir),
+        (resolution, None),
+        (cfg, Trigger::Start),
+        reporter,
+    )
+}
+
+/// As [`run`], for one source only, after a bridge poll: it reads that source's window and
+/// stops, and its notes say the live rebuild applies the mapping. It resolves the routes
+/// first, so a source routed since start-up (by another actor) is not read or profiled.
+/// Returns whether the rows met a held writer lock, so the caller tries again later.
+pub(crate) fn run_one(
+    log: &SqliteEventLog,
+    log_dir: &Path,
+    source: &SourceId,
+    cfg: &DiscoverConfig,
+    reporter: &mut dyn Reporter,
 ) -> bool {
-    run_with(REAL, (log, log_dir), resolution, cfg, reporter)
+    // A source routed since start-up is filtered out before its window is read; an unreadable
+    // store falls through to `file`, whose lock-held re-resolution reports it.
+    let resolution = routes::load(log_dir).unwrap_or_default();
+    run_with(
+        REAL,
+        (log, log_dir),
+        (&resolution, Some(source)),
+        (cfg, Trigger::InRun),
+        reporter,
+    )
+    .locked
+    .contains(source)
 }
 
 fn run_with(
     producer: Producer,
     (log, log_dir): (&SqliteEventLog, &Path),
-    resolution: &Resolution,
-    cfg: &DiscoverConfig,
+    (resolution, only): (&Resolution, Option<&SourceId>),
+    (cfg, trigger): (&DiscoverConfig, Trigger),
     reporter: &mut dyn Reporter,
-) -> bool {
-    let windows = match windows(log, resolution, cfg.window) {
+) -> Ran {
+    let windows = match windows(log, resolution, only, cfg.window) {
         Ok(windows) => windows,
         Err(error) => {
             reporter.note(&format!(
                 "discover: reading the log failed: {error}; routes unchanged"
             ));
-            return false;
+            return Ran::default();
         }
     };
-    let mut wrote = false;
+    let mut ran = Ran::default();
     for (source, window) in windows {
         match window {
-            Ok(window) => wrote |= produce(producer, &window, log_dir, cfg, reporter),
+            Ok(window) => {
+                ran.windowed.insert(source.clone());
+                match produce(producer, &window, log_dir, (cfg, trigger), reporter) {
+                    Produced::Wrote => ran.resolve_again = true,
+                    Produced::Nothing => {}
+                    Produced::Locked => {
+                        ran.locked.insert(source);
+                    }
+                }
+            }
             Err(count) => reporter.note(&format!(
                 "discover: {}: {count} events, below the window of {}; not profiled",
                 source.as_str(),
@@ -168,22 +229,26 @@ fn run_with(
             )),
         }
     }
-    wrote
+    ran
 }
 
-/// The first `window` events of each unrouted member source, or its event count when it has
-/// fewer. Stops reading once every candidate is full. With no membership rows (a log from
-/// before membership, or a test log) every source in the log is a candidate, and the whole log
-/// is read.
+/// The first `window` events of each unrouted member source (or of `only`), or its event count
+/// when it has fewer. Stops reading once every candidate is full. With no membership rows (a log
+/// from before membership, or a test log) every source in the log is a candidate, and the whole
+/// log is read unless `only` names the one source wanted.
 fn windows(
     log: &SqliteEventLog,
     resolution: &Resolution,
+    only: Option<&SourceId>,
     window: usize,
 ) -> Result<BTreeMap<SourceId, Result<Window, usize>>, LogError> {
     let history = log.membership_history()?;
+    let wanted = |source: &SourceId| {
+        !resolution.routes.contains_key(source) && only.is_none_or(|only| only == source)
+    };
     let members: BTreeSet<SourceId> = members_at(&history, u64::MAX)
         .into_iter()
-        .filter(|source| !resolution.routes.contains_key(source))
+        .filter(|source| wanted(source))
         .collect();
     if window == 0 || (!history.is_empty() && members.is_empty()) {
         return Ok(BTreeMap::new());
@@ -193,22 +258,20 @@ fn windows(
         .iter()
         .map(|source| (source.clone(), Vec::new()))
         .collect();
+    // With membership rows, or with one named source, the candidates are known up front.
+    let known = !history.is_empty() || only.is_some();
+    let expected = if history.is_empty() { 1 } else { members.len() };
     for stored in log.read_after(None)? {
         let stored = stored?;
         let source = &stored.event.source;
-        if resolution.routes.contains_key(source)
-            || (!history.is_empty() && !members.contains(source))
-        {
+        if !wanted(source) || (!history.is_empty() && !members.contains(source)) {
             continue;
         }
         let events = found.entry(source.clone()).or_default();
         if events.len() < window {
             events.push((stored.position, stored.event.payload));
         }
-        if !history.is_empty()
-            && found.len() == members.len()
-            && found.values().all(|events| events.len() >= window)
-        {
+        if known && found.len() == expected && found.values().all(|events| events.len() >= window) {
             break;
         }
     }
@@ -229,16 +292,35 @@ fn windows(
         .collect())
 }
 
+/// What [`produce`] did with one window.
+enum Produced {
+    Wrote,
+    Nothing,
+    Locked,
+}
+
 /// Profiles one window and, for a mapping not already proposed, appends the proposal and the
-/// policy accept. Returns whether rows were written.
+/// policy accept. A window this profiler version already filed and someone already decided is
+/// not profiled again (a human reject would otherwise cost one profile per start, and one per
+/// poll in-run).
 fn produce(
     producer: Producer,
     window: &Window,
     log_dir: &Path,
-    cfg: &DiscoverConfig,
+    (cfg, trigger): (&DiscoverConfig, Trigger),
     reporter: &mut dyn Reporter,
-) -> bool {
+) -> Produced {
     let source = window.source.as_str();
+    if producer.lookup
+        && let Some(id) = decided_window(log_dir, window)
+    {
+        reporter.note(&format!(
+            "discover: {source}: window {}..{} was filed by this profiler and decided (proposal {id}); not profiled again",
+            window.first.as_u64(),
+            window.last.as_u64()
+        ));
+        return Produced::Nothing;
+    }
     let payloads: Vec<&[u8]> = window.payloads.iter().map(Vec::as_slice).collect();
     let mapping = match s2w_discover::discover(&payloads, &cfg.profiler).1 {
         Discovery::Mapping(mapping) => mapping,
@@ -247,37 +329,81 @@ fn produce(
                 "discover: {source}: abstained ({reason}) over {} events",
                 payloads.len()
             ));
-            return false;
+            return Produced::Nothing;
         }
     };
-    let (note, wrote) = match file(producer, window, &mapping, log_dir) {
+    let (effect, retry) = match trigger {
+        Trigger::Start => ("", "retried at the next start".to_owned()),
+        Trigger::InRun => (
+            "; the live rebuild applies it",
+            format!("retried in {} polls", in_run::LOCK_RETRY_POLLS),
+        ),
+    };
+    let (note, produced) = match file(producer, window, &mapping, log_dir) {
         Ok(Filed::Written { id, identity }) => (
-            format!("proposed mapping {identity} (proposal {id}), accepted by policy {POLICY}"),
-            true,
+            format!(
+                "proposed mapping {identity} (proposal {id}), accepted by policy {POLICY}{effect}"
+            ),
+            Produced::Wrote,
         ),
         Ok(Filed::Completed { id, identity }) => (
             format!(
-                "mapping {identity} (proposal {id}) had no decision; accepted by policy {POLICY}"
+                "mapping {identity} (proposal {id}) had no decision; accepted by policy {POLICY}{effect}"
             ),
-            true,
+            Produced::Wrote,
         ),
         Ok(Filed::Exists { id, identity }) => (
             format!("mapping {identity} is already proposed (proposal {id}); nothing written"),
-            false,
+            Produced::Nothing,
         ),
         Ok(Filed::Routed) => (
-            "routed by a decision recorded since start-up; nothing written".to_owned(),
-            true,
+            format!("routed by a decision recorded since start-up; nothing written{effect}"),
+            Produced::Wrote,
         ),
         Err(Unfiled::Locked) => (
-            "store_locked: another writer holds the proposal store; routes unchanged, retried at the next start"
-                .to_owned(),
-            false,
+            format!(
+                "store_locked: another writer holds the proposal store; routes unchanged, {retry}"
+            ),
+            Produced::Locked,
         ),
-        Err(Unfiled::Failed(error)) => (format!("{error}; routes unchanged"), false),
+        Err(Unfiled::Failed(error)) => (format!("{error}; routes unchanged"), Produced::Nothing),
     };
     reporter.note(&format!("discover: {source}: {note}"));
-    wrote
+    produced
+}
+
+/// The id of a proposal this producer (same actor, so same profiler version) filed for this
+/// source and window, when any decision names it. Read without the writer lock; a store that
+/// cannot be read here is left to [`file`], which reads it again under the lock.
+fn decided_window(log_dir: &Path, window: &Window) -> Option<String> {
+    if !log_dir.join(PROPOSAL_DATABASE_FILE).try_exists().ok()? {
+        return None;
+    }
+    let store = ReadOnlySqliteProposalStore::open(log_dir).ok()?;
+    let proposals = store.proposals().ok()?;
+    let decisions = store.decisions().ok()?;
+    // A source routed since start-up is `file`'s `Routed` case: skipping here would hide an
+    // accept that landed after `routes::load` and leave the source unrouted until a restart.
+    if routes::resolve(&proposals, &decisions)
+        .routes
+        .contains_key(&window.source)
+    {
+        return None;
+    }
+    let decided: BTreeSet<&str> = decisions.iter().map(|d| d.proposal_id.as_str()).collect();
+    let actor = actor();
+    proposals
+        .iter()
+        .filter(|p| {
+            p.class == STREAM_MAPPING_CLASS
+                && p.actor == actor
+                && p.snapshot_offset == window.last
+                && decided.contains(p.id.as_str())
+        })
+        .find(|p| {
+            routes::decode_envelope(&p.payload).is_ok_and(|(source, ..)| source == window.source)
+        })
+        .map(|p| p.id.clone())
 }
 
 /// What [`file`] did.
@@ -397,6 +523,8 @@ fn now_ms() -> Result<i64, Unfiled> {
     i64::try_from(elapsed.as_millis())
         .map_err(|error| Unfiled::Failed(format!("system clock out of range: {error}")))
 }
+
+pub(crate) mod in_run;
 
 #[cfg(test)]
 pub(crate) mod tests;
