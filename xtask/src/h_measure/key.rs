@@ -6,10 +6,16 @@ use std::collections::BTreeSet;
 
 use s2w_discover::rule_id;
 use s2w_model::{EntityRule, FieldPath, KEY_SEPARATOR, MAPPING_VERSION, Segment, StreamMapping};
+use s2w_system1::decode::{key_part, lookup};
 use serde::Deserialize;
+use serde_json::Value;
 
-/// The one key-spec version this harness reads.
-pub(crate) const KEY_VERSION: u32 = 0;
+/// The newest key-spec version, the one [`KeySpec::from_mapping`] writes. Version 1 adds
+/// [`MentionRule::no_identity`]; a version-0 spec reads exactly as it always did.
+pub(crate) const KEY_VERSION: u32 = 1;
+
+/// Every key-spec version this harness reads.
+pub(crate) const KEY_VERSIONS: [u32; 2] = [0, KEY_VERSION];
 
 /// A key spec. Every mention rule's path names where a mention sits; its identity paths name the
 /// values that identify the entity. Two mention rules of one type whose identity values are equal
@@ -18,7 +24,7 @@ pub(crate) const KEY_VERSION: u32 = 0;
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct KeySpec {
-    /// The format version; only [`KEY_VERSION`] is valid.
+    /// The format version; one of [`KEY_VERSIONS`].
     pub version: u32,
     /// Paths whose string value holds JSON text, parsed in order before any rule runs (as a
     /// stream mapping's `decode`).
@@ -44,7 +50,7 @@ pub(crate) struct KeyType {
 }
 
 /// One mention rule: a record mentions an entity at `path` when `path` and every identity path
-/// hold a key part.
+/// hold a key part, and the value at `path` is not one of `no_identity`.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MentionRule {
@@ -52,6 +58,23 @@ pub(crate) struct MentionRule {
     pub path: FieldPath,
     /// The values that identify the entity, in order. May include `path` itself.
     pub identity: Vec<FieldPath>,
+    /// Format 1: sentinel values at `path` that mean "no identity". A record holding one there
+    /// mentions nothing at `path`: no mention, so neither a singleton nor a merge. Compared as
+    /// key parts, so `0` and `"0"` differ. Only on a rule whose `path` is an identity path.
+    #[serde(default)]
+    pub no_identity: Vec<Value>,
+}
+
+impl MentionRule {
+    /// Whether `record` (decoded) holds one of this rule's `no_identity` values at `path`.
+    pub(crate) fn excludes(&self, record: &Value) -> bool {
+        let Some(part) = lookup(record, &self.path).and_then(key_part) else {
+            return false;
+        };
+        self.no_identity
+            .iter()
+            .any(|sentinel| key_part(sentinel).as_ref() == Some(&part))
+    }
 }
 
 impl KeySpec {
@@ -74,6 +97,7 @@ impl KeySpec {
             let mention = MentionRule {
                 path: last.clone(),
                 identity: rule.key.clone(),
+                no_identity: Vec::new(),
             };
             match types.iter_mut().find(|kind| kind.label == rule.type_label) {
                 Some(kind) if kind.mentions.contains(&mention) => {}
@@ -102,7 +126,10 @@ impl KeySpec {
     /// mapping measures the format's ceiling, not a discoverer. Moving the mention path last
     /// reorders the key parts, so two mention rules of one type on the same multi-path identity
     /// (`a` and `b`, both identified by `[a, b]`) get differently ordered keys and the oracle
-    /// splits their entity: a second limit of the format, pinned by a fixture.
+    /// splits their entity: a second limit of the format, pinned by a fixture. The mapping
+    /// format cannot exclude a value, so a rule with `no_identity` still gets its entity rule;
+    /// [`super::score::grade`] drops the key's excluded mentions from the oracle's partition, so
+    /// the ceiling honours the exclusion.
     pub(crate) fn oracle(&self) -> Result<StreamMapping, String> {
         self.validate()?;
         let mut entities = Vec::new();
@@ -141,9 +168,9 @@ impl KeySpec {
 
     /// Fails closed on anything that would make the key partition ambiguous.
     pub(crate) fn validate(&self) -> Result<(), String> {
-        if self.version != KEY_VERSION {
+        if !KEY_VERSIONS.contains(&self.version) {
             return Err(format!(
-                "key spec version {} is not {KEY_VERSION}",
+                "key spec version {} is not one of {KEY_VERSIONS:?}",
                 self.version
             ));
         }
@@ -198,7 +225,48 @@ impl KeySpec {
                 if unscored.contains(&id) {
                     return Err(format!("mention path {:?} is also unscored", rule.path));
                 }
+                self.validate_no_identity(&kind.label, rule)?;
             }
+        }
+        Ok(())
+    }
+}
+
+impl KeySpec {
+    /// A rule's `no_identity` list: format 1 only, on an identity path, every value a key part
+    /// (string, integer or boolean) listed once. Anything else could never match, or would
+    /// match ambiguously, so it fails closed.
+    fn validate_no_identity(&self, label: &str, rule: &MentionRule) -> Result<(), String> {
+        if rule.no_identity.is_empty() {
+            return Ok(());
+        }
+        if self.version == 0 {
+            return Err(format!(
+                "type {label:?}: mention path {:?} has no_identity, which needs key format 1",
+                rule.path
+            ));
+        }
+        if !rule.identity.contains(&rule.path) {
+            return Err(format!(
+                "type {label:?}: mention path {:?} has no_identity but is not one of its identity paths",
+                rule.path
+            ));
+        }
+        let mut seen = Vec::new();
+        for sentinel in &rule.no_identity {
+            let Some(part) = key_part(sentinel) else {
+                return Err(format!(
+                    "type {label:?}: no_identity value {sentinel} at {:?} is not a string, integer or boolean",
+                    rule.path
+                ));
+            };
+            if seen.contains(&part) {
+                return Err(format!(
+                    "type {label:?}: no_identity value {sentinel} at {:?} is listed twice",
+                    rule.path
+                ));
+            }
+            seen.push(part);
         }
         Ok(())
     }

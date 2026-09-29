@@ -11,6 +11,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `keys.toml` | Every answer key's sha256, pinned before any score is run, and the reading of #17 it encodes. |
 | `dev-key-v0.json` | dev-key v0: the base key (key-spec format v0, `xtask/src/h_measure/key.rs`). |
 | `dev-key-v0.<variant>.json` | Sensitivity variants. Each differs from the base only as `keys.toml` says; `diff` the files to see the variant. |
+| `dev-key-v1.json` | dev-key v1: the v0 base key in key-spec format 1, with `"no_identity": [0]` on the `log_id` mention (#225). The v0 files stay as they are. |
 
 ## Rules
 
@@ -53,8 +54,32 @@ Canary events (`meta.domain` = `canary`, hourly, in either topic) carry only `$s
 canary once, as a singleton `event` entity (`meta.id`); in `q4-separate` the `domain` type also
 makes them one `canary` entity (5 events in dev).
 
-**Open question for PR 2b (not settled here):** 1,348 of the dev corpus's 19,684 log events are
-AbuseFilter hits with `log_id` 0 (no log row is written). Base key v0 reads them as one log
-entity per wiki. Format v0 cannot exclude a value, so fixing this needs either a format change
-or a key that drops `log_id`; either is a new key file, decided before the first score.
-Tracked in #225; PR 2b blocks its first score on it, and `dev-key-v0` stays as it is here.
+## Key format 1: value exclusion (#225)
+
+1,348 of the dev corpus's 19,684 log events are AbuseFilter hits with `log_id` 0 (no log row is
+written). Base key v0 reads them as one log entity per wiki: false gold merges. Format v0
+cannot exclude a value, so the fix (karpathy, 2026-09-29) is key format 1 and a new key file,
+not a key that drops `log_id`.
+
+Format 1 is format 0 plus one optional field on a mention rule, `no_identity`: a list of
+sentinel values that mean "no identity". A record whose value at the rule's `path` is one of
+them has no mention there: not a singleton, not a merge, and not abstained. The executors
+report these as excluded mentions, per path. Rules:
+
+- Values compare as key parts, so `0` and `"0"` are different sentinels. Each value must be a
+  string, an integer or a boolean, listed once.
+- `no_identity` is allowed only on a rule whose `path` is one of its `identity` paths, and only
+  in a `"version": 1` spec. An alias rule (path not in its identity) cannot carry it, and an
+  alias mention of a sentinel identity is **not** excluded; a key that needs that is another
+  format change.
+- The oracle mapping cannot exclude a value, so the ceiling row drops the key's excluded
+  mentions from the oracle's prediction. A graded mapping is not filtered: a mention it
+  predicts where the key excludes one is spurious and lowers precision.
+- A format-0 file reads exactly as before, so every v0 pin still validates unchanged.
+
+`dev-key-v1.json` is the v0 base key with `"version": 1` and `"no_identity": [0]` on the
+`log_id` mention. On the dev corpus (key executor, 200,000 records): v0 gives 19,684 log
+mentions in 18,376 log entities; v1 gives 18,336 log mentions in 18,336 entities, with 1,348
+excluded. Every v1 log entity is then a singleton, so `log` is a singleton-only type in the
+score. The v0 sensitivity variants still merge `log_id` 0; a variant that needs the exclusion
+is a new format-1 file.

@@ -318,10 +318,15 @@ pub(crate) struct Grade {
     /// The mapping's score.
     pub mapping: Score,
     /// The oracle v0 mapping's score ([`KeySpec::oracle`]): the ceiling to read `mapping`
-    /// against, since a v0 mapping cannot join aliases with different values.
+    /// against, since a v0 mapping cannot join aliases with different values. The key's
+    /// excluded mentions are dropped from the oracle's prediction first: a mapping cannot
+    /// exclude a value, but the ceiling honours the key's exclusion. `mapping` is not filtered;
+    /// a mention it predicts where the key excludes one is spurious.
     pub ceiling: Score,
     /// Abstained paths from the key executor, per mention path id.
     pub abstained: BTreeMap<String, usize>,
+    /// Excluded mentions from the key executor (`no_identity`), per mention path id.
+    pub excluded: BTreeMap<String, usize>,
     /// Records the key's decode steps could not decode.
     pub undecodable: usize,
 }
@@ -344,10 +349,14 @@ pub(crate) fn grade(
         &other
     };
     let predicted = mapping_mentions(mapping, mapping_corpus)?;
-    let oracle = mapping_mentions(&spec.oracle()?, &corpus)?;
+    let mut oracle = mapping_mentions(&spec.oracle()?, &corpus)?;
+    oracle
+        .cluster
+        .retain(|mention, _| !gold.excluded.contains(mention));
     Ok(Grade {
         mapping: score(&gold.partition, &predicted, &unscored),
         ceiling: score(&gold.partition, &oracle, &unscored),
+        excluded: gold.excluded_per_path(),
         abstained: gold.abstained,
         undecodable: corpus.undecodable(),
     })

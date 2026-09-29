@@ -53,8 +53,8 @@ fn the_example_spec_is_valid() {
 #[test]
 fn another_version_is_rejected() {
     let mut value = example();
-    value["version"] = json!(1);
-    rejects(&value, "version 1");
+    value["version"] = json!(2);
+    rejects(&value, "version 2");
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn the_committed_sample_passes_the_selftest() {
     );
 }
 
-/// Every key file `research/h-measure/keys.toml` pins parses as key-spec v0, validates, and
+/// Every key file `research/h-measure/keys.toml` pins parses as a key spec, validates, and
 /// yields an oracle mapping, so a malformed key fails here rather than at the first score. The
 /// sha256 pins are checked by `h-measure score` (PR 2b), not here: xtask has no hash dependency.
 #[test]
@@ -345,6 +345,7 @@ fn every_pinned_key_file_is_a_valid_key() {
     let text = std::fs::read_to_string(dir.join("keys.toml")).expect("keys.toml reads");
     let pins: Pins = toml::from_str(&text).expect("keys.toml parses");
     assert!(!pins.key.is_empty(), "keys.toml pins no key");
+    let mut versions = std::collections::BTreeSet::new();
     for pin in pins.key {
         let text = std::fs::read_to_string(dir.join(&pin.file)).expect("the key file reads");
         let spec: KeySpec = serde_json::from_str(&text)
@@ -353,5 +354,119 @@ fn every_pinned_key_file_is_a_valid_key() {
             .unwrap_or_else(|e| panic!("{}: invalid: {e}", pin.file));
         spec.oracle()
             .unwrap_or_else(|e| panic!("{}: no oracle mapping: {e}", pin.file));
+        // A file's format is part of its pin: a `-v0` file is format 0, whatever came later.
+        if pin.file.starts_with("dev-key-v0") {
+            assert_eq!(spec.version, 0, "{}", pin.file);
+        }
+        versions.insert(spec.version);
     }
+    assert!(
+        versions.contains(&super::key::KEY_VERSION),
+        "no pinned key uses format {}",
+        super::key::KEY_VERSION
+    );
+}
+
+/// A format-1 spec: type `T` at `n`, identity (`ctx`, `n`), with `no_identity` as given.
+fn with_no_identity(no_identity: &Value) -> Value {
+    json!({
+        "version": 1,
+        "types": [{ "type": "T", "mentions": [
+            { "path": ["n"], "identity": [["ctx"], ["n"]], "no_identity": no_identity }
+        ] }]
+    })
+}
+
+#[test]
+fn a_format_1_spec_with_no_identity_is_valid() {
+    spec(&with_no_identity(&json!([0, "none", false])))
+        .validate()
+        .expect("valid");
+    let mut plain = example();
+    plain["version"] = json!(1);
+    spec(&plain)
+        .validate()
+        .expect("format 1 without no_identity is valid");
+}
+
+#[test]
+fn no_identity_of_the_wrong_type_does_not_parse() {
+    for wrong in [json!(0), json!("0"), json!({ "0": true })] {
+        let parsed = serde_json::from_value::<KeySpec>(with_no_identity(&wrong));
+        assert!(parsed.is_err(), "{wrong} parsed");
+    }
+}
+
+#[test]
+fn a_non_scalar_no_identity_value_is_rejected() {
+    for wrong in [json!(null), json!(1.5), json!([0]), json!({ "a": 0 })] {
+        rejects(
+            &with_no_identity(&json!([wrong])),
+            "is not a string, integer or boolean",
+        );
+    }
+}
+
+#[test]
+fn a_repeated_no_identity_value_is_rejected() {
+    rejects(&with_no_identity(&json!([0, 0])), "listed twice");
+    // Compared as key parts: an integer and a string are two values.
+    spec(&with_no_identity(&json!([0, "0"])))
+        .validate()
+        .expect("valid");
+}
+
+#[test]
+fn no_identity_needs_format_1() {
+    let mut value = with_no_identity(&json!([0]));
+    value["version"] = json!(0);
+    rejects(&value, "needs key format 1");
+}
+
+#[test]
+fn no_identity_on_a_path_outside_its_identity_is_rejected() {
+    rejects(
+        &json!({ "version": 1, "types": [{ "type": "T", "mentions": [
+            { "path": ["alias"], "identity": [["n"]], "no_identity": [0] }
+        ] }] }),
+        "is not one of its identity paths",
+    );
+}
+
+#[test]
+fn a_mention_holding_a_no_identity_value_is_dropped() {
+    let key = spec(&with_no_identity(&json!([0])));
+    let payloads = [
+        json!({ "ctx": "c", "n": 0 }),
+        json!({ "ctx": "c", "n": 0 }),
+        json!({ "ctx": "c", "n": 7 }),
+        json!({ "ctx": "c", "n": "0" }),
+        json!({ "n": 0 }),
+    ];
+    let got = key_mentions(&key, &payloads).expect("valid");
+    // Records 0, 1 and 4 hold the sentinel: no mention, not merged, not a singleton, and not
+    // abstained even when the rest of the identity is missing (record 4).
+    let mentioned: Vec<usize> = got.partition.cluster.keys().map(|(r, _)| *r).collect();
+    assert_eq!(mentioned, [2, 3]);
+    assert!(got.abstained.is_empty(), "{:?}", got.abstained);
+    assert_eq!(got.excluded_per_path(), [("n".to_owned(), 3)].into());
+    // The same key without the sentinel merges records 0 and 1 into one entity.
+    let plain = key_mentions(&spec(&with_no_identity(&json!([]))), &payloads).expect("valid");
+    assert_eq!(plain.partition.cluster.len(), 4);
+    assert!(plain.excluded.is_empty());
+}
+
+#[test]
+fn a_key_read_from_a_mapping_is_the_newest_format_without_exclusions() {
+    let rules = mapping(&json!([
+        { "id": "object", "type_label": "O", "key": [["ctx"], ["id"]], "attrs": [] }
+    ]));
+    let key = KeySpec::from_mapping(&rules).expect("valid key");
+    assert_eq!(key.version, super::key::KEY_VERSION);
+    assert!(
+        key.types
+            .iter()
+            .flat_map(|t| &t.mentions)
+            .all(|m| m.no_identity.is_empty())
+    );
 }
