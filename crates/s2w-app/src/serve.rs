@@ -222,6 +222,14 @@ async fn local_bridge(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
+)]
 async fn serve_live(
     state: QueryState,
     storage: ServeStorage,
@@ -303,6 +311,10 @@ fn report_membership_changed(reporter: &mut dyn Reporter) {
 
 type PumpFuture<'a> = Pin<Box<dyn Future<Output = Result<(), AppError>> + 'a>>;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
+)]
 async fn supervise(
     pump: impl for<'a> FnOnce(&'a mut dyn Reporter) -> PumpFuture<'a>,
     bridge: impl Future<Output = Result<(), BridgeError>>,

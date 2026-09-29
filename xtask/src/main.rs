@@ -31,6 +31,10 @@
 //!     instead of just shape. Covers `s2w-core`'s fold and, run through `s2w-system1`'s
 //!     engines (`JsonClaimsEngine` today), the engine layer; the bridge registry
 //!     (`s2w-app::Bridge`/`EngineRegistry`) is not yet covered.
+//! 8. **Clippy config consistency** (`clippy_config.rs`, reads TOML only): a per-crate
+//!    `clippy.toml` or `.clippy.toml` replaces the root file, so every workspace member's effective
+//!    config must carry the root's `too-many-lines`, `cognitive-complexity` and `too-many-arguments`
+//!    thresholds with equal values, and `CLIPPY_CONF_DIR` must be unset (process env and cargo `[env]`).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -43,6 +47,7 @@ use std::process::{Command, ExitCode};
 
 use serde::Deserialize;
 
+mod clippy_config;
 mod golden;
 mod module_size;
 mod obfuscation;
@@ -164,6 +169,10 @@ fn read_toml<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, Vec<String>
 
 // ---------- the check ----------
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the check orchestrator runs every check in sequence; each check lives in its own module"
+)]
 fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     let meta = metadata(root)?;
     let allow: Allowlist = read_toml(&root.join("xtask/allowlist.toml"))?;
@@ -209,6 +218,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(module_size::check(root, &meta, tighten));
     problems.extend(vocabulary::check(root));
     problems.extend(obfuscation::check(root));
+    problems.extend(clippy_config::check(root, &meta));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -243,7 +253,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, clippy config: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))

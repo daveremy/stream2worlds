@@ -32,6 +32,10 @@ unimplemented = "forbid"
 dbg_macro = "forbid"
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+# Function shape; thresholds live in every clippy.toml (xtask check 8 keeps them equal).
+too_many_lines = "deny"
+cognitive_complexity = "deny"
+too_many_arguments = "deny"
 
 # Limited debuginfo (line tables, no variable/type info): backtraces keep file:line and a
 # cold build is ~9% faster than the default full debuginfo (lifeos#1113, s2w#41).

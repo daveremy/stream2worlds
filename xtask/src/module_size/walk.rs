@@ -139,6 +139,10 @@ impl<'ast> Visit<'ast> for Walker {
     }
 }
 impl Scan {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one file scan: parse, cfg-test exclusion and module descent"
+    )]
     pub(super) fn file(&mut self, path: &Path, key: String, root: bool) -> Result<(), String> {
         let canonical = fs::canonicalize(path)
             .map_err(|e| format!("{}: {e}; restore the module file", path.display()))?;

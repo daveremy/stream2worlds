@@ -23,6 +23,10 @@ impl WorldManifest {
         load_from(&log.connection, world)
     }
     /// Creates identity once; subsequent opens return the original metadata unchanged.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each argument is a distinct manifest field written once at creation"
+    )]
     pub fn create_if_absent(
         log: &mut SqliteEventLog,
         world: &str,

@@ -446,6 +446,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn stored_sse_cursor_is_sent_as_last_event_id_and_the_event_is_logged() {
         run(false, async {
             let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
@@ -552,6 +556,10 @@ mod tests {
     /// would never be found and the canary frame would have reached the log anyway — this test
     /// fails under that shape and passes under `FilteredDialect`'s pre-envelope filtering.
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn a_canary_shaped_frame_is_dropped_before_it_reaches_the_log() {
         run(false, async {
             let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {

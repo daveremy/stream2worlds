@@ -83,6 +83,10 @@ mod golden {
         run(head_entity_view_serves_the_hub_as_an_aggregate_body());
     }
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     async fn head_entity_view_serves_the_hub_as_an_aggregate_body() {
         let (_, app) = app();
         let (status, view) = get(&app, "/worlds/default/world").await;
@@ -192,6 +196,14 @@ mod golden {
     /// `enwiki_mirror` collects three `on` edges (not past the cap of 3, so it is not a hub on
     /// its own), then is merged into `enwiki`. The hub's aggregate must count those sources,
     /// agreeing with the per-source hub_refs and the lod=type aggregate link weights.
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     async fn a_sub_cap_target_merged_into_the_hub_folds_into_its_aggregate_body() {
         let mut log = events();
         for page in ["page:Docs", "page:Book", "page:Rust"] {
@@ -296,6 +308,10 @@ mod golden {
         run(typed_errors_for_what_does_not_exist_yet_body());
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     async fn typed_errors_for_what_does_not_exist_yet_body() {
         let (_, app) = app();
         for (uri, status, code) in [
@@ -477,6 +493,10 @@ mod golden {
         run(sse_replays_one_typed_delta_per_offset_then_follows_body());
     }
 
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     async fn sse_replays_one_typed_delta_per_offset_then_follows_body() {
         let (state, app) = app();
         let body = open_sse(&app, "/worlds/default/events", None).await;

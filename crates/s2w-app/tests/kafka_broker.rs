@@ -44,6 +44,10 @@ fn run<F: std::future::Future>(test: F) -> F::Output {
 /// and `--since` into a fresh log starting at the right offset.
 #[test]
 #[ignore = "needs a local broker: S2W_KAFKA_BROKER=localhost:19092"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+)]
 fn watches_resumes_and_replays_against_a_real_broker() -> Result<(), Box<dyn std::error::Error>> {
     use std::collections::BTreeMap;
     use std::time::Duration;

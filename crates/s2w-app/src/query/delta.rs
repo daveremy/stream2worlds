@@ -102,6 +102,10 @@ fn in_degree(world: &World, id: EntityId) -> u64 {
 /// Folds one event and reports what it did. Reads only what it needs from the world before
 /// the fold, so a replay never clones the world.
 #[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
+)]
 pub fn fold_with_delta(prev: World, event: &WorldEvent) -> (World, Delta) {
     match event {
         WorldEvent::EntityObserved { key, .. } => {

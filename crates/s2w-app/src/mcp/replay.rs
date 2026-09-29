@@ -204,6 +204,10 @@ fn classify_cursor_update(previous: Option<LogPosition>, new: Option<LogPosition
 ///
 /// If `stop` is set and observed true between batches, returns early leaving `*from` at
 /// whatever batch was last fully applied — safe to resume from on the next call.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
+)]
 fn catch_up(
     state: &QueryState,
     reader: &ReadOnlySqliteEventLog,
@@ -623,6 +627,10 @@ mod tests {
     /// tested directly against real `LogPosition`s from two commits, no store manipulation
     /// needed to fabricate a "backward" or "reset" reading.
     #[test]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn cursor_regression_guard_rejects_backward_and_reset_but_allows_forward_and_unchanged() {
         let directory = TestDirectory::new("cursor-classify");
         let mut log = SqliteEventLog::open(directory.path()).unwrap();
