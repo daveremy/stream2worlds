@@ -34,7 +34,7 @@ behind its decisions: what exists, what is known, and what we would be foolish t
 | 0006 | Scaling: where s2w breaks first as streams grow, and the cheapest way past each wall | Scale envelope (#31), scale fitness function (#32), long runs (#33), the fold (#9), gate 3 and 4 epics | done |
 | 0007 | Decision models for System 1 and System 2: which fast judgment models fit a live stream, and routing beyond latency | Local embeddings (#64), verdict log (#63), System 1 router, gate 3 H arm, gate 4 predictor arms | done; refreshed weekly (lifeos#1121) |
 | 0008 | A domain-specific dashboard from a domain-free core: a System 2-authored view spec, shape detection, lifetime baseline and surprise, readiness to form an opinion | Decision 0017, #116, #117; the Gate 3 view | draft: design-implication dispositions pending (#116) |
-| 0009 | H-lite on plain Wikipedia `recentchange`, held out: identity F1, entity recovery, the v0 alias ceiling, #17 sensitivity | Gate 3 headroom, #17, #244 (containment), #245 (alias limit) | done; implication 3 → #250 (PR 1: `log_action` fixed, measured on `reserved-2`, addendum 2026-09-29; PR 2: `user`) |
+| 0009 | H-lite on plain Wikipedia `recentchange`, held out: identity F1, entity recovery, the v0 alias ceiling, #17 sensitivity | Gate 3 headroom, #17, #244 (containment), #245 (alias limit) | done; implication 3 → #250 (PR 1: `log_action` fixed, measured on `reserved-2`, addendum 2026-09-29; PR 2: `user` keyed, `PROFILER_VERSION` 4, measured on `reserved-3`, second addendum) |
 
 ## Planned, not started
 

@@ -220,7 +220,9 @@ Each is a candidate; karpathy assigns the disposition.
    comparing H with H+S2. → candidate: an issue scoped from the development corpus only, whose
    score uses the reserved corpus (shared with #244, or a second reserved span).
    *2026-09-29: #250. PR 1 fixes `log_action` (a second reserved span, `reserved-2`; addendum
-   below); `user` is #250 PR 2; `revision` is #244; the alias key is #245.*
+   below); `user` is #250 PR 2; `revision` is #244; the alias key is #245.* *2026-09-29: PR 2
+   keys `user` (`PROFILER_VERSION` 4, measured on a third span, `reserved-3`; second addendum
+   below). Entity recovery stays below 0.60, so #4's decision-table row does not move.*
 4. **Decision 0010's lower-bound reading** is unchanged by this measurement. → adopted: dated
    note on decision 0010 in this PR.
 
@@ -270,3 +272,72 @@ N = 10^4: v2 P 0.0000, R 0.0000; v3 predicts no mention at a scored path (P unde
 recall or entity recovery, and the row of #4's decision table that applies is unchanged
 ("entity recovery < 0.60"). The recall losses this report names (`user`, `revision`, the alias
 key) remain: #250 PR 2, #244 and #245.
+
+## Addendum 2026-09-29: implication 3, PR 2 (s2w#250, `PROFILER_VERSION` 4)
+
+**Change.** Decision 0022's third 2026-09-29 amendment: a path that stage 4 rejects outright (not
+grey, best informative dependent below 80%) is an `Entity` when at least 25% of its repeat groups
+span a tenth of the window and a varying path is constant in at least 80% of its groups. On `dev`
+at N = 10^4 it keys `user` and `log_params.filter` (a path the key does not score) and changes
+nothing else. At N = 2x10^5 it keys `user` and `title`; `title` is `NoDependents` only at that
+window (at 10^4 it merges 1:1 into the `title_url` class).
+
+**Hygiene.** `heldout`, `heldout-2` and `reserved-2` had all been opened, so a third span,
+`reserved-3` (10^5 events, 2026-09-29 17:15 to 20:15 UTC, the hour band `heldout-2` covers on
+another day), was captured and pinned (dc22869, rebased as 09a848d; authored 22:11 UTC) before any
+profiler change. The plan and predictions P1-P6 were posted on #250
+([comment](https://github.com/daveremy/stream2worlds/issues/250#issuecomment-5900441731), 22:39 UTC).
+Before the opening, the committed v3 frozen files were scored in sample on `dev` against the
+prototype's v4 freeze to check P2's thresholds; they agreed, so no prediction was amended
+([comment](https://github.com/daveremy/stream2worlds/issues/250#issuecomment-5900587850), 22:52 UTC).
+The rule (8bce39c) and its docs (7482e71) were committed, then `reserved-3` was opened as held-out
+(8068982, 22:55 UTC). v4 was frozen on `dev` after the opening (f701acc); its mappings equal the
+prototype's in-sample freezes. No crate changed after the opening. v3 was scored on the same span
+from a build of `main` @ 70122b8 with only the `corpora.toml` flip applied. No threshold was chosen
+after any held-out score was seen. #244's `reserved` stays unopened. Reports:
+`research/h-measure/results/h-lite-v{3,4}.dev-{10000,200000}.reserved-3.md`.
+
+**Result** on `reserved-3`, base key `dev-key-v1.json`:
+
+| mapping | P | R | F1 | false-merge | recovery | `user` P | `user` R |
+|---|---|---|---|---|---|---|---|
+| v3, N = 10^4 | 0.9988 | 0.1710 | 0.2920 | 0.0012 | 0.0000 | undefined | 0.0000 |
+| **v4, N = 10^4** | 0.9912 | **0.2853** | **0.4431** | 0.0088 | **0.0420** | 0.9682 | 1.0000 |
+| v3, N = 2x10^5 | 0.9853 | 0.1710 | 0.2914 | 0.0147 | 0.0000 | undefined | 0.0000 |
+| v4, N = 2x10^5 | 0.9844 | 0.3425 | 0.5082 | 0.0156 | 0.0420 | 0.9682 | 1.0000 |
+| ceiling (oracle v0) | 1.0000 | 0.3997 | 0.5712 | 0.0000 | 0.1917 | | |
+
+`user` precision below 1.0 is the key's user identity, `(wiki, user)`: the mapping keys `user`
+alone, so a user active on several wikis is one entity to it and several to the key. Under the
+`user-global` key (identity `user` alone) `user` scores P 1.0000, R 1.0000 at both windows, and
+the mapping P 0.9991 (10^4). Among the scored paths, v4 differs from v3 at N = 10^4 only in
+predicting `data.user` (99,994 mentions); at N = 2x10^5 also `data.title`.
+
+**How `score` counts the 2x10^5 `title` type.** The key's `page` mentions sit at two alias paths,
+`title_url` and `title`. v3 and v4 key the `title_url` class; v4 at 2x10^5 also keys `title` as a
+separate type. `score` counts each predicted mention against the key's page identity, so `page`
+recall doubles (0.25 to 0.50, P 0.9991: equal titles on different wikis merge) although the
+mapping never says the two types are one page. That is a second encoding of the page, the #245
+alias-key finding, not evidence for this rule; it is also why the `page` row exceeds its type
+ceiling (0.25, the best single v0 type).
+
+**Pre-registered predictions** (N = 10^4, base key unless stated):
+
+| | prediction | measured | |
+|---|---|---|---|
+| P1 | `user` R >= 0.95, `user` P in [0.85, 0.97] | R 1.0000, P 0.9682 | hit (P 0.003 inside the upper bound) |
+| P2 | mapping R delta >= +0.08, F1 delta >= +0.10 | +0.1143, +0.1511 | hit |
+| P3 | mapping P >= 0.95 and below v3's; no new spurious cluster at a scored path | 0.9912 < 0.9988; only `data.user` changes | hit |
+| P4 | entity recovery > 0 and < 0.60 | 0.0420 | hit |
+| P5 | `user-global`: `user` P >= 0.99, R >= 0.95 | 1.0000, 1.0000 | hit |
+| P6 | canonical-mention: `user` P and R equal the base key's | 0.9682 / 1.0000 both | hit |
+| control | N = 2x10^5: `user` R >= 0.95, P in [0.85, 0.97]; `page` R above v3's, `page` P in [0.95, 1.0); F1 delta >= +0.10 | 1.0000, 0.9682; 0.50 > 0.25, 0.9991; +0.2168 | hit |
+
+`varies` (plan section 10 item 1) did not fail: `user` is keyed at both windows.
+
+**Reading.** The rule recovers the `user` type on held-out data at the predicted precision; mapping
+F1 rises from 0.29 to 0.44 at the frozen window. Entity recovery rises from 0 to 0.04 and stays
+below 0.60, so the row of #4's decision table that applies is unchanged ("entity recovery <
+0.60: fix H before comparing H with H+S2"). The remaining losses this report names are `revision`
+(#244, now `PROFILER_VERSION` 5) and the alias key (#245).
+
