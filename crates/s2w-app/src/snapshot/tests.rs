@@ -319,3 +319,29 @@ fn prune_keeps_the_newest_three() -> TestResult {
     assert!(snapshots.join("unrelated.txt").exists());
     Ok(())
 }
+
+#[test]
+fn clean_tmp_removes_only_crashed_writes() -> TestResult {
+    let dir = TempDir::new("clean-tmp");
+    let snapshots = store::dir(&dir.0);
+    assert!(
+        store::clean_tmp(&snapshots)?.is_empty(),
+        "a missing dir has none"
+    );
+    store::write(&snapshots, &snapshot_at(2)?)?;
+    let stale = snapshots.join(format!(".{}.tmp", store::file_name(3)));
+    std::fs::write(&stale, b"half a snapshot")?;
+    for other in [".snapshot-3.s2w.tmp", "snapshot-x.tmp", "notes.tmp"] {
+        std::fs::write(snapshots.join(other), b"not ours")?;
+    }
+    assert_eq!(store::clean_tmp(&snapshots)?, std::slice::from_ref(&stale));
+    assert!(!stale.exists());
+    assert!(snapshots.join(store::file_name(2)).exists());
+    for other in [".snapshot-3.s2w.tmp", "snapshot-x.tmp", "notes.tmp"] {
+        assert!(
+            snapshots.join(other).exists(),
+            "{other} is not ours to remove"
+        );
+    }
+    Ok(())
+}

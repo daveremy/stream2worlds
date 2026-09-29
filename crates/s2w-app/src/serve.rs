@@ -25,6 +25,10 @@ use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
 use crate::query::{QueryState, router};
 use crate::{AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters};
 
+mod snapshots;
+use snapshots::Snapshotter;
+pub use snapshots::{DEFAULT_EVERY, SHUTDOWN_MIN, SnapshotConfig};
+
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Arguments for `s2w serve <source>`.
@@ -40,9 +44,11 @@ pub struct ServeArgs {
     pub port: u16,
     /// Raw `--filter <path>[!]=<value>` specs; see [`crate::WatchArgs::filters`].
     pub filters: Vec<String>,
+    /// Snapshot restore and writing (`--snapshot-every`, `--no-snapshot`; decision 0021).
+    pub snapshots: SnapshotConfig,
 }
 
-/// Ingests and serves until Ctrl-C, source completion or a fatal failure.
+/// Ingests and serves until Ctrl-C or SIGTERM, source completion or a fatal failure.
 ///
 /// # Errors
 /// Unknown sources and held writer locks are [`AppError::Usage`]; other failures are fatal.
@@ -71,10 +77,7 @@ async fn run_serve_async(
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let verdicts = SqliteVerdictStore::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "verdict store"))?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| AppError::Usage(e.to_string()))?;
-    let now = i64::try_from(now.as_millis()).map_err(|e| AppError::Usage(e.to_string()))?;
+    let now = now_millis()?;
     let engines = EngineRegistry::with_defaults().names();
     let manifest = WorldManifest::create_if_absent(
         &mut log,
@@ -94,6 +97,13 @@ async fn run_serve_async(
         .with_metadata(Some(manifest), log.membership_history()?)
         .with_log_dir(args.log_dir.clone());
     report_source_start(reporter, name, &started.notes);
+    let (resume, snapshots) = snapshots::prepare(
+        &state,
+        (&log, &verdicts),
+        &args.log_dir,
+        args.snapshots,
+        reporter,
+    )?;
     let listener = TcpListener::bind(("127.0.0.1", args.port))
         .await
         .map_err(|error| {
@@ -105,14 +115,43 @@ async fn run_serve_async(
     report_listener(reporter, &listener)?;
     serve_live(
         state,
-        ServeStorage { log, verdicts },
+        ServeStorage {
+            log,
+            verdicts,
+            resume,
+            snapshots,
+        },
         started,
         name,
         listener,
-        async { tokio::signal::ctrl_c().await.map_err(AppError::Serve) },
+        stop_signal(),
         reporter,
     )
     .await
+}
+
+fn now_millis() -> Result<i64, AppError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| AppError::Usage(e.to_string()))?;
+    i64::try_from(now.as_millis()).map_err(|e| AppError::Usage(e.to_string()))
+}
+
+/// Resolves on the first Ctrl-C (SIGINT) or, on Unix, SIGTERM (what systemd sends by default).
+async fn stop_signal() -> Result<(), AppError> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = signal(SignalKind::terminate()).map_err(AppError::Serve)?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result.map_err(AppError::Serve),
+            _ = terminate.recv() => Ok(()),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.map_err(AppError::Serve)
+    }
 }
 
 fn report_source_start(reporter: &mut dyn Reporter, name: &str, notes: &[String]) {
@@ -152,6 +191,10 @@ struct SharedLogReader {
 struct ServeStorage {
     log: SqliteEventLog,
     verdicts: SqliteVerdictStore,
+    /// The log position a restored snapshot covers; `None` replays from the start.
+    resume: Option<LogPosition>,
+    /// Absent under `--no-snapshot`.
+    snapshots: Option<Snapshotter>,
 }
 
 impl LogReader for SharedLogReader {
@@ -192,16 +235,23 @@ impl EventLog for SharedLogWriter {
 
 // Bridge::run requires Send and moves each poll to the blocking pool. This local driver uses
 // the same poll/backoff policy, yielding even after full batches so ingestion/HTTP can run.
+// Snapshot capture runs right after each poll with no await in between (decision 0021).
 async fn local_bridge(
     mut bridge: Bridge<SharedLogReader, SqliteVerdictStore>,
     config: BridgeConfig,
     ready: oneshot::Sender<()>,
+    snapshots: Option<(Rc<RefCell<Snapshotter>>, QueryState)>,
 ) -> Result<(), BridgeError> {
     let mut ready = Some(ready);
     let mut delay = config.poll;
     loop {
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bridge.poll_once()))
             .map_err(|_| BridgeError::Task("bridge poll panicked".to_owned()))??;
+        if let Some((snapshotter, state)) = &snapshots {
+            snapshotter
+                .borrow_mut()
+                .after_poll(bridge.mark(), report.stats.consumed, state);
+        }
         if let Some(ready) = ready.take() {
             let _ignored = ready.send(());
         }
@@ -245,14 +295,38 @@ async fn serve_live(
         log: shared.clone(),
         batch: config.batch,
     };
-    let bridge = Bridge::new(
-        reader,
-        storage.verdicts,
-        EngineRegistry::with_defaults(),
-        state.clone(),
-        config,
-    )
+    let bridge = match storage.resume {
+        Some(position) => Bridge::resume(
+            reader,
+            storage.verdicts,
+            EngineRegistry::with_defaults(),
+            state.clone(),
+            config,
+            position,
+        ),
+        None => Bridge::new(
+            reader,
+            storage.verdicts,
+            EngineRegistry::with_defaults(),
+            state.clone(),
+            config,
+        ),
+    }
     .map_err(|error| AppError::BridgeStopped(error.to_string()))?;
+    let snapshots = storage.snapshots.map(|s| Rc::new(RefCell::new(s)));
+    // The final snapshot runs inside the stop branch only: after a signal, before supervise
+    // drops the bridge and before the HTTP drain, never after a fatal error (decision 0021).
+    let stop = {
+        let (snapshots, state) = (snapshots.clone(), state.clone());
+        async move {
+            stop.await?;
+            if let Some(snapshotter) = &snapshots {
+                snapshotter.borrow_mut().finish(&state);
+            }
+            Ok(())
+        }
+    };
+    let bridge_snapshots = snapshots.map(|s| (s, state.clone()));
     let writer = SharedLogWriter(shared.clone());
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -294,7 +368,7 @@ async fn serve_live(
                 }
             })
         },
-        local_bridge(bridge, config, ready_tx),
+        local_bridge(bridge, config, ready_tx, bridge_snapshots),
         server,
         stop,
         shutdown_tx,

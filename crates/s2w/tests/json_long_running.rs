@@ -242,3 +242,90 @@ fn stdin_serve_json_reports_a_nonfatal_source_error_then_shuts_down_cleanly() {
         assert!(looks_like_one_json_object(line), "{line:?}");
     }
 }
+
+#[cfg(unix)]
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+)]
+fn serve_stops_cleanly_on_sigterm_after_writing_a_snapshot() {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    let log_dir =
+        std::env::temp_dir().join(format!("s2w-serve-sigterm-{}-{nanos}", std::process::id()));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_s2w"))
+        .args([
+            "serve",
+            "-",
+            "--port",
+            "0",
+            "--snapshot-every",
+            "1",
+            "--log-dir",
+        ])
+        .arg(&log_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("s2w serve should spawn");
+    let (lines_tx, lines_rx) = mpsc::channel();
+    let stderr = child.stderr.take().expect("child stderr");
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            let Ok(line) = line else { break };
+            if lines_tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    // Keep stdin open: end of input would stop serve on its own, not through the signal.
+    let mut stdin = child.stdin.take().expect("child stdin");
+    stdin
+        .write_all(b"{\"EntityObserved\":{\"key\":\"a\",\"entity_type\":\"thing\",\"attrs\":{}}}\n")
+        .expect("write one event");
+    stdin.flush().expect("flush stdin");
+    let mut seen = Vec::new();
+    let written = loop {
+        match lines_rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(line) => {
+                let done = line.contains("snapshot written at offset");
+                seen.push(line);
+                if done {
+                    break true;
+                }
+            }
+            Err(_) => break false,
+        }
+    };
+    let joined = seen.join("\n");
+    if joined.contains("binding 127.0.0.1:0: Operation not permitted") {
+        let _ignored = child.kill();
+        let _ignored = child.wait();
+        let _ignored = std::fs::remove_dir_all(&log_dir);
+        eprintln!("skipping TCP integration: sandbox denies child loopback sockets: {joined}");
+        return;
+    }
+    assert!(written, "a periodic snapshot after one event: {joined}");
+    let status = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .expect("kill -TERM");
+    assert!(status.success());
+    let exit = child.wait().expect("serve exits after SIGTERM");
+    drop(stdin);
+    drop(lines_rx);
+    let _ignored = reader.join();
+    let files = std::fs::read_dir(log_dir.join("snapshots"))
+        .map(|dir| {
+            dir.filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".s2w"))
+                .count()
+        })
+        .unwrap_or(0);
+    let _ignored = std::fs::remove_dir_all(&log_dir);
+    assert_eq!(exit.code(), Some(0), "SIGTERM is a clean stop: {exit}");
+    assert_eq!(files, 1, "the snapshot survives the stop");
+}

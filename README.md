@@ -107,6 +107,8 @@ curl http://localhost:4310/worlds/default/world
 # Or open http://localhost:4310/ in a browser for the web view (evidence table and graph);
 # add ?at=<offset> to the URL to pin a moment.
 curl http://localhost:4310/worlds/default/sources
+# serve snapshots the world every 1,000,000 raw events and on Ctrl-C/SIGTERM, and restarts
+# from the newest valid snapshot; tune or disable with --snapshot-every <n> / --no-snapshot
 
 # replay history first; only for a log that has no stored cursor yet
 s2w watch wikipedia --since 2026-09-27T00:00:00Z --log-dir ./fresh-dir
@@ -132,9 +134,13 @@ same directory with a different `--world` is an error. Existing schema-v2 event 
 atomically to v3, preserving events and cursors. `/worlds` uses the stored display name.
 
 Every offset-taking route serves offsets from `base` to `head`, both reported by
-`GET /worlds/{world}/time`. `base` is 0 today. Once `serve` restarts from a world snapshot
-(#33, part 1b; [decision 0021](docs/decisions/0021-snapshots.md)), `base` becomes the
-snapshot's offset and the history before it is gone from that process: `/world?at=`,
+`GET /worlds/{world}/time`. `base` is 0 unless `serve` restarted from a world snapshot
+([decision 0021](docs/decisions/0021-snapshots.md)). `serve` writes one under
+`<log_dir>/snapshots/` every 1,000,000 raw events (`--snapshot-every <n>`) and, on Ctrl-C or
+SIGTERM, when at least 100,000 events arrived since the last one; at start it loads the newest
+valid snapshot and replays only the tail (`--no-snapshot` turns both off and replays from 0).
+After such a restart `base` is the snapshot's offset and the history before it is gone from
+that process: `/world?at=`,
 `/diff?from=`, `/events?from=` or `Last-Event-ID`, and `/entity/{id}/history?to=` below `base`
 answer `410` with `{"error": "offset_before_base"}`, and so does `/time?ts=` before the base's
 last event. Entity history then starts after `base`, and a scrubber should start at `base`. The
@@ -270,7 +276,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms | target (gate 2) | Targets until the scale fitness function measures them. Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |
-| World snapshots | A derived file per snapshot under `<log_dir>/snapshots/`: magic, length, a `postcard` payload holding the folded world, and an FNV-1a checksum ([decision 0021](docs/decisions/0021-snapshots.md)) | building (gate 2) | Restart cost is bounded by the tail after the newest snapshot instead of the whole log. A snapshot is loaded only when its format, fold, engine routing and log position all still match; otherwise it is ignored and the log replays from 0. The format, validity rules and the offset-before-base query contract have landed; periodic writing and restart-from-snapshot in `serve` land next. |
+| World snapshots | A derived file per snapshot under `<log_dir>/snapshots/`: magic, length, a `postcard` payload holding the folded world, and an FNV-1a checksum ([decision 0021](docs/decisions/0021-snapshots.md)) | building (gate 2) | Restart cost is bounded by the tail after the newest snapshot instead of the whole log. A snapshot is loaded only when its format, fold, engine routing and log position all still match; otherwise it is ignored and the log replays from 0. `serve` writes them periodically and on stop, and restarts from the newest valid one. |
 | World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/worlds/{world}/world` at any offset and level of detail, `/worlds/{world}/events` (optionally bounded by `at=`), `/worlds/{world}/branches`, `/worlds/{world}/diff`, `/worlds/{world}/entity/{id}/history`, `/worlds/{world}/time`, `/worlds/{world}/sources?at=`, `/worlds/{world}/proposals`, plus `/worlds` discovery ([decision 0006](docs/decisions/0006-world-query-api.md), [decision 0015](docs/decisions/0015-named-worlds.md)) | built (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual branch of one named world per process (`branch=` other than actual and `lod=cluster` answer 501); `s2w mcp` exposes its seven world-scoped read tools over stdio; the loopback HTTP listener ships as `s2w serve <source>` ([decision 0014](docs/decisions/0014-serve-topology.md)) with a cap of 32 concurrent event streams and an `Origin` allowlist ([decision 0016](docs/decisions/0016-web-delivery.md)). |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
 | System 1 engines | JSON claims | building (gate 2–3) | One engine ships behind the verdict/confidence/abstain trait today: JSON claims, a payload that already is a claim. Every verdict is stored before its claims are served, and a restart replays stored verdicts instead of re-running engines ([decision 0012](docs/decisions/0012-verdict-log.md)). |

@@ -24,19 +24,25 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   cursor that cannot be decoded is a loud error, never a fresh start.
 - The System 1 bridge (`bridge/`, decision 0011) writes to `QueryState`'s timeline only
   through `append`, resumes from a log position (never a fold offset), and refuses a non-empty
-  timeline. It commits each batch's verdicts to the verdict store before serving any of its
+  timeline (`Bridge::resume` after a snapshot restore: one whose head is past its base). It commits each batch's verdicts to the verdict store before serving any of its
   claims, and serves a stored verdict instead of calling the engine (decision 0012); a verdict
   that does not match the log is an error, never a re-evaluation. The one other write is
   `publish_source_stats`, a read-only telemetry side channel that never touches the timeline.
 - `Timeline` (decision 0021) has a base world (empty, or a restored snapshot's) and serves offsets
   from the base to the head only; anything below is `offset_before_base` (410). Index the event
   list only through `events_after`, never by absolute offset. Without a snapshot the base is 0 and
-  every answer is unchanged.
+  every answer is unchanged. `QueryState::replace_timeline` is the one way to install a restored
+  timeline, and only `serve`'s startup restore calls it, before the bridge exists.
 - `snapshot/` (decision 0021): a snapshot is derived and never trusted. It is loaded only when
   every validity rule holds, and an invalid file is reported and skipped, never deleted. Its
   bytes carry no path or host detail. The codec and validity rules are pure; only `store` does
   I/O, writes atomically (temp file, fsync, rename, dir fsync), and touches only files matching
-  `snapshot-<20 digits>.s2w`. Writer, trigger and serve wiring land in #33 part 1b.
+  `snapshot-<20 digits>.s2w`.
+- `serve/snapshots.rs` (decision 0021, part 1b) is the only snapshot writer: it captures the head
+  right after a successful `poll_once` with no `.await` in between, so the bridge's `mark()` and
+  the timeline head describe the same moment, refuses a head that moved past that checkpoint,
+  and encodes and fsyncs on its own thread. The final snapshot runs only in the stop-signal
+  branch, before the bridge is dropped, never after a fatal error.
 - `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no
   I/O; the HTTP half only parses parameters and calls it. One SSE message per offset; stable error codes.
 - No domain knowledge in this crate; see decision 0018.

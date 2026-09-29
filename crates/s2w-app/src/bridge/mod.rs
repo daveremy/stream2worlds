@@ -238,8 +238,8 @@ fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
 /// Why the bridge could not start or had to stop.
 #[derive(Debug, thiserror::Error)]
 pub enum BridgeError {
-    /// The timeline already holds events; a bridge replaying from the start would fold them
-    /// twice.
+    /// The timeline already holds events (or, for [`Bridge::resume`], events after its restored
+    /// base); a bridge replaying them would fold them twice.
     #[error("the bridge needs an empty timeline, but its head is {head}")]
     TimelineNotEmpty {
         /// The timeline's head offset.
@@ -268,6 +268,8 @@ pub struct Bridge<R: LogReader, V: VerdictStore> {
     state: QueryState,
     config: BridgeConfig,
     last: Option<LogPosition>,
+    /// The content hash of the event at `last`, for the checkpoint a snapshot records.
+    last_hash: Option<i64>,
     /// The verdict store's cursor at start. The log must reach it: a poll that reaches the end
     /// of the log below it reports `Corrupt` (the store is ahead of the log). Read once, on
     /// purpose: every stored row sits at or below the cursor, so a truncated log whose prefix
@@ -293,10 +295,50 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         state: QueryState,
         config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
-        let head = state.branches()?.first().map_or(0, |branch| branch.head);
-        if head != 0 {
+        let (base, head, _) = state.bounds()?;
+        if base != 0 || head != 0 {
             return Err(BridgeError::TimelineNotEmpty { head });
         }
+        Self::build(reader, verdicts, registry, state, config)
+    }
+
+    /// A bridge that continues after `position` into `state`, which holds a restored snapshot
+    /// whose world was folded from every event up to and including `position` (decision 0021).
+    /// The caller has validated the snapshot against the log. A verdict store ahead of
+    /// `position` is the normal case: the bridge serves those stored verdicts (decision 0012).
+    ///
+    /// # Errors
+    /// [`BridgeError::TimelineNotEmpty`] if `state` has events after its base;
+    /// [`BridgeError::Query`] if it is unavailable; [`BridgeError::Store`] if the verdict
+    /// store's cursor cannot be read.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "new's inputs plus the resume position; a parameter struct is a follow-up refactor (s2w#156)"
+    )]
+    pub fn resume(
+        reader: R,
+        verdicts: V,
+        registry: EngineRegistry,
+        state: QueryState,
+        config: BridgeConfig,
+        position: LogPosition,
+    ) -> Result<Self, BridgeError> {
+        let (base, head, _) = state.bounds()?;
+        if head != base {
+            return Err(BridgeError::TimelineNotEmpty { head });
+        }
+        let mut bridge = Self::build(reader, verdicts, registry, state, config)?;
+        bridge.last = Some(position);
+        Ok(bridge)
+    }
+
+    fn build(
+        reader: R,
+        verdicts: V,
+        registry: EngineRegistry,
+        state: QueryState,
+        config: BridgeConfig,
+    ) -> Result<Self, BridgeError> {
         let store_cursor = verdicts.cursor().map_err(BridgeError::Store)?;
         // A zero batch would never advance, and a zero delay would spin.
         let poll = config.poll.max(Duration::from_millis(1));
@@ -312,11 +354,20 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             state,
             config,
             last: None,
+            last_hash: None,
             store_cursor,
             warned_unrouted: BTreeSet::new(),
             stats: BridgeStats::default(),
             per_source: BTreeMap::new(),
         })
+    }
+
+    /// The last log position this bridge consumed and that event's content hash: the checkpoint
+    /// a snapshot records (decision 0021). `None` until this bridge has consumed an event, even
+    /// after [`Self::resume`], which knows the position but not its hash.
+    #[must_use]
+    pub fn mark(&self) -> Option<(LogPosition, i64)> {
+        self.last.zip(self.last_hash)
     }
 
     /// Everything this bridge has done so far.
@@ -385,6 +436,10 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         }
         report.stats = judged.stats;
         self.last = Some(through);
+        self.last_hash = events
+            .iter()
+            .find(|event| event.position == through)
+            .map(|event| event.content_hash);
         self.stats.add(&report.stats);
         self.absorb_source_stats(&judged.per_source);
         Ok(self.finish(report))

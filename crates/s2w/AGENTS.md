@@ -16,6 +16,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   stderr notes/errors, plus startup/usage error rendering (mcp); `serve` also streams the same
   per-flush NDJSON progress lines as `watch --json`, on stdout, while ingesting — `mcp` has no
   progress stream because stdout is reserved for JSON-RPC once serving.
+- `serve --snapshot-every <n>` (n > 0) and `--no-snapshot` (decision 0021) are mutually
+  exclusive; passing both is a usage error. `serve` stops on SIGINT or SIGTERM.
 - Errors say what to try next.
 - No logic here beyond argument parsing and output formatting.
 - No domain knowledge in this crate; see decision 0018.

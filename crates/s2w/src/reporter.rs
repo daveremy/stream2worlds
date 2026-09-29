@@ -6,8 +6,9 @@
 //! rendering seam rather than a second JSON path.
 
 use std::io::{self, ErrorKind, Write};
+use std::sync::Arc;
 
-use s2w_app::Reporter;
+use s2w_app::{NoteSink, Reporter};
 
 use crate::output;
 
@@ -40,6 +41,10 @@ impl Reporter for JsonReporter {
 
     fn wants_ticker(&self) -> bool {
         false
+    }
+
+    fn note_sink(&self) -> NoteSink {
+        Arc::new(|message: &str| eprintln!("{}", output::render_source_note(message)))
     }
 }
 

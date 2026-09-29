@@ -1,6 +1,6 @@
 # 0021: World snapshots and the timeline base
 
-Date: 2026-09-28 · Status: accepted (part 1a landed; 1b pending) · Gate 2 · Issue #33 · Research [0006 §3(d)](../../research/0006-scaling.md) · Amends [0006](0006-world-query-api.md) (a new error code and `/time.base`) · Resolves open items in [0005](0005-pure-fold.md) and [0012](0012-verdict-log.md)
+Date: 2026-09-28 · Status: accepted (parts 1a and 1b landed) · Gate 2 · Issue #33 · Research [0006 §3(d)](../../research/0006-scaling.md) · Amends [0006](0006-world-query-api.md) (a new error code and `/time.base`) · Resolves open items in [0005](0005-pure-fold.md) and [0012](0012-verdict-log.md)
 
 "Snapshot" in this record means the world snapshot file below. It is unrelated to the golden
 fixture `golden-fold-v1.snapshot.json`, which is the fold's expected output (decision 0005), and
@@ -91,13 +91,69 @@ contract through the shared query API today.
   validity rules, the store, and the golden equivalence test: folding from 0 and restoring a
   snapshot at 0, 1, mid, head-1 and head then appending the tail give equal `world_hash`, over
   the golden log and generated streams.
-- **Part 1b (next):** the writer thread and its trigger (every 1,000,000 raw events by default,
-  justified by research 0006 §3(d)'s 30-second restart budget), `serve` loading the newest
-  valid snapshot and resuming the bridge from its position (`Bridge::resume`, a published
-  bridge mark, `LogReader::cursors`, `LogPosition::from_u64`, `QueryState::replace_timeline`),
-  a final snapshot on SIGINT/SIGTERM, and `serve --snapshot-every` / `--no-snapshot`.
+- **Part 1b (landed):** `serve` restores the newest valid snapshot and resumes the bridge
+  after its position (`Bridge::resume`, `Bridge::mark`, `LogPosition::from_u64`,
+  `QueryState::replace_timeline`), writes snapshots on a dedicated thread (every 1,000,000 raw
+  events by default, justified by research 0006 §3(d)'s 30-second restart budget), writes a
+  final snapshot on SIGINT/SIGTERM, and takes `--snapshot-every <n>` / `--no-snapshot`. The
+  lifecycle and its measurements are in the next section. `cursors` is recorded empty: `serve`
+  does not enumerate source cursors yet, and the field is never consulted at load.
 - **Later:** `mcp --log-dir` loading snapshots (issue), log and verdict compaction (part 2),
   sampled re-derivation that halts on a mismatch (part 3), the view's scrubber floor.
+
+## Serve lifecycle (part 1b)
+
+**Start.** Before the listener binds, `serve` removes temporary files a crashed write left
+behind, loads the newest file that passes every validity rule (rule 5 reads the log with
+`previous = position - 1`), installs it with `QueryState::replace_timeline`, and checks that
+the restored base and head both equal the snapshot's offset. The bridge then starts with
+`Bridge::resume(position)`, which refuses a timeline whose head is past its base. No valid
+file, or an unreadable directory, means a full replay from offset 0; every file skipped and an
+unreadable directory are reported, an absent directory is not.
+
+**Capture.** After every successful `poll_once`, with no `.await` in between, the snapshotter
+records a checkpoint: the bridge's `mark()` (last consumed position and its stored
+`content_hash`) and the timeline head. When `every` raw events have been consumed since the
+last attempt and the writer is idle, it clones the head world and queues it; a busy writer
+leaves the snapshot due for the next poll. The capture refuses a head that has moved past the
+checkpoint. Only the clone runs on the bridge's thread; encoding and `fsync` run on the
+`s2w-snapshot` thread.
+
+*Deviation from plan amendment A3.* The plan captured only after a poll whose report carried
+no error. The implementation captures after every `Ok` poll, because a poll that reports an
+engine or log error still commits a consistent prefix: `poll_once` appends only the claims of
+the events it judged and moves `mark` to the last of them, so the checkpoint and the head
+agree. Skipping those polls would only delay snapshots on a feed with frequent per-event
+errors. A poll that returns `Err` (the bridge is stopping) captures nothing.
+
+**Stop.** On the first SIGINT or SIGTERM, before the bridge is dropped and before the HTTP
+drain, `serve` waits for any in-flight write and then writes a final snapshot if at least
+100,000 raw events arrived since the last one written (`SHUTDOWN_MIN`). Below that the tail
+replays in seconds, and a new snapshot would move the base to the head and cost the restarted
+process its scrub history for no real saving. A failed write does not count as written, so
+the stop tries again. The final write blocks the current-thread runtime, so a second signal
+during it is not observed; the write is atomic, so `SIGKILL` mid-write leaves the previous
+snapshot intact. A fatal error never writes a final snapshot. The signal handlers are registered once the
+listener is bound, after the restore; a SIGTERM before then takes the default action, which
+loses nothing because no snapshot is owed yet.
+
+**Budget and memory (measured).** The demo unit (`s2w-wiki.service`) has `TimeoutStopSec=30`
+and `MemoryMax=1G`; the HTTP drain may take 5 s, leaving 25 s for the final write. The
+ignored test `tests/snapshot_memory.rs` measures a synthetic wiki-shaped world (per raw event:
+one page observation with two attributes and one `edited` relationship; pages repeat every
+n/2 events, users every n/20) on hub, release build:
+
+| raw events | world resident | write: peak extra, time (incl. `fsync`), file | restore (fresh process): peak, time |
+|---|---|---|---|
+| 10^5 | 92 MiB | +83 MiB, 0.18 s, 4.8 MiB | +163 MiB, 0.34 s |
+| 10^6 | 665 MiB | +919 MiB, 2.4 s, 50 MiB | +1,624 MiB, 5.0 s |
+
+The final write fits the stop budget by a factor of ten at 10^6 events. Memory does not: a
+restored timeline holds two worlds (base and head), and a write briefly holds a second copy
+of the head, so near 10^6 events of this shape `serve` would exceed 1 GiB. Without snapshots
+the same process holds the head world plus the event list since offset 0, which is larger
+still, so the demo box cannot reach that size either way. Sharing the base with the head until
+the first append after a restore would halve restore memory; that is #179.
 
 ## What validity does not catch
 
@@ -120,8 +176,8 @@ behaviour still forces one full replay; that is accepted.
 
 ## Revisit when
 
-Part 1b lands (update the status line), a measurement shows the tail after a 10^6-event
+A measurement shows the tail after a 10^6-event
 snapshot interval replaying in more than 30 seconds, or truncation (part 2) needs the snapshot
 to carry the verdict-store position too.
 
-verify: `cargo test -p s2w-app --test snapshot_golden --test snapshot_base && cargo test -p s2w-app --lib snapshot && cargo test -p s2w-core --test fixture_hash` passes.
+verify: `cargo test -p s2w-app --test snapshot_golden --test snapshot_base --test bridge_replay && cargo test -p s2w-app --lib snapshot && cargo test -p s2w-core --test fixture_hash` passes.
