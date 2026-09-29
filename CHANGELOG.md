@@ -13,6 +13,45 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The demo is live and holds, and H-lite stops minting an action name as an entity — #216, #250 PR 1 (2026-09-29)
+
+**Shipped:** the demo runs again and held. At 11:50 the learned Wikipedia world was OOM-killed
+and the box had served an empty world since. The cause was a setting, not the code: the demo
+box has 3.8 GB of RAM, and the 1 GiB limit was our own unit's `MemoryMax`. Raising it to 2.5 GB,
+redeploying main and accepting the mapping again brought the world back in a 72.5 s rebuild
+(210,440 events, 8.85 M claims). The new hold check, `bash scripts/s2w-demo-check.sh --hold 10`,
+then passed: 11 samples over 10 minutes, `NRestarts` 0, the head advancing, and the process's
+own memory flat at 755 MiB (anon). `MemoryCurrent` sits at the cap because about 1.8 GB of it is
+page cache the kernel reclaims (3,292 reclaims, no OOM kills), so anon is the number to track.
+For gate 3, a profiler rule now treats a small closed-vocabulary key (32 values or fewer) whose
+value decides which optional fields an event carries as a `Category`, not an entity type, so
+`log_action` is no longer minted as an entity (`PROFILER_VERSION` 3,
+[#254](https://github.com/daveremy/stream2worlds/pull/254)).
+
+**Learned:** the rule was scored on a newly pinned reserved span, opened only after the
+predictions were posted, and every pre-registered prediction hit. Precision rose from 0.9840 to
+0.9987, and spurious `log_action` mentions fell from 4,474 to 0. Recall (0.1716) and F1
+(+0.0006) moved as predicted, so recall is still the gap. The Sprint 81 "1 GiB wall" was
+also not a wall: it was a limit we set, and it surfaced only once the demo became the priority.
+
+**Changed course:** the demo's limit is now 2.5 GB on the 3.8 GB box, and a demo PASS has to
+hold, not pass once. The "runs in 1 GiB" goal is kept in the memory tests
+([#220](https://github.com/daveremy/stream2worlds/issues/220)), not in the deployed unit.
+[#250](https://github.com/daveremy/stream2worlds/issues/250) was filed as one issue and is a
+split plan; #254 is its first PR.
+
+**Next:** #220's two PRs are open and not merged: PR A
+([#253](https://github.com/daveremy/stream2worlds/pull/253), measurement knobs) and PR B
+([#255](https://github.com/daveremy/stream2worlds/pull/255), bridge batch 1000 to 250, history
+cap 20,000 to 50,000, cap-2 peak 577 to 520–538 MiB). Both are reviewed and green; a review of
+#253's latest commit found the allocator-env refusal is a fixed name list, so a named variant
+skips it and the test still asserts (harness only), and that will be fixed before merge. PR C
+(mimalloc) measured −12 MiB on the main-thread topology and −77 MiB on `serve`'s; the ruling is
+that `serve`'s topology decides, so it will be re-measured on PR B's base. Then deploy and a
+hold check. For gate 3, #250 PR 2 adds a `user` type, then containment
+([#244](https://github.com/daveremy/stream2worlds/issues/244)) and the alias limit
+([#245](https://github.com/daveremy/stream2worlds/issues/245)).
+
 ## The first gate-3 number, and a demo that passed once — #56 PR 2b and 3, #216 PR 2b-ii, #67 (2026-09-29)
 
 **Shipped:** the gate-3 instrument can now freeze a mapping, prove the freeze is real, and

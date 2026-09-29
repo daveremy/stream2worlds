@@ -21,25 +21,24 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **The first gate-3 number is measured.** H-lite, the heuristics arm, was frozen before anyone
-  scored it, then scored once on two held-out plain-Wikipedia spans: identity F1 0.284 and
-  0.293, precision 0.97 to 0.98, entity recovery 0. Plain Wikipedia is reported and never
-  counted, so this is neither a pass nor a fail; it says H-lite needs work before it is a
-  baseline. [Research 0009](research/0009-h-min-plain-wikipedia.md)
+- **The demo is live again and held for 10 minutes.** The learned Wikipedia world runs on the
+  3.8 GB demo box under a 2.5 GB limit (it had been our own 1 GiB setting) and passed the hold
+  check with 11 samples, no restarts and 755 MiB of its own memory.
+  [Changelog](CHANGELOG.md)
+- **H-lite no longer calls an action name an entity.** A small key that decides an event's
+  shape is now a category: precision 0.9840 to 0.9987 on a reserved span, every pre-registered
+  prediction hit, recall still the gap.
+  [#254](https://github.com/daveremy/stream2worlds/pull/254)
+- **The first gate-3 number is measured.** H-lite, frozen before anyone scored it, reaches
+  identity F1 0.284 and 0.293 on two held-out plain-Wikipedia spans; reported, never counted.
+  [Research 0009](research/0009-h-min-plain-wikipedia.md)
 - **A gate-3 score cannot come from a mapping nobody froze.** `cargo xtask h-measure freeze`
-  pins keys and corpora by sha256, and `score` re-runs the freeze and refuses any frozen file
-  that differs. [#242](https://github.com/daveremy/stream2worlds/pull/242)
-- **A viewer refreshing every 5 s slows a backfill about 1.4×, not 5×.** `/world` streams from the
-  head with ETag/304; one viewer needs no redesign.
-  [#239](https://github.com/daveremy/stream2worlds/pull/239)
-- **`serve` learns a mapping for a new stream and applies it.** At start, a source with no
-  mapping and at least 10,000 logged events is profiled by `s2w-discover`; the mapping is filed
-  as a proposal and accepted by `policy`, on the record and revocable with `s2w proposals
-  decide --outcome reject`. [Decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)
-- **In progress:** the demo box passed its check once, then the kernel killed `serve` at the
-  1 GiB cap 2 s after a rebuild, so it is not yet holding. The remaining 40 to 100 MiB is
-  [#220](https://github.com/daveremy/stream2worlds/issues/220); the box runs with an empty world
-  until it lands.
+  pins keys and corpora by sha256, and `score` refuses any frozen file that differs.
+  [#242](https://github.com/daveremy/stream2worlds/pull/242)
+- **In progress:** two memory PRs, [#253](https://github.com/daveremy/stream2worlds/pull/253)
+  and [#255](https://github.com/daveremy/stream2worlds/pull/255), are reviewed and not yet
+  merged; they lower the bridge's peak memory
+  ([#220](https://github.com/daveremy/stream2worlds/issues/220)).
 
 ## Demos
 
