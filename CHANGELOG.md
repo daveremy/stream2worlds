@@ -37,7 +37,7 @@ demo box's 1 GiB cap (as the event list without snapshots already would).
 implementation captures after every successful poll, because a poll that reports a per-event
 error still commits a consistent prefix; the decision records why.
 
-**Next:** share the base world with the head after a restore to halve restore memory; `mcp
+**Next:** share the base world with the head after a restore to halve restore memory (#179); `mcp
 --log-dir` loading snapshots; log and verdict compaction (part 2).
 
 ## World snapshots, part 1a: the format and the timeline base — #33 (2026-09-28)

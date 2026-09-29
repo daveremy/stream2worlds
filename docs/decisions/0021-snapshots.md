@@ -150,7 +150,7 @@ restored timeline holds two worlds (base and head), and a write briefly holds a 
 of the head, so near 10^6 events of this shape `serve` would exceed 1 GiB. Without snapshots
 the same process holds the head world plus the event list since offset 0, which is larger
 still, so the demo box cannot reach that size either way. Sharing the base with the head until
-the first append after a restore would halve restore memory; that is a follow-up.
+the first append after a restore would halve restore memory; that is #179.
 
 ## What validity does not catch
 

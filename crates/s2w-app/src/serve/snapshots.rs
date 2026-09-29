@@ -302,6 +302,8 @@ impl Snapshotter {
     fn capture(&self, state: &QueryState) -> Result<SnapshotV1, String> {
         let checkpoint = self.checkpoint.ok_or("nothing consumed yet")?;
         let (world, time) = state.head_capture().map_err(|e| e.to_string())?;
+        // Only the bridge appends, and this runs in the same synchronous step as the poll, so
+        // this is an invariant check (decision 0021), not an expected outcome.
         if world.offset() != checkpoint.offset {
             return Err(format!(
                 "the head is at offset {}, but the checkpoint is at {}",
@@ -370,8 +372,9 @@ impl Snapshotter {
 }
 
 impl Drop for Snapshotter {
-    /// Lets an in-flight write finish on every exit path; the file is written atomically, so
-    /// even a killed process leaves the previous snapshot intact.
+    /// Lets an in-flight write finish on every exit path, which can delay exit after a fatal
+    /// error by one encode and `fsync`. The file is written atomically, so even a killed
+    /// process leaves the previous snapshot intact.
     fn drop(&mut self) {
         self.stop_writer();
     }
@@ -384,8 +387,19 @@ fn writer(
     notes: &(dyn Fn(&str) + Send + Sync),
 ) {
     while let Ok(job) = queue.recv() {
+        // Cleared on unwind too: a panicking write must not leave every later snapshot
+        // skipped as "busy".
+        let _idle = Idle(&shared.busy);
         write_one(dir, job, shared, notes);
-        shared.busy.store(false, Ordering::Release);
+    }
+}
+
+/// Marks the writer idle when dropped.
+struct Idle<'a>(&'a AtomicBool);
+
+impl Drop for Idle<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 
