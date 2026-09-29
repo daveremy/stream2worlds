@@ -49,6 +49,8 @@
 //!     entity against `xtask/scale-baseline.toml` (+tolerance and a hard budget), plus that
 //!     file's baseline-growth trailer rule. `cargo xtask scale` (`scale_run.rs`) gates fold
 //!     instructions per event under Valgrind (decision 0004).
+//! 14. **Decision numbers** (`decision_numbers.rs`): no two files in `docs/decisions/` share a
+//!     numeric prefix; the failure names every file holding the number (s2w#181).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -62,6 +64,7 @@ use std::process::{Command, ExitCode};
 use serde::Deserialize;
 
 mod clippy_config;
+mod decision_numbers;
 mod discover_replay;
 mod golden;
 mod module_size;
@@ -248,6 +251,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(discover_replay::check(root));
     problems.extend(clippy_config::check(root, &meta));
     problems.extend(scale_mem_check::check(root, tighten));
+    problems.extend(decision_numbers::check(root));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -282,7 +286,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))
