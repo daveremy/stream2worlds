@@ -10,13 +10,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use s2w_model::{NaturalKey, StreamMapping};
+use serde::Serialize;
 use serde_json::Value;
 
+use super::context::{ContextRow, rows};
 use super::key::KeySpec;
 use super::mentions::{Decoded, Mention, Partition, key_mentions, mapping_mentions};
 
 /// B-cubed precision, recall and F1 over some set of mentions.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub(crate) struct Bcubed {
     /// Mean over predicted mentions of `|R(m) ∩ K(m)| / |R(m)|`; a spurious mention scores 0.
     pub precision: Option<f64>,
@@ -27,7 +29,7 @@ pub(crate) struct Bcubed {
 }
 
 /// One key mention path's row: where the mapping loses mentions.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub(crate) struct PathRow {
     /// Key mentions at this path.
     pub key: usize,
@@ -38,7 +40,7 @@ pub(crate) struct PathRow {
 }
 
 /// A mapping's identity score against a key.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub(crate) struct Score {
     /// Micro over every key and predicted mention, singletons included (the headline).
     pub micro: Bcubed,
@@ -313,7 +315,7 @@ pub(crate) fn shown(metric: Option<f64>) -> String {
 }
 
 /// A mapping graded against a key on one corpus.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub(crate) struct Grade {
     /// The mapping's score.
     pub mapping: Score,
@@ -328,6 +330,9 @@ pub(crate) struct Grade {
     pub excluded: BTreeMap<String, usize>,
     /// Records the key's decode steps could not decode.
     pub undecodable: usize,
+    /// The unfloored composite-key sub-metric, one row per key type and context path
+    /// ([`super::context`]).
+    pub contexts: BTreeMap<String, ContextRow>,
 }
 
 /// Grades `mapping` against `spec` on `payloads`. The payloads are decoded once for the key and
@@ -354,6 +359,7 @@ pub(crate) fn grade(
     Ok(Grade {
         mapping: score(&gold.partition, &predicted, &unscored),
         ceiling: score(&gold.partition, &oracle, &unscored),
+        contexts: rows(spec, &gold.partition, &predicted, &oracle)?,
         excluded: gold.excluded_per_path(),
         abstained: gold.abstained,
         undecodable: corpus.undecodable(),

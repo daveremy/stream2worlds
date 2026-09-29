@@ -21,6 +21,8 @@ pub(crate) const DATA: &str = "research/h-measure";
 pub(crate) struct KeyPin {
     /// The key file, relative to [`DATA`].
     pub file: String,
+    /// Which reading of the key it is (`base`, or a sensitivity variant's name).
+    pub variant: String,
     /// Lower-case hex sha256 of the file's bytes.
     pub sha256: String,
 }

@@ -224,18 +224,33 @@ impl KeySpec {
                 if unscored.contains(&id) {
                     return Err(format!("mention path {:?} is also unscored", rule.path));
                 }
-                self.validate_no_identity(&kind.label, rule)?;
+                self.validate_rule_identity(&kind.label, rule)?;
             }
         }
         Ok(())
     }
 }
 
+/// A rule's identity lists each path once: a repeat would count one entity twice in a
+/// context-collision row.
+fn distinct_identity(label: &str, rule: &MentionRule) -> Result<(), String> {
+    let identity: BTreeSet<String> = rule.identity.iter().map(rule_id).collect();
+    if identity.len() == rule.identity.len() {
+        Ok(())
+    } else {
+        Err(format!(
+            "type {label:?}: mention rule {:?} lists an identity path twice",
+            rule.path
+        ))
+    }
+}
+
 impl KeySpec {
-    /// A rule's `no_identity` list: format 1 only, on an identity path, every value a key part
-    /// (string, integer or boolean) listed once. Anything else could never match, or would
-    /// match ambiguously, so it fails closed.
-    fn validate_no_identity(&self, label: &str, rule: &MentionRule) -> Result<(), String> {
+    /// A rule's identity paths, each listed once, and its `no_identity` list: format 1 only, on
+    /// an identity path, every value a key part (string, integer or boolean) listed once.
+    /// Anything else could never match, or would match ambiguously, so it fails closed.
+    fn validate_rule_identity(&self, label: &str, rule: &MentionRule) -> Result<(), String> {
+        distinct_identity(label, rule)?;
         if rule.no_identity.is_empty() {
             return Ok(());
         }

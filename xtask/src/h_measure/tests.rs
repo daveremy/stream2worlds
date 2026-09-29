@@ -330,7 +330,7 @@ fn the_committed_sample_passes_the_selftest() {
 
 /// Every key file `research/h-measure/keys.toml` pins parses as a key spec, validates, and
 /// yields an oracle mapping, so a malformed key fails here rather than at the first score. The
-/// sha256 pins are checked by `h-measure freeze` (`h_measure/pins.rs`), not here.
+/// sha256 pins are checked by `h-measure freeze` and `score` (`h_measure/pins.rs`), not here.
 #[test]
 fn every_pinned_key_file_is_a_valid_key() {
     #[derive(serde::Deserialize)]
@@ -469,4 +469,12 @@ fn a_key_read_from_a_mapping_is_the_newest_format_without_exclusions() {
             .flat_map(|t| &t.mentions)
             .all(|m| m.no_identity.is_empty())
     );
+}
+
+#[test]
+fn an_identity_listing_a_path_twice_is_rejected() {
+    let value = json!({ "version": 0, "types": [{ "type": "P", "mentions": [
+        { "path": ["id"], "identity": [["wiki"], ["id"], ["wiki"]] }
+    ] }] });
+    rejects(&value, "lists an identity path twice");
 }

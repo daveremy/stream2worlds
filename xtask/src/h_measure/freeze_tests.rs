@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use super::freeze::freeze;
 use super::pins::{DATA, sha256};
 
-const KEY: &str = "dev-key-v0.json";
+pub(super) const KEY: &str = "dev-key-v0.json";
 
 /// Three SSE frames, each a small recentchange-shaped payload.
 fn corpus_text() -> String {
@@ -19,9 +19,10 @@ fn corpus_text() -> String {
         .collect()
 }
 
-/// A root with one pinned key and three corpora: `dev` (development), `held` (heldout) and
-/// `short` (development, pinned with the wrong event count). Returns the root and the corpus dir.
-fn fixture(name: &str) -> (PathBuf, PathBuf) {
+/// A root with one pinned key and four corpora: `dev` (development), `held` (heldout), `res`
+/// (reserved) and `short` (development, pinned with the wrong event count). Returns the root
+/// and the corpus dir.
+pub(super) fn fixture(name: &str) -> (PathBuf, PathBuf) {
     let root = std::env::temp_dir().join(format!("s2w-h-freeze-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
     let data = root.join(DATA);
@@ -51,6 +52,7 @@ fn fixture(name: &str) -> (PathBuf, PathBuf) {
         data.join("corpora.toml"),
         entry("dev", "development", 3)
             + &entry("held", "heldout", 3)
+            + &entry("res", "reserved", 3)
             + &entry("short", "development", 4),
     )
     .unwrap();
