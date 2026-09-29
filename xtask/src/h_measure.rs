@@ -72,6 +72,7 @@ fn flags(args: &[String]) -> Result<Flags, String> {
             .ok_or_else(|| format!("unexpected argument {flag:?}; usage: {USAGE}"))?;
         let value = args
             .next()
+            .filter(|value| !value.starts_with("--"))
             .ok_or_else(|| format!("--{name} needs a value"))?;
         found
             .entry(name.to_owned())
@@ -101,9 +102,8 @@ fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> 
             .join(CORPUS_DIR),
     };
     let corpus = one(flags, "corpus")?;
-    let window = one(flags, "window")?
-        .parse()
-        .map_err(|e| format!("--window: {e}"))?;
+    let raw = one(flags, "window")?;
+    let window = raw.parse().map_err(|e| format!("--window {raw:?}: {e}"))?;
     freeze::freeze(root, &dir, corpus, window, Path::new(one(flags, "out")?))
 }
 

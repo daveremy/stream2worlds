@@ -82,6 +82,27 @@ fn profiled(payloads: &[Value], config: &Config) -> Result<(Profile, Discovery),
     Ok(discover(&refs, config))
 }
 
+fn exists(out: &Path) -> String {
+    format!(
+        "{} exists; a frozen mapping is never overwritten, freeze to a new file",
+        out.display()
+    )
+}
+
+/// Writes `text` to `out`, refusing an `out` that appeared since `freeze` checked for it.
+fn write_new(out: &Path, text: &str) -> Result<(), String> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(out)
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => exists(out),
+            _ => format!("{}: {e}", out.display()),
+        })?;
+    std::io::Write::write_all(&mut file, text.as_bytes())
+        .map_err(|e| format!("{}: {e}", out.display()))
+}
+
 /// Freezes a mapping discovered on `corpus` (read from `dir`) to `out`, which must not exist.
 pub(crate) fn freeze(
     root: &Path,
@@ -91,10 +112,7 @@ pub(crate) fn freeze(
     out: &Path,
 ) -> Result<String, String> {
     if out.exists() {
-        return Err(format!(
-            "{} exists; a frozen mapping is never overwritten, freeze to a new file",
-            out.display()
-        ));
+        return Err(exists(out));
     }
     let pins = Pins::load(root)?;
     pins.verify_keys(root)?;
@@ -109,7 +127,12 @@ pub(crate) fn freeze(
     let window_events = payloads
         .get(..window)
         .filter(|events| !events.is_empty())
-        .ok_or_else(|| format!("--window {window}: {corpus} has {} events", payloads.len()))?;
+        .ok_or_else(|| {
+            format!(
+                "--window {window}: must be 1 to {n}, the {corpus} corpus has {n} events",
+                n = payloads.len()
+            )
+        })?;
     let config = Config::default();
     let (profile, discovery) = profiled(window_events, &config)?;
     let (mapping, abstain) = match discovery {
@@ -128,13 +151,7 @@ pub(crate) fn freeze(
         abstain,
     };
     let text = serde_json::to_string_pretty(&frozen).map_err(|e| e.to_string())? + "\n";
-    // `create_new` refuses an `--out` that appeared since the check above.
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(out)
-        .and_then(|mut file| std::io::Write::write_all(&mut file, text.as_bytes()))
-        .map_err(|e| format!("{}: {e}", out.display()))?;
+    write_new(out, &text)?;
     let outcome = frozen.abstain.as_ref().map_or_else(
         || {
             format!(

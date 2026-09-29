@@ -156,3 +156,41 @@ fn freeze_refuses_a_key_pinned_twice() {
         "pins dev-key-v0.json twice",
     );
 }
+
+#[test]
+fn freeze_refuses_a_window_outside_the_corpus() {
+    let (root, dir) = fixture("window");
+    for window in [0, 4] {
+        let out = root.join(format!("w{window}.json"));
+        let err = freeze(&root, &dir, "dev", window, &out).expect_err("window should refuse");
+        assert!(err.contains("must be 1 to 3"), "{err:?}");
+        assert!(!out.exists());
+    }
+}
+
+#[test]
+fn freeze_records_the_corpus_role_file_and_events() {
+    let (root, dir) = fixture("corpus-pin");
+    let out = root.join("frozen.json");
+    freeze(&root, &dir, "dev", 3, &out).unwrap();
+    let frozen: serde_json::Value = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    let hash = sha256(corpus_text().as_bytes());
+    assert_eq!(
+        frozen["pins"]["corpus held"],
+        format!("Heldout c.sse 3 {hash}")
+    );
+}
+
+#[test]
+fn freeze_refuses_a_missing_key_file() {
+    let (root, dir) = fixture("key-missing");
+    fs::remove_file(root.join(DATA).join(KEY)).unwrap();
+    refused(&root, &dir, "dev", &root.join("f.json"), KEY);
+}
+
+#[test]
+fn a_flag_is_never_taken_as_the_previous_flags_value() {
+    let args: Vec<String> = ["--out", "--dir", "/x"].map(String::from).to_vec();
+    let err = super::flags(&args).expect_err("--out has no value");
+    assert!(err.contains("--out needs a value"), "{err:?}");
+}
