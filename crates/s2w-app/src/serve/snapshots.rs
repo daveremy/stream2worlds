@@ -1,4 +1,4 @@
-//! `serve`'s snapshot wiring (decision 0021, #33 part 1b): restore at startup, the checkpoint
+//! `serve`'s snapshot wiring (decision 0024, #33 part 1b): restore at startup, the checkpoint
 //! taken after each bridge poll, the writer thread, and the final snapshot on a stop signal.
 //!
 //! The capture is synchronous with the poll: [`Snapshotter::after_poll`] runs right after
@@ -311,7 +311,7 @@ impl Snapshotter {
         state
             .with_head(|world, time| {
                 // Only the bridge appends, and this runs in the same synchronous step as the
-                // poll, so this is an invariant check (decision 0021), not an expected outcome.
+                // poll, so this is an invariant check (decision 0024), not an expected outcome.
                 if world.offset() != checkpoint.offset {
                     return Err(format!(
                         "the head is at offset {}, but the checkpoint is at {}",
@@ -328,7 +328,7 @@ impl Snapshotter {
                     offset: checkpoint.offset,
                     position: checkpoint.position.as_u64(),
                     position_event_hash: checkpoint.event_hash,
-                    // Recorded for portability, never consulted at load (decision 0021); serve
+                    // Recorded for portability, never consulted at load (decision 0024); serve
                     // does not enumerate source cursors yet.
                     cursors: &[],
                     time,

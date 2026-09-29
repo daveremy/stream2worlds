@@ -46,7 +46,7 @@ pub struct ServeArgs {
     pub port: u16,
     /// Raw `--filter <path>[!]=<value>` specs; see [`crate::WatchArgs::filters`].
     pub filters: Vec<String>,
-    /// Snapshot restore and writing (`--snapshot-every`, `--no-snapshot`; decision 0021).
+    /// Snapshot restore and writing (`--snapshot-every`, `--no-snapshot`; decision 0024).
     pub snapshots: SnapshotConfig,
 }
 
@@ -260,7 +260,7 @@ impl EventLog for SharedLogWriter {
 
 // Bridge::run requires Send and moves each poll to the blocking pool. This local driver uses
 // the same poll/backoff policy, yielding even after full batches so ingestion/HTTP can run.
-// Snapshot capture runs right after each poll with no await in between (decision 0021).
+// Snapshot capture runs right after each poll with no await in between (decision 0024).
 async fn local_bridge(
     mut bridge: Bridge<SharedLogReader, SqliteVerdictStore>,
     config: BridgeConfig,
@@ -340,7 +340,7 @@ async fn serve_live(
     .map_err(|error| AppError::BridgeStopped(error.to_string()))?;
     let snapshots = storage.snapshots.map(|s| Rc::new(RefCell::new(s)));
     // The final snapshot runs inside the stop branch only: after a signal, before supervise
-    // drops the bridge and before the HTTP drain, never after a fatal error (decision 0021).
+    // drops the bridge and before the HTTP drain, never after a fatal error (decision 0024).
     let stop = {
         let (snapshots, state) = (snapshots.clone(), state.clone());
         async move {

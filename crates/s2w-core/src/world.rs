@@ -12,7 +12,7 @@ use crate::event::{AttrValue, EntityId, NaturalKey, WorldEvent};
 pub const FOLD_VERSION: u32 = 1;
 
 /// FNV-1a 64 over the bytes of the human-owned golden fixtures, `tests/fixtures/golden-fold-v1.json`
-/// followed by `tests/fixtures/golden-fold-v1.snapshot.json` (decision 0021).
+/// followed by `tests/fixtures/golden-fold-v1.snapshot.json` (decision 0024).
 ///
 /// A world snapshot is valid only for the fold that wrote it. A human-approved fold change edits
 /// the golden snapshot, which changes this value (`tests/fixture_hash.rs` fails until it is

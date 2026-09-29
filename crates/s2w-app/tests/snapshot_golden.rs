@@ -1,4 +1,4 @@
-//! The snapshot golden equivalence (decision 0021): folding a log from offset 0 gives the same
+//! The snapshot golden equivalence (decision 0024): folding a log from offset 0 gives the same
 //! world as restoring a snapshot taken at offset `o` and appending the tail, for every `o`
 //! tried, over the human-owned golden log and over generated streams. The snapshot goes through
 //! the real file format (`encode` then `decode`). No fixture is regenerated.

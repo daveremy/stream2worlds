@@ -59,7 +59,7 @@ parse and fork measurements moved to their own issues rather than holding this P
 ## World snapshots, part 1b: `serve` restarts from a snapshot — #33 (2026-09-28)
 
 **Shipped:** `serve` now writes world snapshots and restarts from them
-([decision 0021](docs/decisions/0021-snapshots.md)). At start it loads the newest valid
+([decision 0021](docs/decisions/0024-snapshots.md)). At start it loads the newest valid
 snapshot, installs it as the timeline's base and resumes the bridge after its log position, so
 a restart replays only the tail. While running it snapshots every 1,000,000 raw events on its
 own writer thread, and on Ctrl-C or SIGTERM it writes a final snapshot when at least 100,000
@@ -86,7 +86,7 @@ error still commits a consistent prefix; the decision records why.
 ## World snapshots, part 1a: the format and the timeline base — #33 (2026-09-28)
 
 **Shipped:** the pieces a restart-from-snapshot needs, without yet wiring them into `serve`
-([decision 0021](docs/decisions/0021-snapshots.md)). A world snapshot is now a defined,
+([decision 0021](docs/decisions/0024-snapshots.md)). A world snapshot is now a defined,
 portable file (magic, length, a `postcard` payload, FNV-1a checksum) with pure validity rules:
 it loads only when its format, fold (`FOLD_VERSION`, hub cap and a hash of the golden
 fixtures), engine routing and log position all still match, and is otherwise ignored, never

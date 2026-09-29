@@ -1,4 +1,4 @@
-//! World snapshots (decision 0021): a derived, self-contained file holding a folded world at a
+//! World snapshots (decision 0024): a derived, self-contained file holding a folded world at a
 //! fold offset, the log position it was folded through, and what is needed to prove it still
 //! matches the running fold, the engine routing and the log.
 //!

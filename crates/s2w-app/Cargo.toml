@@ -24,7 +24,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 # schemars and uuid; `transport-io` the stdio transport (rmcp enables tokio's `io-std` on its
 # own dependency, so s2w-app's tokio feature list is unchanged).
 rmcp = { version = "=3.4.1", default-features = false, features = ["server", "macros", "transport-io"] }
-# The snapshot payload codec (decision 0021): compact, deterministic for BTree-only worlds, no
+# The snapshot payload codec (decision 0024): compact, deterministic for BTree-only worlds, no
 # `deserialize_any`. `use-std` for `to_stdvec`; no default features (no heapless, no embedded-io).
 postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 serde.workspace = true
@@ -39,7 +39,7 @@ tokio-stream = "0.1"
 rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 
 [dev-dependencies]
-# The snapshot golden-equivalence test generates event streams (decision 0021).
+# The snapshot golden-equivalence test generates event streams (decision 0024).
 proptest = "1"
 # Heap profiling for the ignored `scale_mem` test (s2w#32).
 dhat = "=0.3.3"

@@ -63,7 +63,7 @@ pub trait Reporter: Send {
     }
 
     /// A [`Self::note`] that can be called from another thread, for work that outlives the
-    /// `&mut` borrow the pump holds (the snapshot writer thread, decision 0021). Renders the
+    /// `&mut` borrow the pump holds (the snapshot writer thread, decision 0024). Renders the
     /// same way `note` does; the default is [`HumanReporter`]'s line.
     fn note_sink(&self) -> NoteSink {
         Arc::new(|message: &str| eprintln!("s2w: {message}"))

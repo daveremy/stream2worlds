@@ -1,6 +1,6 @@
 # 0023: Routes from stored stream mappings
 
-Date: 2026-09-29 · Status: accepted · Gate 3 · Issue #163 (PR 2a of 5) · Amends [0021 stream mapping](0021-stream-mapping-v0.md), [0011](0011-system1-bridge.md) (routing) · Builds on [0012](0012-verdict-log.md), [0019](0019-system2-proposal-records.md), [0021 snapshots](0021-snapshots.md)
+Date: 2026-09-29 · Status: accepted · Gate 3 · Issue #163 (PR 2a of 5) · Amends [0021 stream mapping](0021-stream-mapping-v0.md), [0011](0011-system1-bridge.md) (routing) · Builds on [0012](0012-verdict-log.md), [0019](0019-system2-proposal-records.md), [0024 snapshots](0024-snapshots.md)
 
 ## Decision
 
@@ -88,7 +88,7 @@ depends on nothing else new.
 
 `EngineRegistry::feed_fingerprint()` hashes every route and engine name, so a registry built
 under mapping B has a different fingerprint from A's. A snapshot written under A fails validity
-rule 4 (0021 snapshots) and is reported and ignored; `serve` replays from position 0 under B.
+rule 4 ([0024 snapshots](0024-snapshots.md)) and is reported and ignored; `serve` replays from position 0 under B.
 No new snapshot field. This needs one ordering rule: **`serve` resolves routes and builds the
 registry before it restores a snapshot**, because restore needs the fingerprint.
 

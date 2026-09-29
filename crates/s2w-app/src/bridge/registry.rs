@@ -100,7 +100,7 @@ impl EngineRegistry {
     /// (stored verdicts keep serving, decision 0012), so a replay after one folds the same
     /// world. Order is kept because the bridge runs matching engines in registration order, so
     /// reordering can reorder claims. A world snapshot records this and is ignored under any
-    /// other routing (decision 0021, validity rule 4).
+    /// other routing (decision 0024, validity rule 4).
     #[must_use]
     pub fn feed_fingerprint(&self) -> u64 {
         let mut hash = s2w_model::Fnv64::new();

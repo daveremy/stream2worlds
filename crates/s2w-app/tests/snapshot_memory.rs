@@ -4,7 +4,7 @@
 //!
 //! The workload is synthetic and wiki-shaped: each raw event observes a page (two attributes)
 //! and an `edited` relationship from its user; pages repeat every `n / 2` events and users
-//! every `n / 20`. Numbers are for decision 0021 and the demo box's `MemoryMax=1G`.
+//! every `n / 20`. Numbers are for decision 0024 and the demo box's `MemoryMax=1G`.
 
 // `allow-unwrap-in-tests` applies inside `#[cfg(test)]` items only.
 #[cfg(test)]
