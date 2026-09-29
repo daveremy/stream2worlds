@@ -118,7 +118,7 @@ async function start(): Promise<void> {
     current.onerror = async event => {
       if (signal.aborted || source !== current) return;
       // The stream's final `event: error` frame names a replaced history: rebuild, skip the probe.
-      if (isStaleEpoch(event)) { void start(); return; }
+      if (isStaleEpoch(event)) { current.close(); void start(); return; }
       // CONNECTING means the browser wants to retry; close it and own retry timing instead.
       const readyState = current.readyState;
       current.close(); source = undefined;

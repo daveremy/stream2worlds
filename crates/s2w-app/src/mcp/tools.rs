@@ -48,9 +48,7 @@ pub struct WorldViewArgs {
     pub focus: Option<u64>,
     /// The neighbourhood's radius in hops; 1 by default, 5 at most.
     pub hops: Option<u32>,
-    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
-    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
-    /// when absent.
+    /// Optional `epoch` from an earlier result; another history is a `stale_epoch` error.
     pub epoch: Option<String>,
 }
 
@@ -65,9 +63,7 @@ pub struct WorldDiffArgs {
     pub from: Option<u64>,
     /// The later fold offset; the head when absent.
     pub to: Option<u64>,
-    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
-    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
-    /// when absent.
+    /// Optional `epoch` from an earlier result; another history is a `stale_epoch` error.
     pub epoch: Option<String>,
 }
 
@@ -83,9 +79,7 @@ pub struct EntityHistoryArgs {
     pub id: u64,
     /// Fold offset to stop at; the head when absent.
     pub to: Option<u64>,
-    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
-    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
-    /// when absent.
+    /// Optional `epoch` from an earlier result; another history is a `stale_epoch` error.
     pub epoch: Option<String>,
 }
 
@@ -105,9 +99,7 @@ pub struct TimeArgs {
     pub branch: Option<String>,
     /// A timestamp in milliseconds since the Unix epoch.
     pub ts: Option<i64>,
-    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
-    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
-    /// when absent.
+    /// Optional `epoch` from an earlier result; another history is a `stale_epoch` error.
     pub epoch: Option<String>,
 }
 
@@ -118,9 +110,7 @@ pub struct SourcesArgs {
     pub world: String,
     /// The fold offset whose membership to list; the head when absent.
     pub at: Option<u64>,
-    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
-    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
-    /// when absent.
+    /// Optional `epoch` from an earlier result; another history is a `stale_epoch` error.
     pub epoch: Option<String>,
 }
 
@@ -279,16 +269,13 @@ const WORLD_DIFF: &str = "Requires the world string parameter. What changed betw
     offsets: entity-level nodes, links and merges added, removed and changed. Mirrors GET \
     /worlds/{world}/diff: from defaults to 0 and to to the head; an offset past the head is an \
     offset_beyond_head error, and one below time.base (a server restored from a snapshot) is an \
-    offset_before_base error, so pass from=time.base. Pass back the epoch of the world_view or time result an \
-    offset came from; a different epoch (the world was rebuilt under other routes) is a \
-    stale_epoch error.";
+    offset_before_base error, so pass from=time.base. Takes epoch (see world_view).";
 const ENTITY_HISTORY: &str = "Requires the world string parameter. Every delta naming one entity \
     id up to a fold offset, including ids that were merged into it at that moment. Mirrors GET \
     /worlds/{world}/entity/{id}/history: to defaults to the head, and an unknown id is an \
     unknown_entity error. Entries cover only offsets after time.base (see time.base); a to below \
-    it is an offset_before_base error. Use world_view to find entity ids first. Pass back the epoch of the world_view or time result an \
-    offset came from; a different epoch (the world was rebuilt under other routes) is a \
-    stale_epoch error.";
+    it is an offset_before_base error. Use world_view to find entity ids first. Takes epoch \
+    (see world_view).";
 const BRANCHES: &str = "Requires the world string parameter. The world branches that exist. \
     Mirrors GET /worlds/{world}/branches: today exactly one, 'actual', with its head offset, \
     fold version and hub in-degree cap.";
@@ -303,9 +290,8 @@ const TIME: &str = "Requires the world string parameter. The world's time index.
 const SOURCES: &str = "Requires the world string parameter. The world's member sources at a \
     fold offset (the head by default), each with consumed and unrouted event counts and \
     recent_unrouted, the most recent events no engine is routed for, most recent first. Mirrors \
-    GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet. Pass back the epoch of the world_view or time result an \
-    offset came from; a different epoch (the world was rebuilt under other routes) is a \
-    stale_epoch error.";
+    GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet. \
+    Takes epoch (see world_view).";
 const PROPOSALS_LIST: &str = "Requires the world string parameter. The stored proposals \
     (without payloads; payload_hash is the stored value, not re-verified), every decision \
     including corrections, and grades per class and actor. Mirrors GET \
