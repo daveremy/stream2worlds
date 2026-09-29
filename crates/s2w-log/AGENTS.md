@@ -1,7 +1,7 @@
 # s2w-log
 
 The durable append-only stores: the event log with source cursors, receipt times and provenance,
-and the System 1 verdict store beside it (s2w#63).
+the System 1 verdict store (s2w#63), and the System 2 proposal store (s2w#88) beside it.
 
 ## Allowed dependencies
 
@@ -57,6 +57,33 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - There is no foreign key to the events table; the bridge checks `cursor <= log head` and each
   replayed row's `event_hash` against the event, and a mismatch is loud.
 - No domain knowledge in this crate; see decision 0018.
+
+## Proposal store
+
+- `ProposalStore` is the seam; `SqliteProposalStore::open(dir)` keeps `proposals.sqlite3`
+  beside the event/verdict databases with its own `PROPOSALS_LOCK` and `user_version = 1`.
+  `InMemoryProposalStore` meets the same contract; `ReadOnlySqliteProposalStore` is the
+  matching lockless reader, coexisting with active writers (decision 0019).
+- Proposals and decisions are append-only; triggers refuse updates and deletes. Every open
+  configures WAL, `synchronous=FULL`, recursive triggers and foreign keys. Each append is
+  atomic; a decision must reference an existing proposal or return `LogError::Corrupt`.
+- Class and payload are opaque. Actors retain human identity or model and version;
+  snapshot offsets are `LogPosition`s, checked against the event log by consumers.
+  Timestamps are caller-supplied; the store has no clock and permits clock skew.
+- The store computes the payload's FNV-1a hash and verifies it on read. A mismatch or an
+  unknown actor/decider/outcome string is `Corrupt`. Non-empty metadata and the existing
+  payload size limit are validated before writes. Actor shape and protocol enums have CHECKs.
+- Proposal retries return the original row only when class, actor, snapshot offset, hash
+  and payload bytes match; the retry's timestamp is ignored. Conflicts are `Corrupt`.
+  Decision retries append harmless duplicates; corrections append, never edit.
+- Pure `grade` groups deterministically by (class, actor), including model version, using
+  the latest sequence per (proposal, decider). Human and evidence tallies are independent;
+  never add their denominators. Policy accepts/rejects count routing, not accuracy.
+- `policy_applied` grades policy-accepted proposals: any latest human/evidence reject wins;
+  otherwise any accept wins. Neither signal means `policy_applied_ungraded`. The cross-tab
+  is not time-ordered. `ungraded` includes all proposals with neither grading signal.
+- Thresholds and auto-apply revocation belong to consumers. No domain knowledge or payload
+  interpretation lives here (decision 0018); `s2w-app` will compose the store with System 2.
 
 ## Presentation
 
