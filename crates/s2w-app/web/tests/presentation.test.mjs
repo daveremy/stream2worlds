@@ -22,8 +22,11 @@ globalThis.matchMedia = () => ({
 const elements = { '#world-title': new FakeElement(), '#world-tagline': new FakeElement(),
   '#world-description': new FakeElement() };
 elements['#world-tagline'].textContent = 'default tagline';
+const headChildren = [];
 globalThis.document = {
   documentElement: root,
+  head: { append: el => { el.remove = () => headChildren.splice(headChildren.indexOf(el), 1); headChildren.push(el); } },
+  createElement: () => new FakeElement(),
   title: 'default title',
   querySelector: selector => elements[selector] ?? null,
 };
@@ -84,4 +87,24 @@ test('applyPresentation derives the neutral chrome tokens from the palette and c
   for (const name of chrome) assert.match(root.style.get(name), /^color-mix\(/, name);
   applyPresentation({});
   for (const name of chrome) assert.equal(root.style.get(name), undefined, name);
+});
+
+test('applyPresentation injects one world stylesheet as text, replaces it, and removes it', () => {
+  applyPresentation({ stylesheet: 'h1 { color: red; }' });
+  assert.equal(headChildren.length, 1);
+  assert.equal(headChildren[0].id, 'world-stylesheet');
+  assert.equal(headChildren[0].textContent, 'h1 { color: red; }');
+  applyPresentation({ stylesheet: 'h1 { color: blue; }' });
+  assert.equal(headChildren.length, 1);
+  assert.equal(headChildren[0].textContent, 'h1 { color: blue; }');
+  applyPresentation({});
+  assert.equal(headChildren.length, 0);
+});
+
+test('the home page never imports the presentation module that injects world CSS', async () => {
+  const { readFileSync } = await import('node:fs');
+  for (const file of ['../src/home-main.ts', '../src/home.ts']) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /from\s+['"]\.\/presentation['"]/, file);
+  }
 });

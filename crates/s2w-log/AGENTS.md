@@ -60,11 +60,14 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 
 ## Presentation
 
-- `WorldPresentation` (title, tagline, description, palettes, typefaces) is operator-authored
+- `WorldPresentation` (title, tagline, description, palettes, typefaces, stylesheet) is operator-authored
   viewer styling, stored in `world_presentation` alongside events and membership: append-only
   (latest row per world wins, unlike `WorldManifest`'s create-once identity), with an `origin`
   column (`'operator'` today; `'discovered'` reserved for a follow-up issue) so a proposed
   record can later be told apart from an accepted one without another schema bump.
+- `stylesheet` is operator CSS text: max 16 KiB, no `@import`/`@font-face`/`url()`/`src()`/
+  `image-set()` (nothing that loads a resource), no `<` `>` or backslash escapes, no remote
+  addresses. The viewer injects it only on that world's `/w/<world>/` page, never the home page.
 - Two types by design: `WorldPresentationInput` (`#[serde(deny_unknown_fields)]`) is the CLI
   write-path shape — a typo'd key is a loud error. `WorldPresentation` (`#[serde(default)]` on
   every field) is the load-path shape — an older or partial row must still deserialize. They

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 const MAX_TITLE_BYTES: usize = 120;
 const MAX_TAGLINE_BYTES: usize = 200;
 const MAX_DESCRIPTION_BYTES: usize = 8192;
+const MAX_STYLESHEET_BYTES: usize = 16 * 1024;
 
 /// Where a presentation record came from. Only `Operator` is written today; `Discovered` is
 /// reserved for a follow-up issue so the schema does not need a second migration to add it.
@@ -81,6 +82,12 @@ pub struct WorldPresentation {
     /// Font stacks for the viewer's display/body/mono roles.
     #[serde(default)]
     pub typefaces: Option<Typefaces>,
+    /// Optional per-world CSS, the escape hatch beyond palette and typefaces. Operator-supplied
+    /// text: size-capped and free of anything that loads a resource or breaks out of a style
+    /// element (see [`validate_stylesheet`]). The viewer injects it on this world's page only,
+    /// never on the home page or another world's page.
+    #[serde(default)]
+    pub stylesheet: Option<String>,
 }
 
 /// The write-path (CLI `set`) input type: rejects an unrecognized key loudly instead of
@@ -107,6 +114,9 @@ pub struct WorldPresentationInput {
     /// See [`WorldPresentation::typefaces`].
     #[serde(default)]
     pub typefaces: Option<Typefaces>,
+    /// See [`WorldPresentation::stylesheet`].
+    #[serde(default)]
+    pub stylesheet: Option<String>,
 }
 
 impl From<WorldPresentationInput> for WorldPresentation {
@@ -118,6 +128,7 @@ impl From<WorldPresentationInput> for WorldPresentation {
             palette_light: input.palette_light,
             palette_dark: input.palette_dark,
             typefaces: input.typefaces,
+            stylesheet: input.stylesheet,
         }
     }
 }
@@ -139,6 +150,72 @@ fn is_valid_typeface(value: &str) -> bool {
         && value
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | ',' | '.' | '-'))
+}
+
+/// Rejects stylesheet text that could load a remote or embedded resource, break out of the
+/// `<style>` element it is injected into, or hide such a construct behind a CSS escape.
+/// A denylist by design: the sheet is operator-supplied and the viewer never runs script from
+/// CSS, so the goal is "no network, no escape hatch out of the sheet", not a CSS parser.
+/// Comments are stripped before matching, so `@im/**/port` is judged as the browser reads it
+/// (and `@import` split by a comment is not a valid at-rule anyway).
+fn validate_stylesheet(css: &str) -> Result<(), LogError> {
+    let bad = |reason: &str| {
+        Err(LogError::InvalidPresentation(format!(
+            "stylesheet {reason}"
+        )))
+    };
+    if css.len() > MAX_STYLESHEET_BYTES {
+        return bad(&format!("exceeds {MAX_STYLESHEET_BYTES} bytes"));
+    }
+    if css.contains('\\') {
+        return bad("contains a backslash (CSS escapes are not allowed)");
+    }
+    if css.contains('<') || css.contains('>') {
+        return bad("contains '<' or '>' (markup is not allowed)");
+    }
+    if css
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    {
+        return bad("contains a control character");
+    }
+    let mut stripped = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(start) = rest.find("/*") {
+        stripped.push_str(&rest[..start]);
+        match rest[start + 2..].find("*/") {
+            Some(end) => {
+                stripped.push(' ');
+                rest = &rest[start + 2 + end + 2..];
+            }
+            None => return bad("has an unterminated comment"),
+        }
+    }
+    stripped.push_str(rest);
+    let lower = stripped.to_ascii_lowercase();
+    for (needle, what) in [
+        ("@import", "@import"),
+        ("@namespace", "@namespace"),
+        ("@charset", "@charset"),
+        ("@font-face", "@font-face"),
+        ("url(", "url()"),
+        ("url (", "url()"),
+        ("src(", "src()"),
+        ("image-set(", "image-set()"),
+        ("image(", "image()"),
+        ("cross-fade(", "cross-fade()"),
+        ("element(", "element()"),
+        ("expression(", "expression()"),
+        ("behavior", "behavior"),
+        ("-moz-binding", "-moz-binding"),
+        ("javascript:", "javascript:"),
+        ("://", "a remote address"),
+    ] {
+        if lower.contains(needle) {
+            return bad(&format!("contains {what}, which is not allowed"));
+        }
+    }
+    Ok(())
 }
 
 fn validate_palette(palette: &Palette) -> Result<(), LogError> {
@@ -206,6 +283,9 @@ impl WorldPresentation {
                     )));
                 }
             }
+        }
+        if let Some(stylesheet) = &self.stylesheet {
+            validate_stylesheet(stylesheet)?;
         }
         Ok(())
     }

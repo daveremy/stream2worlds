@@ -579,7 +579,7 @@ fn presentation_endpoint_serves_the_default_record_and_404s_a_wrong_world() {
             body,
             serde_json::json!({
                 "title": null, "tagline": null, "description": null,
-                "palette_light": null, "palette_dark": null, "typefaces": null
+                "palette_light": null, "palette_dark": null, "typefaces": null, "stylesheet": null
             })
         );
         let response = bare_app
