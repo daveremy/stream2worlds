@@ -19,6 +19,9 @@ normal = ["s2w-model", "reqwest", "rskafka", "tokio", "serde_json", "tokio-strea
 [crates.s2w-system1]
 normal = ["s2w-model", "serde", "serde_json", "thiserror"]
 
+[crates.s2w-discover]
+normal = ["s2w-model", "serde_json"]
+
 [crates.s2w-system2]
 normal = ["s2w-model"]
 
