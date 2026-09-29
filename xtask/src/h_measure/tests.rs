@@ -330,7 +330,7 @@ fn the_committed_sample_passes_the_selftest() {
 
 /// Every key file `research/h-measure/keys.toml` pins parses as a key spec, validates, and
 /// yields an oracle mapping, so a malformed key fails here rather than at the first score. The
-/// sha256 pins are checked by `h-measure score` (PR 2b), not here: xtask has no hash dependency.
+/// sha256 pins are checked by `h-measure freeze` (`h_measure/pins.rs`), not here.
 #[test]
 fn every_pinned_key_file_is_a_valid_key() {
     #[derive(serde::Deserialize)]

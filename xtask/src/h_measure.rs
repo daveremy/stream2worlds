@@ -10,9 +10,9 @@
 //! [`score`] (it and the oracle ceiling must score 1.0), and prints the contract's frozen
 //! fixtures (B3: the 4/9 case and an all-singletons prediction).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use s2w_model::{Cursor, RawEvent, SourceId, StreamMapping, Timestamp, WorldEvent};
@@ -23,16 +23,28 @@ use s2w_system1::{Engine, MappingEngine, Verdict};
 use crate::obfuscation_raw::{MAPPING as SAMPLE_MAPPING, RAW as SAMPLE};
 use serde_json::Value;
 
+mod freeze;
 pub(crate) mod key;
 pub(crate) mod mentions;
+mod pins;
 pub(crate) mod score;
+
+/// The command's usage line.
+pub(crate) const USAGE: &str =
+    "cargo xtask h-measure selftest | freeze --corpus NAME --window N --out FILE [--dir DIR]";
+
+/// Where the corpora live when `--dir` is not given, under `$HOME`.
+const CORPUS_DIR: &str = ".local/share/stream2worlds/h-measure";
 
 /// Runs `cargo xtask h-measure <args>`.
 pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
-    let result = match args {
-        [one] if one == "selftest" => selftest(root),
+    let result = match args.split_first() {
+        Some((one, [])) if one == "selftest" => selftest(root),
+        Some((verb, rest)) if verb == "freeze" => {
+            flags(rest).and_then(|f| subcommand(root, verb, &f))
+        }
         _ => {
-            eprintln!("usage: cargo xtask h-measure selftest");
+            eprintln!("usage: {USAGE}");
             return ExitCode::from(2);
         }
     };
@@ -46,6 +58,53 @@ pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+type Flags = BTreeMap<String, Vec<String>>;
+
+/// `--name value` pairs; a name may repeat.
+fn flags(args: &[String]) -> Result<Flags, String> {
+    let mut found = Flags::new();
+    let mut args = args.iter();
+    while let Some(flag) = args.next() {
+        let name = flag
+            .strip_prefix("--")
+            .ok_or_else(|| format!("unexpected argument {flag:?}; usage: {USAGE}"))?;
+        let value = args
+            .next()
+            .ok_or_else(|| format!("--{name} needs a value"))?;
+        found
+            .entry(name.to_owned())
+            .or_default()
+            .push(value.clone());
+    }
+    Ok(found)
+}
+
+/// The one value of a required flag.
+fn one<'a>(flags: &'a Flags, name: &str) -> Result<&'a str, String> {
+    match flags.get(name).map(Vec::as_slice) {
+        Some([value]) => Ok(value),
+        Some(_) => Err(format!("--{name} given more than once")),
+        None => Err(format!("--{name} is required; usage: {USAGE}")),
+    }
+}
+
+fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> {
+    let known: &[&str] = &["corpus", "window", "out", "dir"];
+    if let Some(name) = flags.keys().find(|n| !known.contains(&n.as_str())) {
+        return Err(format!("{verb} takes no --{name}; usage: {USAGE}"));
+    }
+    let dir = match flags.get("dir") {
+        Some(_) => PathBuf::from(one(flags, "dir")?),
+        None => PathBuf::from(std::env::var("HOME").map_err(|e| format!("$HOME: {e}"))?)
+            .join(CORPUS_DIR),
+    };
+    let corpus = one(flags, "corpus")?;
+    let window = one(flags, "window")?
+        .parse()
+        .map_err(|e| format!("--window: {e}"))?;
+    freeze::freeze(root, &dir, corpus, window, Path::new(one(flags, "out")?))
 }
 
 fn selftest(root: &Path) -> Result<String, String> {
@@ -193,5 +252,7 @@ fn jsonl(text: &str) -> Result<Vec<Value>, String> {
         .collect()
 }
 
+#[cfg(test)]
+mod freeze_tests;
 #[cfg(test)]
 mod tests;

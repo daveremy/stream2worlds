@@ -15,7 +15,8 @@
 # The files were written by eventstreams_replay.py at commit 2322bd7; later revisions write the
 # same frame bytes but a different `:` header line, so a re-capture differs in the header too.
 #
-# Roles (plan, s2w#56 comment 5892219272):
+# Roles (plan, s2w#56 comment 5892219272), in each entry's `role` (`cargo xtask h-measure`
+# freezes only on `development` and never scores `reserved`):
 #   dev        development window: `freeze` discovers on it; the only corpus anyone looks at
 #              while building or tuning.
 #   heldout    held-out split scored by PR 3. Disjoint from dev, later in time.
@@ -25,6 +26,7 @@
 # PROFILER_VERSION 2) were tuned earlier on `page_change` fixtures by the same project.
 
 [corpus.dev]
+role = "development"
 file = "dev.raw.sse"
 stream = "mediawiki.recentchange"
 since = "2026-09-28T00:00:00Z"
@@ -36,6 +38,7 @@ bytes = 307306943
 sha256 = "53d35b1c8631cc506d762a855ea554d4ca833f5c02a6fe80c5ceeb52205ae4dd"
 
 [corpus.heldout]
+role = "heldout"
 file = "heldout.raw.sse"
 stream = "mediawiki.recentchange"
 since = "2026-09-28T08:44:42Z"
@@ -47,6 +50,7 @@ bytes = 150976997
 sha256 = "ad07885cf791b8de760a8f94aca5a45bd5d8d0476be8b0baf695807737809cf6"
 
 [corpus.heldout-2]
+role = "heldout"
 file = "heldout-2.raw.sse"
 stream = "mediawiki.recentchange"
 since = "2026-09-28T17:15:00Z"
@@ -58,6 +62,7 @@ bytes = 156121889
 sha256 = "4432c2a8533e0080a2a97344a2aa5ed1273aafc951faf673dcdb36b65800bc22"
 
 [corpus.reserved]
+role = "reserved"
 file = "reserved.raw.sse"
 stream = "mediawiki.recentchange"
 since = "2026-09-29T02:15:00Z"

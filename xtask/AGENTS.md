@@ -11,7 +11,8 @@ mapping against an answer key (s2w#56).
   `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`; check
   11 runs a recorded raw stream through `MappingEngine`), `s2w-discover` (check 12 profiles a
   recorded raw stream twice), `s2w-sources` (checks 12 and 13 and `cargo xtask scale` cut a
-  recorded stream into frames with the live SSE adapter's `replay_frames`, s2w#174)
+  recorded stream into frames with the live SSE adapter's `replay_frames`, s2w#174), `sha2`
+  (`h_measure/pins.rs` checks answer keys and corpora against their sha256 pins, s2w#56)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -43,7 +44,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer; its `git` and `trailer` helpers are shared with `scale.rs`.
 - `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64 and `[ir.recorded] events`), the pure `[ir]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
   - `scale/supply.rs`: the two event supplies each scale number is measured on, the seeded generator (`[ir]`, `[memory]`) and the recorded fixture (`[ir.recorded]`, `[memory.recorded]`), gated side by side (s2w#174).
-- `h_measure.rs`: `cargo xtask h-measure selftest` (s2w#56, contract B3). Runs the mapping
+- `h_measure.rs`: `cargo xtask h-measure selftest | freeze` (s2w#56, contract B3). The selftest runs the mapping
   executor over `crates/s2w-system1/testdata/raw-sample.jsonl` with `sample.mapping.json` and
   checks it against `MappingEngine` (every predicted cluster is an entity the engine proposes
   for that record, and the reverse), then reads the mapping as its own key spec and checks the
@@ -78,6 +79,16 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     oracle ceiling on one corpus, dropping the key's excluded mentions from both predictions
     first (the key has no mention there; a v0 mapping cannot exclude a value). A zero
     denominator is `None` (undefined). Fixtures live in `h_measure/score/tests.rs`.
+  - `h_measure/pins.rs`: reads `research/h-measure/keys.toml` and `corpora.toml` (with each
+    corpus's `role`: development, heldout, reserved). A key or corpus that is not pinned, or
+    whose sha256 does not match its pin, is refused, as is a corpus whose SSE frame count is not
+    its pinned `events`.
+  - `h_measure/freeze.rs`: `cargo xtask h-measure freeze --corpus NAME --window N --out FILE
+    [--dir DIR]`. Checks every pinned key and the corpus first, refuses any corpus whose role is
+    not `development` and any `--out` that exists, then profiles the first N events and writes
+    the mapping (or the abstain reason) with the corpus hash, window, profiler version, config,
+    every pin, and the profile's abstained paths by role. Refusals are tested in
+    `h_measure/freeze_tests.rs` on a temporary root.
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
 - `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory after checking the recorded fixture's pin, the `[ir]` and `[ir.recorded]` judgments, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` baseline belongs to that job's image.
