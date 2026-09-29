@@ -242,25 +242,29 @@ const WORLD_VIEW: &str = "Requires the world string parameter. The world as a d3
     graph at a fold offset, at a level of detail (entity by default, or type), optionally \
     focused on one entity's neighbourhood (at most 5 hops). Mirrors GET \
     /worlds/{world}/world: entities past the in-degree cap come back as one aggregate hub node, \
-    and errors are {\"error\", \"message\"} objects (offset_beyond_head, unknown_entity, \
-    hops_too_large, lod_not_yet, branch_not_yet, unknown_world). Call `time` first to find the \
-    offsets that exist.";
+    and errors are {\"error\", \"message\"} objects (offset_beyond_head, offset_before_base, \
+    unknown_entity, hops_too_large, lod_not_yet, branch_not_yet, unknown_world). Call `time` \
+    first to find the offsets that exist: from time.base to time.head.";
 const WORLD_DIFF: &str = "Requires the world string parameter. What changed between two fold \
     offsets: entity-level nodes, links and merges added, removed and changed. Mirrors GET \
     /worlds/{world}/diff: from defaults to 0 and to to the head; an offset past the head is an \
-    offset_beyond_head error.";
+    offset_beyond_head error, and one below time.base (a server restored from a snapshot) is an \
+    offset_before_base error, so pass from=time.base.";
 const ENTITY_HISTORY: &str = "Requires the world string parameter. Every delta naming one entity \
     id up to a fold offset, including ids that were merged into it at that moment. Mirrors GET \
     /worlds/{world}/entity/{id}/history: to defaults to the head, and an unknown id is an \
-    unknown_entity error. Use world_view to find entity ids first.";
+    unknown_entity error. Entries cover only offsets after time.base (see time.base); a to below \
+    it is an offset_before_base error. Use world_view to find entity ids first.";
 const BRANCHES: &str = "Requires the world string parameter. The world branches that exist. \
     Mirrors GET /worlds/{world}/branches: today exactly one, 'actual', with its head offset, \
     fold version and hub in-degree cap.";
 const TIME: &str = "Requires the world string parameter. The world's time index. With ts \
     (milliseconds since the epoch), returns the largest fold offset whose events were received \
     at or before it; without ts, returns the range summary: head, first_ts, last_ts and how many \
-    out-of-order timestamps were clamped. Mirrors GET /worlds/{world}/time. Fold offsets are \
-    what world_view, world_diff and entity_history accept.";
+    out-of-order timestamps were clamped, plus base, the earliest servable offset (0, or the \
+    snapshot offset this server restored from). A ts before the base's last event is an \
+    offset_before_base error. Mirrors GET /worlds/{world}/time. Fold offsets from base to head \
+    are what world_view, world_diff and entity_history accept.";
 const SOURCES: &str = "Requires the world string parameter. The world's member sources at a \
     fold offset (the head by default), each with consumed and unrouted event counts and \
     recent_unrouted, the most recent events no engine is routed for, most recent first. Mirrors \
