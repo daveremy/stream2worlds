@@ -92,6 +92,7 @@ export async function streamStatus(params: URLSearchParams, from: number, epoch:
   await response.body?.cancel();
 }
 // Mirrors GET /worlds/{world}/proposals: the generic proposal ledger and its grades.
+// snapshot_offset is an event-log position, not a fold offset: no epoch, unchanged by a rebuild (s2w#201).
 export type Actor = { kind: 'human'; id: string } | { kind: 'agent'; model: string; version: string };
 export type Proposal = { seq: number; id: string; class: string; actor: Actor; snapshot_offset: number;
   payload_hash: string; proposed_at_ms: number };

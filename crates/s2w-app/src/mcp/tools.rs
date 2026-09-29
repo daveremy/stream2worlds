@@ -297,4 +297,6 @@ const PROPOSALS_LIST: &str = "Requires the world string parameter. The stored pr
     (without payloads; payload_hash is the stored value, not re-verified), every decision \
     including corrections, and grades per class and actor. Mirrors GET \
     /worlds/{world}/proposals: empty lists when no proposal store exists; a store that cannot \
-    be read is a storage error, never an empty view. Agent decisions fill only the agent tally.";
+    be read is a storage error, never an empty view. Agent decisions fill only the agent tally. \
+    snapshot_offset is an event-log position, not a fold offset: it carries no epoch and a \
+    rebuild does not change it; do not pass it as a tool's at.";
