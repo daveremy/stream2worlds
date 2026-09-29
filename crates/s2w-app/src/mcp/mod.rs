@@ -151,10 +151,10 @@ pub fn run_mcp(state: QueryState) -> Result<(), AppError> {
 ///
 /// **Shutdown contract:** after `service.waiting()` returns (the transport ending is still the
 /// only thing that stops the server), the stop flag is set and the thread is joined before
-/// returning. The bound is one in-flight `refresh()` *batch* plus at most one [`STOP_CHECK_SLICE`]
-/// — [`replay::LiveReadOnlyWorld::refresh_checking_stop`] checks the flag between batches inside
+/// returning. The bound is one in-flight `refresh()` *batch* plus at most one `STOP_CHECK_SLICE`
+/// — `replay::LiveReadOnlyWorld::refresh_checking_stop` checks the flag between batches inside
 /// a large catch-up, not only once per poll cycle, so a big backlog can't stall shutdown for its
-/// whole duration, and [`sleep_checking_stop`] checks the flag every `STOP_CHECK_SLICE` rather
+/// whole duration, and `sleep_checking_stop` checks the flag every `STOP_CHECK_SLICE` rather
 /// than sleeping the full (possibly backed-off-to-`MAX_REFRESH_BACKOFF`) poll interval in one
 /// uninterruptible sleep. Each batch read can itself block up to the read-only connections'
 /// 3s `busy_timeout` under sustained contention, so the true bound under `SQLITE_BUSY` is one
@@ -173,7 +173,7 @@ pub fn run_mcp(state: QueryState) -> Result<(), AppError> {
 /// before any append) does leave `state` unpoisoned and the last good snapshot keeps serving.
 ///
 /// **Error contract:** only a `LogError::Io`-wrapped error is retried (with backoff, capped at
-/// [`MAX_REFRESH_BACKOFF`], reset on the next success); every other error stops the refresh
+/// `MAX_REFRESH_BACKOFF`, reset on the next success); every other error stops the refresh
 /// thread and logs that the served snapshot is now frozen, naming the error. `QueryState` keeps
 /// whatever it last held — never cleared.
 ///

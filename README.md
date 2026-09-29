@@ -341,6 +341,7 @@ Build with `cargo build --release` and run `target/release/s2w watch wikipedia`.
 ```bash
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 cargo test --workspace
 cargo xtask check
 cargo deny check licenses advisories bans

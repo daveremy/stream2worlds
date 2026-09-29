@@ -60,7 +60,7 @@ pub fn write(dir: &Path, snapshot: &SnapshotV1) -> Result<PathBuf, SnapshotError
 }
 
 /// Writes already-encoded snapshot file `bytes` for `offset` under the feed fingerprint `feed`,
-/// atomically as [`write`] does. `serve` encodes on the bridge thread and hands the bytes to its
+/// atomically as [`write()`] does. `serve` encodes on the bridge thread and hands the bytes to its
 /// writer thread (#179).
 ///
 /// # Errors
@@ -172,7 +172,7 @@ pub fn prune(dir: &Path, feed: u64, keep: usize) -> std::io::Result<Vec<PathBuf>
     Ok(removed)
 }
 
-/// Removes temporary files a crashed [`write`] left behind (`.snapshot-<16 hex>-<20
+/// Removes temporary files a crashed [`write()`] left behind (`.snapshot-<16 hex>-<20
 /// digits>.s2w.tmp`, any fingerprint) and returns their paths. Only one writer runs per log directory (the process holding the
 /// log's writer lock), so call this before it starts, never while a write may be in flight.
 ///
