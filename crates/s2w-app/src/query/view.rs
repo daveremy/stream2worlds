@@ -532,10 +532,11 @@ struct LinkRef<'a> {
     weight: u64,
 }
 
-/// The view at the world head, serialized without building [`WorldView`] (#216): nodes and
-/// links are written one at a time, each [`Node`] built for its own element and dropped. Its
-/// bytes equal `serde_json::to_vec` of [`world_view`] with the same epoch; the resident cost is
-/// the graph index and one id per node and link, not a copy of every entity's attributes.
+/// The view of a borrowed world (the head, or an older world folded for `at`), serialized
+/// without building [`WorldView`] (#216): nodes and links are written one at a time, each
+/// [`Node`] built for its own element and dropped. Its bytes equal `serde_json::to_vec` of
+/// [`world_view`] with the same epoch; the resident cost is the graph index and one id per node
+/// and link, not a copy of every entity's attributes.
 ///
 /// `lod=type` is small by construction (one node per type or hub), so it holds the owned
 /// [`WorldView`].

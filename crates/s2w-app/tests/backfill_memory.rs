@@ -313,13 +313,19 @@ mod backfill {
                 .await
                 .unwrap();
             assert_eq!(res.status(), StatusCode::OK, "/world");
-            let mut body = res.into_body().into_data_stream();
-            let mut len = 0;
-            while let Some(chunk) = body.next().await {
-                len += chunk.unwrap().len();
-            }
-            len
+            drained_len(res.into_body()).await
         })
+    }
+
+    /// A response body's length, read chunk by chunk as a streaming client reads: the reader
+    /// never holds the whole body, so the peak is the server's.
+    async fn drained_len(body: Body) -> usize {
+        let mut body = body.into_data_stream();
+        let mut len = 0;
+        while let Some(chunk) = body.next().await {
+            len += chunk.unwrap().len();
+        }
+        len
     }
 
     fn populate(events: &[RawEvent], directory: &PathBuf) {
@@ -344,6 +350,8 @@ mod backfill {
         refused: usize,
         largest_body: usize,
         slowest_world: Duration,
+        /// The tick the reader ran at.
+        tick: Duration,
     }
 
     /// A page's reads until `stop`: every `tick`, one `/world` (with the last `ETag` in
@@ -355,7 +363,10 @@ mod backfill {
             .build()
             .unwrap();
         let app = router(state.clone());
-        let mut seen = Viewed::default();
+        let mut seen = Viewed {
+            tick: tick_every,
+            ..Viewed::default()
+        };
         let get = |uri: String, etag: Option<&HeaderValue>| {
             let app = app.clone();
             let mut req = Request::get(uri);
@@ -366,14 +377,7 @@ mod backfill {
                 let res = app.oneshot(req.body(Body::empty()).unwrap()).await.unwrap();
                 let status = res.status();
                 let etag = res.headers().get(ETAG).cloned();
-                // Chunk by chunk, as a streaming client reads: the reader never holds the
-                // whole body, so the peak is the server's.
-                let mut body = res.into_body().into_data_stream();
-                let mut len = 0;
-                while let Some(chunk) = body.next().await {
-                    len += chunk.unwrap().len();
-                }
-                (status, len, etag)
+                (status, drained_len(res.into_body()).await, etag)
             })
         };
         let mut last_etag: Option<HeaderValue> = None;
@@ -407,7 +411,7 @@ mod backfill {
         eprintln!(
             "viewer (tick {} ms): {} /world ({} unchanged, 304), {} /diff ({} refused), \
              largest body {}, slowest /world {} ms",
-            viewer_tick().as_millis(),
+            viewed.tick.as_millis(),
             viewed.worlds,
             viewed.unchanged,
             viewed.diffs,

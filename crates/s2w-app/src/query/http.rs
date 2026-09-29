@@ -300,7 +300,8 @@ impl QueryState {
     /// `/world`'s blocking half: under one read guard, resolves the offset, answers `304` or
     /// an error through `answer`, then serializes the view into `writer`. The guard is held
     /// until the last chunk is handed over, so appends wait for the whole body; `writer` gives
-    /// up on a client that stops reading ([`stream::STALL`]).
+    /// up on a client that stops reading ([`stream::STALL`]) or reads too slowly
+    /// ([`stream::BODY_BUDGET`]).
     fn stream_world(
         &self,
         request: &WorldRequest,

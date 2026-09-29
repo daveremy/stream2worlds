@@ -20,6 +20,15 @@ pub(crate) const CHUNKS_IN_FLIGHT: usize = 64;
 /// hold it for longer than this per chunk.
 pub(crate) const STALL: Duration = Duration::from_secs(5);
 
+/// How long the whole body may take. [`STALL`] bounds one chunk, so a client reading just under
+/// it per chunk could otherwise hold the read guard for hours on a large body; past this, the
+/// body ends with an error and the guard is released. A local read of the recorded load's
+/// ~190 MiB world takes 2-4 s (#216).
+pub(crate) const BODY_BUDGET: Duration = Duration::from_secs(60);
+
+/// The longest the writer sleeps between tries while the channel is full.
+const MAX_BACKOFF: Duration = Duration::from_millis(50);
+
 enum Chunk {
     Data(Vec<u8>),
     /// The body is complete. A channel that closes without it was cut short.
@@ -28,11 +37,17 @@ enum Chunk {
 
 /// A connected writer and body stream.
 pub(crate) fn channel() -> (ChunkWriter, ChunkStream) {
+    channel_within(BODY_BUDGET)
+}
+
+/// [`channel`] with a whole-body `budget`.
+fn channel_within(budget: Duration) -> (ChunkWriter, ChunkStream) {
     let (tx, rx) = mpsc::channel(CHUNKS_IN_FLIGHT);
     (
         ChunkWriter {
             buf: Vec::with_capacity(CHUNK_BYTES),
             tx,
+            body_deadline: Instant::now() + budget,
         },
         ChunkStream { rx, done: false },
     )
@@ -44,6 +59,8 @@ pub(crate) fn channel() -> (ChunkWriter, ChunkStream) {
 pub(crate) struct ChunkWriter {
     buf: Vec<u8>,
     tx: mpsc::Sender<Chunk>,
+    /// When the whole body must be sent by ([`BODY_BUDGET`]).
+    body_deadline: Instant,
 }
 
 impl ChunkWriter {
@@ -59,11 +76,13 @@ impl ChunkWriter {
         self.send(Chunk::End)
     }
 
-    /// Sends one chunk, waiting at most [`STALL`] for room. Never blocks on the runtime, so it
-    /// is safe on a `spawn_blocking` thread of a current-thread runtime.
+    /// Sends one chunk, waiting at most [`STALL`] for room and never past the body's deadline.
+    /// Never blocks on the runtime, so it is safe on a `spawn_blocking` thread of a
+    /// current-thread runtime; it polls with a sleep that backs off to [`MAX_BACKOFF`].
     fn send(&self, chunk: Chunk) -> io::Result<()> {
-        let deadline = Instant::now() + STALL;
+        let deadline = (Instant::now() + STALL).min(self.body_deadline);
         let mut chunk = chunk;
+        let mut backoff = Duration::from_millis(1);
         loop {
             match self.tx.try_send(chunk) {
                 Ok(()) => return Ok(()),
@@ -77,11 +96,12 @@ impl ChunkWriter {
                     if Instant::now() >= deadline {
                         return Err(io::Error::new(
                             io::ErrorKind::TimedOut,
-                            "the client stopped reading",
+                            "the client read too slowly",
                         ));
                     }
                     chunk = back;
-                    std::thread::sleep(Duration::from_millis(1));
+                    std::thread::sleep(backoff);
+                    backoff = (backoff * 2).min(MAX_BACKOFF);
                 }
             }
         }
@@ -192,5 +212,22 @@ mod tests {
             .write_all(&vec![0; CHUNK_BYTES])
             .expect_err("closed channel");
         assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn a_slow_client_is_cut_off_at_the_body_budget() {
+        // A zero budget: the first full channel ends the body even though no single chunk
+        // waited out STALL.
+        let (mut writer, _stream) = channel_within(Duration::ZERO);
+        let started = Instant::now();
+        let chunk = vec![0; CHUNK_BYTES];
+        let err = (0..=CHUNKS_IN_FLIGHT)
+            .find_map(|_| writer.write_all(&chunk).err())
+            .expect("budget spent");
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(
+            started.elapsed() < STALL,
+            "cut off by the budget, not the stall"
+        );
     }
 }
