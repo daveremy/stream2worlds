@@ -57,7 +57,8 @@ jobs:
     timeout-minutes: 60
     # Fold instructions per event under Valgrind (s2w#32, decision 0004). The [ir] baseline in
     # xtask/scale-baseline.toml is per runner image (hosted ubuntu-latest vs the hub runner's valgrind/glibc differ); switching runner mode can trip it and needs a re-baseline.
-    runs-on: *s2w-runner
+    # scale pins its hosted fallback to ubuntu-24.04: the instruction-count baseline depends on that image.
+    runs-on: ${{ vars.S2W_RUNNER == 'down' && 'ubuntu-24.04' || fromJSON('["self-hosted","s2w"]') }}
     steps:
       - name: self-hosted paths (no bare /tmp; per-job cargo target under the runner user's cache)
         if: runner.environment == 'self-hosted'
