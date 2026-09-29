@@ -28,9 +28,8 @@ pub enum Role {
     FewGroups,
     /// Something depends on it, but not clearly enough: abstain.
     GreyDependency,
-    /// Values repeat, but nothing else is constant under them clearly enough, and they do not
-    /// pass the second entity test either (their repeats are bursts, or nothing varying follows
-    /// them).
+    /// Values repeat, but nothing else is constant under them clearly enough, and they fail
+    /// the second entity test (`recurs` in `roles.rs`).
     NoDependents,
     /// An entity identifier, by either of two tests. The first: repeated values that an
     /// informative field is constant under in at least `fd_accept_pct` of groups. The second
@@ -171,18 +170,19 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
             Role::FewGroups
         };
     }
-    let best = (0..table.paths.len())
+    let dependents: Vec<(usize, Dependency)> = (0..table.paths.len())
         .filter(|&a| a != k && candidate_dependent(&table.columns[a], cfg))
         .filter(|&a| !aliased(table, k, a, cfg))
-        .map(|a| Dependency::measure(table, &groups, a))
-        .filter(Dependency::informative)
-        .map(|d| d.share())
+        .map(|a| (a, Dependency::measure(table, &groups, a)))
+        .collect();
+    let best = dependents
+        .iter()
+        .filter(|(_, d)| d.informative())
+        .map(|(_, d)| d.share())
         .max()
         .unwrap_or(0);
-    // Two entity tests share the post-checks: the first (an informative dependent at
-    // `fd_accept_pct`), or the second (`recurs`) where the first neither passes nor abstains.
     let passes = best >= cfg.fd_accept_pct
-        || (!grey && best < cfg.fd_grey_pct && recurs(table, k, &groups, cfg));
+        || (!grey && best < cfg.fd_grey_pct && recurs(table, k, &groups, &dependents, cfg));
     if passes {
         if unique >= cfg.type_uniqueness_pct {
             Role::NearUnique
@@ -210,21 +210,24 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
 ///   groups, and no one of its values is carried by more than half of the events carrying `k`
 ///   and it (so the constancy is not what a near-constant path gives by chance).
 ///
+/// `dependents` are the candidate dependents `dependency_role` measured under `groups`.
 /// Stream order, presence and value equality only, never a name or a value's text.
-fn recurs(table: &Table, k: usize, groups: &[Vec<usize>], cfg: &Config) -> bool {
-    let events = table.rows.len();
+fn recurs(
+    table: &Table,
+    k: usize,
+    groups: &[Vec<usize>],
+    dependents: &[(usize, Dependency)],
+    cfg: &Config,
+) -> bool {
     let apart = groups
         .iter()
-        .filter(|g| (g[g.len() - 1] - g[0]) * 100 >= events * cfg.spread_window_pct)
+        .filter(|g| match g.as_slice() {
+            [first, .., last] => (last - first) * 100 >= table.events * cfg.spread_window_pct,
+            _ => false,
+        })
         .count();
-    if pct(apart, groups.len()) < cfg.spread_groups_pct {
-        return false;
-    }
-    (0..table.paths.len())
-        .filter(|&a| a != k && candidate_dependent(&table.columns[a], cfg))
-        .filter(|&a| !aliased(table, k, a, cfg))
-        .any(|a| {
-            let d = Dependency::measure(table, groups, a);
+    pct(apart, groups.len()) >= cfg.spread_groups_pct
+        && dependents.iter().any(|&(a, ref d)| {
             d.share() >= cfg.fd_grey_pct && d.distinct >= cfg.min_groups && varies(table, k, a)
         })
 }

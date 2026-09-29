@@ -61,10 +61,14 @@ fn stream(n: u64) -> Vec<Value> {
 }
 
 fn run(events: &[Value], extra: &[&[u8]]) -> (Profile, Discovery) {
+    run_with(events, extra, &Config::default())
+}
+
+fn run_with(events: &[Value], extra: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
     let bytes: Vec<Vec<u8>> = events.iter().map(|v| v.to_string().into_bytes()).collect();
     let mut refs: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
     refs.extend_from_slice(extra);
-    discover(&refs, &Config::default())
+    discover(&refs, cfg)
 }
 
 fn path(keys: &[&str]) -> FieldPath {
@@ -299,28 +303,31 @@ fn spread_boundary() -> Vec<Value> {
         .collect()
 }
 
-fn run_with(events: &[Value], cfg: &Config) -> Profile {
-    let bytes: Vec<Vec<u8>> = events.iter().map(|v| v.to_string().into_bytes()).collect();
-    let refs: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
-    discover(&refs, cfg).0
-}
-
 #[test]
 fn the_spread_thresholds_are_inclusive() {
     let events = spread_boundary();
     let exact = Config::default();
     assert_eq!((exact.spread_groups_pct, exact.spread_window_pct), (25, 10));
-    assert_eq!(role(&run_with(&events, &exact), &["q"]), Role::Entity);
+    assert_eq!(
+        role(&run_with(&events, &[], &exact).0, &["q"]),
+        Role::Entity
+    );
     let wider = Config {
         spread_window_pct: 11,
         ..Config::default()
     };
-    assert_eq!(role(&run_with(&events, &wider), &["q"]), Role::NoDependents);
+    assert_eq!(
+        role(&run_with(&events, &[], &wider).0, &["q"]),
+        Role::NoDependents
+    );
     let more = Config {
         spread_groups_pct: 26,
         ..Config::default()
     };
-    assert_eq!(role(&run_with(&events, &more), &["q"]), Role::NoDependents);
+    assert_eq!(
+        role(&run_with(&events, &[], &more).0, &["q"]),
+        Role::NoDependents
+    );
 }
 
 /// `shaped` plus `p` (60 values, each fixing `s`), which recurs and is followed by `s` (six
