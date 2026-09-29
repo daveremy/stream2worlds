@@ -5,7 +5,7 @@
 //! The mapping executor decodes and builds keys with `s2w_system1::decode`, the functions
 //! `MappingEngine` runs, so a predicted cluster is byte for byte the natural key `serve` folds.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use s2w_discover::rule_id;
 use s2w_model::{FieldPath, NaturalKey, StreamMapping};
@@ -23,12 +23,11 @@ pub(crate) struct Partition {
     pub cluster: BTreeMap<Mention, String>,
 }
 
-/// The key side: its partition, each mention's key type, and the unscored path ids.
+/// The key side: its partition and each mention's key type.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Key {
     pub partition: Partition,
     pub kind: BTreeMap<Mention, String>,
-    pub unscored: BTreeSet<String>,
 }
 
 /// The payload with every decode step applied, or `None` when a step holds a non-string or
@@ -46,10 +45,7 @@ fn decoded(payload: &Value, decode: &[FieldPath]) -> Option<Value> {
 /// identity path hold a key part. The gold cluster is the type and the identity parts, encoded
 /// as a natural key.
 pub(crate) fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Key {
-    let mut key = Key {
-        unscored: spec.unscored.iter().map(rule_id).collect(),
-        ..Key::default()
-    };
+    let mut key = Key::default();
     for (record, payload) in payloads.iter().enumerate() {
         let Some(value) = decoded(payload, &spec.decode) else {
             continue;

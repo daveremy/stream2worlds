@@ -4,7 +4,9 @@
 //!
 //! `selftest` runs the mapping executor over the committed 20-event sample and checks it against
 //! `MappingEngine`, the executor `serve` runs: every predicted cluster must be an entity the
-//! engine proposes for that record, and every entity it proposes must be a cluster.
+//! engine proposes for that record, and every entity it proposes must be a cluster. It then reads
+//! the mapping as a key spec ([`key::KeySpec::from_mapping`]) and checks the key executor
+//! places the same mentions in the same clusters.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -64,9 +66,18 @@ fn selftest(root: &Path) -> Result<String, String> {
             "executor parity: {SAMPLE} gave no mentions, so the check is vacuous"
         ));
     }
+    let own_key = key::KeySpec::from_mapping(&mapping)?;
+    let graded = mentions::key_mentions(&own_key, &payloads);
+    if graded.partition != predicted {
+        return Err(format!(
+            "executor parity: {SAMPLE_MAPPING} read as a key spec does not reproduce its own mentions ({} key mentions, {} mapping mentions)",
+            graded.partition.cluster.len(),
+            predicted.cluster.len()
+        ));
+    }
     let clusters: BTreeSet<&String> = predicted.cluster.values().collect();
     Ok(format!(
-        "h-measure selftest: executor parity with MappingEngine on {SAMPLE}: {} records, {} mentions, {} clusters",
+        "h-measure selftest: executor parity with MappingEngine and with the mapping's own key on {SAMPLE}: {} records, {} mentions, {} clusters",
         payloads.len(),
         predicted.cluster.len(),
         clusters.len()

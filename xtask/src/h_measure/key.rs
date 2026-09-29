@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use s2w_model::{FieldPath, KEY_SEPARATOR};
+use s2w_model::{FieldPath, KEY_SEPARATOR, StreamMapping};
 use serde::Deserialize;
 
 /// The one key-spec version this harness reads.
@@ -44,7 +44,7 @@ pub(crate) struct KeyType {
 
 /// One mention rule: a record mentions an entity at `path` when `path` and every identity path
 /// hold a key part.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MentionRule {
     /// Where the mention sits.
@@ -54,10 +54,37 @@ pub(crate) struct MentionRule {
 }
 
 impl KeySpec {
-    /// Parses and validates a key spec.
-    pub(crate) fn parse(text: &str) -> Result<Self, String> {
-        let spec: Self =
-            serde_json::from_str(text).map_err(|e| format!("key spec does not parse: {e}"))?;
+    /// The key a mapping states about itself: one type per type label, and per entity rule one
+    /// mention at its last key path identified by all its key paths, the convention
+    /// [`super::mentions::mapping_mentions`] scores. Grading a mapping against this key must
+    /// find the two partitions equal; the self-test checks that, so the two executors cannot
+    /// drift apart. Rules that repeat a type's mention path with the same identity collapse to
+    /// one rule; any other clash fails validation.
+    pub(crate) fn from_mapping(mapping: &StreamMapping) -> Result<Self, String> {
+        let mut types: Vec<KeyType> = Vec::new();
+        for rule in &mapping.entities {
+            let Some(last) = rule.key.last() else {
+                return Err(format!("entity rule {:?} has no key paths", rule.id));
+            };
+            let mention = MentionRule {
+                path: last.clone(),
+                identity: rule.key.clone(),
+            };
+            match types.iter_mut().find(|kind| kind.label == rule.type_label) {
+                Some(kind) if kind.mentions.contains(&mention) => {}
+                Some(kind) => kind.mentions.push(mention),
+                None => types.push(KeyType {
+                    label: rule.type_label.clone(),
+                    mentions: vec![mention],
+                }),
+            }
+        }
+        let spec = Self {
+            version: KEY_VERSION,
+            decode: mapping.decode.clone(),
+            types,
+            unscored: Vec::new(),
+        };
         spec.validate()?;
         Ok(spec)
     }
