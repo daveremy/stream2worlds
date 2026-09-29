@@ -113,11 +113,11 @@ impl Reporter for HumanReporter {
 /// Returns the first error from the log, `convert` or `on_error`.
 #[expect(
     clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor"
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
 )]
 #[expect(
     clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
 )]
 pub(crate) async fn pump<S, T, E>(
     mut write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
@@ -277,7 +277,7 @@ pub(crate) async fn pump_events<L: EventLog>(
 /// of stream — see [`pump`]'s doc comment.
 #[expect(
     clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor"
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
 )]
 pub(crate) async fn pump_events_gated(
     write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
@@ -358,7 +358,7 @@ async fn report_progress(
 /// running totals so far.
 #[expect(
     clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor"
+    reason = "the running counters travel as separate arguments; grouping them in a struct is a follow-up refactor (s2w#156)"
 )]
 fn flush_and_report(
     log: &mut impl FnMut(Vec<RawEvent>) -> Result<Vec<AppendOutcome>, AppError>,

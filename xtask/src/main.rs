@@ -34,7 +34,7 @@
 //! 8. **Clippy config consistency** (`clippy_config.rs`, reads TOML only): a per-crate
 //!    `clippy.toml` or `.clippy.toml` replaces the root file, so every workspace member's effective
 //!    config must carry the root's `too-many-lines`, `cognitive-complexity` and `too-many-arguments`
-//!    thresholds with equal values, and `CLIPPY_CONF_DIR` must be unset.
+//!    thresholds with equal values, and `CLIPPY_CONF_DIR` must be unset (process env and cargo `[env]`).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a

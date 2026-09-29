@@ -104,7 +104,7 @@ fn in_degree(world: &World, id: EntityId) -> u64 {
 #[must_use]
 #[expect(
     clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
 )]
 pub fn fold_with_delta(prev: World, event: &WorldEvent) -> (World, Delta) {
     match event {

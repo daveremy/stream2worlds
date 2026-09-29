@@ -212,15 +212,15 @@ fn spawn<C: Connect>(
 
 #[expect(
     clippy::too_many_arguments,
-    reason = "the reconnect loop threads connector, stream, cursor and limits; grouping them is the follow-up split of this loop"
+    reason = "the reconnect loop threads connector, stream, cursor and limits; grouping them is the follow-up split of this loop (s2w#156)"
 )]
 #[expect(
     clippy::cognitive_complexity,
-    reason = "reconnect loop state machine; follow-up split of this loop"
+    reason = "reconnect loop state machine; follow-up split of this loop (s2w#156)"
 )]
 #[expect(
     clippy::too_many_lines,
-    reason = "reconnect loop state machine; follow-up split of this loop"
+    reason = "reconnect loop state machine; follow-up split of this loop (s2w#156)"
 )]
 async fn run<C: Connect>(
     connector: C,

@@ -27,6 +27,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata) -> Vec<String> {
             "CLIPPY_CONF_DIR is set, which replaces clippy's config lookup for every crate and hides the files this check reads. Unset it.".to_owned(),
         );
     }
+    problems.extend(cargo_env_override(root));
     let root_table = match load(&root.join("clippy.toml")) {
         Ok(Some(table)) => table,
         Ok(None) => {
@@ -48,6 +49,30 @@ pub(super) fn check(root: &Path, meta: &super::Metadata) -> Vec<String> {
     for pkg in &meta.packages {
         let dir = super::crate_dir(&pkg.manifest_path);
         problems.extend(check_member(root, &dir, &pkg.name, &root_table));
+    }
+    problems
+}
+
+/// `[env] CLIPPY_CONF_DIR` in cargo's config reaches every rustc invocation, so it repoints
+/// clippy's config lookup without touching the process environment the check above reads.
+fn cargo_env_override(root: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    for file in [".cargo/config.toml", ".cargo/config"] {
+        let Ok(text) = fs::read_to_string(root.join(file)) else {
+            continue;
+        };
+        let Ok(table) = toml::from_str::<toml::Table>(&text) else {
+            continue; // an unreadable config is reported by the override check
+        };
+        if table
+            .get("env")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|env| env.contains_key("CLIPPY_CONF_DIR"))
+        {
+            problems.push(format!(
+                "{file}: [env] sets CLIPPY_CONF_DIR, which replaces clippy's config lookup for every crate and hides the files this check reads. Remove it."
+            ));
+        }
     }
     problems
 }
@@ -213,5 +238,17 @@ mod tests {
         s.write("crates/demo/.clippy.toml", ROOT);
         let problems = s.member();
         assert!(problems[0].contains("holds both"), "{problems:?}");
+    }
+
+    #[test]
+    fn a_cargo_env_entry_for_the_config_dir_fails() {
+        let s = Scratch::new();
+        fs::create_dir_all(s.0.join(".cargo")).unwrap();
+        s.write(".cargo/config.toml", "[env]\nCLIPPY_CONF_DIR = \"/tmp\"\n");
+        let problems = cargo_env_override(&s.0);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("[env] sets CLIPPY_CONF_DIR"));
+        s.write(".cargo/config.toml", "[env]\nOTHER = \"1\"\n");
+        assert!(cargo_env_override(&s.0).is_empty());
     }
 }

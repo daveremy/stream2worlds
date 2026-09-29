@@ -206,7 +206,7 @@ fn classify_cursor_update(previous: Option<LogPosition>, new: Option<LogPosition
 /// whatever batch was last fully applied — safe to resume from on the next call.
 #[expect(
     clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor"
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
 )]
 fn catch_up(
     state: &QueryState,

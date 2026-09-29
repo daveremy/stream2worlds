@@ -181,7 +181,7 @@ struct Graph<'w> {
 impl<'w> Graph<'w> {
     #[expect(
         clippy::too_many_lines,
-        reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+        reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
     )]
     fn new(world: &'w World) -> Self {
         let mut members: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
@@ -344,7 +344,7 @@ impl<'w> Graph<'w> {
 /// [`MAX_HOPS`].
 #[expect(
     clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
 )]
 pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
     let graph = Graph::new(world);

@@ -62,7 +62,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
     /// stored verdicts at positions after the previous event through this one.
     #[expect(
         clippy::too_many_lines,
-        reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+        reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
     )]
     fn judge_event(
         &mut self,
