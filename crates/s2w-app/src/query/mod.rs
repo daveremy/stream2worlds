@@ -46,11 +46,12 @@ pub enum QueryError {
         /// The latest offset.
         head: u64,
     },
-    /// The requested offset is below the timeline's base: this process was restored from a
-    /// snapshot at `base` and no longer holds the events before it (decision 0024).
+    /// The requested offset is below what this route serves: the process was restored from a
+    /// snapshot (decision 0024) or has dropped events past its history cap (decision 0026).
     #[error(
-        "offset {at} is before the snapshot base ({base}); history below it is gone from this \
-         process, try an offset of at least {base} (see time.base)"
+        "offset {at} is before the earliest offset this route serves ({base}); history below it \
+         is gone from this process, try an offset of at least {base} (see /time's base and \
+         replay_base)"
     )]
     OffsetBeforeBase {
         /// The requested offset.

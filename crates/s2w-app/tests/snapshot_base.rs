@@ -186,6 +186,10 @@ mod base {
             let (from, head) = (capped.replay_base(), capped.head());
             assert!(from > 0, "the cap dropped events");
             let n = usize::try_from(head - from).unwrap();
+            assert!(
+                (4..=8).contains(&n),
+                "the window holds between cap/2 and cap events: {n}"
+            );
             let capped_app = router(QueryState::new(capped));
             let full_app = router(QueryState::new(full));
             let uri = format!("/worlds/default/events?from={from}&at={head}");
@@ -194,14 +198,21 @@ mod base {
             let got = sse_frames(body, n).await;
             let (_, body) = request(&full_app, &uri, None).await;
             assert_eq!(got, sse_frames(body, n).await);
-            for uri in [
-                format!("/worlds/default/events?from={}", from - 1),
-                format!("/worlds/default/world?at={}", head - 1),
-                format!("/worlds/default/entity/0/history?to={head}"),
+            // Each route names its own floor: `/events` replays the window, world queries serve
+            // the head only.
+            for (uri, floor) in [
+                (format!("/worlds/default/events?from={}", from - 1), from),
+                (format!("/worlds/default/world?at={}", head - 1), head),
+                (format!("/worlds/default/entity/0/history?to={head}"), head),
             ] {
                 let (status, body) = get(&capped_app, &uri).await;
                 assert_eq!(status, StatusCode::GONE, "{uri}");
                 assert_eq!(body["error"], "offset_before_base", "{uri}");
+                let message = body["message"].as_str().unwrap();
+                assert!(
+                    message.contains(&format!("at least {floor} ")),
+                    "{uri}: {message}"
+                );
             }
             let (status, _) = get(&capped_app, &format!("/worlds/default/world?at={head}")).await;
             assert_eq!(status, StatusCode::OK);

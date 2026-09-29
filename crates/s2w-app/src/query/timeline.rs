@@ -1,8 +1,6 @@
 //! The served world log: the head world and a bounded window of recent timestamped
 //! [`WorldEvent`]s, each with the [`Delta`] it made (decisions 0024 and 0026).
 
-use std::sync::Arc;
-
 use s2w_core::{World, WorldEvent};
 use s2w_model::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -92,7 +90,7 @@ pub struct BaseTime {
 /// resume from is at least `history_cap / 2` events.
 #[derive(Debug)]
 pub struct Timeline {
-    head: Arc<World>,
+    head: World,
     /// Every event since offset 0 is retained, so the empty world plus `events` is any world.
     full_history: bool,
     /// The offset before `events[0]`.
@@ -120,7 +118,7 @@ impl Timeline {
     pub fn from_snapshot(world: World, time: BaseTime) -> Self {
         let offset = world.offset();
         Self {
-            head: Arc::new(world),
+            head: world,
             full_history: offset == 0,
             replay_base: offset,
             base_time: time,
@@ -230,11 +228,8 @@ impl Timeline {
             }
             _ => at,
         };
-        // Nothing else holds the head (query reads clone the world, never the Arc), so this
-        // folds in place.
-        let head = Arc::make_mut(&mut self.head);
-        let (next, delta) = fold_with_delta(std::mem::take(head), &event);
-        *head = next;
+        let (next, delta) = fold_with_delta(std::mem::take(&mut self.head), &event);
+        self.head = next;
         self.events.push(TimedEvent { at, event, delta });
         if self.events.len() > self.history_cap {
             self.drop_oldest(self.events.len() - self.history_cap / 2);
@@ -261,6 +256,8 @@ impl Timeline {
 
     /// The index into `events` for `offset`, checked against `base` and the head.
     fn index(&self, offset: u64, base: u64) -> Result<usize, QueryError> {
+        // Callers pass a floor at or above the window's start, so the subtraction cannot wrap.
+        debug_assert!(base >= self.replay_base, "index floor below replay_base");
         let head = self.head();
         if offset < base {
             return Err(QueryError::OffsetBeforeBase { at: offset, base });
@@ -405,7 +402,6 @@ impl Timeline {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::Arc;
 
     use s2w_core::{NaturalKey, World, WorldEvent};
     use s2w_model::Timestamp;
@@ -452,7 +448,6 @@ mod tests {
 
         timeline.append(Timestamp::from_millis(1), observed("b"));
         timeline.append(Timestamp::from_millis(2), observed("c"));
-        assert_eq!(Arc::strong_count(&timeline.head), 1);
         assert_eq!(
             (timeline.base(), timeline.replay_base(), timeline.head()),
             (3, 1, 3)
@@ -487,7 +482,7 @@ mod tests {
             assert_eq!(timeline.events.last().map(|e| &e.delta), Some(&delta));
             world = next;
         }
-        assert_eq!(*timeline.head, world);
+        assert_eq!(timeline.head, world);
     }
 
     /// Every offset `capped` still retains replays exactly what `full` replays; before the
