@@ -16,7 +16,6 @@ use std::time::Instant;
 
 use s2w_log::{LogPosition, LogReader, VerdictStore};
 
-use crate::bridge::EngineRegistry;
 use crate::query::{QueryState, Timeline};
 use crate::snapshot::{
     Expected, SNAPSHOT_FORMAT, SnapshotV1, check_fold, check_log, fold_hash, store,
@@ -54,6 +53,8 @@ impl Default for SnapshotConfig {
 }
 
 /// With snapshots enabled: restores the newest valid one into `state` and starts the writer.
+/// `feed_hash` is the serving registry's [`crate::bridge::EngineRegistry::feed_fingerprint`];
+/// a snapshot taken under another registry is ignored (decision 0023).
 /// Returns the log position the bridge resumes after (`None`: replay from the start) and the
 /// snapshotter (`None` under `--no-snapshot`).
 ///
@@ -63,13 +64,12 @@ pub(super) fn prepare<L: LogReader + ?Sized>(
     state: &QueryState,
     (log, verdicts): (&L, &dyn VerdictStore),
     log_dir: &Path,
-    config: SnapshotConfig,
+    (config, feed_hash): (SnapshotConfig, u64),
     reporter: &mut dyn Reporter,
 ) -> Result<(Option<LogPosition>, Option<Snapshotter>), AppError> {
     if !config.enabled {
         return Ok((None, None));
     }
-    let feed_hash = EngineRegistry::with_defaults().feed_fingerprint();
     let resume = restore(state, log, verdicts, (log_dir, feed_hash), reporter)?;
     let snapshotter = Snapshotter::start(log_dir, config, feed_hash, reporter.note_sink())?;
     Ok((resume, Some(snapshotter)))
