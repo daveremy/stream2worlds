@@ -31,7 +31,7 @@ fn rows(dir: &TestDirectory) -> (usize, usize) {
 }
 
 #[test]
-fn a_source_reaching_its_window_while_serving_is_filed_and_routed_at_the_next_start() {
+fn a_source_reaching_its_window_while_serving_is_filed_and_routed_by_the_live_rebuild() {
     run(false, async {
         let dir = TestDirectory::new("serve-learned-in-run");
         let payloads = stream(350);
@@ -41,7 +41,11 @@ fn a_source_reaching_its_window_while_serving_is_filed_and_routed_at_the_next_st
             .zip(0_u8..)
             .map(|(payload, cursor)| (cursor, payload.clone()))
             .collect();
-        let Some(first) = serve_until(&dir, NO_SNAPSHOT, learned_run(fed, 350)).await else {
+        let mut feed = learned_run(fed, 350);
+        // The in-run filing moves the proposal store's watermark; the live rebuild (s2w#184)
+        // then replays the log under the new route.
+        feed.until = Until::Noted("rebuild complete");
+        let Some(first) = serve_until(&dir, NO_SNAPSHOT, feed).await else {
             return;
         };
         assert!(
@@ -51,12 +55,14 @@ fn a_source_reaching_its_window_while_serving_is_filed_and_routed_at_the_next_st
         );
         assert_eq!(rows(&dir), (1, 1), "the in-run trigger filed and accepted");
         assert!(
-            noted(&first, "accepted by policy")
-                && noted(&first, "; takes effect at the next restart"),
+            noted(&first, "accepted by policy") && noted(&first, "; the live rebuild applies it"),
             "{:?}",
             first.notes
         );
-        assert_eq!(node_count(&first), 0, "routes do not change in-process");
+        assert!(
+            node_count(&first) > 0,
+            "routed in-process by the live rebuild"
+        );
 
         let second = serve_until(&dir, NO_SNAPSHOT, learned_run(Vec::new(), 350))
             .await
@@ -68,7 +74,7 @@ fn a_source_reaching_its_window_while_serving_is_filed_and_routed_at_the_next_st
         );
         assert!(!noted(&second, "discover:"), "{:?}", second.notes);
         assert_eq!(rows(&dir), (1, 1), "the restart writes nothing");
-        assert!(node_count(&second) > 0, "routed at the next start");
+        assert!(node_count(&second) > 0, "still routed at the next start");
     });
 }
 

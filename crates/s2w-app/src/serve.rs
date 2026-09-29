@@ -285,6 +285,10 @@ impl EventLog for SharedLogWriter {
     }
 }
 
+/// The in-run producer as the bridge loop drives it: the trigger, the shared log it counts, and
+/// the note sink it reports through (the pump holds the reporter).
+type LiveDiscover = (InRun, Rc<RefCell<SqliteEventLog>>, SinkReporter);
+
 // Bridge::run requires Send and moves each poll to the blocking pool. This local driver uses
 // the same poll/backoff policy, yielding even after full batches so ingestion/HTTP can run.
 // Snapshot capture runs right after each poll with no await in between (decision 0024), then
@@ -294,8 +298,7 @@ async fn local_bridge(
     config: BridgeConfig,
     ready: oneshot::Sender<()>,
     snapshots: Option<(Rc<RefCell<Snapshotter>>, QueryState)>,
-    mut rebuild: Option<Rebuild>,
-    mut discover: Option<(InRun, Rc<RefCell<SqliteEventLog>>, SinkReporter)>,
+    (mut rebuild, mut discover): (Option<Rebuild>, Option<LiveDiscover>),
 ) -> Result<(), BridgeError> {
     let mut ready = Some(ready);
     let mut delay = config.poll;
@@ -448,7 +451,13 @@ async fn serve_live(
                 }
             })
         },
-        local_bridge(bridge, config, ready_tx, bridge_snapshots, rebuild, in_run),
+        local_bridge(
+            bridge,
+            config,
+            ready_tx,
+            bridge_snapshots,
+            (rebuild, in_run),
+        ),
         server,
         stop,
         shutdown_tx,

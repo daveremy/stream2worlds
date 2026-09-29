@@ -62,8 +62,8 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
 
 - *2026-09-29, #197 PR 4b:* **in-run trigger**. A source unrouted at start and below the
   window is profiled once, after the bridge poll in which its logged count reaches the window;
-  the rows land at once and the routes change at the next start (or live, once #184 2b-ii's
-  watcher sees the store move). A held lock keeps it pending until the next poll. Profiling is
+  the rows land at once and the live rebuild (#184 2b-ii) routes the source when its watcher
+  sees the store move. A held lock keeps it pending, retried every 20 polls (about 5 s). Profiling is
   synchronous on the bridge loop, one stall of a few seconds per source.
 - *2026-09-29, #197 PR 4b:* **a decided window is not profiled again**. Before profiling, the
   producer skips a window this actor (same `PROFILER_VERSION`) already filed for the source,

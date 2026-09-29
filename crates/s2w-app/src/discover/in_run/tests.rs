@@ -57,7 +57,7 @@ fn the_producer_runs_once_after_the_poll_that_fills_the_window() {
     in_run.after_poll(&SqliteEventLog::open(dir.path()).expect("log"), &mut notes);
     assert_eq!(proposals(&dir), 1);
     assert!(
-        notes.0.len() == 1 && notes.0[0].ends_with("; takes effect at the next restart"),
+        notes.0.len() == 1 && notes.0[0].ends_with("; the live rebuild applies it"),
         "{:?}",
         notes.0
     );

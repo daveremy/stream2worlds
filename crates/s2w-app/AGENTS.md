@@ -48,7 +48,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   by `serve`), and turns every failure into a `discover:` note, never an error.
   `discover::in_run` (#197 PR 4b) runs it once per source from the bridge loop, for a source
   unrouted at start that reaches the window mid-run; it notes through `Reporter::note_sink`,
-  never changes routes in-process, and keeps a source pending only while the store is locked.
+  never changes routes itself (the live-rebuild watcher sees the store move), and keeps a source
+  pending only while the store is locked, retrying every `LOCK_RETRY_POLLS` polls.
   A window this actor already filed and someone decided is skipped before profiling.
 - `Timeline` (decision 0024) has a base world (empty, or a restored snapshot's) and serves offsets
   from the base to the head only; anything below is `offset_before_base` (410). Index the event

@@ -16,7 +16,8 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 ## Learned mappings mid-run, and what they cost — #197 PR 4b (2026-09-29)
 
 **Shipped:** a source that reaches the 10,000-event window while `serve` runs is profiled after
-that poll; the proposal and its `policy` accept land at once and route at the next start. A
+that poll; the proposal and its `policy` accept land at once and the live rebuild (#184 2b-ii)
+routes it without a restart. A
 window this profiler already filed and someone decided is not profiled again, so a human
 reject costs nothing per start. Tests now prove a held proposal writer leaves `serve` up and
 unrouted, and that `serve` builds the same world shape from an obfuscated copy of a stream.

@@ -129,7 +129,7 @@ mod volume {
     #[ignore = "folds 10^5 events twice; run by hand with --release for decision 0022's numbers"]
     fn claim_volume_and_world_memory_under_a_discovered_mapping() {
         let events = load().unwrap();
-        let (full, full_ms) = profile(&events, events.len());
+        let (full, full_ms) = profile(events, events.len());
         let full_id = full.identity().unwrap();
         eprintln!(
             "window {}: identity {full_id}, {} entity rules, {} relationship rules, {full_ms} ms",
@@ -138,7 +138,7 @@ mod volume {
             full.relationships.len()
         );
         for n in [1_000, 5_000, DISCOVER_WINDOW] {
-            let (mapping, ms) = profile(&events, n);
+            let (mapping, ms) = profile(events, n);
             let id = mapping.identity().unwrap();
             eprintln!(
                 "window {n}: identity {id}, {} entity rules, {} relationship rules, {ms} ms, equals window {}: {}",
@@ -171,7 +171,7 @@ mod volume {
             return;
         };
         let events = load().unwrap();
-        let (mapping, _) = profile(&events, DISCOVER_WINDOW);
-        fold_cycled(&events, &mapping, variant == "fresh");
+        let (mapping, _) = profile(events, DISCOVER_WINDOW);
+        fold_cycled(events, &mapping, variant == "fresh");
     }
 }

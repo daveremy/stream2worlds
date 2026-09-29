@@ -333,7 +333,7 @@ fn produce(
     let (effect, retry) = match trigger {
         Trigger::Start => ("", "retried at the next start".to_owned()),
         Trigger::InRun => (
-            "; takes effect at the next restart",
+            "; the live rebuild applies it",
             format!("retried in {} polls", in_run::LOCK_RETRY_POLLS),
         ),
     };
