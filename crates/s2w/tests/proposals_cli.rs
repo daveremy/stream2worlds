@@ -7,7 +7,7 @@ use std::process::{Command, Output};
 
 use s2w_app::routes::{ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS};
 use s2w_log::{
-    Actor, Decider, LogPosition, NewDecision, NewProposal, Outcome, ProposalStore,
+    Actor, Decider, LogError, LogPosition, NewDecision, NewProposal, Outcome, ProposalStore,
     SqliteProposalStore,
 };
 use s2w_model::StreamMapping;
@@ -184,7 +184,7 @@ fn an_unknown_proposal_exits_1_and_creates_nothing() -> TestResult {
 fn a_held_writer_is_store_locked_exit_1() -> TestResult {
     let dir = seeded("locked")?;
     let path = dir.path();
-    let writer = SqliteProposalStore::open(&dir.0)?;
+    let writer = retry_until_unlocked(|| SqliteProposalStore::open(&dir.0))?;
     let mut args = decide_args(&path, "p1", "accept");
     args.push("--json");
     let run = s2w(&args)?;
@@ -192,7 +192,14 @@ fn a_held_writer_is_store_locked_exit_1() -> TestResult {
     assert_eq!(run.status.code(), Some(1), "{}", text(&run.stderr));
     let body: Value = serde_json::from_slice(&run.stderr)?;
     assert_eq!(body["error"], "store_locked");
-    let retried = s2w(&args)?;
+    let retried = retry_until_unlocked(|| {
+        let run = s2w(&args).map_err(|error| LogError::Io(error.to_string()))?;
+        if run.status.code() == Some(1) && text(&run.stderr).contains("store_locked") {
+            Err(LogError::Locked)
+        } else {
+            Ok(run)
+        }
+    })?;
     assert!(retried.status.success(), "{}", text(&retried.stderr));
     Ok(())
 }
@@ -267,6 +274,24 @@ fn a_human_reject_of_the_running_mapping_reports_the_source_unrouted() -> TestRe
         "{out}"
     );
     Ok(())
+}
+
+/// Retries `open` while it returns [`LogError::Locked`], bounded by a short deadline.
+///
+/// Same guard as s2w-log's test helper (#85): a lock file's `flock` is released only once every
+/// duplicate of its descriptor is gone, and a concurrently running test's `Command::spawn`
+/// forks this binary, briefly duplicating a descriptor we just dropped. Only wrap a reopen
+/// that follows our own drop; never the assertion that a held writer refuses.
+fn retry_until_unlocked<T>(mut open: impl FnMut() -> Result<T, LogError>) -> Result<T, LogError> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+    loop {
+        match open() {
+            Err(LogError::Locked) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            result => return result,
+        }
+    }
 }
 
 /// A fresh directory under the system temp dir, removed on drop (even when a test panics).
