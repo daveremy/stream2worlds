@@ -114,6 +114,25 @@ fn sqlite_store_meets_the_contract() -> TestResult {
 }
 
 #[test]
+fn sqlite_duplicate_key_error_text_is_unchanged() -> TestResult {
+    let directory = TestDirectory::new("verdict-duplicate-text")?;
+    let mut store = SqliteVerdictStore::open(directory.path())?;
+    store.commit_batch(&[row(1, "keyword", 1)], position(1))?;
+    let expected =
+        LogError::Corrupt("duplicate verdict key: position 1, engine keyword, version 1".into());
+    assert_eq!(
+        store.commit_batch(&[row(1, "keyword", 1)], position(1)),
+        Err(expected.clone())
+    );
+    assert_eq!(
+        InMemoryVerdictStore::default()
+            .commit_batch(&[row(1, "keyword", 1), row(1, "keyword", 1)], position(1)),
+        Err(expected)
+    );
+    Ok(())
+}
+
+#[test]
 fn sqlite_store_round_trips_across_reopen() -> TestResult {
     let directory = TestDirectory::new("verdict-reopen")?;
     let mut with_provenance = row(3, "keyword", 7);

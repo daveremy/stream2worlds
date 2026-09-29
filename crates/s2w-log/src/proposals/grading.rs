@@ -1,8 +1,9 @@
-//! Pure grading of persisted records. Policy routing is separate from accuracy.
+//! Pure grading of persisted records. Policy routing is separate from accuracy, and agent
+//! opinions are separate from both.
 
 use std::collections::BTreeMap;
 
-use super::{Actor, Decider, Outcome, StoredDecision, StoredProposal};
+use super::{Actor, Decider, Outcome, ProposalSummary, StoredDecision};
 
 /// Independent accepted/rejected counts; an empty tally has no accuracy estimate.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -37,7 +38,7 @@ pub struct ActorClassGrade {
     pub actor: Actor,
     /// Every proposal by this actor in this class.
     pub proposed: u64,
-    /// Proposals with no human or evidence decision, including policy-only rows.
+    /// Proposals with no human or evidence decision, including policy-only and agent-only rows.
     pub ungraded: u64,
     /// Latest policy accepts: routing counts, not accuracy.
     pub policy_accepted: u64,
@@ -52,10 +53,13 @@ pub struct ActorClassGrade {
     pub policy_applied: Tally,
     /// Policy-accepted proposals with neither human nor evidence decisions.
     pub policy_applied_ungraded: u64,
+    /// Latest agent decision per proposal: an agent's recorded opinion, never routing and
+    /// never a grading signal; it affects no other field.
+    pub agent: Tally,
 }
 
 impl ActorClassGrade {
-    fn new(proposal: &StoredProposal) -> Self {
+    fn new(proposal: &ProposalSummary) -> Self {
         Self {
             class: proposal.class.clone(),
             actor: proposal.actor.clone(),
@@ -67,12 +71,16 @@ impl ActorClassGrade {
             evidence: Tally::default(),
             policy_applied: Tally::default(),
             policy_applied_ungraded: 0,
+            agent: Tally::default(),
         }
     }
 
-    fn count(&mut self, outcomes: [Option<Outcome>; 3]) {
-        let [policy, human, evidence] = outcomes;
+    fn count(&mut self, outcomes: [Option<Outcome>; 4]) {
+        let [policy, human, evidence, agent] = outcomes;
         self.proposed += 1;
+        if let Some(outcome) = agent {
+            self.agent.count(outcome);
+        }
         if let Some(outcome) = human {
             self.human.count(outcome);
         }
@@ -103,11 +111,12 @@ impl ActorClassGrade {
 
 /// Grades persisted rows, ordered by (class, actor). The largest decision `seq` wins per
 /// (proposal, decider), regardless of input order or caller timestamps. Policy counts route;
-/// human/evidence tallies independently grade. Decisions for absent proposals are ignored.
+/// human/evidence tallies independently grade; agent decisions fill only the `agent` tally.
+/// Takes payload-less summaries, so no payload is read or verified here. Decisions for absent proposals are ignored.
 /// Inputs are expected to be store rows with unique proposal ids and decision sequences; duplicate proposal rows double-count.
 /// No threshold or auto-apply logic runs here.
 #[must_use]
-pub fn grade(proposals: &[StoredProposal], decisions: &[StoredDecision]) -> Vec<ActorClassGrade> {
+pub fn grade(proposals: &[ProposalSummary], decisions: &[StoredDecision]) -> Vec<ActorClassGrade> {
     let mut latest: BTreeMap<(&str, Decider), &StoredDecision> = BTreeMap::new();
     for decision in decisions {
         let entry = latest
@@ -122,7 +131,13 @@ pub fn grade(proposals: &[StoredProposal], decisions: &[StoredDecision]) -> Vec<
         let entry = grades
             .entry((proposal.class.clone(), proposal.actor.clone()))
             .or_insert_with(|| ActorClassGrade::new(proposal));
-        let outcomes = [Decider::Policy, Decider::Human, Decider::Evidence].map(|decider| {
+        let outcomes = [
+            Decider::Policy,
+            Decider::Human,
+            Decider::Evidence,
+            Decider::Agent,
+        ]
+        .map(|decider| {
             latest
                 .get(&(proposal.id.as_str(), decider))
                 .map(|decision| decision.outcome)

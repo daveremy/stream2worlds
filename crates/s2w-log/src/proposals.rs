@@ -1,5 +1,6 @@
 //! Append-only System 2 proposals and decisions, with opaque payloads and attributed grades.
 //! See decision 0019. Storage records policy routing; it never applies proposals itself.
+//! Agent decisions record an agent's opinion and never count as routing or grading signals.
 
 use std::collections::BTreeMap;
 
@@ -37,6 +38,9 @@ pub enum Decider {
     Human,
     /// Confirmation or refutation by evidence.
     Evidence,
+    /// An agent's opinion recorded through a tool: not policy routing, not human review and
+    /// not evidence. It never counts toward routing or grading tallies other than its own.
+    Agent,
 }
 
 /// A decision's result.
@@ -84,6 +88,45 @@ pub struct StoredProposal {
     pub payload: Vec<u8>,
     /// Original caller-supplied Unix milliseconds.
     pub proposed_at_ms: i64,
+}
+
+/// A proposal without its payload bytes, for listing and grading.
+///
+/// Read through [`ProposalStore::proposal_summaries`], which does not recompute the payload
+/// hash: `payload_hash` is the stored value, unverified. Only [`ProposalStore::proposals`]
+/// verifies payload integrity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalSummary {
+    /// Store-local write sequence (independent of decision sequences).
+    pub seq: i64,
+    /// Stable proposal identity.
+    pub id: String,
+    /// Opaque proposal class tag.
+    pub class: String,
+    /// Original author, including the model version.
+    pub actor: Actor,
+    /// Snapshot position the proposal was made against.
+    pub snapshot_offset: LogPosition,
+    /// Stored FNV-1a payload hash; not recomputed when read as a summary.
+    pub payload_hash: i64,
+    /// Original caller-supplied Unix milliseconds.
+    pub proposed_at_ms: i64,
+}
+
+impl StoredProposal {
+    /// Returns this proposal's fields without the payload bytes.
+    #[must_use]
+    pub fn summary(&self) -> ProposalSummary {
+        ProposalSummary {
+            seq: self.seq,
+            id: self.id.clone(),
+            class: self.class.clone(),
+            actor: self.actor.clone(),
+            snapshot_offset: self.snapshot_offset,
+            payload_hash: self.payload_hash,
+            proposed_at_ms: self.proposed_at_ms,
+        }
+    }
 }
 
 /// A new routing or grading decision. Corrections append another row.
@@ -138,6 +181,16 @@ pub trait ProposalStore {
     /// # Errors
     /// Returns storage errors or `Corrupt` for malformed rows or a payload hash mismatch.
     fn proposals(&self) -> Result<Vec<StoredProposal>, LogError>;
+
+    /// Returns proposals in sequence order without payload bytes.
+    ///
+    /// The payload hash is NOT recomputed: a summary's `payload_hash` is the stored value,
+    /// unverified. Only [`ProposalStore::proposals`] verifies payload integrity. Actor shape is
+    /// still validated.
+    ///
+    /// # Errors
+    /// Returns storage errors or `Corrupt` for malformed rows.
+    fn proposal_summaries(&self) -> Result<Vec<ProposalSummary>, LogError>;
 
     /// Returns all decisions in sequence order.
     ///
@@ -274,6 +327,10 @@ impl ProposalStore for InMemoryProposalStore {
             check_integrity(proposal)?;
         }
         Ok(self.proposals.clone())
+    }
+
+    fn proposal_summaries(&self) -> Result<Vec<ProposalSummary>, LogError> {
+        Ok(self.proposals.iter().map(StoredProposal::summary).collect())
     }
 
     fn decisions(&self) -> Result<Vec<StoredDecision>, LogError> {
