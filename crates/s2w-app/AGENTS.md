@@ -22,6 +22,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - MCP is read-only; capabilities never expand from a good track record. The one exception is the
   opt-in `decision_record` tool (`s2w mcp --allow-decisions`, decision 0020): it appends a decision
   with the `agent` decider only, never edits a proposal, and is absent from the default tool list.
+- `proposals` (#185) is the one proposal read and decision-write service: MCP `decision_record`
+  (the `agent` seat) and the `s2w proposals decide` CLI (the `human` seat, basis stored as
+  `reviewer=<id>; <basis>`) both call `record_decision`. An unknown id or missing store never
+  creates the store; an accept on an undecodable `stream-mapping` envelope is refused.
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.

@@ -246,6 +246,10 @@ fn restart_and_read_only_replay_preserve_rows_and_grades() -> TestResult {
     assert_eq!(writer.decisions()?, decisions);
     assert_eq!(reader.proposals()?, proposals);
     assert_eq!(reader.decisions()?, decisions);
+    for stored in &proposals {
+        assert_eq!(reader.proposal(&stored.id)?.as_ref(), Some(stored));
+    }
+    assert_eq!(reader.proposal("absent")?, None);
     assert_eq!(
         grade(&writer.proposal_summaries()?, &writer.decisions()?),
         grades
@@ -382,6 +386,7 @@ fn payload_tampering_is_corrupt_on_read_and_retry() -> TestResult {
     let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
     assert!(matches!(store.proposals(), Err(LogError::Corrupt(_))));
     assert!(matches!(reader.proposals(), Err(LogError::Corrupt(_))));
+    assert!(matches!(reader.proposal("p"), Err(LogError::Corrupt(_))));
     assert!(matches!(
         store.append_proposal(&proposal("p")),
         Err(LogError::Corrupt(_))
@@ -834,19 +839,5 @@ fn agent_latest_sequence_wins_on_correction() -> TestResult {
             .fraction(),
         (0, 1)
     );
-    Ok(())
-}
-
-#[test]
-fn read_only_has_proposal_matches_stored_ids_only() -> TestResult {
-    let directory = TestDirectory::new("proposal-has")?;
-    let mut writer = SqliteProposalStore::open(directory.path())?;
-    let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
-    assert!(!reader.has_proposal("p")?);
-    populated(&mut writer)?;
-    assert!(reader.has_proposal("p")?);
-    assert!(reader.has_proposal("ungraded")?);
-    assert!(!reader.has_proposal("P")?);
-    assert!(!reader.has_proposal("")?);
     Ok(())
 }

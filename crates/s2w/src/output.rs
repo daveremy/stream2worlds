@@ -88,6 +88,23 @@ pub fn print_error(format: Format, message: &str) -> ExitCode {
     ExitCode::from(2)
 }
 
+/// Renders a data error (the request was well formed but could not be carried out) for a
+/// human: `s2w: <code>: <message>`, plus `. Try: <hint>` when there is one. Under `--json` the
+/// caller prints the query error's own `json_body` instead, the body HTTP and MCP serve.
+pub fn render_failure(code: &str, message: &str, hint: Option<&str>) -> String {
+    match hint {
+        Some(hint) => format!("s2w: {code}: {message}. Try: {hint}"),
+        None => format!("s2w: {code}: {message}"),
+    }
+}
+
+/// Prints a human data error to stderr and returns exit code 1, which unlike a usage error (2)
+/// means the same command may succeed later (a released lock) or against other data.
+pub fn print_failure(code: &str, message: &str, hint: Option<&str>) -> ExitCode {
+    eprintln!("{}", render_failure(code, message, hint));
+    ExitCode::FAILURE
+}
+
 /// Quotes a JSON string, escaping every U+0000 through U+001F control character.
 fn json_string(text: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
@@ -182,6 +199,18 @@ mod tests {
         assert_eq!(
             render_error(Format::Json, "bad \"path\" \\ Try:\nhelp"),
             r#"{"error": "bad \"path\" \\ Try:\nhelp"}"#
+        );
+    }
+
+    #[test]
+    fn renders_failures_with_code_message_and_optional_hint() {
+        assert_eq!(
+            render_failure("unknown_proposal", "no proposal", Some("list")),
+            "s2w: unknown_proposal: no proposal. Try: list"
+        );
+        assert_eq!(
+            render_failure("store_locked", "locked", None),
+            "s2w: store_locked: locked"
         );
     }
 

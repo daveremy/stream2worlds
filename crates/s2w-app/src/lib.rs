@@ -4,6 +4,7 @@ mod assets;
 pub mod bridge;
 mod group_commit;
 pub mod mcp;
+pub mod proposals;
 pub mod query;
 pub mod routes;
 pub mod serve;

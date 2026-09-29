@@ -13,6 +13,27 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Human review from the command line: `s2w proposals` — #185 (2026-09-29)
+
+**Shipped:** `s2w proposals list|grade|decide`, part of #163 (PR 2c). `list` prints the proposal
+store with its decisions and which stream mapping each source runs; `grade` prints the grades
+per class and actor; both read without a lock and never create the store. `decide` appends a
+`human` decision, the only decider whose review grades a producer, and prints what the decided
+mapping's source runs afterwards, so a human reject visibly revokes a mapping. MCP
+`decision_record` and the CLI now share one service, `s2w_app::proposals`: the same validation,
+the same rule that an unknown id never creates the store, and the same JSON error body.
+
+**Learned:** the store has no reviewer column, and decision 0019 already lets a basis name a
+reviewer, so the reviewer goes into the basis as `reviewer=<id>; <basis>` rather than into a
+schema change. `--reviewer` refuses `;` and whitespace so the prefix always splits cleanly.
+
+**Changed course:** an accept on a `stream-mapping` proposal whose payload does not decode is
+now refused at write time. Routing excludes that row whatever is decided, so the accept could
+never take effect; a reject is still allowed so a bad row can be revoked.
+
+**Next:** #184 (PR 2b) makes a running `serve` pick up a decision without a restart; until then
+the change lands at the next start. The web view's human-decision surface is still open (#160).
+
 ## World memory: 830 to 438 bytes per entity — #194 (2026-09-29)
 
 **Shipped:** each entity's attributes now live in a sorted `Vec` (`AttrMap`) instead of a

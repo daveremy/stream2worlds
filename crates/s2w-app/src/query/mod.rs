@@ -164,7 +164,7 @@ impl QueryError {
     /// it in the response with a status code; MCP puts it in an error tool result's text. One
     /// constructor, so the two can never drift.
     #[must_use]
-    pub(crate) fn json_body(&self) -> serde_json::Value {
+    pub fn json_body(&self) -> serde_json::Value {
         serde_json::json!({ "error": self.code(), "message": self.to_string() })
     }
 }

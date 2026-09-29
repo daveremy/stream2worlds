@@ -42,6 +42,12 @@ not recompute the hash; only `proposals()` verifies integrity. `grade` takes sum
 ## Consequences
 
 - Follow-up (not in this change): an `s2w proposals` CLI and a human-decision surface.
+  - 2026-09-29 (#185): shipped as `s2w proposals list|grade|decide`. `decide` writes the
+    `human` decider through `s2w_app::proposals`, the service `decision_record` now wraps, so
+    the two write surfaces share one validation and one unknown-id rule (a missing store or id
+    never creates the store). The store has no reviewer column, so a human basis is stored as
+    `reviewer=<id>; <basis>`; that prefix is a human-decider convention, and an agent basis
+    stays verbatim. The web view's human surface is still open.
 - Every consumer of `grade()` must decide whether `agent` counts for anything; by default it
   does not.
 
