@@ -14,8 +14,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use s2w_core::{FOLD_VERSION, World, WorldEvent};
 use s2w_log::{
-    MembershipRow, ReadOnlySqliteEventLog, ReadOnlySqliteProposalStore, WorldManifest,
-    WorldPresentation, members_at,
+    MembershipRow, ReadOnlySqliteEventLog, WorldManifest, WorldPresentation, members_at,
 };
 use s2w_model::{SourceId, Timestamp};
 use serde::{Deserialize, Serialize};
@@ -139,7 +138,7 @@ impl QueryState {
         let Some(log_dir) = self.log_dir() else {
             return Ok(ProposalsView::default());
         };
-        crate::proposals::read_view(log_dir)
+        super::proposal_store::read_view(log_dir)
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
@@ -474,24 +473,6 @@ where
         })
     })
     .transpose()
-}
-
-/// Opens `log_dir`'s proposal store read-only, or `None` when the store file does not exist.
-/// The existence check comes first so a read never creates the store.
-///
-/// # Errors
-/// [`QueryError::Storage`] if the store exists but cannot be opened.
-pub(crate) fn open_proposal_reader(
-    log_dir: &std::path::Path,
-) -> Result<Option<ReadOnlySqliteProposalStore>, QueryError> {
-    let exists = log_dir
-        .join(s2w_log::PROPOSAL_DATABASE_FILE)
-        .try_exists()
-        .map_err(|error| QueryError::Storage(error.to_string()))?;
-    if !exists {
-        return Ok(None);
-    }
-    Ok(Some(ReadOnlySqliteProposalStore::open(log_dir)?))
 }
 
 pub(crate) fn check_branch(branch: Option<&str>) -> Result<(), QueryError> {
@@ -894,7 +875,7 @@ async fn events(
     // arriving over the cap pays only the semaphore check. The permit is dropped (freeing the
     // slot) if `start()` then fails validation — no slot is held past this function returning
     // an error response.
-    let permit = match crate::serve::sse_cap_guard(state.sse_slots.clone()) {
+    let permit = match sse_cap_guard(state.sse_slots.clone()) {
         Ok(permit) => permit,
         Err(error) => return error.into_response(),
     };
@@ -917,6 +898,15 @@ async fn events(
         .keep_alive(KeepAlive::default()),
     )
         .into_response()
+}
+
+// Takes one of `slots`' stream permits, or [`QueryError::StreamLimit`] when all are held.
+fn sse_cap_guard(
+    slots: Arc<tokio::sync::Semaphore>,
+) -> Result<tokio::sync::OwnedSemaphorePermit, QueryError> {
+    slots
+        .try_acquire_owned()
+        .map_err(|_| QueryError::StreamLimit)
 }
 
 /// Validates an `/events` request under one read: the epoch first, then `at >= from`, then

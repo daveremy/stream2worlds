@@ -10,6 +10,7 @@ mod delta;
 mod diff;
 mod epoch;
 mod http;
+mod proposal_store;
 mod proposals;
 mod stream;
 mod timeline;
@@ -24,6 +25,7 @@ pub use http::{
     Branch, QueryState, RawEventInfo, Rebuilding, SourceInfo, TimeAt, TimeResult, WorldSummary,
     router,
 };
+pub use proposal_store::read_view;
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
@@ -34,7 +36,8 @@ pub use view::{
 
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
 // never disagree about what a valid `world`, `branch` or `lod` is.
-pub(crate) use http::{check_branch, check_world, open_proposal_reader, parse, parse_lod};
+pub(crate) use http::{check_branch, check_world, parse, parse_lod};
+pub(crate) use proposal_store::open_proposal_reader;
 
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]

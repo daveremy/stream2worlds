@@ -16,8 +16,10 @@ use s2w_log::{
 use s2w_model::SourceId;
 use serde::Serialize;
 
-use crate::query::{DecisionDto, ProposalsView, QueryError, open_proposal_reader, proposals_view};
+use crate::query::{DecisionDto, QueryError, open_proposal_reader};
 use crate::routes::{self, STREAM_MAPPING_CLASS};
+
+pub use crate::query::read_view;
 
 /// The decider a surface may write, with what it records about the one deciding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,21 +111,6 @@ fn now_ms() -> Result<i64, QueryError> {
         .map_err(|error| QueryError::Storage(format!("system clock before epoch: {error}")))?;
     i64::try_from(elapsed.as_millis())
         .map_err(|error| QueryError::Storage(format!("system clock out of range: {error}")))
-}
-
-/// The proposals view of `log_dir`'s store: every summary, decision and grade. Empty when the
-/// store file does not exist; never creates it.
-///
-/// # Errors
-/// [`QueryError::Storage`] if the store exists but cannot be opened or read.
-pub fn read_view(log_dir: &Path) -> Result<ProposalsView, QueryError> {
-    let Some(reader) = open_proposal_reader(log_dir)? else {
-        return Ok(ProposalsView::default());
-    };
-    Ok(proposals_view(
-        &reader.proposal_summaries()?,
-        &reader.decisions()?,
-    ))
 }
 
 /// Appends one decision by `seat` on an existing proposal in `log_dir`'s store.
