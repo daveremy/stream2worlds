@@ -13,6 +13,8 @@ Runtime wiring: composes sources, the log, the core and the engines; read-only M
 - `rustix` (feature `fs`) for `statfs` in `status` (s2w#32): filesystem kind and free space
 - dev only: `gungraun` (the `scale_ir` instruction-count benchmark, pinned exactly because
   `gungraun-runner` must match it) and `dhat` (the `scale_mem` heap test), s2w#32
+- dev only: `mimalloc`, the global allocator of the `backfill_memory_mimalloc` measurement
+  target (s2w#220)
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
