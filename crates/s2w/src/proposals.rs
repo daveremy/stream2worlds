@@ -184,7 +184,7 @@ fn run_list(args: &ReadArgs) -> ExitCode {
         Err(error) => return failure(args.json, &args.log_dir, &error),
     };
     if args.json {
-        return print_json(&view);
+        return print_json(serde_json::to_string(&view));
     }
     if view.proposals.is_empty() {
         println!("no proposals in {}", args.log_dir.display());
@@ -221,7 +221,7 @@ fn run_grade(args: &ReadArgs) -> ExitCode {
         Err(error) => return failure(args.json, &args.log_dir, &error),
     };
     if args.json {
-        return print_json(&view.grades);
+        return print_json(serde_json::to_string(&view.grades));
     }
     if view.grades.is_empty() {
         println!("no proposals in {}", args.log_dir.display());
@@ -247,7 +247,7 @@ fn run_decide(args: &DecideArgs) -> ExitCode {
         Err(error) => return failure(args.json, &args.log_dir, &error),
     };
     if args.json {
-        return print_json(&recorded);
+        return print_json(serde_json::to_string(&recorded));
     }
     for line in decide_lines(&recorded) {
         println!("{line}");
@@ -255,8 +255,10 @@ fn run_decide(args: &DecideArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn print_json(value: &impl serde::Serialize) -> ExitCode {
-    match serde_json::to_string(value) {
+/// Prints an already-serialized value; `serde_json` is called at each site so this crate needs
+/// no direct `serde` dependency.
+fn print_json(rendered: serde_json::Result<String>) -> ExitCode {
+    match rendered {
         Ok(text) => {
             println!("{text}");
             ExitCode::SUCCESS

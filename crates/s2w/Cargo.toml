@@ -15,5 +15,4 @@ workspace = true
 s2w-app = { path = "../s2w-app" }
 s2w-log = { path = "../s2w-log" }
 s2w-model = { path = "../s2w-model" }
-serde = { workspace = true }
 serde_json = { workspace = true }

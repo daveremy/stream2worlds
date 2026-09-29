@@ -21,6 +21,10 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **Humans can grade proposals.** `s2w proposals list|grade|decide` shows the proposal store
+  and records a human accept or reject, the decision that grades a producer and can revoke the
+  stream mapping a source runs. MCP agents record their opinions through the same service.
+  [#185](https://github.com/daveremy/stream2worlds/issues/185)
 - **Scale is measured, in part.** Heap bytes per entity is gated against a committed baseline
   in `cargo xtask check`. Fold instructions per event (Valgrind, CI job `scale`) has a gate
   whose baseline is set from that job's first run. Measured on the synthetic generator, the
@@ -177,7 +181,28 @@ that worker until restart. Past events remain in the world.
 
 If you run Kafka: `s2w` is a read-only observer of your topic. It assigns partitions itself, joins no consumer group, commits no offsets, and keeps its own cursors in its local log ([decision 0007](docs/decisions/0007-kafka-client.md)).
 
-To connect an MCP client, configure it to launch `s2w mcp --log-dir ./s2w-data` (for example, `claude mcp add s2w -- s2w mcp --log-dir ./s2w-data`). It exposes `world_view`, `world_diff`, `entity_history`, `branches`, `sources`, `time` and `proposals_list` (System 2 proposals, their decisions and the per-class, per-actor grade, read from `proposals.sqlite3`); each requires `world` (default `"default"`, configurable with `--world`) and returns the same JSON as its HTTP query route. With no `--log-dir`, MCP serves an empty world for backward compatibility. With one, it takes a read-only snapshot of committed verdicts without taking either writer lock, so `s2w serve` can keep appending, and refreshes that snapshot periodically (about every 500ms) as new verdicts commit, so results reflect live activity while a writer is active. World manifest (display name) and membership-history metadata load once at open and stay frozen for the life of the process — they do not follow the periodic refresh. Prefix either command with `--json` (`s2w --json serve ...`, `s2w --json mcp ...`) for structured stderr notes/errors; `serve` also streams the same per-flush NDJSON progress lines as `watch --json` on stdout while ingesting, and MCP only applies the flag to startup/usage errors because stdout carries JSON-RPC messages exclusively once serving. The flag is prefix-only for these commands. See [decision 0009](docs/decisions/0009-mcp-server.md). `s2w mcp --log-dir DIR --allow-decisions` additionally registers `decision_record` (`world`, `proposal_id`, `outcome`, `basis`), which appends one decision row with the `agent` decider and never edits a proposal; an agent's opinion is tallied separately and never counts toward the human or policy grade ([decision 0020](docs/decisions/0020-proposal-surfaces-and-agent-decider.md)). The web view shows the same proposals and grades in a Proposals panel, and `GET /worlds/{world}/proposals` returns them as JSON.
+To connect an MCP client, configure it to launch `s2w mcp --log-dir ./s2w-data` (for example, `claude mcp add s2w -- s2w mcp --log-dir ./s2w-data`). It exposes `world_view`, `world_diff`, `entity_history`, `branches`, `sources`, `time` and `proposals_list` (System 2 proposals, their decisions and the per-class, per-actor grade, read from `proposals.sqlite3`); each requires `world` (default `"default"`, configurable with `--world`) and returns the same JSON as its HTTP query route. With no `--log-dir`, MCP serves an empty world for backward compatibility. With one, it takes a read-only snapshot of committed verdicts without taking either writer lock, so `s2w serve` can keep appending, and refreshes that snapshot periodically (about every 500ms) as new verdicts commit, so results reflect live activity while a writer is active. World manifest (display name) and membership-history metadata load once at open and stay frozen for the life of the process — they do not follow the periodic refresh. Prefix either command with `--json` (`s2w --json serve ...`, `s2w --json mcp ...`) for structured stderr notes/errors; `serve` also streams the same per-flush NDJSON progress lines as `watch --json` on stdout while ingesting, and MCP only applies the flag to startup/usage errors because stdout carries JSON-RPC messages exclusively once serving. The flag is prefix-only for these commands. See [decision 0009](docs/decisions/0009-mcp-server.md). `s2w mcp --log-dir DIR --allow-decisions` additionally registers `decision_record` (`world`, `proposal_id`, `outcome`, `basis`), which appends one decision row with the `agent` decider and never edits a proposal; an agent's opinion is tallied separately and never counts toward the human or policy grade ([decision 0020](docs/decisions/0020-proposal-surfaces-and-agent-decider.md)); the human decision is written by the `s2w proposals decide` CLI below, never over MCP. The web view shows the same proposals and grades in a Proposals panel, and `GET /worlds/{world}/proposals` returns them as JSON.
+
+Humans review proposals from the command line. `s2w proposals list [--log-dir DIR] [--json]`
+prints every stored proposal with its decisions, then which stream mapping each source runs and
+which mapping rows routing excludes, and why; `--json` prints the same view the query API and
+MCP serve. `s2w proposals grade [--log-dir DIR] [--json]` prints the grades per class and actor.
+Neither creates `proposals.sqlite3`: a missing store reads as empty. `s2w proposals decide
+--log-dir DIR --proposal ID --outcome accept|reject --basis TEXT --reviewer ID` appends one
+decision with the `human` decider, the only decider whose review grades a producer. The store
+has no reviewer column, so the basis is stored as `reviewer=<id>; <text>`; this prefix is the
+human-decider convention (an agent's basis stays verbatim), and `--reviewer` refuses
+whitespace, control characters and `;` so the prefix always splits cleanly. For a
+`stream-mapping` proposal, `decide` also prints what the source runs after the write: a reject
+of the mapping a source runs revokes it, back to the previous accepted mapping or to unrouted
+([decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)). A running `s2w serve`
+resolves routes only at start, so it picks up the change at its next restart. An accept on a
+mapping proposal whose payload does not decode is refused, because routing excludes that row
+whatever is decided; a reject is always allowed. Exit codes: 0 recorded; 2 for a usage error;
+1 for a data error (`unknown_proposal`, `store_locked`, `bad_parameter`, `storage`), with the
+same `{"error", "message"}` body under `--json` that HTTP and MCP use. `store_locked` is exit
+1, not 2, because the writer lock is held only for one append, so a retry succeeds; nothing
+about the command was wrong.
 
 ## Planned interface
 

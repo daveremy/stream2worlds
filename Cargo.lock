@@ -2035,7 +2035,6 @@ dependencies = [
  "s2w-app",
  "s2w-log",
  "s2w-model",
- "serde",
  "serde_json",
 ]
 

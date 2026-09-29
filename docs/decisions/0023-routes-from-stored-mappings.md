@@ -116,7 +116,8 @@ per-source mapping state is #163 PR 5's sources surface.
   exists until then.
 - **Surfaces** (#163 PR 5, [0017](0017-view-and-agents-first-class.md)): the view, MCP and the
   sources API do not show which mapping a source runs or how many proposals were excluded.
-  Start-up notes are the only report. `mcp/replay.rs` still serves every stored engine's
+  Start-up notes and `s2w proposals list` (#185) are the only report; `s2w proposals decide`
+  also prints what the decided mapping's source runs after the write. `mcp/replay.rs` still serves every stored engine's
   verdicts, including engines no longer registered.
 - No verdict compaction: each mapping change leaves about one row per event under the old name
   (#33 part 2). `evidence` does not resolve. The MCP `decision_record` tool still records
