@@ -18,7 +18,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 
 ## Module layering (s2w#240)
 
-`query` is the bottom of this crate: it depends on no sibling module. `bridge`, `proposals`,
+`query` is the bottom of this crate: it depends on no sibling module (one pending exception:
+`query::http` still uses `bridge::SourceStats` until s2w#240 PR 2 moves it). `bridge`, `proposals`,
 `routes`, `snapshot`, `discover` depend on `query` (and on each other downward only); `serve` and
 `mcp` are the top and compose everything. Check 15 (`cargo xtask check`, module cycles) reports
 violations; it is report-only until s2w#240 flips `ENFORCE`.
