@@ -632,3 +632,16 @@ capture: 200,000 events, 231 wikis, replicate windows of 10,000 events). With no
 10,000-event window has a title false-merge rate of 2.45%, against the 0.05 floor. Revisions and
 rcid measure 0% in every window. The fold ruling stands regardless of this number: it was made
 before the measurement and holds under either outcome.
+
+### 2026-09-29: what an `h-measure` freeze record proves (s2w#238; addition, no change in meaning)
+
+B1 requires each mapping to be committed before any contact with the answer key. For the
+`cargo xtask h-measure` harness, a frozen file now also carries a proof that `score` checks
+mechanically: `score` runs the freeze again on the file's recorded development corpus and window
+and refuses a file that differs from what that run writes, or one frozen by a different profiler
+version or config. A hand-written or edited mapping therefore never scores. The freeze still
+records every pin, but `score` compares only the pins it uses: the freeze corpus, the scored
+corpus if the freeze recorded it, and each scored key, which must have been pinned before the
+freeze. Adding a corpus or key row no longer invalidates an earlier freeze. `score` proves the
+file's content; the commit that adds the frozen file proves its timing and names the build to
+score it with. This note changes no arm, metric, threshold or stream.

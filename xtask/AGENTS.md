@@ -90,9 +90,13 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     every pin (a corpus pin includes its role, file and event count), and the profile's abstained paths by role. Refusals are tested in
     `h_measure/freeze_tests.rs` on a temporary root.
   - `h_measure/report.rs`: `cargo xtask h-measure score --mapping FROZEN --corpus NAME --key
-    FILE... [--json FILE] [--dir DIR]`. Refuses, before reading the corpus: pins changed since
-    the freeze, a mapping not frozen on the pinned development corpus, a `reserved` corpus, no
-    key, a key given twice, an unpinned or mismatched key. An abstention is graded as the
+    FILE... [--json FILE] [--dir DIR]`. Refuses, before reading the scored corpus: a mapping
+    not frozen on the pinned development corpus, a `reserved` corpus, no key, a key given
+    twice, an unpinned or mismatched key, a change since the freeze to a pin it uses (the
+    freeze corpus, the scored corpus if the freeze recorded it, each key, which the freeze must
+    have recorded; other rows are ignored), and a file that is not what `freeze` (via
+    `freeze::derive`) writes for its recorded corpus and window under this build (s2w#238).
+    That last check re-reads the development corpus. An abstention is graded as the
     empty prediction. Writes a markdown report (alias limit first; per key the mapping and
     ceiling rows, per type, per path, context collisions, spurious, abstained and excluded
     counts) and, with `--json`, every number. Refusals are tested in
