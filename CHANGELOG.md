@@ -28,8 +28,8 @@ H-lite, frozen on the development corpus and scored once on two held-out plain-W
 reaches identity F1 0.284 and 0.293 with precision 0.97 to 0.98 and entity recovery 0
 ([#249](https://github.com/daveremy/stream2worlds/pull/249), research note 0009). Plain
 Wikipedia is reported and never counted toward gate 3 (contract B2.1), so this is not a pass or
-a fail. `/world` now streams from the head one node at a time with ETag/304, and the web page's
-refresh interval is an env knob in the memory test
+a fail. `/world` now streams from the head one node at a time with ETag/304, and the memory test's
+viewer refresh is an env knob
 ([#239](https://github.com/daveremy/stream2worlds/pull/239)). `cargo xtask check` gains Check
 15, a report-only test for module cycles inside a crate
 ([#246](https://github.com/daveremy/stream2worlds/pull/246)); it found three real cycles, one
