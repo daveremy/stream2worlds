@@ -72,12 +72,12 @@ fn assert_equivalent(
     append_all(&mut full, events, ts);
     let head = full.head();
     let expected = world_hash(&fold(World::with_hub_cap(cap), events))?;
-    assert_eq!(world_hash(&full.world_at(head)?)?, expected);
+    assert_eq!(world_hash(&*full.world_at(head)?)?, expected);
 
     let timeline = restored(cap, events, ts, o)?;
     let base = u64::try_from(o)?;
     assert_eq!(timeline.head(), head);
-    assert_eq!(world_hash(&timeline.world_at(head)?)?, expected, "o={o}");
+    assert_eq!(world_hash(&*timeline.world_at(head)?)?, expected, "o={o}");
     // Restored at offset 0, the timeline holds every event and serves every offset.
     let world_base = if base == 0 { 0 } else { head };
     for at in [base, base.midpoint(head), head] {

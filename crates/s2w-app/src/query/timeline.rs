@@ -1,6 +1,8 @@
 //! The served world log: the head world and a bounded window of recent timestamped
 //! [`WorldEvent`]s, each with the [`Delta`] it made (decisions 0024 and 0026).
 
+use std::borrow::Cow;
+
 use s2w_core::{World, WorldEvent};
 use s2w_model::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -281,22 +283,31 @@ impl Timeline {
         World::with_hub_cap(self.hub_cap())
     }
 
-    /// The world at `offset`.
+    /// The world at `offset`: the head itself, borrowed, at the head (never a copy of it,
+    /// #216), or a fresh fold of the retained events below it.
     ///
     /// # Errors
     /// [`QueryError::OffsetBeforeBase`] below the base; [`QueryError::OffsetBeyondHead`] past
     /// the head.
-    pub fn world_at(&self, offset: u64) -> Result<World, QueryError> {
+    pub fn world_at(&self, offset: u64) -> Result<Cow<'_, World>, QueryError> {
         let prefix = self.prefix(offset)?;
         if offset == self.head() {
-            return Ok(World::clone(&self.head));
+            return Ok(Cow::Borrowed(self.head_world()));
         }
         // Below the head, `prefix` succeeded only with full history (the base is the head
         // otherwise), so the retained events fold from the empty world.
-        Ok(s2w_core::fold(
+        Ok(Cow::Owned(s2w_core::fold(
             self.empty_world(),
             prefix.iter().map(|e| &e.event),
-        ))
+        )))
+    }
+
+    /// Checks that `offset` is one [`Timeline::world_at`] serves, without building its world.
+    ///
+    /// # Errors
+    /// Exactly the errors [`Timeline::world_at`] returns for `offset`.
+    pub fn check_offset(&self, offset: u64) -> Result<(), QueryError> {
+        self.prefix(offset).map(|_| ())
     }
 
     /// The largest offset whose events were all received at or before `ts`; 0 if none was.
@@ -446,7 +457,7 @@ mod tests {
             (timeline.base(), timeline.replay_base(), timeline.head()),
             (1, 1, 1)
         );
-        assert_eq!(timeline.world_at(1)?, restored);
+        assert_eq!(*timeline.world_at(1)?, restored);
 
         timeline.append(Timestamp::from_millis(1), observed("b"));
         timeline.append(Timestamp::from_millis(2), observed("c"));

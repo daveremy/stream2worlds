@@ -6,7 +6,7 @@ use s2w_core::{EntityId, World};
 use serde::Serialize;
 
 use super::QueryError;
-use super::view::{Link, Node, ViewParams, world_view};
+use super::view::{Link, Node, ViewParams, WorldView, world_view};
 
 /// A node or link present in both worlds with different contents.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -52,26 +52,48 @@ pub struct WorldDiff {
     pub merges: Changes<MergeEdge>,
 }
 
+impl<T> Changes<T> {
+    fn none() -> Self {
+        Self {
+            added: Vec::new(),
+            removed: Vec::new(),
+            changed: Vec::new(),
+        }
+    }
+}
+
+impl WorldDiff {
+    /// The diff of a world with itself, at offset `at`: nothing added, removed or changed.
+    /// What [`diff`] returns for two equal worlds, without projecting either.
+    #[must_use]
+    pub fn unchanged(at: u64) -> Self {
+        Self {
+            from: at,
+            to: at,
+            nodes: Changes::none(),
+            links: Changes::none(),
+            merges: Changes::none(),
+        }
+    }
+}
+
+/// Compares two keyed maps of borrowed items, cloning only the items that changed (#216).
 fn changes<K: Ord, T: Clone + PartialEq>(
-    before: &BTreeMap<K, T>,
-    after: &BTreeMap<K, T>,
+    before: &BTreeMap<K, &T>,
+    after: &BTreeMap<K, &T>,
 ) -> Changes<T> {
-    let mut out = Changes {
-        added: Vec::new(),
-        removed: Vec::new(),
-        changed: Vec::new(),
-    };
-    for (k, a) in after {
+    let mut out = Changes::none();
+    for (k, &a) in after {
         match before.get(k) {
             None => out.added.push(a.clone()),
-            Some(b) if b != a => out.changed.push(Changed {
+            Some(&b) if b != a => out.changed.push(Changed {
                 before: b.clone(),
                 after: a.clone(),
             }),
             Some(_) => {}
         }
     }
-    for (k, b) in before {
+    for (k, &b) in before {
         if !after.contains_key(k) {
             out.removed.push(b.clone());
         }
@@ -79,41 +101,42 @@ fn changes<K: Ord, T: Clone + PartialEq>(
     out
 }
 
-/// Diffs two worlds at entity level of detail.
+fn nodes(v: &WorldView) -> BTreeMap<&str, &Node> {
+    v.nodes.iter().map(|n| (n.id(), n)).collect()
+}
+
+fn links(v: &WorldView) -> BTreeMap<(&str, &str, &str), &Link> {
+    v.links
+        .iter()
+        .map(|l| ((l.source.as_str(), l.target.as_str(), l.kind.as_str()), l))
+        .collect()
+}
+
+fn merges(w: &World) -> BTreeMap<EntityId, MergeEdge> {
+    w.merges()
+        .iter()
+        .map(|(&absorbed, &survivor)| (absorbed, MergeEdge { absorbed, survivor }))
+        .collect()
+}
+
+fn borrowed<K: Ord + Copy, T>(m: &BTreeMap<K, T>) -> BTreeMap<K, &T> {
+    m.iter().map(|(&k, v)| (k, v)).collect()
+}
+
+/// Diffs two worlds at entity level of detail. The two views are compared through borrowed
+/// maps; only added, removed and changed items are cloned (#216).
 ///
 /// # Errors
 /// None in practice: an unfocused view cannot fail. The `Result` keeps the view's contract.
 pub fn diff(from: &World, to: &World) -> Result<WorldDiff, QueryError> {
     let params = ViewParams::default();
     let (a, b) = (world_view(from, &params)?, world_view(to, &params)?);
-    let nodes = |v: &super::view::WorldView| -> BTreeMap<String, Node> {
-        v.nodes
-            .iter()
-            .map(|n| (n.id().to_owned(), n.clone()))
-            .collect()
-    };
-    let links = |v: &super::view::WorldView| -> BTreeMap<(String, String, String), Link> {
-        v.links
-            .iter()
-            .map(|l| {
-                (
-                    (l.source.clone(), l.target.clone(), l.kind.clone()),
-                    l.clone(),
-                )
-            })
-            .collect()
-    };
-    let merges = |w: &World| -> BTreeMap<EntityId, MergeEdge> {
-        w.merges()
-            .iter()
-            .map(|(&absorbed, &survivor)| (absorbed, MergeEdge { absorbed, survivor }))
-            .collect()
-    };
+    let (from_merges, to_merges) = (merges(from), merges(to));
     Ok(WorldDiff {
         from: from.offset(),
         to: to.offset(),
         nodes: changes(&nodes(&a), &nodes(&b)),
         links: changes(&links(&a), &links(&b)),
-        merges: changes(&merges(from), &merges(to)),
+        merges: changes(&borrowed(&from_merges), &borrowed(&to_merges)),
     })
 }

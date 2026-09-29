@@ -106,6 +106,8 @@ mod base {
                 format!("/worlds/default/world?at={below}"),
                 format!("/worlds/default/diff?from={below}"),
                 format!("/worlds/default/diff?from={BASE}&to={below}"),
+                // The `from == to` short-circuit (#216) still checks the offset.
+                format!("/worlds/default/diff?from={below}&to={below}"),
                 format!("/worlds/default/events?from={below}"),
                 "/worlds/default/events".to_owned(),
                 format!("/worlds/default/entity/0/history?to={below}"),
