@@ -52,17 +52,9 @@ fn exemptions(config: &Config, scan: &Scan) -> Vec<String> {
     }
     findings
 }
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "sequential config, walk and report stages"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "sequential config, walk and report stages"
-)]
 pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<String> {
     let config_path = root.join("xtask/module-size.toml");
-    let mut config: Config = match super::read_toml(&config_path) {
+    let config: Config = match super::read_toml(&config_path) {
         Ok(c) => c,
         Err(e) => return e,
     };
@@ -113,10 +105,26 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
         }
     }
     // Check growth BEFORE tightening so the repair command cannot conceal a new exemption.
-    let mut problems = growth(root, &config);
-    let blocked = scan.incomplete || !scan.findings.is_empty() || !findings.is_empty();
+    let problems = growth(root, &config);
+    scan.findings.splice(0..0, findings);
+    settle(&config_path, config, scan, problems, tighten)
+}
+
+/// Tightens `module-size.toml` when allowed, then reports. The refusal to tighten over this
+/// ratchet's own findings is itself one of those findings, so it blocks exactly when they do:
+/// report-only findings leave the file untouched without failing another ratchet's
+/// `--tighten-baseline` run (s2w#192), and growth always blocks.
+fn settle(
+    config_path: &Path,
+    mut config: Config,
+    scan: Scan,
+    mut problems: Vec<String>,
+    tighten: bool,
+) -> Vec<String> {
+    let mut findings = Vec::new();
+    let blocked = scan.incomplete || !scan.findings.is_empty();
     if tighten && (blocked || !problems.is_empty()) {
-        problems.push("cannot tighten an incomplete scan or unauthorized baseline; resolve the findings and retry".into());
+        findings.push("cannot tighten xtask/module-size.toml over an incomplete scan, module-size findings or unauthorized baseline growth; resolve them and retry".into());
     } else if tighten {
         config
             .exempt
@@ -129,7 +137,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
             });
         match toml::to_string_pretty(&config)
             .map_err(|e| e.to_string())
-            .and_then(|s| fs::write(&config_path, s).map_err(|e| e.to_string()))
+            .and_then(|s| fs::write(config_path, s).map_err(|e| e.to_string()))
         {
             Ok(()) => {}
             Err(e) => problems.push(format!(
@@ -290,6 +298,31 @@ mod tests {
         assert!(exemptions(&config, &scan)[0].contains("stale exemption"));
         scan.rows.clear();
         assert!(exemptions(&config, &scan)[0].contains("stale exemption"));
+    }
+    #[test]
+    fn tighten_refusal_blocks_only_when_its_own_findings_do() {
+        // s2w#192: report-only walker findings keep module-size.toml untouched without failing
+        // the run, so another ratchet's --tighten-baseline (the scale baseline) can exit 0.
+        let scratch = Scratch::new();
+        let path = scratch.write("module-size.toml", "untouched");
+        let opaque = "include!(\"opaque.rs\");\nfn f() {}\n";
+        let refused = |p: &[String]| p.iter().any(|s| s.contains("cannot tighten"));
+        let settled = |enforce, source, growth: Vec<String>| {
+            let config = Config {
+                enforce,
+                ..config()
+            };
+            settle(&path, config, scratch.scan(source), growth, true)
+        };
+        assert!(settled(false, opaque, vec![]).is_empty());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "untouched");
+        assert!(refused(&settled(true, opaque, vec![])));
+        let grown = settled(false, "fn f() {}\n", vec!["growth".into()]);
+        assert_eq!(grown, ["growth"]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "untouched");
+        // Positive control: a clean scan does rewrite the file (dropping the stale exemption).
+        assert!(settled(false, "fn f() {}\n", vec![]).is_empty());
+        assert!(!fs::read_to_string(&path).unwrap().contains("untouched"));
     }
     #[test]
     fn growth_checks_entire_range_including_behind_a_merge_and_fails_closed() {

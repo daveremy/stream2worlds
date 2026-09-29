@@ -46,7 +46,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual
 counts, and also rewrites `[memory]` in `xtask/scale-baseline.toml` down to the measurement;
-it never raises anything and never touches `[ir]`. The asymmetry is deliberate: `[memory]` is
+it never raises anything and never touches `[ir]`. Each ratchet refuses to tighten over its own findings only, and the refusal carries those findings' severity: report-only module-size findings leave `module-size.toml` untouched with a `[report-only]` line while `[memory]` still tightens and the run exits 0 (s2w#192). The asymmetry is deliberate: `[memory]` is
 measured by `cargo xtask check` on any machine, so tightening it is automatic, while `[ir]` is
 owned by the CI image, so an `[ir]` improvement past tolerance stays a printed hint to lower
 `fold_ir_per_event` by hand from the CI job's number. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
