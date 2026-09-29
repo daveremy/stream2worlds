@@ -85,5 +85,6 @@ report these as excluded mentions, per path. Rules:
 `log_id` mention. On the dev corpus (key executor, 200,000 records): v0 gives 19,684 log
 mentions in 18,376 log entities; v1 gives 18,336 log mentions in 18,336 entities, with 1,348
 excluded. On this corpus every v1 log entity is then a singleton (no non-zero `log_id` repeats
-within a wiki), so `log` is a singleton-only type in the dev score; the key does not force it. The v0 sensitivity variants still merge `log_id` 0; a variant that needs the exclusion
-is a new format-1 file.
+within a wiki), so `log` is a singleton-only type in the dev score; the key does not force
+it. The v0 sensitivity variants still merge `log_id` 0; a variant that needs the exclusion is
+a new format-1 file.
