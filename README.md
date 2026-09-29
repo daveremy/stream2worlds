@@ -21,35 +21,24 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **`serve` runs the stream mapping you accepted, and names the engine after it.** Routes are
-  data: each source runs the mapping its accepted `stream-mapping` proposal names, and the
-  engine is named by the mapping's identity, so a changed mapping never serves the old one's
-  verdicts or snapshots. [Decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)
-- **Humans can grade proposals.** `s2w proposals list|grade|decide` shows the proposal store
-  and records a human accept or reject, the decision that grades a producer and can revoke the
-  stream mapping a source runs. A running `serve` picks up a decision live and rebuilds the world ([#184](https://github.com/daveremy/stream2worlds/issues/184)).
-  [#185](https://github.com/daveremy/stream2worlds/issues/185)
-- **Restarting from a snapshot takes about half the memory.** A restored world is shared
-  instead of copied, and writing a snapshot no longer clones the world: folding 10^6 events the
-  restore peak fell from 1,624 MiB to 861 MiB and the write peak from 919 MiB to 50 MiB.
-  [#179](https://github.com/daveremy/stream2worlds/issues/179)
-- **Scale is measured, in part, on real traffic as well as synthetic.** The scale gates replay
-  a recorded 10-minute Wikipedia stream (11,667 events) alongside the seeded generator: the
-  recorded world holds 346 bytes per entity and the synthetic one 360, down from 830, both
-  checked in `cargo xtask check` against a 600 B ceiling (decision 0004's 2× line; the planning
-  figure is 300 B); fold instructions per event are gated for both in CI job `scale`. Parse
-  cost, fork cost and per-partition lag are not measured yet.
-  [#174](https://github.com/daveremy/stream2worlds/issues/174) · [#172](https://github.com/daveremy/stream2worlds/issues/172) · [#190](https://github.com/daveremy/stream2worlds/issues/190)
+- **The first gate-3 number is measured.** H-lite, the heuristics arm, was frozen before anyone
+  scored it, then scored once on two held-out plain-Wikipedia spans: identity F1 0.284 and
+  0.293, precision 0.97 to 0.98, entity recovery 0. Plain Wikipedia is reported and never
+  counted, so this is neither a pass nor a fail; it says H-lite needs work before it is a
+  baseline. [Research 0009](research/0009-h-min-plain-wikipedia.md)
+- **A gate-3 score cannot come from a mapping nobody froze.** `cargo xtask h-measure freeze`
+  pins keys and corpora by sha256, and `score` re-runs the freeze and refuses any frozen file
+  that differs. [#242](https://github.com/daveremy/stream2worlds/pull/242)
+- **A viewer refreshing every 5 s slows a backfill 1.4×, not 5×.** `/world` streams from the
+  head with ETag/304; one viewer needs no redesign.
+  [#239](https://github.com/daveremy/stream2worlds/pull/239)
 - **`serve` learns a mapping for a new stream and applies it.** At start, a source with no
   mapping and at least 10,000 logged events is profiled by `s2w-discover`; the mapping is filed
   as a proposal and accepted by `policy`, on the record and revocable with `s2w proposals
-  decide --outcome reject`. The profiler reads statistics, never names, and `cargo xtask check`
-  proves it on an obfuscated copy of a recorded stream. [Decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)
-- **A source that reaches the window while `serve` runs is profiled then**, its mapping filed
-  and accepted on the spot and routed by the live rebuild. [Decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)
-- **In progress:** the world a learned mapping builds is 110 to 1,010 MiB at 10^5 events, so a
-  name-free prune is next ([decision 0022](docs/decisions/0022-discover-profiler.md)). Also in progress: the epoch contract and live rebuild, so a running `serve` picks up a
-  decision without a restart ([#184](https://github.com/daveremy/stream2worlds/issues/184)).
+  decide --outcome reject`. [Decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)
+- **In progress:** the demo box passed its check once, then the kernel killed `serve` at the
+  1 GiB cap 2 s after a rebuild, so it is not yet holding. The remaining 40 to 100 MiB is
+  [#220](https://github.com/daveremy/stream2worlds/issues/220).
 
 ## Demos
 
