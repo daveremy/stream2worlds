@@ -82,7 +82,7 @@ pub(super) fn target_findings(
                 Res::External => continue,
                 Res::Unresolved if strict => {
                     findings.push(format!(
-                        "{}: xtask cannot resolve `{}` to a module of this crate — a glob of a macro-generated item, or a macro-generated path? Name it with a plain `use`, or report the gap in xtask/src/module_cycles.rs",
+                        "{}: xtask cannot resolve `{}` to a module of this crate — a glob of a macro-generated item, a macro-generated path, or a re-export through an extern glob? Name it with a plain `use`, or report the gap in xtask/src/module_cycles.rs",
                         m.join("::"),
                         path.join("::")
                     ));

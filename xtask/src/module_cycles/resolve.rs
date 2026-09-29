@@ -252,12 +252,14 @@ impl Resolver<'_> {
                 }
                 // A generic parameter, or a name from an extern glob this module sees, directly or
                 // through a glob of one of our modules (`use crate::prelude::*;`). Only for the
-                // first segment: through a re-export (`crate::m::Foo`) a miss stays loud.
+                // first segment of the path being resolved (depth 0): through a re-export
+                // (`crate::m::Foo`) a miss stays loud, and `sees_extern_glob` never re-enters
+                // itself through `path`, which would fan out once per glob per level.
                 None if self
                     .modules
                     .get(m)
                     .is_some_and(|x| x.generics.contains(name))
-                    || self.sees_extern_glob(m, depth, &mut BTreeSet::new()) =>
+                    || (depth == 0 && self.sees_extern_glob(m, 0, &mut BTreeSet::new())) =>
                 {
                     return Res::External;
                 }

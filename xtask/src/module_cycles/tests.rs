@@ -282,3 +282,20 @@ fn a_miss_through_a_module_with_an_extern_glob_stays_loud() {
         "{f:?}"
     );
 }
+
+#[test]
+fn unresolvable_globs_do_not_fan_out() {
+    // Two globs whose first segment is unresolvable (renames are not followed): without the
+    // first-segment-only fallback this is ~2^DEPTH calls, a hang.
+    let f = findings(&[
+        ("lib.rs", "mod m;\n"),
+        (
+            "m.rs",
+            "extern crate foo as bar;\nextern crate baz as qux;\nuse bar::*;\nuse qux::*;\nfn f() { let _ = x; }\n",
+        ),
+    ]);
+    // Only the documented rename gap is reported, once per glob.
+    assert_eq!(f.len(), 2, "{f:?}");
+    assert!(f[0].contains("cannot resolve `bar`"), "{f:?}");
+    assert!(f[1].contains("cannot resolve `qux`"), "{f:?}");
+}
