@@ -1,6 +1,7 @@
 //! JSON path lookup and in-place decode for [`s2w_model::StreamMapping`] payloads. The one
 //! implementation: [`crate::MappingEngine`] runs it per event and `cargo xtask check` 11
-//! (raw obfuscation replay) runs it to rename payloads, so the check cannot drift from the engine.
+//! (raw obfuscation replay) runs the same decode and lookups to rename payloads, so the check
+//! cannot drift from the engine.
 
 use s2w_model::{FieldPath, Segment};
 use serde_json::Value;

@@ -149,10 +149,10 @@ fn check_payload_size(len: usize) -> Result<(), LogError> {
 
 /// A deterministic, dependency-free hash of a payload's bytes, used to key append dedupe.
 ///
-/// `s2w_model::fnv1a64` over the payload, reinterpreted as a signed integer for SQLite storage. Deliberately
-/// not `DefaultHasher`, whose per-process random seed would break dedupe across restarts. The
-/// value is persisted, so the algorithm is pinned by a known-answer test: changing it silently
-/// would change dedupe for every existing log. A 64-bit hash can collide, so the append paths
+/// `s2w_model::fnv1a64` over the payload, reinterpreted as a signed integer for SQLite
+/// storage. Deliberately not `DefaultHasher`, whose per-process random seed would break dedupe
+/// across restarts. The value is persisted, so the algorithm is pinned by a known-answer test:
+/// changing it silently would change dedupe for every existing log. A 64-bit hash can collide, so the append paths
 /// compare payload bytes on a hit and fail loudly instead of dropping a distinct event.
 fn content_hash(payload: &[u8]) -> i64 {
     i64::from_ne_bytes(s2w_model::fnv1a64(payload).to_ne_bytes())

@@ -43,9 +43,9 @@ knowledge needs, whether a heuristic profiler, System 2 or an operator: a mappin
 
 `name()` is `mapping`; `version()` is 1 and versions the executor's code only. The mapping is
 named in `provenance()` as `{"mapping_hash":"<16 hex>"}`, FNV-1a/64 over the mapping's
-serde_json bytes (field order is declaration order). The FNV helper is a local copy: this crate
-may not depend on `s2w-sources`. *(Amended 2026-09-28, s2w#170: FNV-1a 64 now lives once, in
-`s2w_model::fnv1a64`; see Amendments.)* **(engine name, version) does not identify a mapping.** The
+serde_json bytes (field order is declaration order). ~~The FNV helper is a local copy: this crate
+may not depend on `s2w-sources`.~~ *(Amended 2026-09-28, s2w#170: the helper is
+`s2w_model::fnv1a64_hex`, the workspace's one FNV-1a 64; see Amendments.)* **(engine name, version) does not identify a mapping.** The
 verdict log keys verdicts on (position, engine, version) (0012), so two mappings run under the
 same executor version would share keys. PR 2, which builds routes from stored mappings, must
 fold a mapping digest into that identity or reset stored verdicts when the mapping changes.

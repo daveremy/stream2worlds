@@ -23,7 +23,7 @@ use crate::query::BaseTime;
 pub const SNAPSHOT_FORMAT: u32 = 1;
 
 use s2w_model::Fnv64;
-pub use s2w_model::fnv1a64;
+use s2w_model::fnv1a64;
 
 /// Identifies the running fold for `hub_cap`: FNV-1a over [`FOLD_VERSION`], `hub_cap`,
 /// [`SNAPSHOT_FORMAT`] and [`FOLD_FIXTURE_HASH`]. A snapshot written by any other fold is

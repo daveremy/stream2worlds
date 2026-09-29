@@ -17,8 +17,8 @@
 //! The expected world is built from pass A's claims, mapped by their typed role: types and
 //! kinds via the value map, attribute names via the key map, string attribute values via the
 //! value map, and each natural key read with `NaturalKey::parts` with its label and string parts
-//! mapped. Decoding uses the engine's own `s2w_system1::decode`. Folding the expected claims must equal folding pass B's claims (check 10's
-//! comparator). Any collision, or a mapping name a map cannot cover, fails closed.
+//! mapped. Decoding uses the engine's own `s2w_system1::decode`. Folding the expected claims
+//! must equal folding pass B's claims (check 10's comparator). Any collision, or a mapping name a map cannot cover, fails closed.
 //!
 //! Non-vacuity: pass A must yield at least two entity types, one relationship, one multi-part
 //! key, one integer key part and one string attribute; the expected claims must differ from

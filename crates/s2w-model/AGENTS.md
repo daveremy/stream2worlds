@@ -21,8 +21,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   read. A format change bumps it with a decision record. The mapping's paths and labels are
   data; this crate never names what they mean.
 - The mapped natural-key text has one owner: `NaturalKey::from_parts` builds it and
-  `NaturalKey::parts` reads it (decision 0021, amendment 2026-09-28). No other crate joins or
-  splits on `KEY_SEPARATOR`. String parts encode byte-identically to `serde_json::to_string`,
+  `NaturalKey::parts` reads it (decision 0021, amendment 2026-09-28). No other crate's non-test
+  code joins or splits on `KEY_SEPARATOR`. String parts encode byte-identically to `serde_json::to_string`,
   pinned by a test against the dev dependency.
 - FNV-1a 64 (`Fnv64`, `fnv1a64`, `fnv1a64_hex`) lives here once. Its values are persisted
   (source ids, log content hashes, snapshot checksums, fixture hashes): never change it.

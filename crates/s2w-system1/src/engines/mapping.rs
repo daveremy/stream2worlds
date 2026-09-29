@@ -20,8 +20,8 @@ use crate::{AbstainReason, Confidence, Engine, Verdict};
 /// match each entity rule. A rule matches when every key path holds a scalar (string, `i64`
 /// integer or bool); floats, out-of-range numbers, nulls, arrays and objects never match. The
 /// natural key is [`NaturalKey::from_parts`]: the type label, then each key part, joined by
-/// [`s2w_model::KEY_SEPARATOR`], so a string `"7"` and an integer `7` stay distinct keys and two types
-/// never share a key. A relationship is claimed when both endpoint rules matched. No rule
+/// [`s2w_model::KEY_SEPARATOR`], so a string `"7"` and an integer `7` stay distinct keys and
+/// two types never share a key. A relationship is claimed when both endpoint rules matched. No rule
 /// matched abstains `Insufficient`; otherwise the claims are proposed as certain, entities in
 /// rule order then relationships in rule order.
 #[derive(Debug, Clone)]
