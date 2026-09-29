@@ -31,6 +31,11 @@
 //!     instead of just shape. Covers `s2w-core`'s fold and, run through `s2w-system1`'s
 //!     engines (`JsonClaimsEngine` today), the engine layer; the bridge registry
 //!     (`s2w-app::Bridge`/`EngineRegistry`) is not yet covered.
+//! 11. **Raw obfuscation replay** (`obfuscation_raw.rs`): `s2w-system1`'s `MappingEngine`,
+//!     run over a recorded raw stream and a mapping, builds the same world when every object
+//!     key and string value in both (including inside decoded JSON strings) is renamed and
+//!     hashed first. Check 10 covers engines that read claims; this one covers the engine that
+//!     reads raw payloads through a mapping (decision 0021).
 //! 8. **Clippy config consistency** (`clippy_config.rs`, reads TOML only): a per-crate
 //!    `clippy.toml` or `.clippy.toml` replaces the root file, so every workspace member's effective
 //!    config must carry the root's `too-many-lines`, `cognitive-complexity` and `too-many-arguments`
@@ -51,6 +56,7 @@ mod clippy_config;
 mod golden;
 mod module_size;
 mod obfuscation;
+mod obfuscation_raw;
 mod vocabulary;
 
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
@@ -218,6 +224,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(module_size::check(root, &meta, tighten));
     problems.extend(vocabulary::check(root));
     problems.extend(obfuscation::check(root));
+    problems.extend(obfuscation_raw::check(root));
     problems.extend(clippy_config::check(root, &meta));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
@@ -253,7 +260,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, clippy config: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, clippy config: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))
