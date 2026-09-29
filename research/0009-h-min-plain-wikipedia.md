@@ -292,7 +292,7 @@ prototype's v4 freeze to check P2's thresholds; they agreed, so no prediction wa
 ([comment](https://github.com/daveremy/stream2worlds/issues/250#issuecomment-5900587850), 22:52 UTC).
 The rule (8bce39c) and its docs (7482e71) were committed, then `reserved-3` was opened as held-out
 (8068982, 22:55 UTC). v4 was frozen on `dev` after the opening (f701acc); its mappings equal the
-prototype's in-sample freezes. No crate changed after the opening. v3 was scored on the same span
+prototype's in-sample freezes. No crate changed between the opening and the scores. One refactor followed the scores (abbb53c: each dependent measured once instead of twice); it changes no output: the `dev` profile and both v4 freezes re-derive byte-identical from it. v3 was scored on the same span
 from a build of `main` @ 70122b8 with only the `corpora.toml` flip applied. No threshold was chosen
 after any held-out score was seen. #244's `reserved` stays unopened. Reports:
 `research/h-measure/results/h-lite-v{3,4}.dev-{10000,200000}.reserved-3.md`.
