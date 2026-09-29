@@ -2,7 +2,8 @@
 //! `e` names the event, `t` is a sequence, `a` (aliased at `x.a`) and `d.b` (inside a decoded
 //! string) are entities with attributes `an` and `d.bn`, `a` determines `d.b`, `c` and `cc`
 //! determine each other, `g` and `h` sit in the grey uniqueness band (only `h` has a dependent,
-//! `hn`), `r` repeats with nothing depending on it, `k` explains when `o` is present.
+//! `hn`, and passes the entity test but is too unique to key a type), `r` repeats with
+//! nothing depending on it, `k` explains when `o` is present.
 
 use std::collections::BTreeMap;
 
@@ -102,7 +103,7 @@ fn roles_separate_event_ids_sequences_entities_and_the_grey_band() {
     assert_eq!(role(&profile, &["a"]), Role::Entity);
     assert_eq!(role(&profile, &["d", "b"]), Role::Entity);
     assert_eq!(role(&profile, &["g"]), Role::GreyUniqueness);
-    assert_eq!(role(&profile, &["h"]), Role::Entity);
+    assert_eq!(role(&profile, &["h"]), Role::NearUnique);
     assert_eq!(role(&profile, &["r"]), Role::NoDependents);
     assert_eq!(role(&profile, &["k"]), Role::FewGroups);
 }
@@ -120,6 +121,53 @@ fn aliases_share_one_label_and_attributes_follow_the_key() {
             .iter()
             .all(|e| e.id != "e" && e.id != "t" && e.id != "g")
     );
+}
+
+#[test]
+fn a_near_unique_key_names_no_type_unless_the_threshold_allows_it() {
+    let m = mapping(run(&stream(1200), &[]).1);
+    assert!(m.entities.iter().all(|e| e.id != "h"), "{:?}", m.entities);
+    assert!(
+        m.relationships.iter().all(|r| r.from != "h" && r.to != "h"),
+        "{:?}",
+        m.relationships
+    );
+    // The threshold is what removed it: above 100% no path is near-unique, and `h` keys a type.
+    let bytes: Vec<Vec<u8>> = stream(1200)
+        .iter()
+        .map(|v| v.to_string().into_bytes())
+        .collect();
+    let refs: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
+    let cfg = Config {
+        type_uniqueness_pct: 101,
+        ..Config::default()
+    };
+    let (profile, discovery) = discover(&refs, &cfg);
+    assert_eq!(role(&profile, &["h"]), Role::Entity);
+    assert!(
+        entity(&mapping(discovery), "h")
+            .attrs
+            .iter()
+            .any(|x| x.name == "hn")
+    );
+}
+
+#[test]
+fn the_near_unique_threshold_is_inclusive_on_the_rounded_down_ratio() {
+    // `h` is 92% distinct (integer, rounded down): 92 makes it near-unique, 93 lets it key a type.
+    let bytes: Vec<Vec<u8>> = stream(1200)
+        .iter()
+        .map(|v| v.to_string().into_bytes())
+        .collect();
+    let refs: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
+    for (pct, want) in [(92, Role::NearUnique), (93, Role::Entity)] {
+        let cfg = Config {
+            type_uniqueness_pct: pct,
+            ..Config::default()
+        };
+        let (profile, _) = discover(&refs, &cfg);
+        assert_eq!(role(&profile, &["h"]), want, "type_uniqueness_pct {pct}");
+    }
 }
 
 #[test]

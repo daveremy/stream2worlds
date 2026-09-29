@@ -22,7 +22,7 @@ pub use roles::Role;
 /// version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
-pub const PROFILER_VERSION: &str = "1";
+pub const PROFILER_VERSION: &str = "2";
 
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +43,11 @@ pub struct Config {
     pub fd_accept_pct: usize,
     /// Between this and `fd_accept_pct`: abstain.
     pub fd_grey_pct: usize,
+    /// Distinct/count at or above this, for a path that passes the entity test: `NearUnique`,
+    /// keys no type. Nearly every event would mint a new entity, so the world would grow with
+    /// every event (s2w#208). Equal to `grey_uniqueness_pct` by default, so a grey-band path
+    /// never keys a type.
+    pub type_uniqueness_pct: usize,
     /// Equal in at least this share of shared events: two paths are aliases.
     pub alias_pct: usize,
     /// Parses as a JSON object in at least this share of events: a decode step. 100 by default:
@@ -63,6 +68,7 @@ impl Default for Config {
             min_recurrence_pct: 10,
             fd_accept_pct: 95,
             fd_grey_pct: 80,
+            type_uniqueness_pct: 90,
             alias_pct: 99,
             decode_pct: 100,
             category_max: 32,
