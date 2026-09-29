@@ -52,7 +52,10 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    grey-band path never does. See the amendment below.* *2026-09-29 (s2w#250): a path that
    passes below that line, has at most `category_max` values, and whose repeated values each decide
    which optional paths their events carry is `Category` instead of `Entity`: it keys no type. See
-   the second amendment below.*
+   the second amendment below.* *2026-09-29 (s2w#250 PR 2): a path the test rejects outright (not
+   grey, best share below 80%) takes a second entity test: its repeats come back apart across the
+   window and a varying path follows it. Passing it leads to the same `NearUnique` / `Category` /
+   `Entity` checks. See the third amendment below.*
 5. **Aliases.** Two entity paths equal in ≥99% of the ≥20 events carrying both are one class.
 6. **1:1 merge.** Classes that determine each other, transitively (both directions functional, same 95% / 5
    group rule over the events carrying both, ≥20 of them) are two encodings of one entity (research 0002 §4) and merge.
@@ -76,7 +79,8 @@ escaped); when two classes would share a label, both use their full paths. `rule
 
 Two thresholds are fixed rather than in `Config`: a dependent is informative when its distinct
 values across constant groups are at least half the constant groups, and the event-type test
-uses the 2% / 98% presence band.
+uses the 2% / 98% presence band. *2026-09-29 (s2w#250 PR 2): a third, the second entity test's
+"varies" guard: no one value of the follower on more than half of the events carrying both.*
 
 **Determinism.** `BTreeMap` only, no floats in any decision or output, no tie broken by a name.
 Output rules are sorted by id, so their order follows the (renamed) names; the invariance
@@ -221,7 +225,98 @@ rules (32 `n:1`), no `Category` path (re-measured 2026-09-29 on this change; the
 stream carries no log events).
 
 Research 0009 implication 1 named H-min proper "`PROFILER_VERSION` 3"; that number is taken
-here, so #244's H-min change takes `PROFILER_VERSION` 4.
+here, so #244's H-min change takes `PROFILER_VERSION` 4. *2026-09-29: 4 is taken by the next
+amendment; #244 takes `PROFILER_VERSION` 5.*
+
+## Amendment 2026-09-29: a recurring identifier with no informative dependent is an entity (s2w#250 PR 2, `PROFILER_VERSION` 4)
+
+Research [0009](../../research/0009-h-min-plain-wikipedia.md) measured `user` recall 0 on plain
+`recentchange`: no rule keys `user`. Stage 4 rejects it as `NoDependents`. Its best follower,
+`meta.domain`, is constant in 91% of `user`'s repeat groups on `dev` at 10^4 events, but takes only
+55 values over 318 constant groups (most users edit one of a few large wikis), so the
+informative test (distinct values at least half the constant groups) discards it.
+
+For every path stage 4 gives `NoDependents` on `dev`, a throwaway probe (not committed) measured
+two things:
+
+- **spread**: the share of the path's repeat groups whose first-to-last event span covers at
+  least a tenth of the window;
+- **follow**: the best dependent's constancy share over the repeat groups (stage 4's measure),
+  counting only a dependent that *varies*: at least `min_groups` distinct constant values, and no
+  single value carried by more than half of the events that carry both paths.
+
+| path (`NoDependents` at `PROFILER_VERSION` 3, 10^4) | count | distinct | repeat groups | spread | follow | role at 4 |
+|---|---|---|---|---|---|---|
+| `user` | 9,997 | 626 | 347 | **67%** | **91%** (`meta.domain`, 55 values) | `Entity` |
+| `meta.request_id` | 10,000 | 4,704 | 1,912 | 0% | 100% (`meta.domain`) | unchanged (a burst) |
+| `timestamp` | 9,997 | 289 | 256 | 1% | 32% | unchanged |
+| `length.new` | 4,140 | 2,918 | 461 | 78% | 59% | unchanged |
+| `length.old` | 3,793 | 2,711 | 421 | 76% | 56% | unchanged |
+| `namespace` | 9,997 | 22 | 15 | 93% | 0% | unchanged |
+| `log_type` | 644 | 12 | 10 | 100% | 50% | unchanged |
+| `log_params.actions` | 143 | 6 | 5 | 100% | 0% | unchanged |
+| `log_params.filter` | 143 | 37 | 19 | 63% | 89% (`meta.domain`) | `Entity` (a path the key does not score) |
+
+At 2x10^5 events: `user` spread 56%, follow 86% (`Entity`); `request_id` 0% / 99%; `timestamp` 0% /
+26%; `length.*` 89% / 17-19%; `namespace` 94% / 21%; `log_params.filter` 80% / 66% (unchanged).
+`title` is `NoDependents` only at this window (at 10^4 it is an `Entity`, merged 1:1 into the
+`title_url` class): spread 34%, follow 92% (`user`), so it becomes an `Entity` of its own there.
+That is a second encoding of the page (the #245 alias-key finding at that window), not evidence
+for this rule. `comment` is already an `Entity` at `PROFILER_VERSION` 3.
+
+Each guard is needed, and a row above justifies each one. `request_id` has a strong, varying
+follower (every event of one request is on one wiki, by one user), so follow alone would mint it;
+its repeats are a burst, 0% of its groups spanning a tenth of the window. A thing that recurs
+comes back apart; an event batch does not. `length.*` values come back apart (random collisions),
+so spread alone would mint them; nothing varying is constant under them beyond chance (at most
+59%). Without the "varies" guard a near-constant follower passes by chance: under `length.new`,
+`namespace` (one value on more than half of the carriers) reads 79% and `bot` (a flag at 50/50)
+reads 74%.
+
+The full v4 role table for the window is committed as
+[`h-lite-v4.dev-10000.profile.md`](../../research/h-measure/results/h-lite-v4.dev-10000.profile.md);
+it differs from v3's in exactly two rows, `user` and `log_params.filter`. The spread and follow
+figures above are the probe's, not that verb's.
+
+**The rule.** In stage 4, a path that the first test neither passes nor abstains on (not in the
+grey uniqueness band, best informative share below `fd_grey_pct`) passes the second entity test
+when both hold:
+
+1. **Spread:** at least `Config::spread_groups_pct` (25) percent of its repeat groups span, first
+   event to last, at least `Config::spread_window_pct` (10) percent of the events profiled, in
+   integer form `(last - first) * 100 >= events * spread_window_pct`.
+2. **Follow:** some other path (a candidate dependent, not aliased with it) is constant in at
+   least `fd_grey_pct` (80) of its repeat groups, takes at least `min_groups` (5) values across
+   the constant groups, and varies: its most frequent value is carried by at most half of the
+   events that carry both paths.
+
+A path that passes either test goes through the same checks: `NearUnique` at or above
+`type_uniqueness_pct`, `Category` at or below `category_max` values when its values decide the
+event's shape, `Entity` otherwise. The role is `Entity`; there is no new variant and stages 5-7
+are unchanged. The half is a fixed majority, like the informative test's factor 2. Margins on
+`dev`: `user` spread 67% (56% at 2x10^5) against 25, bursts at most 1%; `user` follow 91% (86%)
+against 80, and the best non-entity with spread reads 59%.
+
+Stream order, presence and value equality only, integer percentages, stage 4's own measure:
+renaming keys and hashing strings leave every input unchanged, so check 12 holds (a unit test
+covers a stream with a `Category` and a second-test `Entity`).
+
+**Accepted false promotion.** An attribute that is mostly fixed per value of a coarse, varying
+partition and recurs across the window reads as an entity: for example a `firmware_version`
+under `site_id` during a staged rollout, or a shared parameter value one source reuses over
+hours. On `dev` that is only `log_params.filter` at 10^4 (an abuse-filter id, which is a thing
+that recurs; the key does not score its path).
+
+**Window dependence.** Spread is relative to the window: a user active in one burst spans less of
+a longer window (`user` 67% at 10^4, 56% at 2x10^5).
+
+**What it does not do.** It does not relax the first test, so no `GreyDependency` (`wiki`, 90%) or
+`FewGroups` path changes. It does not give `user` a composite identity: the key's user identity
+is `(wiki, user)`, and a user active on several wikis is one entity to this mapping.
+
+On the 1,615-event fixture the mapping is unchanged: 5 types, 12 entity rules, 46 relationship
+rules (32 `n:1`); its users already pass the first test (re-measured 2026-09-29 on this change).
+#244's H-min change takes `PROFILER_VERSION` 5.
 
 ## Out of scope
 
@@ -231,7 +326,8 @@ exists and H-lite at `PROFILER_VERSION` 2 is measured on it (research
 [0009](../../research/0009-h-min-plain-wikipedia.md)): on plain `recentchange` it proposes no
 `user` or revision type, keys a small action-name field (`log_action`) as an entity, and keys
 pages and wikis at alias paths. Inclusion dependencies are #244.* *2026-09-29 (s2w#250): `log_action` is a `Category` at
-`PROFILER_VERSION` 3 (amendment above). A `user` type needs a new entity criterion (#250 PR 2);
+`PROFILER_VERSION` 3 (amendment above). A `user` type needs a new entity criterion (#250 PR 2;
+*2026-09-29: done, `PROFILER_VERSION` 4, amendment above*);
 a revision recurs only across two paths, an inclusion dependency (#244); choosing among alias
 encodings of one entity needs a format that joins different values (#245).* Wiring into `serve` and
 auto-apply (#163 PR 4; *2026-09-29: done, [decision 0025](0025-learned-mapping-auto-apply.md)*) and the mapping state surfaces [0017](0017-view-and-agents-first-class.md) requires (#163

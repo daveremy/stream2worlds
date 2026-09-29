@@ -16,6 +16,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `frozen/h-lite-v2.dev-N.json` | H-lite (`PROFILER_VERSION` 2) frozen on `dev` at N = 10^4 and 2×10^5 (commit 5e74d8f, built at eeeced7), before any held-out corpus was scored. Score them with a build whose profiler and `Config` match, or `score` refuses. |
 | `results/h-lite-v2.dev-N.<corpus>.md` | The pre-registered held-out reports, one per frozen file and held-out corpus, read in research [0009](../0009-h-min-plain-wikipedia.md). |
 | `frozen/h-lite-v3.dev-N.json`, `results/h-lite-v3.*` | H-lite `PROFILER_VERSION` 3 (s2w#250 PR 1): frozen on `dev` at the same windows, its `dev` profile table, and its `reserved-2` reports next to v2's on the same span. |
+| `frozen/h-lite-v4.dev-N.json`, `results/h-lite-v4.*` | H-lite `PROFILER_VERSION` 4 (s2w#250 PR 2, the second entity test): frozen on `dev` at the same windows, its `dev` profile table, and its `reserved-3` reports, with v3's reports on the same span beside them. |
 
 ## Rules
 
