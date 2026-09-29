@@ -5,7 +5,12 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 mod event;
+mod mapping;
 pub use event::{AttrValue, NaturalKey, WorldEvent};
+pub use mapping::{
+    AttrRule, EntityRule, FieldPath, KEY_SEPARATOR, MAPPING_VERSION, MappingError,
+    RelationshipRule, Segment, StreamMapping,
+};
 
 use serde::{Deserialize, Serialize};
 
