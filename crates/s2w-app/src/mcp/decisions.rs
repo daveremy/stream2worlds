@@ -3,16 +3,13 @@
 //! --allow-decisions`), appends exactly one agent decision per call and never writes a
 //! proposal.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
+use crate::proposals::{Seat, parse_outcome, record_decision};
+use crate::query::{DecisionDto, QueryError, QueryState, check_world};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::schemars;
 use rmcp::tool;
 use rmcp::tool_router;
-use s2w_log::{Decider, LogError, NewDecision, Outcome, ProposalStore, SqliteProposalStore};
-
-use crate::query::{DecisionDto, QueryError, QueryState, check_world, open_proposal_reader};
 
 use super::WorldMcp;
 use super::tools::serve;
@@ -46,70 +43,22 @@ impl WorldMcp {
     }
 }
 
-fn parse_outcome(raw: &str) -> Result<Outcome, QueryError> {
-    match raw {
-        "accept" => Ok(Outcome::Accept),
-        "reject" => Ok(Outcome::Reject),
-        other => Err(QueryError::BadParameter {
-            name: "outcome",
-            reason: format!("'{other}' is not one of accept, reject"),
-        }),
-    }
-}
-
-fn non_blank(name: &'static str, value: &str) -> Result<(), QueryError> {
-    if value.trim().is_empty() {
-        return Err(QueryError::BadParameter {
-            name,
-            reason: "must not be empty".to_owned(),
-        });
-    }
-    Ok(())
-}
-
-fn now_ms() -> Result<i64, QueryError> {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| QueryError::Storage(format!("system clock before epoch: {error}")))?;
-    i64::try_from(elapsed.as_millis())
-        .map_err(|error| QueryError::Storage(format!("system clock out of range: {error}")))
-}
-
-/// Checks the proposal exists through a lockless reader, so a missing store or id never opens
-/// (and so never creates) the writable store.
-fn check_known(log_dir: &std::path::Path, proposal_id: &str) -> Result<(), QueryError> {
-    match open_proposal_reader(log_dir)? {
-        Some(reader) if reader.has_proposal(proposal_id)? => Ok(()),
-        _ => Err(QueryError::UnknownProposal {
-            id: proposal_id.to_owned(),
-        }),
-    }
-}
-
 fn record(state: &QueryState, args: &DecisionRecordArgs) -> Result<DecisionDto, QueryError> {
     check_world(state, &args.world)?;
     let outcome = parse_outcome(&args.outcome)?;
-    non_blank("proposal_id", &args.proposal_id)?;
-    non_blank("basis", &args.basis)?;
     let Some(log_dir) = state.log_dir() else {
         return Err(QueryError::Storage(
             "decision_record needs a log directory".to_owned(),
         ));
     };
-    // Proposals are append-only, so a known id cannot become unknown before the writer opens.
-    check_known(log_dir, &args.proposal_id)?;
-    let mut store = SqliteProposalStore::open(log_dir).map_err(|error| match error {
-        LogError::Locked => QueryError::StoreLocked,
-        other => other.into(),
-    })?;
-    let stored = store.append_decision(&NewDecision {
-        proposal_id: args.proposal_id.clone(),
-        decider: Decider::Agent,
+    Ok(record_decision(
+        log_dir,
+        &Seat::Agent,
+        &args.proposal_id,
         outcome,
-        basis: args.basis.clone(),
-        decided_at_ms: now_ms()?,
-    })?;
-    Ok(DecisionDto::from(&stored))
+        &args.basis,
+    )?
+    .decision)
 }
 
 const DECISION_RECORD: &str = "Requires the world string parameter. Opt-in write, present only \

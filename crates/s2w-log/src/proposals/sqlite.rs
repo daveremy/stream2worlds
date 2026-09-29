@@ -121,6 +121,14 @@ impl ReadOnlySqliteProposalStore {
             .map_err(map_sqlite)
     }
 
+    /// Reads one proposal by id, checking payload integrity; `None` when no such id is stored.
+    ///
+    /// # Errors
+    /// Returns storage errors or `Corrupt` for an unknown actor or payload hash mismatch.
+    pub fn proposal(&self, id: &str) -> Result<Option<StoredProposal>, LogError> {
+        proposal_by_id(&self.connection, id)
+    }
+
     /// Reads decisions in sequence order.
     ///
     /// # Errors

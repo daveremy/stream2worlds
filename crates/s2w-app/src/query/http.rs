@@ -25,7 +25,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
 use super::diff::{WorldDiff, diff};
-use super::proposals::{ProposalsView, proposals_view};
+use super::proposals::ProposalsView;
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, TimedEvent, Timeline};
 use super::view::{ACTUAL_BRANCH, Lod, ViewParams, world_view};
 use crate::bridge::SourceStats;
@@ -133,13 +133,7 @@ impl QueryState {
         let Some(log_dir) = self.log_dir() else {
             return Ok(ProposalsView::default());
         };
-        let Some(reader) = open_proposal_reader(log_dir)? else {
-            return Ok(ProposalsView::default());
-        };
-        Ok(proposals_view(
-            &reader.proposal_summaries()?,
-            &reader.decisions()?,
-        ))
+        crate::proposals::read_view(log_dir)
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
