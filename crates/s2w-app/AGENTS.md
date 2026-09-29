@@ -6,7 +6,7 @@ Runtime wiring: composes sources, the log, the core and the engines; read-only M
 
 - every `s2w-*` library crate; `tokio`, `tokio-stream`, `thiserror`; further runtime, MCP and
   HTTP libraries chosen in decision records
-- `postcard` (no default features, `use-std`) for the world snapshot payload only (decision 0021)
+- `postcard` (no default features, `use-std`) for the world snapshot payload only (decision 0024)
 - dev: `proptest` for the snapshot golden-equivalence test
 - `memory-serve` at runtime and build time for the committed web bundle (decision 0016);
   Node is a frontend development/CI tool only, never part of a Rust build or runtime
@@ -36,7 +36,7 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   snapshot restore, because the feed fingerprint depends on the routes. The world manifest's
   engine list is historical (the defaults at creation), not the live registry. Replay reads
   stored verdicts of registered engine names only (`VerdictStore::read_range_of`).
-- `Timeline` (decision 0021) has a base world (empty, or a restored snapshot's) and serves offsets
+- `Timeline` (decision 0024) has a base world (empty, or a restored snapshot's) and serves offsets
   from the base to the head only; anything below is `offset_before_base` (410). Index the event
   list only through `events_after`, never by absolute offset. Without a snapshot the base is 0 and
   every answer is unchanged. Base and head share one world (`Arc`) until the first append after a
@@ -44,12 +44,12 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   world and the old one stays alive.
   `QueryState::replace_timeline` is the one way to install a restored
   timeline, and only `serve`'s startup restore calls it, before the bridge exists.
-- `snapshot/` (decision 0021): a snapshot is derived and never trusted. It is loaded only when
+- `snapshot/` (decision 0024): a snapshot is derived and never trusted. It is loaded only when
   every validity rule holds, and an invalid file is reported and skipped, never deleted. Its
   bytes carry no path or host detail. The codec and validity rules are pure; only `store` does
   I/O, writes atomically (temp file, fsync, rename, dir fsync), and touches only files matching
   `snapshot-<20 digits>.s2w`.
-- `serve/snapshots.rs` (decision 0021, part 1b) is the only snapshot writer: it captures the head
+- `serve/snapshots.rs` (decision 0024, part 1b) is the only snapshot writer: it captures the head
   right after a successful `poll_once` with no `.await` in between, so the bridge's `mark()` and
   the timeline head describe the same moment, refuses a head that moved past that checkpoint,
   encodes the borrowed head under the read lock without cloning it (#179), and writes and fsyncs

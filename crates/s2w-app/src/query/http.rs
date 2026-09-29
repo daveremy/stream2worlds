@@ -156,7 +156,7 @@ impl QueryState {
         Ok(head)
     }
 
-    /// Installs a restored timeline (decision 0021) and wakes subscribers with its head. `serve`
+    /// Installs a restored timeline (decision 0024) and wakes subscribers with its head. `serve`
     /// calls this once, before the bridge starts and before the listener binds, so no reader
     /// or SSE follower can observe the swap.
     ///
@@ -178,7 +178,7 @@ impl QueryState {
     }
 
     /// Runs `f` on the head world and its time bounds under one read lock: what a snapshot
-    /// records (decision 0021). `serve` encodes the snapshot inside `f`, so the head is never
+    /// records (decision 0024). `serve` encodes the snapshot inside `f`, so the head is never
     /// cloned (#179). `f` runs on the caller's thread with the read lock held: other readers
     /// proceed, appends wait. Only the bridge appends, and it calls this between polls.
     ///
@@ -668,7 +668,7 @@ async fn follow(
     loop {
         head.borrow_and_update();
         // Base-relative through `events_after`: after a snapshot restore, index 0 is the
-        // base's offset, never offset 0 (decision 0021).
+        // base's offset, never offset 0 (decision 0024).
         let batch: Vec<TimedEvent> = match state.read(|t| {
             let after = t.events_after(pos)?;
             let take = at.map_or(after.len(), |at| {

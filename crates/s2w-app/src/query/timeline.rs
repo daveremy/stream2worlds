@@ -1,5 +1,5 @@
 //! The served world log: timestamped [`WorldEvent`]s the query API folds on demand, on top of a
-//! base world (empty, or restored from a snapshot, decision 0021).
+//! base world (empty, or restored from a snapshot, decision 0024).
 
 use std::sync::Arc;
 
@@ -35,7 +35,7 @@ pub struct TimeRange {
     /// The latest offset.
     pub head: u64,
     /// The earliest offset this process can serve: 0, or the offset of the snapshot it was
-    /// restored from (decision 0021). Offsets below it answer `offset_before_base`.
+    /// restored from (decision 0024). Offsets below it answer `offset_before_base`.
     pub base: u64,
     /// The first event's timestamp in milliseconds, if any.
     pub first_ts: Option<i64>,

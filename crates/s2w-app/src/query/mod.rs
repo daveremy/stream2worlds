@@ -44,7 +44,7 @@ pub enum QueryError {
         head: u64,
     },
     /// The requested offset is below the timeline's base: this process was restored from a
-    /// snapshot at `base` and no longer holds the events before it (decision 0021).
+    /// snapshot at `base` and no longer holds the events before it (decision 0024).
     #[error(
         "offset {at} is before the snapshot base ({base}); history below it is gone from this \
          process, try an offset of at least {base} (see time.base)"
@@ -56,7 +56,7 @@ pub enum QueryError {
         base: u64,
     },
     /// The requested time is before the snapshot base's last event, so its offset lies inside
-    /// the snapshot, whose per-event times are not kept (decision 0021). Shares the
+    /// the snapshot, whose per-event times are not kept (decision 0024). Shares the
     /// `offset_before_base` code.
     #[error(
         "ts {ts} is before the snapshot base (offset {base}); per-event times below it are gone \

@@ -17,8 +17,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `tests/fixtures/golden-fold-v1.*` is checked by `cargo xtask check` (decision 0005).
 - `FOLD_FIXTURE_HASH` is FNV-1a of those golden files, pinned by `tests/fixture_hash.rs`. When a
   human-approved fold change edits a golden file, update the constant (never the other way
-  round): it invalidates stored world snapshots (decision 0021).
-- `World` serializes with postcard for world snapshots and `world_hash` (decision 0021): no
+  round): it invalidates stored world snapshots (decision 0024).
+- `World` serializes with postcard for world snapshots and `world_hash` (decision 0024): no
   `World` field (or type inside it) may gain `#[serde(default)]`, `skip`, `flatten` or
   `untagged`, and no floats or hash-ordered maps.
 - An entity id is assigned once and never reused, and the fold enforces it: `keys` is

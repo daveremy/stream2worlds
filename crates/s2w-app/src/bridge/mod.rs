@@ -305,7 +305,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
     }
 
     /// A bridge that continues after `position` into `state`, which holds a restored snapshot
-    /// whose world was folded from every event up to and including `position` (decision 0021).
+    /// whose world was folded from every event up to and including `position` (decision 0024).
     /// The caller has validated the snapshot against the log. A verdict store ahead of
     /// `position` is the normal case: the bridge serves those stored verdicts (decision 0012).
     ///
@@ -366,7 +366,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
     }
 
     /// The last log position this bridge consumed and that event's content hash: the checkpoint
-    /// a snapshot records (decision 0021). `None` until this bridge has consumed an event, even
+    /// a snapshot records (decision 0024). `None` until this bridge has consumed an event, even
     /// after [`Self::resume`], which knows the position but not its hash.
     #[must_use]
     pub fn mark(&self) -> Option<(LogPosition, i64)> {

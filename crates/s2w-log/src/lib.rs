@@ -174,7 +174,7 @@ impl LogPosition {
     }
 
     /// Rebuilds a position recorded by [`LogPosition::as_u64`], for snapshot restore only
-    /// (decision 0021). Positions start at 1, so 0 is `None`. The value is not checked against
+    /// (decision 0024). Positions start at 1, so 0 is `None`. The value is not checked against
     /// any log: the caller must validate it (the snapshot's rule 5 reads the event there).
     #[must_use]
     pub const fn from_u64(position: u64) -> Option<Self> {

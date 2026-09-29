@@ -1,4 +1,4 @@
-//! The query contract over a timeline restored from a snapshot (decision 0021): every route
+//! The query contract over a timeline restored from a snapshot (decision 0024): every route
 //! that takes an offset answers 410 `offset_before_base` below the base, `/time` reports the
 //! base, and the SSE stream after the base carries the same deltas the full history would.
 
