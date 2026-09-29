@@ -65,6 +65,10 @@ malformed-ID frames). Every frame with a malformed `Last-Event-ID` immediately s
 the source also forces a fresh connection from the last good cursor rather than continuing to
 read from a stream that keeps producing bad IDs.
 
+2026-09-29 (s2w#174): a third live capture, `crates/s2w-app/tests/fixtures/recorded-10min.raw.sse`
+(34MB / 11,667 frames, same stream, same recording rule), is the scale gates' recorded input.
+Its provenance and licence are in that directory's `README.md`.
+
 ## Redelivery/dedup on `--since` resume is deferred to the log, not this source
 
 The real capture's cursors are timestamp-based for the `eqiad` partition (`codfw` carries
