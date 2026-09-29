@@ -46,9 +46,9 @@ hitting the lock contention the plan had flagged as conditional. It is split: 2b
 is measured at the page's real 5 s cadence before any redesign. PR 2b of #56 is split the same
 way, into `freeze` and `score`.
 
-**Next:** measure 2b-ii at a 5 s viewer cadence. Within about 2× the no-viewer time, review it
-as built and redeploy the demo box for `demo: PASS`; over that, a plan compares a snapshot
-`Arc<World>` handoff with plan §2(b). Review #56 PR 2b (freeze and score), then the pre-registered held-out run.
+**Next:** measure 2b-ii at a 5 s viewer cadence. If the backfill stays within about 2× the no-viewer
+time, review 2b-ii as built and redeploy the demo box for `demo: PASS`. If not, write a plan
+that compares a snapshot `Arc<World>` handoff with plan §2(b). Review #56 PR 2b (freeze and score), then the pre-registered held-out run.
 Measure where the bridge's ~170 MiB over the head world goes
 ([#220](https://github.com/daveremy/stream2worlds/issues/220)).
 
