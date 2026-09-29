@@ -10,8 +10,9 @@
 //! to this check, as are textually scoped `macro_rules!` used across siblings via
 //! `#[macro_use]`. Single-segment names are resolved without local scopes, so a local variable
 //! named like an imported module's item adds that edge, and any single-segment name that does
-//! not resolve is skipped rather than reported. `extern crate foo as bar;` renames are not
-//! followed, so `bar::X` is reported as unresolvable.
+//! not resolve is skipped rather than reported (a first segment from an extern glob, too). `extern crate foo as bar;` renames are not
+//! followed, so `bar::X` is reported as unresolvable; nor is a glob of a renamed enum
+//! (`use Kind as K2; use K2::*;`).
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 

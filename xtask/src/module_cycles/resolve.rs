@@ -30,6 +30,8 @@ pub(super) struct Module {
     /// Paths named in code, as segments, with at least one resolvable segment.
     pub(super) paths: Vec<Vec<String>>,
     generics: BTreeSet<String>,
+    /// Variant names of each enum defined here, for `use path::Enum::*;`.
+    variants: BTreeMap<String, BTreeSet<String>>,
 }
 
 // Prelude names, primitives and the standard crates: a first segment matching one is not ours.
@@ -118,7 +120,11 @@ impl<'ast> Visit<'ast> for Collector<'_> {
         use syn::Item as I;
         let (attrs, name) = match item {
             I::Const(i) => (&i.attrs, Some(&i.ident)),
-            I::Enum(i) => (&i.attrs, Some(&i.ident)),
+            I::Enum(i) => {
+                let names = i.variants.iter().map(|v| ident(&v.ident)).collect();
+                self.this().variants.insert(ident(&i.ident), names);
+                (&i.attrs, Some(&i.ident))
+            }
             I::Fn(i) => (&i.attrs, Some(&i.sig.ident)),
             I::Macro(i) => (&i.attrs, i.ident.as_ref()),
             I::Static(i) => (&i.attrs, Some(&i.ident)),
@@ -244,11 +250,14 @@ impl Resolver<'_> {
                 {
                     return Res::External;
                 }
-                // A generic parameter.
+                // A generic parameter, or a name from an extern glob this module sees, directly or
+                // through a glob of one of our modules (`use crate::prelude::*;`). Only for the
+                // first segment: through a re-export (`crate::m::Foo`) a miss stays loud.
                 None if self
                     .modules
                     .get(m)
-                    .is_some_and(|x| x.generics.contains(name)) =>
+                    .is_some_and(|x| x.generics.contains(name))
+                    || self.sees_extern_glob(m, depth, &mut BTreeSet::new()) =>
                 {
                     return Res::External;
                 }
@@ -291,24 +300,35 @@ impl Resolver<'_> {
                 return Some(self.path(m, path, depth + 1));
             }
         }
-        // Globs of modules first; then, as a last resort, a glob of an enum (its variants live
-        // in the enum's module) or of an extern crate's module. Both over-approximate: the name
-        // may not be in that glob, but the glob's own path is already an edge of this module.
-        let globs: Vec<Res> = module
-            .uses
-            .iter()
-            .filter_map(|u| match u {
-                Use::Glob(path) => Some(self.path(m, path, depth + 1)),
-                Use::Named(..) => None,
-            })
-            .collect();
-        globs
-            .iter()
-            .find_map(|g| match g {
-                Res::Module(g) if g != m => self.lookup(g, name, depth + 1),
+        // Globs of modules and of enums (a variant lives in the enum's module). An extern glob's
+        // names are unknown, so it matches nothing here; `path` handles it for first segments.
+        module.uses.iter().find_map(|u| {
+            let Use::Glob(path) = u else { return None };
+            match self.path(m, path, depth + 1) {
+                Res::Module(g) if &g != m => self.lookup(&g, name, depth + 1),
+                Res::Item(g) => {
+                    let variants = self.modules.get(&g)?.variants.get(path.last()?)?;
+                    variants.contains(name).then_some(Res::Item(g))
+                }
                 _ => None,
-            })
-            .or_else(|| globs.iter().find(|g| matches!(g, Res::Item(_))).cloned())
-            .or_else(|| globs.contains(&Res::External).then_some(Res::External))
+            }
+        })
+    }
+    /// Whether `m` has a glob of an extern crate's module, directly or through globs of ours.
+    fn sees_extern_glob(&self, m: &Mod, depth: usize, seen: &mut BTreeSet<Mod>) -> bool {
+        if depth > DEPTH || !seen.insert(m.clone()) {
+            return false;
+        }
+        let Some(module) = self.modules.get(m) else {
+            return false;
+        };
+        module.uses.iter().any(|u| match u {
+            Use::Glob(path) => match self.path(m, path, depth + 1) {
+                Res::External => true,
+                Res::Module(g) => self.sees_extern_glob(&g, depth + 1, seen),
+                _ => false,
+            },
+            Use::Named(..) => false,
+        })
     }
 }

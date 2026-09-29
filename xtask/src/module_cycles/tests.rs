@@ -218,3 +218,67 @@ fn an_extern_glob_through_an_internal_prelude_is_not_a_finding() {
     ]);
     assert!(f.is_empty(), "{f:?}");
 }
+
+#[test]
+fn an_enum_glob_matches_only_its_variants() {
+    // `m` re-exports `Kind`'s variants: `crate::m::K` resolves, `crate::m::Nope` does not. An
+    // enum glob that matched any name would silently resolve `Nope` to `other`.
+    let f = findings(&[
+        (
+            "lib.rs",
+            "mod other;
+mod m;
+mod z;
+",
+        ),
+        (
+            "other.rs",
+            "pub enum Kind { K }
+",
+        ),
+        (
+            "m.rs",
+            "pub use crate::other::Kind::*;
+",
+        ),
+        (
+            "z.rs",
+            "fn g() { let _ = crate::m::K; let _ = crate::m::Nope; }
+",
+        ),
+    ]);
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert!(
+        f[0].contains("demo::z: xtask cannot resolve `crate::m::Nope`"),
+        "{f:?}"
+    );
+}
+
+#[test]
+fn mutual_globs_are_a_cycle() {
+    let f = findings(&[
+        ("lib.rs", "mod a;\nmod b;\n"),
+        ("a.rs", "pub use crate::b::*;\npub struct A;\n"),
+        ("b.rs", "pub use crate::a::*;\npub struct B;\n"),
+    ]);
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert!(f[0].contains("module cycle in demo::a, demo::b"), "{f:?}");
+}
+
+#[test]
+fn a_miss_through_a_module_with_an_extern_glob_stays_loud() {
+    // `Foo` is macro-generated, so invisible; `m`'s `std::fmt::*` glob must not absorb it.
+    let f = findings(&[
+        ("lib.rs", "mod m;\nmod n;\n"),
+        (
+            "m.rs",
+            "use std::fmt::*;\nmacro_rules! def { () => { pub struct Foo; } }\ndef!();\n",
+        ),
+        ("n.rs", "use crate::m::Foo;\n"),
+    ]);
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert!(
+        f[0].contains("demo::n: xtask cannot resolve `crate::m::Foo`"),
+        "{f:?}"
+    );
+}
