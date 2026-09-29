@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use s2w_app::proposals::{
-    Recorded, Seat, check_reviewer, parse_outcome, read_view, record_decision,
+    RouteAfter, Seat, check_reviewer, parse_outcome, read_view, record_decision, route_after,
 };
 use s2w_app::query::{ActorDto, DecisionDto, GradeDto, ProposalDto, QueryError, TallyDto};
 use s2w_app::routes;
@@ -157,12 +157,13 @@ fn parse_decide(args: &[String]) -> Result<DecideArgs, String> {
     })
 }
 
-fn format_of(json: bool) -> Format {
-    if json { Format::Json } else { Format::Human }
-}
-
-/// Prints a data error (exit 1) with a next step for the human rendering.
+/// Prints a data error (exit 1): under `--json`, the `{"error", "message"}` body HTTP and MCP
+/// serve for the same error; otherwise one line with a next step where there is one.
 fn failure(json: bool, log_dir: &Path, error: &QueryError) -> ExitCode {
+    if json {
+        eprintln!("{}", error.json_body());
+        return ExitCode::FAILURE;
+    }
     let hint = match error {
         QueryError::UnknownProposal { .. } => Some(format!(
             "s2w proposals list --log-dir {}",
@@ -170,12 +171,7 @@ fn failure(json: bool, log_dir: &Path, error: &QueryError) -> ExitCode {
         )),
         _ => None,
     };
-    output::print_failure(
-        format_of(json),
-        error.code(),
-        &error.to_string(),
-        hint.as_deref(),
-    )
+    output::print_failure(error.code(), &error.to_string(), hint.as_deref())
 }
 
 fn run_list(args: &ReadArgs) -> ExitCode {
@@ -184,12 +180,23 @@ fn run_list(args: &ReadArgs) -> ExitCode {
         Err(error) => return failure(args.json, &args.log_dir, &error),
     };
     if args.json {
-        return print_json(serde_json::to_string(&view));
+        return print_json(&args.log_dir, serde_json::to_string(&view));
     }
     if view.proposals.is_empty() {
         println!("no proposals in {}", args.log_dir.display());
         return ExitCode::SUCCESS;
     }
+    // Resolve routes before printing anything, so a failed read never leaves partial output.
+    let resolution = match routes::load(&args.log_dir) {
+        Ok(resolution) => resolution,
+        Err(error) => {
+            return failure(
+                args.json,
+                &args.log_dir,
+                &QueryError::Storage(error.to_string()),
+            );
+        }
+    };
     for proposal in &view.proposals {
         println!("{}", proposal_line(proposal));
         for decision in view
@@ -200,19 +207,10 @@ fn run_list(args: &ReadArgs) -> ExitCode {
             println!("  {}", decision_line(decision));
         }
     }
-    match routes::load(&args.log_dir) {
-        Ok(resolution) => {
-            for line in routes::report_lines(&resolution) {
-                println!("{line}");
-            }
-            ExitCode::SUCCESS
-        }
-        Err(error) => failure(
-            args.json,
-            &args.log_dir,
-            &QueryError::Storage(error.to_string()),
-        ),
+    for line in routes::report_lines(&resolution) {
+        println!("{line}");
     }
+    ExitCode::SUCCESS
 }
 
 fn run_grade(args: &ReadArgs) -> ExitCode {
@@ -221,7 +219,7 @@ fn run_grade(args: &ReadArgs) -> ExitCode {
         Err(error) => return failure(args.json, &args.log_dir, &error),
     };
     if args.json {
-        return print_json(serde_json::to_string(&view.grades));
+        return print_json(&args.log_dir, serde_json::to_string(&view.grades));
     }
     if view.grades.is_empty() {
         println!("no proposals in {}", args.log_dir.display());
@@ -246,10 +244,25 @@ fn run_decide(args: &DecideArgs) -> ExitCode {
         Ok(recorded) => recorded,
         Err(error) => return failure(args.json, &args.log_dir, &error),
     };
+    // The decision is stored: a failed route read-back is a warning, never exit 1, so nobody
+    // retries a write that already happened.
+    let route = recorded.mapping_source.as_ref().and_then(|source| {
+        match route_after(&args.log_dir, source) {
+            Ok(route) => Some(route),
+            Err(error) => {
+                eprintln!(
+                    "s2w: warning: decision recorded, but reading the route back failed: {error}"
+                );
+                None
+            }
+        }
+    });
     if args.json {
-        return print_json(serde_json::to_string(&recorded));
+        let body = serde_json::json!({ "decision": recorded.decision, "route": route });
+        println!("{body}");
+        return ExitCode::SUCCESS;
     }
-    for line in decide_lines(&recorded) {
+    for line in decide_lines(&recorded.decision, route.as_ref()) {
         println!("{line}");
     }
     ExitCode::SUCCESS
@@ -257,17 +270,16 @@ fn run_decide(args: &DecideArgs) -> ExitCode {
 
 /// Prints an already-serialized value; `serde_json` is called at each site so this crate needs
 /// no direct `serde` dependency.
-fn print_json(rendered: serde_json::Result<String>) -> ExitCode {
+fn print_json(log_dir: &Path, rendered: serde_json::Result<String>) -> ExitCode {
     match rendered {
         Ok(text) => {
             println!("{text}");
             ExitCode::SUCCESS
         }
-        Err(error) => output::print_failure(
-            Format::Json,
-            "storage",
-            &format!("could not render JSON: {error}"),
-            None,
+        Err(error) => failure(
+            true,
+            log_dir,
+            &QueryError::Storage(format!("could not render JSON: {error}")),
         ),
     }
 }
@@ -321,13 +333,12 @@ fn grade_line(grade: &GradeDto) -> String {
     )
 }
 
-fn decide_lines(recorded: &Recorded) -> Vec<String> {
-    let decision = &recorded.decision;
+fn decide_lines(decision: &DecisionDto, route: Option<&RouteAfter>) -> Vec<String> {
     let mut lines = vec![format!(
         "recorded decision {} on proposal {}: {} {}, basis: {}",
         decision.seq, decision.proposal_id, decision.decider, decision.outcome, decision.basis
     )];
-    if let Some(route) = &recorded.route {
+    if let Some(route) = route {
         lines.push(match (&route.mapping, &route.proposal_id) {
             (Some(mapping), Some(proposal)) => format!(
                 "source '{}' now runs mapping {mapping} from proposal {proposal}",

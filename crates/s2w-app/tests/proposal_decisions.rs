@@ -5,7 +5,9 @@
 
 use std::path::PathBuf;
 
-use s2w_app::proposals::{Seat, check_reviewer, read_view, record_decision};
+use s2w_app::proposals::{
+    Recorded, RouteAfter, Seat, check_reviewer, read_view, record_decision, route_after,
+};
 use s2w_app::query::{GradeDto, QueryError};
 use s2w_app::routes::{ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS};
 use s2w_log::{
@@ -72,6 +74,15 @@ fn envelope(mapping: StreamMapping) -> Fallible<Vec<u8>> {
     })?)
 }
 
+/// What the decided mapping's source runs after `recorded`'s write.
+fn route_of(dir: &std::path::Path, recorded: &Recorded) -> Fallible<RouteAfter> {
+    let source = recorded
+        .mapping_source
+        .as_ref()
+        .ok_or("no mapping source")?;
+    Ok(route_after(dir, source)?)
+}
+
 /// One grade row's tallies as plain numbers: (human, agent, evidence, policy_applied).
 fn tallies(grade: &GradeDto) -> [(u64, u64); 4] {
     [
@@ -96,7 +107,7 @@ fn a_human_decision_moves_the_human_tally_and_nothing_else() -> TestResult {
     assert_eq!(recorded.decision.decider, "human");
     assert_eq!(recorded.decision.outcome, "reject");
     assert_eq!(recorded.decision.basis, "reviewer=dave; looked");
-    assert_eq!(recorded.route, None);
+    assert_eq!(recorded.mapping_source, None);
     let after = read_view(&dir.0)?;
     assert_eq!(after.proposals, before.proposals);
     let [human_before, agent_before, evidence_before, _] =
@@ -215,7 +226,7 @@ fn an_invalid_mapping_envelope_can_be_rejected_but_not_accepted() -> TestResult 
             .is_empty()
     );
     let recorded = record_decision(&dir.0, &human("dave"), "bad", Outcome::Reject, "why")?;
-    assert_eq!(recorded.route, None);
+    assert_eq!(recorded.mapping_source, None);
     Ok(())
 }
 
@@ -242,23 +253,20 @@ fn a_human_reject_revokes_the_effective_mapping_back_then_to_unrouted() -> TestR
 
     // Revoking the newest goes back to the older accepted mapping, not dark.
     let back = record_decision(&dir.0, &human("dave"), "m2", Outcome::Reject, "wrong")?;
-    let route = back.route.ok_or("no route after")?;
+    let route = route_of(&dir.0, &back)?;
     assert_eq!(route.source, SOURCE);
     assert_eq!(route.mapping.as_deref(), Some(identity_a.as_str()));
     assert_eq!(route.proposal_id.as_deref(), Some("m1"));
 
     // Revoking that one too leaves the source unrouted.
     let dark = record_decision(&dir.0, &human("dave"), "m1", Outcome::Reject, "wrong")?;
-    let route = dark.route.ok_or("no route after")?;
+    let route = route_of(&dir.0, &dark)?;
     assert_eq!(route.source, SOURCE);
     assert_eq!((route.mapping, route.proposal_id), (None, None));
 
     // A later human accept lifts the revoke.
     let again = record_decision(&dir.0, &human("dave"), "m1", Outcome::Accept, "fine")?;
-    assert_eq!(
-        again.route.ok_or("no route after")?.proposal_id.as_deref(),
-        Some("m1")
-    );
+    assert_eq!(route_of(&dir.0, &again)?.proposal_id.as_deref(), Some("m1"));
     Ok(())
 }
 

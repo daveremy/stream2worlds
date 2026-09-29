@@ -110,17 +110,6 @@ impl ReadOnlySqliteProposalStore {
         summaries_from(&self.connection)
     }
 
-    /// Whether a proposal with this id is stored.
-    ///
-    /// # Errors
-    /// Returns storage errors.
-    pub fn has_proposal(&self, id: &str) -> Result<bool, LogError> {
-        self.connection
-            .prepare("SELECT 1 FROM proposals WHERE id = ?1")
-            .and_then(|mut statement| statement.exists([id]))
-            .map_err(map_sqlite)
-    }
-
     /// Reads one proposal by id, checking payload integrity; `None` when no such id is stored.
     ///
     /// # Errors

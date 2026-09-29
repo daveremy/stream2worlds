@@ -31,14 +31,16 @@ pub enum Seat {
     },
 }
 
-/// A stored decision and, for a `stream-mapping` proposal, what its source runs after it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// A stored decision and, for a `stream-mapping` proposal, the source it may reroute.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recorded {
     /// The appended row.
     pub decision: DecisionDto,
-    /// The route of the decided proposal's source after the write; `None` for any other class,
-    /// or for a mapping proposal whose payload does not decode (it never routes).
-    pub route: Option<RouteAfter>,
+    /// The source the decided `stream-mapping` proposal names; `None` for any other class, or
+    /// for a mapping proposal whose payload does not decode (it never routes). Pass it to
+    /// [`route_after`] to see what the source runs now. That read-back is separate because the
+    /// decision is already stored: a failed read must not look like a failed write.
+    pub mapping_source: Option<SourceId>,
 }
 
 /// One source's route, read back from the store after a decision.
@@ -147,6 +149,8 @@ pub fn record_decision(
     let (decider, stored_basis) = match seat {
         Seat::Agent => (Decider::Agent, basis.to_owned()),
         Seat::Human { reviewer } => {
+            // The CLI checks this at parse time for a usage exit; the service checks again so no
+            // caller can store a reviewer the `reviewer=<id>; ` prefix cannot split.
             check_reviewer(reviewer)?;
             (Decider::Human, format!("reviewer={reviewer}; {basis}"))
         }
@@ -174,12 +178,9 @@ pub fn record_decision(
         decided_at_ms: now_ms()?,
     })?;
     drop(store);
-    let route = mapping_source
-        .map(|source| route_after(log_dir, &source))
-        .transpose()?;
     Ok(Recorded {
         decision: DecisionDto::from(&stored),
-        route,
+        mapping_source,
     })
 }
 
@@ -209,8 +210,11 @@ fn mapping_source(
     }
 }
 
-/// Reads back what `source` runs after a write.
-fn route_after(log_dir: &Path, source: &SourceId) -> Result<RouteAfter, QueryError> {
+/// What `source` runs now, resolved from `log_dir`'s stored mappings and decisions.
+///
+/// # Errors
+/// [`QueryError::Storage`] if the store cannot be read.
+pub fn route_after(log_dir: &Path, source: &SourceId) -> Result<RouteAfter, QueryError> {
     let resolution =
         routes::load(log_dir).map_err(|error| QueryError::Storage(error.to_string()))?;
     let resolved = resolution.routes.get(source);

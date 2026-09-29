@@ -841,17 +841,3 @@ fn agent_latest_sequence_wins_on_correction() -> TestResult {
     );
     Ok(())
 }
-
-#[test]
-fn read_only_has_proposal_matches_stored_ids_only() -> TestResult {
-    let directory = TestDirectory::new("proposal-has")?;
-    let mut writer = SqliteProposalStore::open(directory.path())?;
-    let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
-    assert!(!reader.has_proposal("p")?);
-    populated(&mut writer)?;
-    assert!(reader.has_proposal("p")?);
-    assert!(reader.has_proposal("ungraded")?);
-    assert!(!reader.has_proposal("P")?);
-    assert!(!reader.has_proposal("")?);
-    Ok(())
-}
