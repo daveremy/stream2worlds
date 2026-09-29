@@ -329,7 +329,8 @@ fn the_committed_sample_passes_the_selftest() {
 }
 
 /// Every key file `research/h-measure/keys.toml` pins parses as key-spec v0, validates, and
-/// yields an oracle mapping, so a malformed key fails here rather than at the first score.
+/// yields an oracle mapping, so a malformed key fails here rather than at the first score. The
+/// sha256 pins are checked by `h-measure score` (PR 2b), not here: xtask has no hash dependency.
 #[test]
 fn every_pinned_key_file_is_a_valid_key() {
     #[derive(serde::Deserialize)]
@@ -340,10 +341,7 @@ fn every_pinned_key_file_is_a_valid_key() {
     struct Pin {
         file: String,
     }
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask sits in the workspace root")
-        .join("research/h-measure");
+    let dir = crate::workspace_root().join("research/h-measure");
     let text = std::fs::read_to_string(dir.join("keys.toml")).expect("keys.toml reads");
     let pins: Pins = toml::from_str(&text).expect("keys.toml parses");
     assert!(!pins.key.is_empty(), "keys.toml pins no key");

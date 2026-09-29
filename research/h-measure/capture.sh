@@ -15,7 +15,9 @@ replay="$here/../scripts/eventstreams_replay.py"
 stream=mediawiki.recentchange
 mkdir -p "$out"
 
-capture() { # name events since
+# capture <name> <events> <since>: prints the stanza, then sets next_since (6 h after the last
+# event) for the following call.
+capture() {
   local name=$1 events=$2 from=$3 to summary first last file
   to=$(date -u -d "$from + 3 hours" +%Y-%m-%dT%H:%M:%SZ)
   file="$out/$name.raw.sse"
@@ -31,10 +33,10 @@ capture() { # name events since
   printf '\n[corpus.%s]\nfile = "%s.raw.sse"\nstream = "%s"\nsince = "%s"\nuntil = "%s"\nfirst_dt = "%s"\nlast_dt = "%s"\nevents = %s\nbytes = %s\nsha256 = "%s"\n' \
     "$name" "$name" "$stream" "$from" "$to" "$first" "$last" "$n" \
     "$(stat -c %s "$file")" "$(sha256sum "$file" | cut -d' ' -f1)"
-  next=$(date -u -d "$last + 6 hours" +%Y-%m-%dT%H:%M:%SZ)
+  next_since=$(date -u -d "$last + 6 hours" +%Y-%m-%dT%H:%M:%SZ)
 }
 
 capture dev 200000 "$since"
-capture heldout 100000 "$next"
-capture heldout-2 100000 "$next"
-capture reserved 100000 "$next"
+capture heldout 100000 "$next_since"
+capture heldout-2 100000 "$next_since"
+capture reserved 100000 "$next_since"

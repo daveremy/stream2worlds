@@ -6,9 +6,10 @@ usage: eventstreams_replay.py [--all-wikis] [--raw-sse] [--max-events N]
 
 Default (the revert pilot, research 0004): keeps enwiki only and writes parsed NDJSON.
 --all-wikis   keep every wiki (no filter).
---raw-sse     write each kept frame's lines verbatim plus the blank line that ends it, under a
-              `:` comment header naming the capture, so `s2w_sources::replay_frames` reads the
-              file exactly as the live SSE adapter reads the stream (s2w#56).
+--raw-sse     write each kept frame's lines as received (UTF-8, LF line ends) plus the blank
+              line that ends it, under a `:` comment header naming the capture, so
+              `s2w_sources::replay_frames` reads the file as the live SSE adapter reads the
+              stream (s2w#56).
 --max-events  stop after N kept events (0 = no limit); `until` still ends the window.
 
 An event past `until` is skipped; the replay stops once every topic in the stream's id has
@@ -17,7 +18,7 @@ passed `until` (or at --max-events).
 Prints one summary line on stdout when done:
   done <events> events <reconnects> reconnects first_dt=<min dt> last_dt=<max dt>
 """
-import argparse, datetime as dt, json, sys, time, urllib.request
+import argparse, datetime as dt, http.client, json, sys, time, urllib.error, urllib.request
 
 UA = 's2w-research/0.1 (davidlremy@gmail.com)'
 
@@ -39,11 +40,22 @@ def event_wiki(ev):
 
 
 def topics(frame_id):
-    """The topics an EventStreams id assigns (it lists one cursor per datacenter topic)."""
+    """The topics an EventStreams id assigns (one cursor per datacenter topic), or None when the
+    id does not read, so an unreadable id never counts as every topic being done."""
     try:
-        return {cursor['topic'] for cursor in json.loads(frame_id)}
+        found = {cursor['topic'] for cursor in json.loads(frame_id)}
     except Exception:
-        return set()
+        return None
+    return found or None
+
+
+def after(edt, until_t):
+    return bool(edt) and dt.datetime.fromisoformat(edt.replace('Z', '+00:00')) > until_t
+
+
+# Only a dropped or failed connection is retried; anything else (a bad timestamp, a full disk)
+# stops the capture instead of reconnecting forever at the same Last-Event-ID.
+NETWORK_ERRORS = (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError)
 
 
 def main(argv):
@@ -58,8 +70,8 @@ def main(argv):
         if args.raw_sse:
             started = dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
             f.write(f': captured {started} via research/scripts/eventstreams_replay.py\n')
-            f.write(f': {" ".join(sys.argv[1:])}\n')
-            f.write(': real traffic from EventStreams history, byte-for-byte frames, IDs included\n\n')
+            f.write(f': {" ".join(argv)}\n')
+            f.write(': real traffic from EventStreams history; each kept frame\'s lines as received, IDs included (UTF-8, LF line ends)\n\n')
         while True:
             url = f'https://stream.wikimedia.org/v2/stream/{args.stream}'
             if last_id is None:
@@ -70,61 +82,62 @@ def main(argv):
             done = False
             try:
                 with urllib.request.urlopen(req, timeout=60) as r:
-                    data = None
+                    data = []  # the frame's data lines, joined with \n as replay_frames does
                     pending_id = None  # committed to last_id only once its frame is fully processed
-                    lines = []  # the frame's raw lines, for --raw-sse
+                    lines = []  # the frame's lines, for --raw-sse
                     for raw in r:
                         line = raw.decode('utf-8', 'replace').rstrip('\n').rstrip('\r')
                         if line.startswith(':'):
                             continue
                         if line != '':
                             lines.append(line)
-                        if line.startswith('id: '):
-                            pending_id = line[4:]
-                        elif line.startswith('data: '):
-                            data = line[6:]
-                        elif line == '':
-                            frame, data = data, None
-                            frame_id, pending_id = pending_id, None
-                            frame_lines, lines = lines, []
-                            if frame is None:
-                                continue
-                            try:
-                                ev = json.loads(frame)
-                            except Exception:
-                                if frame_id:
-                                    last_id = frame_id
-                                continue
-                            if not args.all_wikis and event_wiki(ev) != 'enwiki':
-                                if frame_id:
-                                    last_id = frame_id
-                                continue
-                            edt = ev.get('meta', {}).get('dt')
-                            if edt and dt.datetime.fromisoformat(edt.replace('Z', '+00:00')) > until_t:
-                                # A history replay delivers each datacenter topic in turn, not
-                                # interleaved by time (measured 2026-09-29): one topic passing
-                                # `until` ends only that topic. Stop once every topic has.
-                                past_until.add(ev.get('meta', {}).get('topic'))
-                                if frame_id:
-                                    last_id = frame_id
-                                if topics(frame_id) <= past_until:
-                                    done = True
-                                    break
-                                continue
-                            if args.raw_sse:
-                                f.write('\n'.join(frame_lines) + '\n\n')
-                            else:
-                                f.write(json.dumps(ev) + '\n')
-                            n += 1
-                            if edt:
-                                first_dt = min(first_dt or edt, edt)
-                                last_dt = max(last_dt or edt, edt)
-                            if frame_id:
-                                last_id = frame_id
-                            if args.max_events and n >= args.max_events:
+                            field, _, value = line.partition(':')
+                            value = value[1:] if value.startswith(' ') else value
+                            if field == 'id':
+                                pending_id = value
+                            elif field == 'data':
+                                data.append(value)
+                            continue
+                        frame = '\n'.join(data) if data else None
+                        frame_id, pending_id, data = pending_id, None, []
+                        frame_lines, lines = lines, []
+                        if frame is None:
+                            continue
+                        try:
+                            ev = json.loads(frame)
+                        except Exception:
+                            ev = None
+                        if frame_id:
+                            last_id = frame_id
+                        if not isinstance(ev, dict):
+                            continue
+                        meta = ev.get('meta') or {}
+                        edt = meta.get('dt')
+                        if after(edt, until_t):
+                            # A history replay delivers each datacenter topic in turn, not
+                            # interleaved by time (measured 2026-09-29): one topic passing
+                            # `until` ends only that topic. Stop once every topic has.
+                            if meta.get('topic'):
+                                past_until.add(meta['topic'])
+                            assigned = topics(frame_id)
+                            if assigned is not None and assigned <= past_until:
                                 done = True
                                 break
-            except Exception as e:
+                            continue
+                        if not args.all_wikis and event_wiki(ev) != 'enwiki':
+                            continue
+                        if args.raw_sse:
+                            f.write('\n'.join(frame_lines) + '\n\n')
+                        else:
+                            f.write(json.dumps(ev) + '\n')
+                        n += 1
+                        if edt:
+                            first_dt = min(first_dt or edt, edt)
+                            last_dt = max(last_dt or edt, edt)
+                        if args.max_events and n >= args.max_events:
+                            done = True
+                            break
+            except NETWORK_ERRORS as e:
                 print('reconnect', reconnects, repr(e)[:120], flush=True)
             if done:
                 break
