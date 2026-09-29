@@ -203,7 +203,9 @@ impl<'w> Graph<'w> {
         }
         let mut keys: BTreeMap<EntityId, Vec<&'w str>> = BTreeMap::new();
         for (key, &id) in world.keys() {
-            keys.entry(world.resolve(id)).or_default().push(key.as_str());
+            keys.entry(world.resolve(id))
+                .or_default()
+                .push(key.as_str());
         }
         let cap = world.hub_in_degree_cap();
         // A hub is any entity a raw target resolves to whose own counters tripped the cap.
@@ -276,7 +278,9 @@ impl<'w> Graph<'w> {
         if params.hops > MAX_HOPS {
             return Err(QueryError::HopsTooLarge { hops: params.hops });
         }
-        let start = self.find(raw).ok_or(QueryError::UnknownEntity { id: raw })?;
+        let start = self
+            .find(raw)
+            .ok_or(QueryError::UnknownEntity { id: raw })?;
         Ok(Some(self.neighbourhood(start, params.hops)))
     }
 
@@ -570,8 +574,12 @@ impl<'w> HeadView<'w> {
                 let graph = Graph::new(world);
                 let subset = graph.subset(params)?;
                 let keep = |id: &EntityId| subset.as_ref().is_none_or(|s| s.contains(id));
-                let mut nodes: Vec<EntityId> =
-                    graph.members.keys().copied().filter(|id| keep(id)).collect();
+                let mut nodes: Vec<EntityId> = graph
+                    .members
+                    .keys()
+                    .copied()
+                    .filter(|id| keep(id))
+                    .collect();
                 nodes.sort_by_cached_key(|&id| IdDigits::new(id));
                 let mut links: Vec<(EntityId, EntityId, &'w str, u64)> = graph
                     .links

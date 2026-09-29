@@ -127,7 +127,9 @@ impl tokio_stream::Stream for ChunkStream {
             }
             Poll::Ready(None) => {
                 this.done = true;
-                Poll::Ready(Some(Err(io::Error::other("the body ended before it was complete"))))
+                Poll::Ready(Some(Err(io::Error::other(
+                    "the body ended before it was complete",
+                ))))
             }
         }
     }

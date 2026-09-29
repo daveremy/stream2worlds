@@ -17,15 +17,19 @@
 //!   for decision 0026's history cap, with no viewer connected.
 //! - `queries`: after the `timeline` fold, a `/world` read at the head split into its parts,
 //!   each its own peak window: the projection alone (`view_at`, which borrows the head) and the
-//!   JSON serialization alone; then one `/diff` from the head to itself. Before #216 PR 2a each
-//!   read also copied the head world, the size `world` reports. (Not measured here: a freed
-//!   copy's pages stay resident and pad whichever window comes next.)
+//!   JSON serialization alone; then the streamed `/world` through the real router (#216 PR 2b,
+//!   no owned view and no whole body), and one `/diff` from the head to itself. Before #216
+//!   PR 2a each read also copied the head world, the size `world` reports. (Not measured here:
+//!   a freed copy's pages stay resident and pad whichever window comes next.)
 //! - `viewer`: the `bridge` backfill with a reader thread attached before the first poll,
 //!   issuing one `/world` and one `/diff?from=<head>&to=<head>` through the real router every
 //!   [`VIEWER_TICK`] and draining each body, as a page does (at 1 s, the page's old rate, a
-//!   worst case). It reports the whole-process peak against [`VIEWER_PEAK_LIMIT`] and the
-//!   slowest `/world`, an upper bound on how long one read held the fold's lock (it also counts
-//!   the wait for an append and the JSON serialized after release).
+//!   worst case). It asserts the whole-process peak stays under [`VIEWER_PEAK_LIMIT`], and
+//!   reports the slowest `/world` (an upper bound on how long one read held the fold's lock:
+//!   the guard is held until the last chunk is queued, and the reader drains as it goes) and
+//!   the slowest `poll_once`, which is where the fold waits for that lock.
+//!
+//! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants.
 //!
 //! The fixture (11,667 events) is cycled to 1.5x10^5 with every string leaf suffixed by the
 //! cycle number (`fresh`, as in `discover_volume.rs`), so every cycle observes new entities:
@@ -48,6 +52,7 @@ mod backfill {
 
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use tokio_stream::StreamExt;
     use tower::ServiceExt;
 
     use s2w_app::bridge::{Bridge, BridgeConfig, EngineRegistry, Route};
@@ -64,6 +69,7 @@ mod backfill {
     const EVENTS: usize = 150_000;
     const CAP: u64 = s2w_app::DEFAULT_HUB_IN_DEGREE_CAP;
     const VARIANT: &str = "S2W_BACKFILL_MEMORY_VARIANT";
+    const VARIANTS: &str = "S2W_BACKFILL_MEMORY_VARIANTS";
     const LOG_DIR: &str = "S2W_BACKFILL_MEMORY_LOG";
     const MAPPING_FILE: &str = "mapping.json";
     const SOURCE_FILE: &str = "source";
@@ -261,11 +267,46 @@ mod backfill {
             drop((json, view));
             let before = reset_peak();
             let started = Instant::now();
+            let len = drain_world(&state);
+            report(
+                "query /world streamed",
+                before,
+                started,
+                &format!(", body {}", mib(len)),
+            );
+            let before = reset_peak();
+            let started = Instant::now();
             // Past the history cap, `/diff` serves the head only (decision 0026).
             let diff = state.diff(head, Some(head), None).unwrap();
             drop(diff);
             report("query /diff head..head", before, started, "");
         }
+    }
+
+    /// One `/world` through the real router, its body drained chunk by chunk and counted, never
+    /// held whole.
+    fn drain_world(state: &QueryState) -> usize {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let res = router(state.clone())
+                .oneshot(
+                    Request::get("/worlds/default/world")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "/world");
+            let mut body = res.into_body().into_data_stream();
+            let mut len = 0;
+            while let Some(chunk) = body.next().await {
+                len += chunk.unwrap().len();
+            }
+            len
+        })
     }
 
     fn populate(events: &[RawEvent], directory: &PathBuf) {
@@ -307,10 +348,14 @@ mod backfill {
                     .await
                     .unwrap();
                 let status = res.status();
-                let body = axum::body::to_bytes(res.into_body(), usize::MAX)
-                    .await
-                    .unwrap();
-                (status, body.len())
+                // Chunk by chunk, as a streaming client reads: the reader never holds the
+                // whole body, so the peak is the server's.
+                let mut body = res.into_body().into_data_stream();
+                let mut len = 0;
+                while let Some(chunk) = body.next().await {
+                    len += chunk.unwrap().len();
+                }
+                (status, len)
             })
         };
         while !stop.load(Ordering::Relaxed) {
@@ -334,7 +379,7 @@ mod backfill {
         seen
     }
 
-    /// Prints what the `viewer` reader saw against the whole-process `peak`.
+    /// Prints what the `viewer` reader saw and asserts the whole-process `peak`.
     fn report_viewer(viewed: &Viewed, peak: usize) {
         eprintln!(
             "viewer: {} /world, {} /diff ({} refused), largest body {}, slowest /world {} ms",
@@ -345,17 +390,28 @@ mod backfill {
             viewed.slowest_world.as_millis()
         );
         assert!(viewed.worlds > 0, "the viewer never read the world");
-        // Reported, not asserted: stage 1 (#216 PR 2a) removes the world copy but still builds
-        // the whole view and its JSON body; the streamed `/world` (PR 2b) turns this on.
-        eprintln!(
-            "viewer: peak {} the {} finish line",
-            if peak < VIEWER_PEAK_LIMIT {
-                "under"
-            } else {
-                "OVER"
-            },
+        assert!(
+            peak < VIEWER_PEAK_LIMIT,
+            "serve peak with a viewer {} is over {}",
+            mib(peak),
             mib(VIEWER_PEAK_LIMIT)
         );
+    }
+
+    /// Polls `bridge` to the end of its log: raw events consumed, and the slowest poll (where
+    /// the fold waits for a reader's lock).
+    fn poll_to_end(bridge: &mut Bridge<SqliteEventLog, SqliteVerdictStore>) -> (u64, Duration) {
+        let mut consumed = 0;
+        let mut slowest = Duration::ZERO;
+        loop {
+            let poll = Instant::now();
+            let report = bridge.poll_once().unwrap();
+            slowest = slowest.max(poll.elapsed());
+            if report.stats.consumed == 0 {
+                return (consumed, slowest);
+            }
+            consumed += report.stats.consumed;
+        }
     }
 
     /// The `bridge` child starts like a serve process: it reads the mapping and the source
@@ -388,14 +444,7 @@ mod backfill {
             let (state, stop) = (state.clone(), Arc::clone(&stop));
             std::thread::spawn(move || viewer(&state, &stop))
         });
-        let mut consumed = 0;
-        loop {
-            let report = bridge.poll_once().unwrap();
-            if report.stats.consumed == 0 {
-                break;
-            }
-            consumed += report.stats.consumed;
-        }
+        let (consumed, slowest_poll) = poll_to_end(&mut bridge);
         stop.store(true, Ordering::Relaxed);
         let viewed = reader.map(|r| r.join().unwrap());
         let (_, head, _) = state.bounds().unwrap();
@@ -408,9 +457,10 @@ mod backfill {
         );
         let peak = status("VmHWM:");
         eprintln!(
-            "{name}: whole-process peak {} (baseline {} before the bridge)",
+            "{name}: whole-process peak {} (baseline {} before the bridge), slowest poll_once {} ms",
             mib(peak),
-            mib(before)
+            mib(before),
+            slowest_poll.as_millis()
         );
         let Some(viewed) = viewed else {
             assert!(
@@ -444,7 +494,14 @@ mod backfill {
         .unwrap();
         std::fs::write(directory.join(SOURCE_FILE), events[0].source.as_str()).unwrap();
         eprintln!("log populated in {:.1} s", started.elapsed().as_secs_f64());
+        let only = std::env::var(VARIANTS).ok();
         for variant in ["world", "timeline", "queries", "bridge", "viewer"] {
+            if only
+                .as_deref()
+                .is_some_and(|only| !only.split(',').any(|v| v == variant))
+            {
+                continue;
+            }
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["backfill::child", "--exact", "--ignored", "--nocapture"])
                 .env(VARIANT, variant)

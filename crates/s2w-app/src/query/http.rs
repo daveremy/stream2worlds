@@ -570,7 +570,10 @@ async fn world(
         }
         Ok(Ok(WorldAnswer::Body(tag))) => (
             [
-                (header::CONTENT_TYPE, HeaderValue::from_static("application/json")),
+                (
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("application/json"),
+                ),
                 (header::ETAG, tag),
             ],
             axum::body::Body::from_stream(body),
@@ -634,7 +637,9 @@ fn world_etag(epoch: Epoch, offset: u64, params: &ViewParams) -> HeaderValue {
         Lod::Type => "type",
         Lod::Entity => "entity",
     };
-    let focus = params.focus.map_or_else(|| "-".to_owned(), |f| f.to_string());
+    let focus = params
+        .focus
+        .map_or_else(|| "-".to_owned(), |f| f.to_string());
     let tag = format!("\"{epoch}-{offset}-{lod}-{focus}-{}\"", params.hops);
     // Hex, digits, letters, dashes and quotes only: always a valid header value.
     HeaderValue::from_str(&tag).unwrap_or_else(|_| HeaderValue::from_static("\"\""))

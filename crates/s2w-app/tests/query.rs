@@ -563,23 +563,16 @@ mod golden {
     /// projection tests use, in particular the node order: by `e:<id>` STRING, so `e:10` comes
     /// before `e:2`, which this log exercises (asserted below).
     async fn streamed_world_is_byte_identical_to_the_pure_projection_body() {
-        // The golden log mints fewer than ten ids; a chain of extra users relating to each
-        // other and to the hub pushes ids past 9, so `e:10` and `e:9` share one view.
-        let mut log = events();
-        for i in 0..8 {
-            log.push(WorldEvent::RelationshipObserved {
-                from: NaturalKey::new(format!("user:Extra{i}")),
-                to: NaturalKey::new(if i % 2 == 0 { "enwiki" } else { "user:Alice" }),
-                kind: "edit".to_owned(),
-            });
-        }
+        let log = extended_log();
         let mut timeline = Timeline::new(CAP);
         for (i, e) in log.iter().enumerate() {
-            timeline.append(Timestamp::from_millis(i64::try_from(i).unwrap() * 1000), e.clone());
+            timeline.append(
+                Timestamp::from_millis(i64::try_from(i).unwrap() * 1000),
+                e.clone(),
+            );
         }
         let app = router(QueryState::new(timeline));
-        let alice = id_of("user:Alice");
-        let enwiki = id_of("enwiki");
+        let (alice, enwiki) = (id_of("user:Alice"), id_of("enwiki"));
         let focuses = [
             (None, 1),
             (Some(alice), 0),
@@ -595,38 +588,7 @@ mod golden {
             for lod in [Lod::Entity, Lod::Type] {
                 for (focus, hops) in focuses {
                     let params = ViewParams { lod, focus, hops };
-                    let mut uri = format!(
-                        "/worlds/default/world?at={at}&lod={}&hops={hops}",
-                        if lod == Lod::Entity { "entity" } else { "type" }
-                    );
-                    if let Some(focus) = focus {
-                        uri.push_str(&format!("&focus={focus}"));
-                    }
-                    let (status, _, got) =
-                        get_raw(&app, Request::get(&uri).body(Body::empty()).unwrap()).await;
-                    match world_view(&world, &params) {
-                        Ok(view) => {
-                            assert_eq!(status, StatusCode::OK, "{uri}");
-                            let expected = serde_json::to_vec(&view).unwrap();
-                            assert_eq!(
-                                String::from_utf8(got).unwrap(),
-                                String::from_utf8(expected).unwrap(),
-                                "{uri}"
-                            );
-                            let ids: Vec<u64> = view
-                                .nodes
-                                .iter()
-                                .filter_map(|n| n.id().strip_prefix("e:")?.parse().ok())
-                                .collect();
-                            string_order_differs |= ids.windows(2).any(|w| w[0] > w[1]);
-                        }
-                        Err(error) => {
-                            let expected = serde_json::to_value(error.json_body()).unwrap();
-                            let got: Value = serde_json::from_slice(&got).unwrap();
-                            assert!(status.is_client_error(), "{uri}: {status}");
-                            assert_eq!(got, expected, "{uri}");
-                        }
-                    }
+                    string_order_differs |= streamed_matches(&app, &world, at, &params).await;
                 }
             }
         }
@@ -634,6 +596,61 @@ mod golden {
             string_order_differs,
             "no view put a longer id before a shorter one: the string-order trap is untested"
         );
+    }
+
+    /// The golden log mints fewer than ten ids; extra users relating to the hub and to Alice
+    /// push ids past 9, so `e:10` and `e:9` share one view.
+    fn extended_log() -> Vec<WorldEvent> {
+        let mut log = events();
+        for i in 0..8 {
+            log.push(WorldEvent::RelationshipObserved {
+                from: NaturalKey::new(format!("user:Extra{i}")),
+                to: NaturalKey::new(if i % 2 == 0 { "enwiki" } else { "user:Alice" }),
+                kind: "edit".to_owned(),
+            });
+        }
+        log
+    }
+
+    /// Asserts `/world` at `at` and `params` answers exactly `world_view`'s bytes, or its error.
+    /// True when the view's node order differs from numeric id order.
+    async fn streamed_matches(app: &Router, world: &World, at: usize, params: &ViewParams) -> bool {
+        let lod = if params.lod == Lod::Entity {
+            "entity"
+        } else {
+            "type"
+        };
+        let mut uri = format!(
+            "/worlds/default/world?at={at}&lod={lod}&hops={}",
+            params.hops
+        );
+        if let Some(focus) = params.focus {
+            uri.push_str(&format!("&focus={focus}"));
+        }
+        let (status, _, got) = get_raw(app, Request::get(&uri).body(Body::empty()).unwrap()).await;
+        match world_view(world, params) {
+            Ok(view) => {
+                assert_eq!(status, StatusCode::OK, "{uri}");
+                let expected = serde_json::to_vec(&view).unwrap();
+                assert_eq!(
+                    String::from_utf8(got).unwrap(),
+                    String::from_utf8(expected).unwrap(),
+                    "{uri}"
+                );
+                let ids: Vec<u64> = view
+                    .nodes
+                    .iter()
+                    .filter_map(|n| n.id().strip_prefix("e:")?.parse().ok())
+                    .collect();
+                ids.windows(2).any(|w| w[0] > w[1])
+            }
+            Err(error) => {
+                let got: Value = serde_json::from_slice(&got).unwrap();
+                assert!(status.is_client_error(), "{uri}: {status}");
+                assert_eq!(got, error.json_body(), "{uri}");
+                false
+            }
+        }
     }
 
     #[test]
@@ -661,14 +678,20 @@ mod golden {
         let tag = headers[header::ETAG].to_str().unwrap().to_owned();
         assert!(!body.is_empty());
 
-        for inm in [tag.clone(), format!("W/{tag}"), format!("\"x\", {tag}"), "*".to_owned()] {
+        for inm in [
+            tag.clone(),
+            format!("W/{tag}"),
+            format!("\"x\", {tag}"),
+            "*".to_owned(),
+        ] {
             let (status, headers, body) = get_raw(&app, conditional(uri, &inm)).await;
             assert_eq!(status, StatusCode::NOT_MODIFIED, "{inm}");
             assert_eq!(headers[header::ETAG], tag.as_str());
             assert!(body.is_empty());
         }
         // Another level of detail is another view.
-        let (status, headers, _) = get_raw(&app, conditional(&format!("{uri}?lod=type"), &tag)).await;
+        let (status, headers, _) =
+            get_raw(&app, conditional(&format!("{uri}?lod=type"), &tag)).await;
         assert_eq!(status, StatusCode::OK);
         assert_ne!(headers[header::ETAG], tag.as_str());
         // A stale epoch is refused before the tag is compared.
