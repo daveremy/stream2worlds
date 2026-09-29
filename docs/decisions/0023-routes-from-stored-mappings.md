@@ -138,7 +138,7 @@ per-source mapping state is #163 PR 5's sources surface.
   validity rule 5b (a stored verdict row exists at the snapshot position for each registered
   name routed to that source). It also records the measured backfill throughput and memory.
 - **Producer** (#163 PR 4): nothing writes `stream-mapping` proposals yet, so no demo route
-  exists until then.
+  exists until then. *2026-09-29: built, [decision 0025](0025-learned-mapping-auto-apply.md).*
 - **Surfaces** (#163 PR 5, [0017](0017-view-and-agents-first-class.md)): the view, MCP and the
   sources API do not show which mapping a source runs or how many proposals were excluded.
   Start-up notes and `s2w proposals list` (#185) are the only report; `s2w proposals decide`

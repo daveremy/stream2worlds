@@ -106,11 +106,12 @@ timestamps, so `dt` fields fall to `NoDependents` through the dependency test in
 
 **Claim volume.** 143 relationship rules is a lot of claims per window. PR 4 measures what
 applying the mapping costs and decides whether to prune (for example, relationships between
-aliases of one pair of types) before auto-apply.
+aliases of one pair of types) before auto-apply. *2026-09-29: auto-apply shipped first (#197 PR 4a); the
+measurement is #197 PR 4b.*
 
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a
 learned scorer and the evaluation corpus (#56's H-min and H-full). Wiring into `serve` and
-auto-apply (#163 PR 4) and the mapping state surfaces [0017](0017-view-and-agents-first-class.md) requires (#163
+auto-apply (#163 PR 4; *2026-09-29: done, [decision 0025](0025-learned-mapping-auto-apply.md)*) and the mapping state surfaces [0017](0017-view-and-agents-first-class.md) requires (#163
 PR 5).
