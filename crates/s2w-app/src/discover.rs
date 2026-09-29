@@ -170,13 +170,14 @@ pub(crate) fn run(
 
 /// As [`run`], for one source only, after a bridge poll: it reads that source's window and
 /// stops, and its notes say the routes change at the next start.
+/// Returns whether the rows met a held writer lock, so the caller tries again later.
 pub(crate) fn run_one(
     log: &SqliteEventLog,
     log_dir: &Path,
     source: &SourceId,
     cfg: &DiscoverConfig,
     reporter: &mut dyn Reporter,
-) -> Ran {
+) -> bool {
     // The lock-held re-resolution in `file` decides whether the source is routed by now.
     let resolution = Resolution::default();
     run_with(
@@ -186,6 +187,8 @@ pub(crate) fn run_one(
         (cfg, Trigger::InRun),
         reporter,
     )
+    .locked
+    .contains(source)
 }
 
 fn run_with(
@@ -328,10 +331,10 @@ fn produce(
         }
     };
     let (effect, retry) = match trigger {
-        Trigger::Start => ("", "retried at the next start"),
+        Trigger::Start => ("", "retried at the next start".to_owned()),
         Trigger::InRun => (
             "; takes effect at the next restart",
-            "retried at the next poll",
+            format!("retried in {} polls", in_run::LOCK_RETRY_POLLS),
         ),
     };
     let (note, produced) = match file(producer, window, &mapping, log_dir) {
@@ -377,19 +380,28 @@ fn decided_window(log_dir: &Path, window: &Window) -> Option<String> {
     let store = ReadOnlySqliteProposalStore::open(log_dir).ok()?;
     let proposals = store.proposals().ok()?;
     let decisions = store.decisions().ok()?;
+    // A source routed since start-up is `file`'s `Routed` case: skipping here would hide an
+    // accept that landed after `routes::load` and leave the source unrouted until a restart.
+    if routes::resolve(&proposals, &decisions)
+        .routes
+        .contains_key(&window.source)
+    {
+        return None;
+    }
+    let decided: BTreeSet<&str> = decisions.iter().map(|d| d.proposal_id.as_str()).collect();
     let actor = actor();
     proposals
-        .into_iter()
+        .iter()
         .filter(|p| {
             p.class == STREAM_MAPPING_CLASS
                 && p.actor == actor
                 && p.snapshot_offset == window.last
-                && decisions.iter().any(|d| d.proposal_id == p.id)
+                && decided.contains(p.id.as_str())
         })
         .find(|p| {
             routes::decode_envelope(&p.payload).is_ok_and(|(source, ..)| source == window.source)
         })
-        .map(|p| p.id)
+        .map(|p| p.id.clone())
 }
 
 /// What [`file`] did.

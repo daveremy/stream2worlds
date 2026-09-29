@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use s2w_log::{LogPosition, LogReader, SqliteEventLog};
 use s2w_model::SourceId;
 
-use super::{DiscoverConfig, Ran};
+use super::DiscoverConfig;
 use crate::{NoteSink, Reporter};
 
 /// A [`Reporter`] that only notes, through a [`NoteSink`]: the bridge loop's voice while the
@@ -44,7 +44,16 @@ pub(crate) struct InRun {
     counts: BTreeMap<SourceId, usize>,
     /// The last log position counted; `None` before the first count.
     scanned: Option<LogPosition>,
+    /// Polls seen so far, the clock for [`LOCK_RETRY_POLLS`].
+    polls: u64,
+    /// For a source whose rows met a held writer lock, the poll at which it is tried again.
+    retry_at: BTreeMap<SourceId, u64>,
 }
+
+/// Polls between tries for a source whose rows met a held writer lock (about 5 s at the
+/// default 250 ms poll). Each try re-reads and re-profiles the whole window on the bridge
+/// loop, so retrying every poll against a long-held lock would stall ingest.
+pub(crate) const LOCK_RETRY_POLLS: u64 = 20;
 
 /// The start-up pass's result, before `serve` knows its sources.
 #[derive(Debug)]
@@ -70,6 +79,8 @@ impl Seed {
             pending,
             counts: BTreeMap::new(),
             scanned: None,
+            polls: 0,
+            retry_at: BTreeMap::new(),
         })
     }
 }
@@ -82,9 +93,10 @@ impl InRun {
 
     /// Counts the events logged since the last call and runs the producer once for each pending
     /// source whose count reached the window. A source whose rows met a held writer lock stays
-    /// pending and is tried again after the next poll. A log read error is a note and ends the
+    /// pending and is tried again after [`LOCK_RETRY_POLLS`] polls. A log read error is a note and ends the
     /// trigger for this process.
     pub(crate) fn after_poll(&mut self, log: &SqliteEventLog, reporter: &mut dyn Reporter) {
+        self.polls += 1;
         if let Err(error) = self.count(log) {
             reporter.note(&format!(
                 "discover: reading the log failed: {error}; in-run discovery stops until the next start"
@@ -96,12 +108,19 @@ impl InRun {
             .pending
             .iter()
             .filter(|source| self.counts.get(*source).copied().unwrap_or(0) >= self.cfg.window)
+            .filter(|source| {
+                self.retry_at
+                    .get(*source)
+                    .is_none_or(|at| self.polls >= *at)
+            })
             .cloned()
             .collect();
         for source in full {
-            let ran: Ran = super::run_one(log, &self.log_dir, &source, &self.cfg, reporter);
-            if !ran.locked.contains(&source) {
+            if super::run_one(log, &self.log_dir, &source, &self.cfg, reporter) {
+                self.retry_at.insert(source, self.polls + LOCK_RETRY_POLLS);
+            } else {
                 self.pending.remove(&source);
+                self.retry_at.remove(&source);
             }
         }
     }

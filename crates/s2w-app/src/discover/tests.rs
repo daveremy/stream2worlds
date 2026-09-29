@@ -553,3 +553,36 @@ fn a_removed_member_is_not_profiled() {
     );
     assert!(!notes.has(&format!("discover: {SOURCE}")), "{:?}", notes.0);
 }
+
+#[test]
+fn an_accept_of_this_producers_window_after_start_up_routes_the_source() {
+    let dir = TestDirectory::new("discover-own-late-accept");
+    let stale = routes::load(dir.path()).expect("routes");
+    let id = own_undecided_proposal(dir.path());
+    let mut store = SqliteProposalStore::open(dir.path()).expect("writer");
+    store
+        .append_decision(&NewDecision {
+            proposal_id: id,
+            decider: Decider::Human,
+            outcome: Outcome::Accept,
+            basis: "reviewer=h; fine".to_owned(),
+            decided_at_ms: 0,
+        })
+        .expect("accept");
+    drop(store);
+    let log = SqliteEventLog::open(dir.path()).expect("log");
+    let mut notes = Notes::default();
+    let ran = run_with(
+        REAL,
+        (&log, dir.path()),
+        (&stale, None),
+        (&small(), Trigger::Start),
+        &mut notes,
+    );
+    assert!(ran.resolve_again, "{:?}", notes.0);
+    assert!(
+        notes.has("routed by a decision recorded since start-up"),
+        "{:?}",
+        notes.0
+    );
+}

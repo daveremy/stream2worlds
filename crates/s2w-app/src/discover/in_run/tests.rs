@@ -65,7 +65,7 @@ fn the_producer_runs_once_after_the_poll_that_fills_the_window() {
 }
 
 #[test]
-fn a_held_writer_lock_keeps_the_source_pending_until_the_next_poll() {
+fn a_held_writer_lock_keeps_the_source_pending_and_backs_off() {
     let dir = TestDirectory::new("in-run-locked");
     let mut in_run = armed(&dir);
     append(dir.path(), SOURCE, stream(300));
@@ -76,7 +76,7 @@ fn a_held_writer_lock_keeps_the_source_pending_until_the_next_poll() {
         notes
             .0
             .iter()
-            .any(|n| n.ends_with("routes unchanged, retried at the next poll")),
+            .any(|n| n.ends_with("routes unchanged, retried in 20 polls")),
         "{:?}",
         notes.0
     );
@@ -84,7 +84,16 @@ fn a_held_writer_lock_keeps_the_source_pending_until_the_next_poll() {
     assert!(!in_run.is_done());
 
     drop(writer);
-    in_run.after_poll(&SqliteEventLog::open(dir.path()).expect("log"), &mut notes);
+    let log = SqliteEventLog::open(dir.path()).expect("log");
+    for _ in 1..super::LOCK_RETRY_POLLS {
+        in_run.after_poll(&log, &mut notes);
+    }
+    assert_eq!(
+        proposals(&dir),
+        0,
+        "a locked source backs off before re-profiling"
+    );
+    in_run.after_poll(&log, &mut notes);
     assert_eq!(proposals(&dir), 1);
     assert!(in_run.is_done());
 }
