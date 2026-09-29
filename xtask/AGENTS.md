@@ -7,7 +7,8 @@ The workspace's fitness functions: `cargo xtask check`.
 - `serde`, `serde_json`, `toml`, `syn`, `proc-macro2`, `s2w-core` (the golden replay check folds
   the golden log), `s2w-model` (the obfuscation replay's engine-layer coverage builds
   `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`; check
-  11 runs a recorded raw stream through `MappingEngine`)
+  11 runs a recorded raw stream through `MappingEngine`), `s2w-discover` (check 12 profiles a
+  recorded raw stream twice)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -29,6 +30,9 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     non-vacuity checks. Decodes with `s2w_system1::decode` and reads keys with
     `s2w_model::NaturalKey::parts`, never its own copy; a key that does not read fails the check.
 - `clippy_config.rs`: check 8, every crate's effective clippy config carries the root size thresholds.
+- `discover_replay.rs`: check 12, profiler obfuscation replay of `s2w-discover` over the recorded
+  fixture (`crates/s2w-discover/testdata/recorded.raw.sse`, a link) with check 11's maps
+  (decision 0022). Self-tests live in `discover_replay/tests.rs`.
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.

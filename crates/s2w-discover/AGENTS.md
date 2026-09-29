@@ -15,8 +15,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   (this crate's `clippy.toml` enforces the same bans).
 - Every decision reads value equality, presence or stream order, never a key's name or a
   value's text. Renaming keys and hashing strings changes the proposal only by the same
-  renaming; `tests.rs` asserts it, and `cargo xtask check` 12 will on the recorded fixture
-  (s2w#163 PR 3b). No tie is ever broken by a name.
+  renaming; `tests.rs` asserts it, and `cargo xtask check` 12 does on the recorded fixture
+  (`testdata/recorded.raw.sse`, a link to the s2w-sources fixture). No tie is ever broken by a name.
 - Type labels and attribute names are built from the stream's own key names, as data.
 - Abstaining is a first-class answer: every role that cannot be decided says so in `Profile`,
   and no mapping is emitted without an entity type or below `min_events`.

@@ -172,12 +172,12 @@ pub(crate) struct Maps {
     keys: BTreeMap<String, String>,
     values: BTreeMap<String, String>,
     hashes: BTreeMap<String, String>,
-    raw_leaves: BTreeSet<String>,
+    pub(crate) raw_leaves: BTreeSet<String>,
     problems: Vec<String>,
 }
 
 impl Maps {
-    fn build(payloads: &[Value], mapping: &StreamMapping) -> Result<Self, Vec<String>> {
+    pub(crate) fn build(payloads: &[Value], mapping: &StreamMapping) -> Result<Self, Vec<String>> {
         let mut maps = Self {
             keys: BTreeMap::new(),
             values: BTreeMap::new(),
@@ -294,7 +294,7 @@ impl Maps {
         }
     }
 
-    fn path(&self, path: &FieldPath) -> Result<FieldPath, String> {
+    pub(crate) fn path(&self, path: &FieldPath) -> Result<FieldPath, String> {
         path.0
             .iter()
             .map(|segment| match segment {

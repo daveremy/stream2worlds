@@ -29,7 +29,7 @@ pub(super) fn decode_all(
 impl Maps {
     /// The renamed payload: decoded at the mapping's decode paths (when `descend`), renamed,
     /// then re-encoded at the renamed paths in reverse order.
-    pub(super) fn payload(
+    pub(crate) fn payload(
         &self,
         payload: &Value,
         decode: &[FieldPath],
