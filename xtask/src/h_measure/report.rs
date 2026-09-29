@@ -1,9 +1,12 @@
 //! `cargo xtask h-measure score`: grades a frozen mapping against pinned keys on a pinned
 //! corpus and prints the report (markdown; `--json` also writes every number).
 //!
-//! It refuses before reading the corpus when: any pin changed since the mapping was frozen;
-//! the mapping was not frozen on the development corpus; the corpus is reserved; or a key is
-//! not pinned or does not hash to its pin. The corpus is then checked against its own pin.
+//! It refuses before reading the scored corpus when: a pin this score uses changed since the
+//! mapping was frozen (the freeze corpus, the scored corpus if the freeze recorded it, every
+//! key, which the freeze must have recorded); the mapping was not frozen on the development
+//! corpus; the corpus is reserved; a key is not pinned or does not hash to its pin; or the
+//! file is not what `freeze` writes for its recorded corpus and window (s2w#238), which
+//! re-reads the development corpus. The scored corpus is then checked against its own pin.
 
 use std::fs;
 use std::path::Path;
@@ -11,7 +14,7 @@ use std::path::Path;
 use s2w_model::{MAPPING_VERSION, StreamMapping};
 use serde::Serialize;
 
-use super::freeze::Frozen;
+use super::freeze::{Frozen, derive};
 use super::pins::{Pins, Role, sha256};
 use super::score::{Bcubed, Grade, Score, grade, shown};
 
@@ -60,6 +63,8 @@ pub(crate) fn run(root: &Path, request: &Request<'_>) -> Result<String, String> 
         .iter()
         .map(|file| pins.key(root, file))
         .collect::<Result<Vec<_>, _>>()?;
+    pins_used(&pins, &frozen, request)?;
+    reproduced(&pins, &frozen, request)?;
     let payloads = pins.payloads(request.dir, request.corpus)?;
     // An abstention is contract B3's degenerate output: it is graded as the empty prediction.
     let mapping = frozen.mapping.clone().unwrap_or(StreamMapping {
@@ -99,12 +104,6 @@ fn admissible(
     scored: Role,
     request: &Request<'_>,
 ) -> Result<(), String> {
-    if frozen.pins != pins.all() {
-        return Err(format!(
-            "the pins in keys.toml or corpora.toml changed since {} was frozen; freeze again under the current pins",
-            request.frozen.display()
-        ));
-    }
     let origin = pins.corpus(&frozen.corpus)?;
     if origin.role != Role::Development || origin.sha256 != frozen.corpus_sha256 {
         return Err(format!(
@@ -124,6 +123,58 @@ fn admissible(
     let mut seen = std::collections::BTreeSet::new();
     if let Some(twice) = request.keys.iter().find(|file| !seen.insert(file.as_str())) {
         return Err(format!("--key {twice} given twice"));
+    }
+    Ok(())
+}
+
+/// Compares, recorded against current, only the pins this score depends on: the freeze
+/// corpus, the scored corpus when the freeze recorded it (a row added later is fine), and each
+/// `--key`, which the freeze must have recorded (a key pinned later could be fitted to the
+/// mapping). Any other row may be added, removed or changed (s2w#238).
+fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), String> {
+    let now = pins.all();
+    let file = request.frozen.display();
+    let corpora = [
+        (format!("corpus {}", frozen.corpus), true),
+        (format!("corpus {}", request.corpus), false),
+    ];
+    let keys = request.keys.iter().map(|key| (format!("key {key}"), true));
+    for (name, required) in corpora.into_iter().chain(keys) {
+        match (frozen.pins.get(&name), now.get(&name)) {
+            (None, _) if required => {
+                return Err(format!(
+                    "{name} was not pinned when {file} was frozen; a scored key and the freeze corpus are pinned before the freeze"
+                ));
+            }
+            (Some(then), now) if Some(then) != now => {
+                return Err(format!(
+                    "{name}: its row in keys.toml or corpora.toml changed since {file} was frozen; freeze again under the current pins"
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Re-runs the freeze on the file's recorded corpus and window and refuses unless the file
+/// holds exactly what that run writes (pins aside, which `pins_used` compares), so a
+/// hand-written or edited mapping never scores (s2w#238).
+fn reproduced(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), String> {
+    let file = request.frozen.display();
+    let mut derived = derive(pins, request.dir, &frozen.corpus, frozen.window)?;
+    if (&derived.profiler_version, &derived.config) != (&frozen.profiler_version, &frozen.config) {
+        return Err(format!(
+            "{file} was frozen by profiler {} with {}; this build has profiler {} with {}: score with the build that froze it",
+            frozen.profiler_version, frozen.config, derived.profiler_version, derived.config
+        ));
+    }
+    derived.pins.clone_from(&frozen.pins);
+    if derived != *frozen {
+        return Err(format!(
+            "{file} is not what freeze writes for its recorded inputs (the first {} events of {}): it was edited, not written by freeze, or the profiler changed without a version bump",
+            frozen.window, frozen.corpus
+        ));
     }
     Ok(())
 }

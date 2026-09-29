@@ -51,9 +51,9 @@ fn score_grades_a_frozen_mapping_and_writes_every_number() {
     assert_eq!(json["keys"][0]["file"], KEY);
 }
 
-#[test]
-fn score_refuses_pins_changed_since_the_freeze() {
-    let (root, dir, out) = frozen("pins");
+/// Pins a copy of the fixture key as `other.json` and a heldout corpus `later` on the
+/// fixture's bytes, as rows added after a freeze.
+fn add_rows(root: &Path) {
     let data = root.join(DATA);
     let bytes = fs::read(data.join(KEY)).unwrap();
     fs::write(data.join("other.json"), &bytes).unwrap();
@@ -63,7 +63,120 @@ fn score_refuses_pins_changed_since_the_freeze() {
         sha256(&bytes)
     ));
     fs::write(data.join("keys.toml"), rows).unwrap();
-    refused(score(&root, &dir, &out, "dev", &[KEY]), "changed since");
+    let corpora = data.join("corpora.toml");
+    let mut rows = fs::read_to_string(&corpora).unwrap();
+    let hash = sha256(&fs::read(root.join("corpora").join("c.sse")).unwrap());
+    rows.push_str(&format!(
+        "[corpus.later]\nrole = \"heldout\"\nfile = \"c.sse\"\nevents = 3\nsha256 = \"{hash}\"\n"
+    ));
+    fs::write(corpora, rows).unwrap();
+}
+
+/// Rewrites one field of the frozen file.
+fn edit(out: &Path, field: &str, value: serde_json::Value) {
+    let mut frozen: serde_json::Value = serde_json::from_slice(&fs::read(out).unwrap()).unwrap();
+    frozen[field] = value;
+    fs::write(out, serde_json::to_vec_pretty(&frozen).unwrap()).unwrap();
+}
+
+#[test]
+fn score_ignores_pin_rows_added_after_the_freeze() {
+    let (root, dir, out) = frozen("added");
+    add_rows(&root);
+    score(&root, &dir, &out, "dev", &[KEY]).expect("scores the freeze corpus");
+    score(&root, &dir, &out, "later", &[KEY]).expect("scores a corpus pinned later");
+}
+
+#[test]
+fn score_refuses_a_key_pinned_after_the_freeze() {
+    let (root, dir, out) = frozen("late-key");
+    add_rows(&root);
+    refused(
+        score(&root, &dir, &out, "dev", &["other.json"]),
+        "key other.json was not pinned when",
+    );
+}
+
+#[test]
+fn score_refuses_a_changed_freeze_corpus_pin() {
+    let (root, dir, out) = frozen("dev-pin");
+    let path = root.join(DATA).join("corpora.toml");
+    let text = fs::read_to_string(&path).unwrap();
+    let dev = "[corpus.dev]\nrole = \"development\"\nfile = \"c.sse\"\nevents = 3";
+    assert!(text.contains(dev));
+    fs::write(
+        &path,
+        text.replace(dev, &dev.replace("events = 3", "events = 4")),
+    )
+    .unwrap();
+    refused(
+        score(&root, &dir, &out, "held", &[KEY]),
+        "corpus dev: its row in keys.toml or corpora.toml changed since",
+    );
+}
+
+#[test]
+fn score_refuses_a_scored_key_repinned_since_the_freeze() {
+    let (root, dir, out) = frozen("key-repin");
+    let data = root.join(DATA);
+    let mut bytes = fs::read(data.join(KEY)).unwrap();
+    bytes.push(b'\n');
+    fs::write(data.join(KEY), &bytes).unwrap();
+    let keys = fs::read_to_string(data.join("keys.toml")).unwrap();
+    let old = keys.split('"').nth(5).unwrap().to_owned();
+    fs::write(data.join("keys.toml"), keys.replace(&old, &sha256(&bytes))).unwrap();
+    refused(
+        score(&root, &dir, &out, "dev", &[KEY]),
+        &format!("key {KEY}: its row in keys.toml or corpora.toml changed since"),
+    );
+}
+
+#[test]
+fn score_refuses_a_freeze_that_did_not_record_its_corpus_pin() {
+    let (root, dir, out) = frozen("no-dev-pin");
+    let mut frozen: serde_json::Value = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    frozen["pins"].as_object_mut().unwrap().remove("corpus dev");
+    fs::write(&out, serde_json::to_vec_pretty(&frozen).unwrap()).unwrap();
+    refused(
+        score(&root, &dir, &out, "dev", &[KEY]),
+        "corpus dev was not pinned when",
+    );
+}
+
+#[test]
+fn score_refuses_a_frozen_file_freeze_did_not_write() {
+    let (root, dir, out) = frozen("forged");
+    let pristine = fs::read(&out).unwrap();
+    let forged = "not what freeze writes";
+    edit(&out, "abstain", "a reason freeze never gave".into());
+    refused(score(&root, &dir, &out, "dev", &[KEY]), forged);
+    fs::write(&out, &pristine).unwrap();
+    edit(&out, "window", 2.into());
+    refused(score(&root, &dir, &out, "dev", &[KEY]), forged);
+    fs::write(&out, &pristine).unwrap();
+    let mut frozen: serde_json::Value = serde_json::from_slice(&pristine).unwrap();
+    frozen["profile"]["skipped"] = 1.into();
+    fs::write(&out, serde_json::to_vec_pretty(&frozen).unwrap()).unwrap();
+    refused(score(&root, &dir, &out, "dev", &[KEY]), forged);
+    fs::write(&out, &pristine).unwrap();
+    score(&root, &dir, &out, "dev", &[KEY]).expect("the untouched file scores");
+}
+
+#[test]
+fn score_refuses_a_freeze_from_another_profiler_build() {
+    let (root, dir, out) = frozen("build");
+    let pristine = fs::read(&out).unwrap();
+    edit(&out, "profiler_version", "0".into());
+    refused(
+        score(&root, &dir, &out, "dev", &[KEY]),
+        "score with the build that froze it",
+    );
+    fs::write(&out, &pristine).unwrap();
+    edit(&out, "config", "Config { min_events: 1 }".into());
+    refused(
+        score(&root, &dir, &out, "dev", &[KEY]),
+        "score with the build that froze it",
+    );
 }
 
 #[test]
@@ -105,6 +218,7 @@ fn score_refuses_a_changed_key_before_reading_the_corpus() {
     let mut bytes = fs::read(&path).unwrap();
     bytes.push(b'\n');
     fs::write(&path, bytes).unwrap();
+    // `c.sse` is also the freeze corpus: the key check precedes the freeze re-run.
     fs::remove_file(dir.join("c.sse")).unwrap();
     refused(
         score(&root, &dir, &out, "dev", &[KEY]),
@@ -162,14 +276,11 @@ fn score_grades_a_heldout_corpus_out_of_sample() {
 
 #[test]
 fn score_grades_an_abstained_freeze_as_the_empty_prediction() {
+    // The fixture corpus has 3 events, under the profiler's minimum, so the freeze abstains.
     let (root, dir, out) = frozen("abstain");
-    let mut frozen: serde_json::Value = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
-    frozen["mapping"] = serde_json::Value::Null;
-    frozen["abstain"] = "test abstention".into();
-    fs::write(&out, serde_json::to_vec_pretty(&frozen).unwrap()).unwrap();
     let markdown = score(&root, &dir, &out, "dev", &[KEY]).expect("scores");
     assert!(
-        markdown.contains("abstained: test abstention"),
+        markdown.contains("abstained: 3 events, fewer than"),
         "{markdown}"
     );
     let json: serde_json::Value =
