@@ -327,3 +327,33 @@ fn the_committed_sample_passes_the_selftest() {
         "{report}"
     );
 }
+
+/// Every key file `research/h-measure/keys.toml` pins parses as key-spec v0, validates, and
+/// yields an oracle mapping, so a malformed key fails here rather than at the first score.
+#[test]
+fn every_pinned_key_file_is_a_valid_key() {
+    #[derive(serde::Deserialize)]
+    struct Pins {
+        key: Vec<Pin>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Pin {
+        file: String,
+    }
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits in the workspace root")
+        .join("research/h-measure");
+    let text = std::fs::read_to_string(dir.join("keys.toml")).expect("keys.toml reads");
+    let pins: Pins = toml::from_str(&text).expect("keys.toml parses");
+    assert!(!pins.key.is_empty(), "keys.toml pins no key");
+    for pin in pins.key {
+        let text = std::fs::read_to_string(dir.join(&pin.file)).expect("the key file reads");
+        let spec: KeySpec = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("{}: not a key spec: {e}", pin.file));
+        spec.validate()
+            .unwrap_or_else(|e| panic!("{}: invalid: {e}", pin.file));
+        spec.oracle()
+            .unwrap_or_else(|e| panic!("{}: no oracle mapping: {e}", pin.file));
+    }
+}

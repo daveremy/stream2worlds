@@ -51,6 +51,9 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   against its own key (mapping and oracle ceiling must both score 1.0) and scores and prints the
   contract's frozen fixtures (the 4/9 case, all-singletons). Self-tests live in
   `h_measure/tests.rs`, which also runs the selftest, so `cargo test` enforces parity.
+  The measurement's data (answer keys, `keys.toml` pins, the corpus manifest) lives in
+  `research/h-measure/`; a test there checks every key `keys.toml` pins parses, validates and
+  yields an oracle mapping.
   - `h_measure/key.rs`: the answer-key spec, format version 0 (`decode`, `types` with mention
     rules `{path, identity}`, `unscored`), its fail-closed validation, `from_mapping`, and
     `oracle`: the best v0 mapping for the key (one rule per mention rule whose path is an
