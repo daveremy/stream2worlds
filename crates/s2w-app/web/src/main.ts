@@ -8,6 +8,7 @@ import { renderProposals } from './proposals';
 import { activeNow, linkColor, typeColor } from './profile';
 import { applyPresentation } from './presentation';
 import { buildUrl, parseWorldFromPath, worldPathFor } from './url';
+import { loadWorld, outgrown } from './lod';
 const status = document.querySelector<HTMLElement>('#status')!;
 const graph = document.querySelector<HTMLElement>('#graph')!;
 const table = document.querySelector<HTMLTableElement>('#evidence')!;
@@ -73,6 +74,11 @@ async function start(): Promise<void> {
   let proposalsTimer: ReturnType<typeof setTimeout> | undefined;
   let proposalsGeneration = 0;
   let delay = 1000, lastFetch = 0, fetching = false, dirty = false;
+  // The `/world` parameters actually served, which may differ from the page's (#262): every
+  // refresh reuses them, so a refresh can never widen the view to the whole entity graph.
+  let request = params;
+  // Why the page shows less than it asked for, if it does; kept while live deltas arrive.
+  let note: string | undefined;
   dispose = () => { controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(refresh); clearTimeout(proposalsTimer); renderer.destroy(); };
   status.textContent = 'Connecting'; position.textContent = ''; table.replaceChildren(); proposalsPanel.replaceChildren();
   for (const key of keys) (form.elements.namedItem(key) as HTMLInputElement).value =
@@ -101,8 +107,10 @@ async function start(): Promise<void> {
       refresh = undefined; dirty = false; fetching = true; lastFetch = Date.now();
       try {
         // `null`: 304, the view already shown is current (#216).
-        const view = await refreshSnapshot(params, signal);
+        const view = await refreshSnapshot(request, signal);
         if (signal.aborted) return;
+        // A small live world grew past the entity limit: reload, and the probe picks types.
+        if (view && outgrown(request, view)) { restartStale('The world outgrew the entity view; showing types'); return; }
         // Another history is served: this page's offsets name another world, so rebuild.
         if (view && view.epoch !== state.epoch) { restartStale(); return; }
         // A rebuild in progress: keep its count current, and keep refreshing on a quiet log,
@@ -112,7 +120,7 @@ async function start(): Promise<void> {
           if (signal.aborted) return;
           const rebuilding = rebuildingStatus(state.sources);
           if (rebuilding !== undefined) dirty = true;
-          status.textContent = rebuilding ?? ((view ? view.nodes.length : state.nodes.size) ? '' : 'Waiting for events');
+          status.textContent = rebuilding ?? note ?? ((view ? view.nodes.length : state.nodes.size) ? '' : 'Waiting for events');
         }
         if (view) { state.snapshot(view); renderer.update(state); paint(); }
       } catch (error) {
@@ -141,7 +149,7 @@ async function start(): Promise<void> {
       try {
         const message = JSON.parse((event as MessageEvent<string>).data) as Message;
         if (!state.apply(message)) return;
-        delay = 1000; status.textContent = rebuildingStatus(state.sources) ?? ''; paint();
+        delay = 1000; status.textContent = rebuildingStatus(state.sources) ?? note ?? ''; paint();
         if (message.type !== 'noop') scheduleRefresh();
       } catch (error) { current.close(); status.textContent = describe(error); }
     });
@@ -180,7 +188,11 @@ async function start(): Promise<void> {
       if (signal.aborted) return;
       // A large world takes seconds to build: name the wait instead of an empty canvas.
       status.textContent = 'Loading world…';
-      const view = await snapshot(params, signal); lastFetch = Date.now();
+      const loaded = await loadWorld(params, served => snapshot(served, signal)); lastFetch = Date.now();
+      const { view } = loaded; request = loaded.request; note = loaded.note;
+      // The detail control shows the level actually served, so "Apply view" without a focus
+      // does not ask for the entity view again.
+      (form.elements.namedItem('lod') as HTMLSelectElement).value = view.lod;
       const seed = await evidence(params, view.offset, view.epoch, signal);
       if (signal.aborted) return;
       state.epoch = view.epoch;
@@ -194,7 +206,7 @@ async function start(): Promise<void> {
         if (signal.aborted) return;
       }
       renderer.mount(graph, state); paint(); void pollProposals();
-      status.textContent = rebuildingStatus(state.sources) ??
+      status.textContent = rebuildingStatus(state.sources) ?? note ??
         (view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
           (unroutedStatus(state.sources) ?? 'Waiting for events'));
       if (!params.has('at')) { open(); if (rebuildingStatus(state.sources) !== undefined) scheduleRefresh(); }

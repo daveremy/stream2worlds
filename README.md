@@ -107,6 +107,8 @@ s2w serve wikipedia --log-dir ./s2w-data --port 4310 --world default
 curl http://localhost:4310/worlds/default/world
 # Or open http://localhost:4310/ in a browser for the web view (evidence table and graph);
 # add ?at=<offset> to the URL to pin a moment.
+# Above 5,000 entities the page shows entity types instead of every entity; set a
+# Focus entity (and Hops) to see its neighbourhood (#262).
 curl http://localhost:4310/worlds/default/sources
 # serve snapshots the world every 1,000,000 raw events and on Ctrl-C/SIGTERM, and restarts
 # from the newest valid snapshot; tune or disable with --snapshot-every <n> / --no-snapshot
