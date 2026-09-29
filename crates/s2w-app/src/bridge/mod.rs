@@ -169,7 +169,7 @@ pub struct VerdictRecord {
     /// The evaluated event's log position.
     pub position: LogPosition,
     /// [`Engine::name`].
-    pub engine: &'static str,
+    pub engine: String,
     /// [`Engine::version`].
     pub version: u32,
     /// The verdict, with a caught panic as `Abstain(Panicked)`.
@@ -187,7 +187,7 @@ impl VerdictRecord {
         Ok(StoredVerdict {
             position: self.position,
             event_hash,
-            engine: self.engine.to_owned(),
+            engine: self.engine.clone(),
             version: self.version,
             verdict,
             provenance: self.provenance.clone(),
@@ -220,7 +220,7 @@ fn evaluate_one(stored: &StoredEvent, engine: &dyn Engine) -> VerdictRecord {
         });
     VerdictRecord {
         position: stored.position,
-        engine: engine.name(),
+        engine: engine.name().to_owned(),
         version: engine.version(),
         verdict,
         provenance: engine.provenance(),

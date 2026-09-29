@@ -19,9 +19,11 @@ fn the_format_is_pinned() {
             text("7"),
         ],
     );
+    // The known answer is pinned together with KEY_FORMAT (decision 0023): an encoding change
+    // must edit this pair, and the new pair must carry a bumped KEY_FORMAT, never the old one.
     assert_eq!(
-        built.as_str(),
-        "t\u{1f}\"a\\\"b\"\u{1f}-7\u{1f}true\u{1f}\"7\""
+        (KEY_FORMAT, built.as_str()),
+        (1, "t\u{1f}\"a\\\"b\"\u{1f}-7\u{1f}true\u{1f}\"7\"")
     );
 }
 

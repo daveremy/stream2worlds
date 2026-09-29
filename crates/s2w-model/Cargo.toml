@@ -1,6 +1,6 @@
 [package]
 name = "s2w-model"
-description = "Shared vocabulary: events, offsets, sources. serde and thiserror only."
+description = "Shared vocabulary: events, offsets, sources. serde, serde_json and thiserror only."
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
@@ -13,7 +13,5 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true
+thiserror.workspace = true

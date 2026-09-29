@@ -235,7 +235,23 @@ fn evaluation_is_deterministic_and_provenance_names_the_mapping() -> TestResult 
     let mut other = mapping();
     other.relationships[0].kind = "k2".to_owned();
     assert_ne!(MappingEngine::new(other)?.provenance(), first.provenance());
-    assert_eq!((first.name(), first.version()), ("mapping", 1));
+    assert_eq!(first.name(), format!("mapping-{}", mapping().identity()?));
+    assert_eq!(first.version(), 1);
+    Ok(())
+}
+
+#[test]
+fn provenance_names_the_proposal_and_the_name_does_not() -> TestResult {
+    let bare = engine()?;
+    let named = engine()?.with_proposal_id("p-\"1");
+    assert_eq!(named.name(), bare.name());
+    let provenance: serde_json::Value =
+        serde_json::from_slice(&named.provenance().unwrap_or_default())?;
+    let bare_provenance: serde_json::Value =
+        serde_json::from_slice(&bare.provenance().unwrap_or_default())?;
+    assert_eq!(provenance["proposal_id"], "p-\"1");
+    assert_eq!(provenance["mapping_hash"], bare_provenance["mapping_hash"]);
+    assert!(bare_provenance.get("proposal_id").is_none());
     Ok(())
 }
 
@@ -266,5 +282,19 @@ fn the_committed_fixture_mapping_matches_every_sample_line() -> TestResult {
         assert!(matches!(verdict, Verdict::Propose { .. }), "{verdict:?}");
     }
     assert_eq!(count, 20);
+    Ok(())
+}
+
+/// The fixture mapping's identity is pinned (decision 0023). It changes only with the fixture,
+/// `KEY_FORMAT` or `MAPPING_VERSION`; any of those renames the engine and orphans its stored
+/// verdicts, so a change here must be deliberate.
+#[test]
+fn the_committed_fixture_mapping_identity_is_pinned() -> TestResult {
+    let mapping: StreamMapping =
+        serde_json::from_str(include_str!("../../../testdata/sample.mapping.json"))?;
+    assert_eq!(
+        MappingEngine::new(mapping)?.name(),
+        "mapping-6815cb3fc24b0848"
+    );
     Ok(())
 }

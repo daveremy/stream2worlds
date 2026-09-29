@@ -11,6 +11,9 @@ use s2w_model::{
 use serde_json::Value;
 
 use crate::decode::{decode_path, lookup};
+
+/// Every mapping engine's name is this prefix and the mapping identity (decision 0023).
+const NAME_PREFIX: &str = "mapping-";
 use crate::{AbstainReason, Confidence, Engine, Verdict};
 
 /// Runs one [`StreamMapping`] over raw JSON payloads.
@@ -27,7 +30,10 @@ use crate::{AbstainReason, Confidence, Engine, Verdict};
 #[derive(Debug, Clone)]
 pub struct MappingEngine {
     mapping: StreamMapping,
-    provenance: Vec<u8>,
+    /// `mapping-<identity>` (decision 0023).
+    name: String,
+    mapping_hash: String,
+    proposal_id: Option<String>,
 }
 
 /// Why a [`MappingEngine`] could not be built.
@@ -42,18 +48,28 @@ pub enum MappingEngineError {
 }
 
 impl MappingEngine {
-    /// Validates `mapping` and computes its provenance digest.
+    /// Validates `mapping` and computes its identity and provenance digest.
     ///
     /// # Errors
     /// [`MappingEngineError::Invalid`] for a mapping that fails [`StreamMapping::validate`].
     pub fn new(mapping: StreamMapping) -> Result<Self, MappingEngineError> {
-        mapping.validate()?;
-        let canonical = serde_json::to_vec(&mapping)?;
-        let provenance = format!(r#"{{"mapping_hash":"{}"}}"#, fnv1a64_hex(&canonical));
+        let name = format!("{NAME_PREFIX}{}", mapping.identity()?);
+        let mapping_hash = fnv1a64_hex(&serde_json::to_vec(&mapping)?);
         Ok(Self {
             mapping,
-            provenance: provenance.into_bytes(),
+            name,
+            mapping_hash,
+            proposal_id: None,
         })
+    }
+
+    /// Records the proposal this mapping was read from in every verdict's provenance, so a
+    /// stored verdict names the row it came from (decision 0023). The name does not change:
+    /// the same mapping under another proposal id is the same engine.
+    #[must_use]
+    pub fn with_proposal_id(mut self, proposal_id: impl Into<String>) -> Self {
+        self.proposal_id = Some(proposal_id.into());
+        self
     }
 
     /// The mapping this engine runs.
@@ -108,8 +124,8 @@ impl MappingEngine {
 }
 
 impl Engine for MappingEngine {
-    fn name(&self) -> &'static str {
-        "mapping"
+    fn name(&self) -> &str {
+        &self.name
     }
     fn version(&self) -> u32 {
         // The executor's code version. It does not identify the mapping; see `provenance`.
@@ -137,7 +153,12 @@ impl Engine for MappingEngine {
         }
     }
     fn provenance(&self) -> Option<Vec<u8>> {
-        Some(self.provenance.clone())
+        let mut fields = serde_json::Map::new();
+        fields.insert("mapping_hash".to_owned(), self.mapping_hash.clone().into());
+        if let Some(id) = &self.proposal_id {
+            fields.insert("proposal_id".to_owned(), id.clone().into());
+        }
+        serde_json::to_vec(&fields).ok()
     }
 }
 

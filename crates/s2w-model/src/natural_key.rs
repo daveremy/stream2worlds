@@ -6,8 +6,10 @@
 //! part is `true` or `false`. [`NaturalKey::from_parts`] builds this text and
 //! [`NaturalKey::parts`] reads it back; nothing else in the workspace builds or splits it.
 //!
-//! The format is not versioned yet: the PR that first persists key text (s2w#163 PR 2) owns
-//! that decision.
+//! The format is versioned by [`KEY_FORMAT`] (decision 0023). Key text is persisted in stored
+//! verdicts and world snapshots; both are keyed, through the mapping identity
+//! ([`crate::StreamMapping::identity`]), on this version, so a bump renames every mapping
+//! engine and forces one full rebuild instead of mixing two key formats in one world.
 
 use std::fmt::Write as _;
 
@@ -16,6 +18,12 @@ use serde::{Deserialize, Serialize};
 /// Separates a natural key's components: the type label, then each JSON-encoded key part.
 /// A structural separator, so a replay can split a key back into its parts.
 pub const KEY_SEPARATOR: char = '\u{1f}';
+
+/// The version of the key text format this module builds and reads. Bump it whenever
+/// [`NaturalKey::from_parts`] or [`NaturalKey::parts`] change what bytes a key holds: it feeds
+/// every mapping identity, so stored mapping verdicts and snapshots stop matching (decision
+/// 0023). A test pins a known-answer key, so an encoding change without a bump fails the build.
+pub const KEY_FORMAT: u32 = 1;
 
 /// A source-defined identity (a page title, a user name) that the fold maps to a fold-assigned entity id.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

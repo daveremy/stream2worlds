@@ -255,9 +255,9 @@ fn a_panicking_engine_is_an_abstention_and_the_next_engine_still_runs() -> TestR
         .next()
         .ok_or("the event was stored")??;
     let mut registry = EngineRegistry::new();
-    registry.register(Route::Exact("stdin"), Box::new(Panics))?;
+    registry.register(Route::Exact("stdin".to_owned()), Box::new(Panics))?;
     registry.register(
-        Route::Exact("stdin"),
+        Route::Exact("stdin".to_owned()),
         Box::new(s2w_system1::JsonClaimsEngine),
     )?;
     let mut bridge = Bridge::new(
