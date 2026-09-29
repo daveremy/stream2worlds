@@ -48,9 +48,10 @@ the 84 paths it takes in the **dev** corpus (itself, its keys, and array indexes
 predicted mention there. This is an accepted limit of v0 (ruling 2026-09-29, item 2). A prefix
 form for `unscored` is a key-format change: #224.
 
-Canary events (`meta.domain` = `canary`, hourly, in either topic) carry no `wiki`, so the key
-mentions nothing in them, except in `q4-separate`: its `domain` type has identity `meta.domain`
-alone, so the canaries form one `canary` entity there (5 events in dev).
+Canary events (`meta.domain` = `canary`, hourly, in either topic) carry only `$schema` and
+`meta`, so no wiki, page, user, revision or log mention exists in them. Every key mentions each
+canary once, as a singleton `event` entity (`meta.id`); in `q4-separate` the `domain` type also
+makes them one `canary` entity (5 events in dev).
 
 **Open question for PR 2b (not settled here):** 1,348 of the dev corpus's 19,684 log events are
 AbuseFilter hits with `log_id` 0 (no log row is written). Base key v0 reads them as one log
