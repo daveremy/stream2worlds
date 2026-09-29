@@ -32,6 +32,11 @@
   "unscored": [
     ["data", "meta", "uri"],
     ["data", "meta", "request_id"],
+    ["data", "meta", "topic"],
+    ["data", "meta", "partition"],
+    ["data", "meta", "offset"],
+    ["data", "notify_url"],
+    ["data", "server_script_path"],
     ["data", "comment"],
     ["data", "parsedcomment"],
     ["data", "log_params"],

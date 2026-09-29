@@ -38,11 +38,15 @@ H-lite output on these corpora existed:
 - **Unscored**: `meta.uri` (equals `title_url` for most event types, not provably for all),
   `id` (rcid, #17 Q3), `meta.request_id` (one request can write several events), `comment`,
   `parsedcomment`, and `log_params` with every path under it.
+- **Unscored transport and plumbing fields** (ruling 2026-09-29, item 4): `meta.topic`,
+  `meta.partition`, `meta.offset` (Kafka position, not entity identity), `notify_url` (a
+  per-event diff URL) and `server_script_path` (one value per wiki family).
 
 Key format v0 matches unscored paths exactly, with no prefix form, so `log_params` is listed as
 the 84 paths it takes in the **dev** corpus (itself, its keys, and array indexes). A
-`log_params` path that occurs only in a held-out corpus is scored; the report counts any
-predicted mention there.
+`log_params` path that occurs only in a held-out corpus is still scored; the report counts any
+predicted mention there. This is an accepted limit of v0 (ruling 2026-09-29, item 2). A prefix
+form for `unscored` is a key-format change: #224.
 
 Canary events (`meta.domain` = `canary`, hourly, codfw topic) carry no `wiki`, so the key
 mentions nothing in them.
@@ -51,3 +55,4 @@ mentions nothing in them.
 AbuseFilter hits with `log_id` 0 (no log row is written). Base key v0 reads them as one log
 entity per wiki. Format v0 cannot exclude a value, so fixing this needs either a format change
 or a key that drops `log_id`; either is a new key file, decided before the first score.
+Tracked in #225; PR 2b blocks its first score on it, and `dev-key-v0` stays as it is here.

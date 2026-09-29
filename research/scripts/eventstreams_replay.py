@@ -13,7 +13,10 @@ Default (the revert pilot, research 0004): keeps enwiki only and writes parsed N
 --max-events  stop after N kept events (0 = no limit); `until` still ends the window.
 
 An event past `until` is skipped; the replay stops once every topic in the stream's id has
-passed `until` (or at --max-events).
+passed `until` (or at --max-events). Each topic ends separately because a history replay
+delivers the codfw topic first, and for mediawiki.recentchange codfw carries only the hourly
+canary events: stopping at the first event past `until` ended the window after ~300 canaries,
+before any eqiad (real) event. This changes the default mode too; it is a bug fix (s2w#56).
 
 Prints one summary line on stdout when done:
   done <events> events <reconnects> reconnects first_dt=<min dt> last_dt=<max dt>
@@ -24,7 +27,8 @@ UA = 's2w-research/0.1 (davidlremy@gmail.com)'
 
 
 def parse_args(argv):
-    p = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    p = argparse.ArgumentParser(description=__doc__.split('\n\n', 2)[2].strip(),
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--all-wikis', action='store_true')
     p.add_argument('--raw-sse', action='store_true')
     p.add_argument('--max-events', type=int, default=0)
