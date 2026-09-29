@@ -459,3 +459,59 @@ fn a_corrupt_verdict_row_does_not_leak_that_events_source_into_per_source_stats(
     assert_eq!((preset.consumed, preset.unrouted), (5, 5));
     Ok(())
 }
+
+#[test]
+fn resume_refuses_a_timeline_with_events_past_its_base() -> TestResult {
+    let state = new_state();
+    state.append(
+        Timestamp::from_millis(0),
+        s2w_model::WorldEvent::EntitiesMerged {
+            survivor: NaturalKey::new("a"),
+            absorbed: NaturalKey::new("b"),
+        },
+    )?;
+    let refused = Bridge::resume(
+        InMemoryEventLog::new(),
+        InMemoryVerdictStore::new(),
+        EngineRegistry::with_defaults(),
+        state,
+        BridgeConfig::default(),
+        LogPosition::from_u64(1).ok_or("position")?,
+    );
+    assert!(matches!(
+        refused,
+        Err(BridgeError::TimelineNotEmpty { head: 1 })
+    ));
+    Ok(())
+}
+
+#[test]
+fn resume_skips_the_covered_prefix_and_marks_the_consumed_event_hash() -> TestResult {
+    let mut log = InMemoryEventLog::new();
+    log.append(event("stdin", 1, MERGE.as_bytes())?)?;
+    log.append(event("kafka.orders", 2, b"{\"order\":1}")?)?;
+    let stored: Vec<_> = log.replay(None)?.collect::<Result<_, _>>()?;
+    let mut bridge = Bridge::resume(
+        log,
+        InMemoryVerdictStore::new(),
+        EngineRegistry::with_defaults(),
+        new_state(),
+        BridgeConfig::default(),
+        stored[0].position,
+    )?;
+    assert_eq!(
+        bridge.mark(),
+        None,
+        "resume knows the position, not its hash"
+    );
+    let report = bridge.poll_once()?;
+    assert_eq!(
+        report.stats.consumed, 1,
+        "only the event after the snapshot"
+    );
+    assert_eq!(
+        bridge.mark(),
+        Some((stored[1].position, stored[1].content_hash))
+    );
+    Ok(())
+}

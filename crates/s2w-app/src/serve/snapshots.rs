@@ -410,3 +410,6 @@ fn write_one(dir: &Path, job: Job, shared: &Shared, notes: &(dyn Fn(&str) + Send
         )),
     }
 }
+
+#[cfg(test)]
+mod tests;

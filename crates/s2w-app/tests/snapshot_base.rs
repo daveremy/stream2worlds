@@ -161,4 +161,34 @@ mod base {
             assert_eq!(status, StatusCode::OK);
         });
     }
+
+    #[test]
+    fn a_follower_behind_a_replaced_base_gets_one_error_frame() {
+        run(async {
+            let events = events();
+            let mut live = Timeline::new(CAP);
+            append(&mut live, &events[..2], 0);
+            let state = QueryState::new(live);
+            let app = router(state.clone());
+            let (status, body) = request(&app, "/worlds/default/events?from=0", None).await;
+            assert_eq!(status, StatusCode::OK);
+            let mut stream = body.into_data_stream();
+            // A restore moves the base past where this follower stands.
+            let (_, restored) = timelines();
+            state.replace_timeline(restored).unwrap();
+            let mut text = String::new();
+            while let Some(chunk) = tokio::time::timeout(Duration::from_secs(5), stream.next())
+                .await
+                .unwrap()
+            {
+                text.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
+            }
+            let errors: Vec<&str> = text
+                .split("\n\n")
+                .filter(|frame| frame.contains("event: error"))
+                .collect();
+            assert_eq!(errors.len(), 1, "{text}");
+            assert!(errors[0].contains("offset_before_base"), "{text}");
+        });
+    }
 }

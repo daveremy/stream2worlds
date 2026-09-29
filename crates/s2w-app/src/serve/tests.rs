@@ -950,3 +950,189 @@ fn serving_start_gate_bootstraps_and_preserves_removal() {
         assert_eq!(log.membership_history().unwrap().len(), 3);
     });
 }
+
+struct ServedRun {
+    notes: Vec<String>,
+    /// `(base, head)` once every sent event reached the world.
+    bounds: (u64, u64),
+    /// `GET /worlds/default/world` at that moment.
+    world: serde_json::Value,
+}
+
+/// One `serve` process over `dir`: restores per `config`, ingests `events` (cursor, key) from
+/// a stdin-like source, waits until the world holds `nodes` entities, then stops as a signal
+/// would. `None` if the sandbox denies loopback sockets.
+async fn serve_until(
+    dir: &TestDirectory,
+    config: SnapshotConfig,
+    events: &[(u8, &str)],
+    nodes: usize,
+) -> Option<ServedRun> {
+    let listener = match TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!("skipping TCP integration: sandbox denies loopback sockets: {error}");
+            return None;
+        }
+        Err(error) => panic!("bind: {error}"),
+    };
+    let log = SqliteEventLog::open(dir.path()).expect("log opens");
+    let verdicts = SqliteVerdictStore::open(dir.path()).expect("verdicts open");
+    let state = state();
+    let mut reporter = TestReporter::default();
+    let (resume, snapshots) =
+        snapshots::prepare(&state, (&log, &verdicts), dir.path(), config, &mut reporter)
+            .expect("prepare");
+    let (events_tx, events_rx) = tokio::sync::mpsc::channel(8);
+    let started = Started {
+        sources: vec![SourceId::new("stdin").expect("source")],
+        stream: Box::pin(tokio_stream::wrappers::ReceiverStream::new(events_rx)),
+        ends: Ending::AtEndOfInput,
+        notes: Vec::new(),
+    };
+    let (stop_tx, stop_rx) = oneshot::channel();
+    let server = serve_live(
+        state.clone(),
+        ServeStorage {
+            log,
+            verdicts,
+            resume,
+            snapshots,
+        },
+        started,
+        "stdin",
+        listener,
+        async {
+            stop_rx.await.expect("stop signal");
+            Ok(())
+        },
+        &mut reporter,
+    );
+    let client = async {
+        for (cursor, key) in events {
+            events_tx
+                .send(Ok(RawEvent {
+                    source: SourceId::new("stdin").expect("source"),
+                    cursor: Cursor::new(vec![*cursor]).expect("cursor"),
+                    received_at: Timestamp::from_millis(i64::from(*cursor)),
+                    payload: format!(
+                        r#"{{"EntityObserved":{{"key":"{key}","entity_type":"thing","attrs":{{}}}}}}"#
+                    )
+                    .into_bytes(),
+                }))
+                .await
+                .expect("send event");
+        }
+        let app = router(state.clone()).layer(middleware::from_fn(host_allowlist));
+        let world = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let (status, _, bytes) = web_response(&app, "/worlds/default/world").await;
+                assert_eq!(status, StatusCode::OK);
+                let world: serde_json::Value = serde_json::from_slice(&bytes).expect("world");
+                if world["nodes"].as_array().is_some_and(|n| n.len() == nodes) {
+                    break world;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("every event should reach the world");
+        let (base, head, _) = state.bounds().expect("bounds");
+        stop_tx.send(()).expect("stop server");
+        // Keep ingestion alive until after stop; otherwise EOF could win the select.
+        (events_tx, world, (base, head))
+    };
+    let (result, (_sender, world, bounds)) = tokio::join!(server, client);
+    result.expect("server shuts down");
+    let notes = reporter
+        .reports
+        .into_iter()
+        .filter_map(|report| match report {
+            Report::Note(note) => Some(note),
+            Report::SourceError(..) => None,
+        })
+        .collect();
+    Some(ServedRun {
+        notes,
+        bounds,
+        world,
+    })
+}
+
+fn noted(run: &ServedRun, needle: &str) -> bool {
+    run.notes.iter().any(|note| note.contains(needle))
+}
+
+#[test]
+fn a_restarted_serve_resumes_from_its_final_snapshot_and_matches_a_full_replay() {
+    run(false, async {
+        let dir = TestDirectory::new("serve-snapshot-restart");
+        let config = SnapshotConfig {
+            enabled: true,
+            every: 1_000,
+            shutdown_min: 1,
+        };
+        let Some(first) = serve_until(&dir, config, &[(1, "a"), (2, "b"), (3, "c")], 3).await
+        else {
+            return;
+        };
+        assert!(
+            !noted(&first, "restored from snapshot"),
+            "{:?}",
+            first.notes
+        );
+        let snapshot_offset = first.bounds.1;
+        assert_eq!(
+            store_offsets(&dir),
+            vec![snapshot_offset],
+            "the stop wrote one final snapshot at the head"
+        );
+
+        let second = serve_until(&dir, config, &[(4, "d"), (5, "e")], 5)
+            .await
+            .expect("sockets allowed once");
+        assert!(
+            second
+                .notes
+                .iter()
+                .any(|note| note.starts_with("restored from snapshot")
+                    && note.contains(&format!(" at offset {snapshot_offset} "))),
+            "{:?}",
+            second.notes
+        );
+        assert_eq!(second.bounds.0, snapshot_offset, "the base is the snapshot");
+        assert!(
+            second.bounds.1 > snapshot_offset,
+            "the tail replayed on top"
+        );
+
+        let replayed = serve_until(
+            &dir,
+            SnapshotConfig {
+                enabled: false,
+                ..config
+            },
+            &[],
+            5,
+        )
+        .await
+        .expect("sockets allowed once");
+        assert_eq!(
+            replayed.bounds,
+            (0, second.bounds.1),
+            "--no-snapshot replays everything"
+        );
+        assert_eq!(
+            replayed.world, second.world,
+            "restore + tail == full replay"
+        );
+    });
+}
+
+fn store_offsets(dir: &TestDirectory) -> Vec<u64> {
+    crate::snapshot::store::list(&crate::snapshot::store::dir(dir.path()))
+        .expect("snapshot dir")
+        .into_iter()
+        .map(|(offset, _)| offset)
+        .collect()
+}
