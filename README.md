@@ -200,7 +200,7 @@ resolves routes only at start, so it picks up the change at its next restart. An
 mapping proposal whose payload does not decode is refused, because routing excludes that row
 whatever is decided; a reject is always allowed. Exit codes: 0 recorded; 2 for a usage error;
 1 for a data error (`unknown_proposal`, `store_locked`, `bad_parameter`, `storage`), with the
-same `{"error", "message"}` body under `--json` that HTTP and MCP use. `store_locked` is exit
+same `{"error", "message"}` body on stderr under `--json` that HTTP and MCP use. `store_locked` is exit
 1, not 2, because the writer lock is held only for one append, so a retry succeeds; nothing
 about the command was wrong.
 

@@ -128,7 +128,7 @@ pub fn read_view(log_dir: &Path) -> Result<ProposalsView, QueryError> {
 
 /// Appends one decision by `seat` on an existing proposal in `log_dir`'s store.
 ///
-/// A human `accept` on a `stream-mapping` proposal is refused unless its payload decodes as a
+/// An `accept` (by either seat) on a `stream-mapping` proposal is refused unless its payload decodes as a
 /// valid envelope: routing excludes such a row whatever is decided, so the accept could never
 /// take effect. A reject is always allowed, so a bad row can still be revoked.
 ///

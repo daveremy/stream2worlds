@@ -225,6 +225,18 @@ fn an_invalid_mapping_envelope_can_be_rejected_but_not_accepted() -> TestResult 
             .decisions()?
             .is_empty()
     );
+    // The refusal is seat-neutral: MCP `decision_record` (the agent seat) gets it too.
+    let agent = record_decision(&dir.0, &Seat::Agent, "bad", Outcome::Accept, "why");
+    assert!(
+        matches!(
+            agent,
+            Err(QueryError::BadParameter {
+                name: "proposal",
+                ..
+            })
+        ),
+        "{agent:?}"
+    );
     let recorded = record_decision(&dir.0, &human("dave"), "bad", Outcome::Reject, "why")?;
     assert_eq!(recorded.mapping_source, None);
     Ok(())

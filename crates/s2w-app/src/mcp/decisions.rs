@@ -66,5 +66,6 @@ const DECISION_RECORD: &str = "Requires the world string parameter. Opt-in write
     reject, with a non-empty basis) on an existing proposal and returns the stored decision. \
     Agent decisions are recorded opinions: they never count as policy routing, human review or \
     evidence, and never change or add a proposal. Errors: unknown_proposal, store_locked \
-    (another writer holds the store; retry), bad_parameter, unknown_world, storage. Use \
+    (another writer holds the store; retry), bad_parameter (also an accept on a stream-mapping \
+    proposal whose payload does not decode; reject it instead), unknown_world, storage. Use \
     proposals_list to find proposal ids.";
