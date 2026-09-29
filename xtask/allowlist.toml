@@ -19,6 +19,9 @@ normal = ["s2w-model", "reqwest", "rskafka", "tokio", "serde_json", "tokio-strea
 [crates.s2w-system1]
 normal = ["s2w-model", "serde", "serde_json", "thiserror"]
 
+[crates.s2w-discover]
+normal = ["s2w-model", "serde_json"]
+
 [crates.s2w-system2]
 normal = ["s2w-model"]
 
@@ -34,7 +37,7 @@ normal = ["s2w-app", "s2w-log", "s2w-model", "serde_json"]
 normal = ["s2w-model", "s2w-log"]
 
 [crates.xtask]
-normal = ["serde", "serde_json", "toml", "s2w-core", "s2w-model", "s2w-system1", "syn", "proc-macro2"]
+normal = ["serde", "serde_json", "toml", "s2w-core", "s2w-discover", "s2w-model", "s2w-system1", "syn", "proc-macro2"]
 
 # Every external dependency names the README "Technical architecture" row that explains it.
 [external.serde]
