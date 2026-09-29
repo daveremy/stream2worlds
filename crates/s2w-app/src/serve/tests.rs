@@ -1186,16 +1186,21 @@ fn a_restarted_serve_resumes_from_its_final_snapshot_and_matches_a_full_replay()
             replayed.world, second.world,
             "restore + tail == full replay"
         );
-        // The restored timeline serves the registry's epoch, not the reserved 0 (#184).
-        let epoch = format!(
-            "{:016x}",
-            EngineRegistry::with_defaults().feed_fingerprint()
-        );
-        assert_ne!(epoch, "0000000000000000");
-        for run in [&first, &second, &replayed] {
-            assert_eq!(run.world["epoch"], epoch, "{:?}", run.notes);
-        }
+        assert_serves_the_registry_epoch(&[&first, &second, &replayed]);
     });
+}
+
+/// Fresh, restored and replayed timelines all serve the registry's epoch, never the reserved 0
+/// (#184).
+fn assert_serves_the_registry_epoch(runs: &[&ServedRun]) {
+    let epoch = format!(
+        "{:016x}",
+        EngineRegistry::with_defaults().feed_fingerprint()
+    );
+    assert_ne!(epoch, "0000000000000000");
+    for run in runs {
+        assert_eq!(run.world["epoch"], epoch, "{:?}", run.notes);
+    }
 }
 
 fn store_offsets(dir: &TestDirectory) -> Vec<u64> {
@@ -1463,12 +1468,20 @@ fn a_restart_under_another_mapping_serves_a_new_epoch_and_the_old_one_is_gone() 
         let at = first.bounds.1.min(second.bounds.1);
         assert!(at > 0, "both runs folded events");
         assert_eq!(
-            status_of(&app, &format!("/worlds/default/world?at={at}&epoch={fp_a:016x}")).await,
+            status_of(
+                &app,
+                &format!("/worlds/default/world?at={at}&epoch={fp_a:016x}")
+            )
+            .await,
             StatusCode::GONE,
             "a URL pinned under A is gone under B"
         );
         assert_eq!(
-            status_of(&app, &format!("/worlds/default/world?at={at}&epoch={fp_b:016x}")).await,
+            status_of(
+                &app,
+                &format!("/worlds/default/world?at={at}&epoch={fp_b:016x}")
+            )
+            .await,
             StatusCode::OK
         );
     });

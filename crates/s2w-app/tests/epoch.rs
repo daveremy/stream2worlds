@@ -63,7 +63,10 @@ mod contract {
     async fn get_with(app: &Router, uri: &str, last_event_id: Option<&str>) -> (StatusCode, Value) {
         let (status, body) = send(app, uri, last_event_id).await;
         let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
-        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
     }
 
     /// Every read surface a client can pin with an epoch, at an offset (10) that exists under
@@ -98,8 +101,12 @@ mod contract {
                 assert_eq!(status, StatusCode::GONE, "{uri}");
                 assert_eq!(body["error"], "stale_epoch", "{uri}");
             }
-            let (status, body) =
-                get_with(&app, "/worlds/default/events", Some(&format!("{E1_HEX}:10"))).await;
+            let (status, body) = get_with(
+                &app,
+                "/worlds/default/events",
+                Some(&format!("{E1_HEX}:10")),
+            )
+            .await;
             assert_eq!(status, StatusCode::GONE);
             assert_eq!(body["error"], "stale_epoch");
         });
