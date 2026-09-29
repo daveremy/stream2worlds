@@ -1,6 +1,7 @@
 //! Shared vocabulary for every `s2w` crate.
 //!
-//! This crate depends on `serde` and `thiserror` only, does no I/O and never reads a clock.
+//! This crate depends on `serde`, `serde_json` (a mapping's canonical bytes, decision 0023) and
+//! `thiserror` only, does no I/O and never reads a clock.
 //! Types arrive here when a second crate needs them, not before.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
@@ -14,7 +15,7 @@ pub use mapping::{
     AttrRule, EntityRule, FieldPath, MAPPING_VERSION, MappingError, RelationshipRule, Segment,
     StreamMapping,
 };
-pub use natural_key::{KEY_SEPARATOR, KeyError, KeyPart, NaturalKey};
+pub use natural_key::{KEY_FORMAT, KEY_SEPARATOR, KeyError, KeyPart, NaturalKey};
 
 use serde::{Deserialize, Serialize};
 

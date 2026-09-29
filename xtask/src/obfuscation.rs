@@ -22,8 +22,9 @@
 //! (`obfuscation_raw.rs`) over a recorded raw fixture instead; a new engine is covered only
 //! once one of these checks runs it. Neither check runs through the bridge registry
 //! (`s2w-app::Bridge`/`EngineRegistry`) — tracked as [stream2worlds#135](https://github.com/daveremy/stream2worlds/issues/135).
-//! `Route::Exact("stdin")` is the only default route today, so the registry carries
-//! materially less domain-keying risk than the engine layer these checks cover.
+//! `Route::Exact("stdin")` is the only default route today; every other route is data, built by
+//! `serve` from stored stream-mapping proposals (decision 0023) and keyed on a source id the
+//! proposal names, so the registry's code carries no domain keying of its own.
 
 use std::collections::BTreeMap;
 use std::fs;

@@ -24,7 +24,7 @@ struct Envelope {
 }
 
 impl Engine for JsonClaimsEngine {
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "json_claims"
     }
     fn version(&self) -> u32 {

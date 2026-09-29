@@ -31,6 +31,10 @@ logged once per bridge, never an error. Defaults: `wikipedia.*` → `wikimedia.p
 > **2026-09-28 ([0021](0021-stream-mapping-v0.md)):** a data-driven `MappingEngine` now exists but
 > is registered nowhere. In #163 PR 2, routes move from code to data: `serve` builds a route per
 > source from the accepted stored mapping.
+>
+> **2026-09-29 ([0023](0023-routes-from-stored-mappings.md)):** routing is now partly data.
+> `serve` adds `Route::Exact(source) -> mapping-<identity>` per accepted stored mapping on top of
+> the defaults above; engine names and routes are owned strings.
 
 ## The bridge
 

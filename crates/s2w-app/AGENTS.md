@@ -28,6 +28,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   claims, and serves a stored verdict instead of calling the engine (decision 0012); a verdict
   that does not match the log is an error, never a re-evaluation. The one other write is
   `publish_source_stats`, a read-only telemetry side channel that never touches the timeline.
+- `routes` (decision 0023) turns accepted `stream-mapping` proposals into routes. `resolve` is
+  pure; `load` opens the proposal store read-only. `serve` builds its registry from it before
+  snapshot restore, because the feed fingerprint depends on the routes. The world manifest's
+  engine list is historical (the defaults at creation), not the live registry. Replay reads
+  stored verdicts of registered engine names only (`VerdictStore::read_range_of`).
 - `Timeline` (decision 0021) has a base world (empty, or a restored snapshot's) and serves offsets
   from the base to the head only; anything below is `offset_before_base` (410). Index the event
   list only through `events_after`, never by absolute offset. Without a snapshot the base is 0 and

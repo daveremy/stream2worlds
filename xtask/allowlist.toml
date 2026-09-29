@@ -3,8 +3,7 @@
 # in docs/decisions/0001-workspace-layers.md and each crate's AGENTS.md.
 
 [crates.s2w-model]
-normal = ["serde", "thiserror"]
-dev = ["serde_json"]
+normal = ["serde", "serde_json", "thiserror"]
 
 [crates.s2w-core]
 normal = ["s2w-model", "serde"]

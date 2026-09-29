@@ -2,7 +2,7 @@ use super::*;
 use crate::query::Timeline;
 use crate::tests::{TestDirectory, run};
 use axum::{Router, body::Body, routing::get};
-use s2w_model::Timestamp;
+use s2w_model::{StreamMapping, Timestamp};
 use tower::ServiceExt;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -335,6 +335,7 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
             ServeStorage {
                 log,
                 verdicts,
+                registry: EngineRegistry::with_defaults(),
                 resume: None,
                 snapshots: None,
             },
@@ -959,19 +960,53 @@ struct ServedRun {
     world: serde_json::Value,
 }
 
-/// One `serve` process over `dir`: restores per `config`, ingests `events` (cursor, key) from
-/// a stdin-like source, waits until the world holds `nodes` entities, then stops as a signal
-/// would. `None` if the sandbox denies loopback sockets.
+/// What one [`serve_until`] run ingests and routes.
+struct Feed {
+    source: SourceId,
+    /// `(cursor, payload)` per event, in order.
+    events: Vec<(u8, Vec<u8>)>,
+    /// `None`: resolve routes from the proposal store in the log directory, as `serve` does.
+    registry: Option<EngineRegistry>,
+    until: Until,
+}
+
+/// When a [`serve_until`] run stops.
+#[derive(Clone, Copy)]
+enum Until {
+    /// The world holds this many entities.
+    Nodes(usize),
+    /// The bridge has consumed this many events of the feed's source in this run.
+    Consumed(u64),
+}
+
+impl Feed {
+    /// `EntityObserved` events `(cursor, key)` from a stdin-like source, default routes.
+    fn things(events: &[(u8, &str)], nodes: usize) -> Self {
+        Self {
+            source: SourceId::new("stdin").expect("source"),
+            events: events
+                .iter()
+                .map(|(cursor, key)| {
+                    let payload = format!(
+                        r#"{{"EntityObserved":{{"key":"{key}","entity_type":"thing","attrs":{{}}}}}}"#
+                    );
+                    (*cursor, payload.into_bytes())
+                })
+                .collect(),
+            registry: Some(EngineRegistry::with_defaults()),
+            until: Until::Nodes(nodes),
+        }
+    }
+}
+
+/// One `serve` process over `dir`: resolves routes, restores per `config`, ingests `feed`,
+/// waits until its stop condition holds, then stops as a signal would. `None` if the sandbox
+/// denies loopback sockets.
 #[expect(
     clippy::too_many_lines,
     reason = "scenario helper: server and client halves share the fixture and read as one sequence"
 )]
-async fn serve_until(
-    dir: &TestDirectory,
-    config: SnapshotConfig,
-    events: &[(u8, &str)],
-    nodes: usize,
-) -> Option<ServedRun> {
+async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) -> Option<ServedRun> {
     let listener = match TcpListener::bind("127.0.0.1:0").await {
         Ok(listener) => listener,
         Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
@@ -984,12 +1019,21 @@ async fn serve_until(
     let verdicts = SqliteVerdictStore::open(dir.path()).expect("verdicts open");
     let state = state();
     let mut reporter = TestReporter::default();
-    let (resume, snapshots) =
-        snapshots::prepare(&state, (&log, &verdicts), dir.path(), config, &mut reporter)
-            .expect("prepare");
+    let registry = match feed.registry {
+        Some(registry) => registry,
+        None => routed_registry(dir.path(), &mut reporter).expect("routes resolve"),
+    };
+    let (resume, snapshots) = snapshots::prepare(
+        &state,
+        (&log, &verdicts),
+        dir.path(),
+        (config, registry.feed_fingerprint()),
+        &mut reporter,
+    )
+    .expect("prepare");
     let (events_tx, events_rx) = tokio::sync::mpsc::channel(8);
     let started = Started {
-        sources: vec![SourceId::new("stdin").expect("source")],
+        sources: vec![feed.source.clone()],
         stream: Box::pin(tokio_stream::wrappers::ReceiverStream::new(events_rx)),
         ends: Ending::AtEndOfInput,
         notes: Vec::new(),
@@ -1000,6 +1044,7 @@ async fn serve_until(
         ServeStorage {
             log,
             verdicts,
+            registry,
             resume,
             snapshots,
         },
@@ -1013,16 +1058,13 @@ async fn serve_until(
         &mut reporter,
     );
     let client = async {
-        for (cursor, key) in events {
+        for (cursor, payload) in feed.events {
             events_tx
                 .send(Ok(RawEvent {
-                    source: SourceId::new("stdin").expect("source"),
-                    cursor: Cursor::new(vec![*cursor]).expect("cursor"),
-                    received_at: Timestamp::from_millis(i64::from(*cursor)),
-                    payload: format!(
-                        r#"{{"EntityObserved":{{"key":"{key}","entity_type":"thing","attrs":{{}}}}}}"#
-                    )
-                    .into_bytes(),
+                    source: feed.source.clone(),
+                    cursor: Cursor::new(vec![cursor]).expect("cursor"),
+                    received_at: Timestamp::from_millis(i64::from(cursor)),
+                    payload,
                 }))
                 .await
                 .expect("send event");
@@ -1030,10 +1072,19 @@ async fn serve_until(
         let app = router(state.clone()).layer(middleware::from_fn(host_allowlist));
         let world = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
+                // Read the counter BEFORE the world: the bridge serves a batch's claims before
+                // it publishes the batch's counters, so this world includes every counted event.
+                let consumed = state.consumed(&feed.source);
                 let (status, _, bytes) = web_response(&app, "/worlds/default/world").await;
                 assert_eq!(status, StatusCode::OK);
                 let world: serde_json::Value = serde_json::from_slice(&bytes).expect("world");
-                if world["nodes"].as_array().is_some_and(|n| n.len() == nodes) {
+                let done = match feed.until {
+                    Until::Nodes(nodes) => {
+                        world["nodes"].as_array().is_some_and(|n| n.len() == nodes)
+                    }
+                    Until::Consumed(count) => consumed >= count,
+                };
+                if done {
                     break world;
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1063,6 +1114,13 @@ async fn serve_until(
     })
 }
 
+/// Snapshots on, written only by the final snapshot at stop.
+const SNAPSHOT_ON_STOP: SnapshotConfig = SnapshotConfig {
+    enabled: true,
+    every: 1_000,
+    shutdown_min: 1,
+};
+
 fn noted(run: &ServedRun, needle: &str) -> bool {
     run.notes.iter().any(|note| note.contains(needle))
 }
@@ -1071,13 +1129,9 @@ fn noted(run: &ServedRun, needle: &str) -> bool {
 fn a_restarted_serve_resumes_from_its_final_snapshot_and_matches_a_full_replay() {
     run(false, async {
         let dir = TestDirectory::new("serve-snapshot-restart");
-        let config = SnapshotConfig {
-            enabled: true,
-            every: 1_000,
-            shutdown_min: 1,
-        };
-        let Some(first) = serve_until(&dir, config, &[(1, "a"), (2, "b"), (3, "c")], 3).await
-        else {
+        let config = SNAPSHOT_ON_STOP;
+        let abc = Feed::things(&[(1, "a"), (2, "b"), (3, "c")], 3);
+        let Some(first) = serve_until(&dir, config, abc).await else {
             return;
         };
         assert!(
@@ -1092,7 +1146,7 @@ fn a_restarted_serve_resumes_from_its_final_snapshot_and_matches_a_full_replay()
             "the stop wrote one final snapshot at the head"
         );
 
-        let second = serve_until(&dir, config, &[(4, "d"), (5, "e")], 5)
+        let second = serve_until(&dir, config, Feed::things(&[(4, "d"), (5, "e")], 5))
             .await
             .expect("sockets allowed once");
         assert!(
@@ -1116,8 +1170,7 @@ fn a_restarted_serve_resumes_from_its_final_snapshot_and_matches_a_full_replay()
                 enabled: false,
                 ..config
             },
-            &[],
-            5,
+            Feed::things(&[], 5),
         )
         .await
         .expect("sockets allowed once");
@@ -1139,4 +1192,219 @@ fn store_offsets(dir: &TestDirectory) -> Vec<u64> {
         .into_iter()
         .map(|(offset, _)| offset)
         .collect()
+}
+
+// Routes from stored stream mappings (decision 0023).
+
+const MAPPED: &str = "test.mapped";
+const NO_SNAPSHOT: SnapshotConfig = SnapshotConfig {
+    enabled: false,
+    ..SNAPSHOT_ON_STOP
+};
+
+fn mapping_a() -> StreamMapping {
+    serde_json::from_str(include_str!(
+        "../../../s2w-system1/testdata/sample.mapping.json"
+    ))
+    .expect("fixture mapping")
+}
+
+/// Mapping A with its first entity rule's type label changed: a different mapping identity
+/// that folds a different world from the same events.
+fn mapping_b() -> StreamMapping {
+    let mut mapping = mapping_a();
+    let rule = mapping.entities.first_mut().expect("an entity rule");
+    rule.type_label = format!("{}-b", rule.type_label);
+    mapping
+}
+
+/// Recorded raw events `range` of the fixture sample, cursor = line number from 1.
+fn raw_events(range: std::ops::Range<usize>) -> Vec<(u8, Vec<u8>)> {
+    include_str!("../../../s2w-system1/testdata/raw-sample.jsonl")
+        .lines()
+        .enumerate()
+        .skip(range.start)
+        .take(range.len())
+        .map(|(index, line)| {
+            (
+                u8::try_from(index + 1).expect("small"),
+                line.as_bytes().to_vec(),
+            )
+        })
+        .collect()
+}
+
+fn mapped(range: std::ops::Range<usize>, registry: Option<EngineRegistry>) -> Feed {
+    Feed {
+        source: SourceId::new(MAPPED).expect("source"),
+        until: Until::Consumed(range.len() as u64),
+        events: raw_events(range),
+        registry,
+    }
+}
+
+/// Stores `mapping` for [`MAPPED`] as proposal `id` with a human accept, as a reviewer would.
+fn accept_mapping(dir: &TestDirectory, id: &str, mapping: StreamMapping) {
+    use s2w_log::{
+        Actor, Decider, NewDecision, NewProposal, Outcome, ProposalStore, SqliteProposalStore,
+    };
+    let envelope = routes::MappingEnvelope {
+        format: routes::ENVELOPE_FORMAT,
+        source: MAPPED.to_owned(),
+        mapping,
+    };
+    let mut store = SqliteProposalStore::open(dir.path()).expect("proposal store");
+    store
+        .append_proposal(&NewProposal {
+            id: id.to_owned(),
+            class: routes::STREAM_MAPPING_CLASS.to_owned(),
+            actor: Actor::Human { id: "h".to_owned() },
+            snapshot_offset: LogPosition::from_u64(1).expect("position"),
+            payload: serde_json::to_vec(&envelope).expect("envelope"),
+            proposed_at_ms: 0,
+        })
+        .expect("proposal");
+    store
+        .append_decision(&NewDecision {
+            proposal_id: id.to_owned(),
+            decider: Decider::Human,
+            outcome: Outcome::Accept,
+            basis: "reviewed".to_owned(),
+            decided_at_ms: 0,
+        })
+        .expect("decision");
+}
+
+/// The defaults plus `engine` on [`MAPPED`], built directly rather than from a store.
+fn routed_to(engine: Box<dyn s2w_system1::Engine>) -> EngineRegistry {
+    let mut registry = EngineRegistry::with_defaults();
+    registry
+        .register(crate::bridge::Route::Exact(MAPPED.to_owned()), engine)
+        .expect("register");
+    registry
+}
+
+fn engine(mapping: StreamMapping, proposal_id: &str) -> Box<dyn s2w_system1::Engine> {
+    Box::new(
+        s2w_system1::MappingEngine::new(mapping)
+            .expect("valid mapping")
+            .with_proposal_id(proposal_id),
+    )
+}
+
+/// The mutant decision 0023 rules out: a mapping engine under one bare name for every mapping.
+struct BareName(Box<dyn s2w_system1::Engine>);
+
+impl s2w_system1::Engine for BareName {
+    fn name(&self) -> &str {
+        "mapping"
+    }
+    fn version(&self) -> u32 {
+        self.0.version()
+    }
+    fn evaluate(&self, event: &RawEvent) -> s2w_system1::Verdict {
+        self.0.evaluate(event)
+    }
+    fn provenance(&self) -> Option<Vec<u8>> {
+        self.0.provenance()
+    }
+}
+
+fn node_count(run: &ServedRun) -> usize {
+    run.world["nodes"].as_array().map_or(0, Vec::len)
+}
+
+#[test]
+fn serve_routes_a_source_from_its_accepted_stream_mapping_proposal() {
+    run(false, async {
+        let stored = TestDirectory::new("serve-routes-stored");
+        accept_mapping(&stored, "p-a", mapping_a());
+        let Some(from_store) = serve_until(&stored, NO_SNAPSHOT, mapped(0..20, None)).await else {
+            return;
+        };
+        assert!(
+            noted(
+                &from_store,
+                &format!("route: source '{MAPPED}' runs mapping ")
+            ) && noted(&from_store, "from proposal p-a"),
+            "{:?}",
+            from_store.notes
+        );
+        let direct = TestDirectory::new("serve-routes-direct");
+        let registry = routed_to(engine(mapping_a(), "p-a"));
+        let direct = serve_until(&direct, NO_SNAPSHOT, mapped(0..20, Some(registry)))
+            .await
+            .expect("sockets allowed once");
+        assert!(node_count(&direct) > 0, "the mapping folds entities");
+        assert_eq!(
+            from_store.world, direct.world,
+            "stored route == direct engine"
+        );
+    });
+}
+
+#[test]
+fn a_snapshot_taken_under_another_mapping_is_ignored_and_the_restart_folds_cold() {
+    run(false, async {
+        let dir = TestDirectory::new("serve-routes-remapped");
+        accept_mapping(&dir, "p-a", mapping_a());
+        let Some(_first) = serve_until(&dir, SNAPSHOT_ON_STOP, mapped(0..10, None)).await else {
+            return;
+        };
+        assert_eq!(store_offsets(&dir).len(), 1, "a snapshot under mapping A");
+        accept_mapping(&dir, "p-b", mapping_b());
+        // Ignored, so the restart replays all 20 events, not only the 10 new ones.
+        let mut tail = mapped(10..20, None);
+        tail.until = Until::Consumed(20);
+        let second = serve_until(&dir, SNAPSHOT_ON_STOP, tail)
+            .await
+            .expect("sockets allowed once");
+        assert!(
+            noted(&second, "ignoring snapshot") && noted(&second, "different engine routing"),
+            "{:?}",
+            second.notes
+        );
+        assert_eq!(second.bounds.0, 0, "no snapshot base");
+
+        let cold = TestDirectory::new("serve-routes-cold-b");
+        let registry = routed_to(engine(mapping_b(), "p-b"));
+        let cold = serve_until(&cold, NO_SNAPSHOT, mapped(0..20, Some(registry)))
+            .await
+            .expect("sockets allowed once");
+        assert_eq!(
+            second.world, cold.world,
+            "restart under B == cold fold under B"
+        );
+    });
+}
+
+#[test]
+fn a_bare_engine_name_would_restore_a_snapshot_taken_under_another_mapping() {
+    run(false, async {
+        let bare = |mapping, id| routed_to(Box::new(BareName(engine(mapping, id))));
+        let dir = TestDirectory::new("serve-routes-bare");
+        let first = mapped(0..10, Some(bare(mapping_a(), "p-a")));
+        let Some(_first) = serve_until(&dir, SNAPSHOT_ON_STOP, first).await else {
+            return;
+        };
+        let tail = mapped(10..20, Some(bare(mapping_b(), "p-b")));
+        let second = serve_until(&dir, SNAPSHOT_ON_STOP, tail)
+            .await
+            .expect("sockets allowed once");
+        assert!(
+            noted(&second, "restored from snapshot"),
+            "{:?}",
+            second.notes
+        );
+
+        let cold = TestDirectory::new("serve-routes-bare-cold");
+        let all = mapped(0..20, Some(bare(mapping_b(), "p-b")));
+        let cold = serve_until(&cold, NO_SNAPSHOT, all)
+            .await
+            .expect("sockets allowed once");
+        assert_ne!(
+            second.world, cold.world,
+            "under one bare name, mapping A's snapshot is served as mapping B's world"
+        );
+    });
 }

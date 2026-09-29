@@ -169,7 +169,7 @@ pub struct VerdictRecord {
     /// The evaluated event's log position.
     pub position: LogPosition,
     /// [`Engine::name`].
-    pub engine: &'static str,
+    pub engine: String,
     /// [`Engine::version`].
     pub version: u32,
     /// The verdict, with a caught panic as `Abstain(Panicked)`.
@@ -187,7 +187,7 @@ impl VerdictRecord {
         Ok(StoredVerdict {
             position: self.position,
             event_hash,
-            engine: self.engine.to_owned(),
+            engine: self.engine.clone(),
             version: self.version,
             verdict,
             provenance: self.provenance.clone(),
@@ -220,7 +220,7 @@ fn evaluate_one(stored: &StoredEvent, engine: &dyn Engine) -> VerdictRecord {
         });
     VerdictRecord {
         position: stored.position,
-        engine: engine.name(),
+        engine: engine.name().to_owned(),
         version: engine.version(),
         verdict,
         provenance: engine.provenance(),
@@ -265,6 +265,8 @@ pub struct Bridge<R: LogReader, V: VerdictStore> {
     reader: R,
     verdicts: V,
     registry: EngineRegistry,
+    /// `registry.names()`, computed once: the only engines whose stored rows replay reads.
+    engine_names: Vec<String>,
     state: QueryState,
     config: BridgeConfig,
     last: Option<LogPosition>,
@@ -350,6 +352,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         Ok(Self {
             reader,
             verdicts,
+            engine_names: registry.names(),
             registry,
             state,
             config,

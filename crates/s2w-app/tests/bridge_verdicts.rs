@@ -73,7 +73,7 @@ impl Engine for Tagger {
 fn registry_of(engines: Vec<Tagger>) -> Fallible<EngineRegistry> {
     let mut registry = EngineRegistry::new();
     for engine in engines {
-        registry.register(Route::Exact(SOURCE), Box::new(engine))?;
+        registry.register(Route::Exact(SOURCE.to_owned()), Box::new(engine))?;
     }
     Ok(registry)
 }
@@ -523,11 +523,11 @@ fn the_registry_runs_a_name_once_and_refuses_a_second_version() -> TestResult {
     let (same, _) = Tagger::new("tagger", 1);
     let mut registry = EngineRegistry::new();
     registry
-        .register(Route::Prefix("test."), Box::new(first))?
-        .register(Route::Exact(SOURCE), Box::new(same))?;
+        .register(Route::Prefix("test.".to_owned()), Box::new(first))?
+        .register(Route::Exact(SOURCE.to_owned()), Box::new(same))?;
     let (other, _) = Tagger::new("tagger", 2);
     assert!(matches!(
-        registry.register(Route::Exact(SOURCE), Box::new(other)),
+        registry.register(Route::Exact(SOURCE.to_owned()), Box::new(other)),
         Err(RegistryError::VersionConflict {
             registered: 1,
             rejected: 2,

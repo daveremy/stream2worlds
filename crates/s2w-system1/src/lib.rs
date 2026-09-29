@@ -12,11 +12,13 @@ use s2w_model::RawEvent;
 /// A payload-only mapping. Verdicts are persisted (decision 0012); engines must still be
 /// deterministic so a version bump has a well-defined meaning and replay is exact.
 pub trait Engine: Send + Sync {
-    /// Stable identifier persisted with each verdict in the verdict log (decision 0012).
-    fn name(&self) -> &'static str;
+    /// Stable identifier persisted with each verdict in the verdict log (decision 0012). An
+    /// engine that runs data names that data here (`MappingEngine`: `mapping-<identity>`,
+    /// decision 0023), so its stored verdicts are never served for other data.
+    fn name(&self) -> &str;
     /// Code version; bump whenever this engine's payload-to-verdict code changes. An engine
-    /// that runs a data mapping (`MappingEngine`) names that mapping in [`Self::provenance`],
-    /// not here (decision 0021).
+    /// that runs a data mapping (`MappingEngine`) names that mapping in [`Self::name`] and
+    /// [`Self::provenance`], never here (decisions 0021, 0023).
     fn version(&self) -> u32;
     /// Total: unsupported or malformed inputs abstain, never panic or error.
     fn evaluate(&self, event: &RawEvent) -> Verdict;

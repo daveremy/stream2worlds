@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::future::{Future, IntoFuture};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Duration;
@@ -23,7 +23,9 @@ use tokio::sync::{oneshot, watch};
 
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
 use crate::query::{QueryState, router};
-use crate::{AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters};
+use crate::{
+    AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters, routes,
+};
 
 mod snapshots;
 use snapshots::Snapshotter;
@@ -78,15 +80,18 @@ async fn run_serve_async(
     let verdicts = SqliteVerdictStore::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "verdict store"))?;
     let now = now_millis()?;
-    let engines = EngineRegistry::with_defaults().names();
     let manifest = WorldManifest::create_if_absent(
         &mut log,
         &args.world,
         &args.world,
         Timestamp::from_millis(now),
-        &engines,
+        // Historical: the defaults at world creation, not the live registry (decision 0023).
+        &EngineRegistry::with_defaults().names(),
         &[],
     )?;
+    // Routes resolve before the source starts, so a corrupt proposal store fails before any
+    // source connects.
+    let registry = routed_registry(&args.log_dir, reporter)?;
     let name = source.name();
     // Start before sharing: no RefCell borrow survives an await, even during cursor lookup.
     let started = source
@@ -101,7 +106,7 @@ async fn run_serve_async(
         &state,
         (&log, &verdicts),
         &args.log_dir,
-        args.snapshots,
+        (args.snapshots, registry.feed_fingerprint()),
         reporter,
     )?;
     let listener = TcpListener::bind(("127.0.0.1", args.port))
@@ -118,6 +123,7 @@ async fn run_serve_async(
         ServeStorage {
             log,
             verdicts,
+            registry,
             resume,
             snapshots,
         },
@@ -128,6 +134,23 @@ async fn run_serve_async(
         reporter,
     )
     .await
+}
+
+/// The default routes plus one per source with an accepted stream-mapping proposal in
+/// `log_dir` (decision 0023), each reported on `reporter`. Resolved before any snapshot is
+/// restored: the routes decide the feed fingerprint a snapshot must match.
+///
+/// # Errors
+/// As [`routes::load`] and [`routes::registry`].
+fn routed_registry(
+    log_dir: &Path,
+    reporter: &mut dyn Reporter,
+) -> Result<EngineRegistry, AppError> {
+    let resolution = routes::load(log_dir)?;
+    for line in routes::report_lines(&resolution) {
+        reporter.note(&line);
+    }
+    routes::registry(&resolution)
 }
 
 fn now_millis() -> Result<i64, AppError> {
@@ -191,6 +214,8 @@ struct SharedLogReader {
 struct ServeStorage {
     log: SqliteEventLog,
     verdicts: SqliteVerdictStore,
+    /// The default routes plus one per accepted stream mapping (decision 0023).
+    registry: EngineRegistry,
     /// The log position a restored snapshot covers; `None` replays from the start.
     resume: Option<LogPosition>,
     /// Absent under `--no-snapshot`.
@@ -299,7 +324,7 @@ async fn serve_live(
         Some(position) => Bridge::resume(
             reader,
             storage.verdicts,
-            EngineRegistry::with_defaults(),
+            storage.registry,
             state.clone(),
             config,
             position,
@@ -307,7 +332,7 @@ async fn serve_live(
         None => Bridge::new(
             reader,
             storage.verdicts,
-            EngineRegistry::with_defaults(),
+            storage.registry,
             state.clone(),
             config,
         ),

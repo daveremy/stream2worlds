@@ -49,11 +49,17 @@ may not depend on `s2w-sources`.~~ *(Amended 2026-09-28, s2w#170: the helper is
 verdict log keys verdicts on (position, engine, version) (0012), so two mappings run under the
 same executor version would share keys. PR 2, which builds routes from stored mappings, must
 fold a mapping digest into that identity or reset stored verdicts when the mapping changes.
+*(Resolved 2026-09-29, [0023](0023-routes-from-stored-mappings.md): the engine is named
+`mapping-<identity>`, so the digest is part of the verdict key.)*
 
 **Routing (amends 0011).** 0011 makes routing app composition in code. This record keeps that
 for now: `MappingEngine` is registered nowhere and `EngineRegistry::with_defaults()` is
 unchanged. In #163 PR 2, routes move to data: `serve` builds a route per source from the
 accepted stored mapping.
+
+> **2026-09-29 ([0023](0023-routes-from-stored-mappings.md)):** done. `serve` registers
+> `Route::Exact(source) -> MappingEngine` for each source's effective accepted `stream-mapping`
+> proposal, resolved before snapshot restore.
 
 **Check 11, raw obfuscation replay (`xtask/src/obfuscation_raw.rs`).** Check 10 replays
 claims; this engine reads raw payloads, so check 11 starts one layer earlier. It runs the engine
@@ -115,5 +121,10 @@ object → site. It is recorded domain data under `testdata/` (0018 §4); no Rus
   11 both call it, so the check cannot drift from the engine.
 - FNV-1a 64 lives in `s2w_model` (`Fnv64`, `fnv1a64`, `fnv1a64_hex`). Every former copy calls it;
   source ids, log content hashes, snapshot checksums and `FOLD_FIXTURE_HASH` are unchanged.
+
+**2026-09-29 (s2w#163 PR 2a, [0023](0023-routes-from-stored-mappings.md)).** `MappingEngine::name()`
+is `mapping-<identity>` (`StreamMapping::identity()`), not `mapping`, and its provenance also
+names the proposal id. The natural-key format is versioned as `KEY_FORMAT = 1` and feeds the
+identity. `MappingEngine` is now registered, by `serve`, from stored proposals.
 
 verify: `cargo test -p s2w-system1 mapping && cargo xtask check` passes.

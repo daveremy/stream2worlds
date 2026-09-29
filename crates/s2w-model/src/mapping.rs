@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::KEY_SEPARATOR;
+use crate::{Fnv64, KEY_FORMAT, KEY_SEPARATOR};
 
 /// The one mapping format version this crate reads and writes. Aliases or merge rules would be
 /// version 2 (decision 0021).
@@ -111,6 +111,9 @@ pub enum MappingError {
     /// A label or key segment contains [`KEY_SEPARATOR`].
     #[error("{0} contains the key separator U+001F")]
     Separator(String),
+    /// The mapping could not be encoded to its canonical JSON bytes.
+    #[error("mapping could not be encoded: {0}")]
+    Encode(String),
 }
 
 impl StreamMapping {
@@ -142,6 +145,37 @@ impl StreamMapping {
         }
         Ok(())
     }
+}
+
+impl StreamMapping {
+    /// The mapping identity (decision 0023): FNV-1a 64 as 16 hex digits over, in order,
+    /// [`KEY_FORMAT`] and [`MAPPING_VERSION`] (little-endian `u32`) and the mapping's canonical
+    /// JSON (`serde_json` of the struct, fields in declaration order), each as one
+    /// length-prefixed field. Whitespace or key order in the text a mapping was read from never
+    /// changes it; a key-format or mapping-format bump always does. It names the engine that
+    /// runs the mapping (`mapping-<identity>`), so stored verdicts and world snapshots made
+    /// under one mapping are never served under another.
+    ///
+    /// # Errors
+    /// The first [`MappingError`] from [`Self::validate`]: only a valid mapping has an
+    /// identity. [`MappingError::Encode`] if the canonical bytes cannot be produced.
+    pub fn identity(&self) -> Result<String, MappingError> {
+        self.validate()?;
+        let canonical =
+            serde_json::to_vec(self).map_err(|error| MappingError::Encode(error.to_string()))?;
+        Ok(identity_digest(KEY_FORMAT, MAPPING_VERSION, &canonical))
+    }
+}
+
+/// [`StreamMapping::identity`]'s hash, with its three inputs as arguments so a test can vary
+/// each one.
+fn identity_digest(key_format: u32, mapping_version: u32, canonical: &[u8]) -> String {
+    let digest = Fnv64::new()
+        .write_field(&key_format.to_le_bytes())
+        .write_field(&mapping_version.to_le_bytes())
+        .write_field(canonical)
+        .finish();
+    format!("{digest:016x}")
 }
 
 impl EntityRule {
@@ -320,5 +354,53 @@ mod tests {
                 name: "n".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn identity_ignores_the_text_layout_and_tracks_the_mapping_bytes() -> TestResult {
+        let compact = serde_json::to_string(&mapping())?;
+        let spaced = serde_json::to_string_pretty(&mapping())?;
+        assert_ne!(compact, spaced, "the fixtures must differ as text");
+        let a: StreamMapping = serde_json::from_str(&compact)?;
+        let b: StreamMapping = serde_json::from_str(&spaced)?;
+        assert_eq!(a.identity()?, b.identity()?);
+        assert_eq!(a.identity()?.len(), 16);
+
+        let mut other = mapping();
+        other.entities[1].type_label = "u".to_owned();
+        assert_ne!(other.identity()?, a.identity()?);
+        Ok(())
+    }
+
+    #[test]
+    fn identity_hashes_the_key_format_the_mapping_version_and_the_bytes() -> TestResult {
+        let canonical = serde_json::to_vec(&mapping())?;
+        let identity = mapping().identity()?;
+        assert_eq!(
+            identity,
+            identity_digest(KEY_FORMAT, MAPPING_VERSION, &canonical)
+        );
+        assert_ne!(
+            identity,
+            identity_digest(KEY_FORMAT + 1, MAPPING_VERSION, &canonical)
+        );
+        assert_ne!(
+            identity,
+            identity_digest(KEY_FORMAT, MAPPING_VERSION + 1, &canonical)
+        );
+        let mut changed = canonical.clone();
+        changed.push(b' ');
+        assert_ne!(
+            identity,
+            identity_digest(KEY_FORMAT, MAPPING_VERSION, &changed)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn only_a_valid_mapping_has_an_identity() {
+        let mut m = mapping();
+        m.version = 2;
+        assert_eq!(m.identity(), Err(MappingError::UnsupportedVersion(2)));
     }
 }

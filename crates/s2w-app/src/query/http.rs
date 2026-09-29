@@ -195,6 +195,15 @@ impl QueryState {
         self.source_stats.send_replace(stats);
     }
 
+    /// Events of `source` the bridge has consumed so far (zero before its first batch).
+    #[cfg(test)]
+    pub(crate) fn consumed(&self, source: &SourceId) -> u64 {
+        self.source_stats
+            .borrow()
+            .get(source)
+            .map_or(0, |stats| stats.consumed)
+    }
+
     fn read<T>(&self, f: impl FnOnce(&Timeline) -> Result<T, QueryError>) -> Result<T, QueryError> {
         f(&*self.timeline.read().map_err(|_| QueryError::Unavailable)?)
     }

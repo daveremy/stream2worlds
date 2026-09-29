@@ -11,13 +11,16 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 ## Invariants
 
 - Abstaining is a first-class answer.
+- `Engine::name()` borrows from the engine and may carry an identity; it must be stable for the
+  engine's lifetime, because it keys stored verdicts and the feed fingerprint.
 - Every verdict is persisted; replay never re-runs an engine to reconstruct a past verdict.
   The bridge stores each verdict before serving it and replays stored verdicts on start
   ([decision 0012](../../docs/decisions/0012-verdict-log.md)).
 - Two engines ship today. `JsonClaimsEngine` reads a claim's own declared shape, not a
   domain's. `MappingEngine` executes a `StreamMapping` (decision 0021): paths, type labels and
-  kinds are data handed to it at construction, never code; it is not registered in any route
-  yet (s2w#163 PR 2). The Wikimedia-bound page-change rules engine and the `enwiki`-only local
+  kinds are data handed to it at construction, never code. Its name is `mapping-<identity>`
+  (decision 0023), so each mapping is its own engine to the verdict log; `serve` registers it
+  per source from stored proposals. The Wikimedia-bound page-change rules engine and the `enwiki`-only local
   embeddings engine (decision 0013) were retired under decision 0018 (no compiled domain code).
   Jev joins behind the same trait next.
 - Obfuscation replay covers both: `cargo xtask check` 10 runs claim-reading engines over the

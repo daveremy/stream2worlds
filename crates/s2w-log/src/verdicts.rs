@@ -70,6 +70,24 @@ pub trait VerdictStore {
         through: LogPosition,
     ) -> Result<Vec<StoredVerdict>, LogError>;
 
+    /// [`Self::read_range`] restricted to rows whose engine is one of `engines`, in the same
+    /// order. Replay reads through this with the registered names only, so rows of engines no
+    /// longer registered (a replaced mapping, decision 0023) are never read and discarded per
+    /// position. The default filters [`Self::read_range`]'s rows; SQLite filters in the query.
+    ///
+    /// # Errors
+    /// As [`Self::read_range`].
+    fn read_range_of(
+        &self,
+        after: Option<LogPosition>,
+        through: LogPosition,
+        engines: &[String],
+    ) -> Result<Vec<StoredVerdict>, LogError> {
+        let mut rows = self.read_range(after, through)?;
+        rows.retain(|row| engines.contains(&row.engine));
+        Ok(rows)
+    }
+
     /// Stores every row and advances the cursor to `max(cursor, through)`, all or nothing.
     ///
     /// The cursor never moves backwards, so replaying an already persisted prefix is safe.
@@ -220,7 +238,7 @@ impl ReadOnlySqliteVerdictStore {
         after: Option<LogPosition>,
         through: LogPosition,
     ) -> Result<Vec<StoredVerdict>, LogError> {
-        read_range_from(&self.connection, after, through)
+        read_range_from(&self.connection, after, through, None)
     }
 }
 
@@ -316,7 +334,16 @@ impl VerdictStore for SqliteVerdictStore {
         after: Option<LogPosition>,
         through: LogPosition,
     ) -> Result<Vec<StoredVerdict>, LogError> {
-        read_range_from(&self.connection, after, through)
+        read_range_from(&self.connection, after, through, None)
+    }
+
+    fn read_range_of(
+        &self,
+        after: Option<LogPosition>,
+        through: LogPosition,
+        engines: &[String],
+    ) -> Result<Vec<StoredVerdict>, LogError> {
+        read_range_from(&self.connection, after, through, Some(engines))
     }
 
     fn commit_batch(
@@ -340,22 +367,32 @@ fn cursor_from(connection: &Connection) -> Result<Option<LogPosition>, LogError>
     position.map(LogPosition::from_sql).transpose()
 }
 
+/// Rows in `(after, through]`; with `engines`, only rows of those engine names. The name list
+/// travels as one JSON array parameter (`json_each`), so the statement text is fixed and
+/// cached whatever the number of engines. `json_each` is SQLite's built-in JSON support
+/// (always present since 3.38, and in the bundled build).
 fn read_range_from(
     connection: &Connection,
     after: Option<LogPosition>,
     through: LogPosition,
+    engines: Option<&[String]>,
 ) -> Result<Vec<StoredVerdict>, LogError> {
     let after = after.map_or(Ok(0), LogPosition::to_sql)?;
+    let engines = engines
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| LogError::Io(format!("encoding engine names: {error}")))?;
     let mut statement = connection
-        .prepare(
+        .prepare_cached(
             "SELECT position, event_hash, engine, version, verdict, provenance
                  FROM verdicts
                  WHERE position > ?1 AND position <= ?2
+                   AND (?3 IS NULL OR engine IN (SELECT value FROM json_each(?3)))
                  ORDER BY position, seq",
         )
         .map_err(map_sqlite)?;
     let mut rows = statement
-        .query(params![after, through.to_sql()?])
+        .query(params![after, through.to_sql()?, engines])
         .map_err(map_sqlite)?;
     let mut verdicts = Vec::new();
     while let Some(row) = rows.next().map_err(map_sqlite)? {

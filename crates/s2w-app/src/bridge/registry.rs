@@ -7,20 +7,35 @@ use s2w_system1::{Engine, JsonClaimsEngine};
 
 /// Which source ids a registered engine runs on. Names are compared as text, so routing a name
 /// no source ever produces is not an error; it just never matches.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Owned text: routes are built from stored mapping proposals at start-up (decision 0023), not
+/// only from literals.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Route {
     /// Exactly this source id.
-    Exact(&'static str),
+    Exact(String),
     /// Every source id starting with this prefix. Include the separator (`"stdin."`) so
     /// the prefix cannot match a longer sibling name (`"stdinfoo"`).
-    Prefix(&'static str),
+    Prefix(String),
 }
 
 impl Route {
     fn matches(&self, source: &SourceId) -> bool {
         match self {
-            Self::Exact(id) => source.as_str() == *id,
-            Self::Prefix(prefix) => source.as_str().starts_with(prefix),
+            Self::Exact(id) => source.as_str() == id,
+            Self::Prefix(prefix) => source.as_str().starts_with(prefix.as_str()),
+        }
+    }
+
+    /// Whether some source id could match both routes.
+    fn overlaps(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exact(a), Self::Exact(b)) => a == b,
+            (Self::Exact(id), Self::Prefix(prefix)) | (Self::Prefix(prefix), Self::Exact(id)) => {
+                id.starts_with(prefix.as_str())
+            }
+            (Self::Prefix(a), Self::Prefix(b)) => {
+                a.starts_with(b.as_str()) || b.starts_with(a.as_str())
+            }
         }
     }
 }
@@ -33,7 +48,7 @@ pub enum RegistryError {
     #[error("engine '{name}' is registered at version {registered}; version {rejected} refused")]
     VersionConflict {
         /// The engine name.
-        name: &'static str,
+        name: String,
         /// The version already registered.
         registered: u32,
         /// The version refused.
@@ -64,11 +79,13 @@ impl EngineRegistry {
     #[must_use]
     pub fn with_defaults() -> Self {
         Self {
-            routes: vec![(Route::Exact("stdin"), Box::new(JsonClaimsEngine))],
+            routes: vec![(Route::Exact("stdin".to_owned()), Box::new(JsonClaimsEngine))],
         }
     }
 
-    /// Engine identities persisted when a serving world is first created.
+    /// Every registered engine name, sorted and deduplicated: the identities persisted when a
+    /// serving world is first created, and the only names whose stored verdicts replay serves
+    /// (decision 0023).
     pub(crate) fn names(&self) -> Vec<String> {
         self.routes
             .iter()
@@ -89,8 +106,8 @@ impl EngineRegistry {
         let mut hash = s2w_model::Fnv64::new();
         for (route, engine) in &self.routes {
             let (kind, text) = match route {
-                Route::Exact(id) => ("exact", *id),
-                Route::Prefix(prefix) => ("prefix", *prefix),
+                Route::Exact(id) => ("exact", id.as_str()),
+                Route::Prefix(prefix) => ("prefix", prefix.as_str()),
             };
             hash.write_field(kind.as_bytes())
                 .write_field(text.as_bytes())
@@ -101,9 +118,10 @@ impl EngineRegistry {
 
     /// Adds `engine` on `route`, after every engine already registered.
     ///
-    /// Registering the same name and version on a second route is allowed (overlapping routes
-    /// are legitimate configuration) and logged once; [`Self::engines_for`] then returns it
-    /// once.
+    /// Registering the same name and version on a second route is allowed. When the routes
+    /// can overlap (legitimate configuration) it is logged; [`Self::engines_for`] then returns
+    /// it once. Disjoint routes, such as one mapping accepted for two exact sources, are not
+    /// logged.
     ///
     /// # Errors
     /// [`RegistryError::VersionConflict`] if an engine of the same name is registered at a
@@ -113,15 +131,18 @@ impl EngineRegistry {
         route: Route,
         engine: Box<dyn Engine>,
     ) -> Result<&mut Self, RegistryError> {
-        let (name, version) = (engine.name(), engine.version());
-        if let Some((_, existing)) = self.routes.iter().find(|(_, e)| e.name() == name) {
-            if existing.version() != version {
-                return Err(RegistryError::VersionConflict {
-                    name,
-                    registered: existing.version(),
-                    rejected: version,
-                });
-            }
+        let version = engine.version();
+        let name = engine.name();
+        if let Some((_, existing)) = self.routes.iter().find(|(_, e)| e.name() == name)
+            && existing.version() != version
+        {
+            return Err(RegistryError::VersionConflict {
+                name: name.to_owned(),
+                registered: existing.version(),
+                rejected: version,
+            });
+        }
+        if self.overlaps_same_name(&route, name) {
             eprintln!(
                 "s2w: bridge: engine '{name}' is registered on more than one route; a source \
                  matching several runs it once"
@@ -129,6 +150,13 @@ impl EngineRegistry {
         }
         self.routes.push((route, engine));
         Ok(self)
+    }
+
+    /// Whether an engine named `name` is already registered on a route that can overlap `route`.
+    fn overlaps_same_name(&self, route: &Route, name: &str) -> bool {
+        self.routes
+            .iter()
+            .any(|(existing, engine)| engine.name() == name && existing.overlaps(route))
     }
 
     /// Every engine routed for `source`, in registration order, each name once (the first
@@ -151,11 +179,11 @@ mod tests {
     use s2w_model::{ModelError, RawEvent};
     use s2w_system1::Verdict;
 
-    fn names(registry: &EngineRegistry, source: &str) -> Result<Vec<&'static str>, ModelError> {
+    fn names(registry: &EngineRegistry, source: &str) -> Result<Vec<String>, ModelError> {
         Ok(registry
             .engines_for(&SourceId::new(source)?)
             .iter()
-            .map(|engine| engine.name())
+            .map(|engine| engine.name().to_owned())
             .collect())
     }
 
@@ -206,8 +234,14 @@ mod tests {
     fn engines_on_one_route_come_back_in_registration_order() -> TestResult {
         let mut registry = EngineRegistry::new();
         registry
-            .register(Route::Prefix("a."), Box::new(Named("second-name-first")))?
-            .register(Route::Prefix("a."), Box::new(Named("first-name-second")))?;
+            .register(
+                Route::Prefix("a.".to_owned()),
+                Box::new(Named("second-name-first")),
+            )?
+            .register(
+                Route::Prefix("a.".to_owned()),
+                Box::new(Named("first-name-second")),
+            )?;
         assert_eq!(
             names(&registry, "a.b")?,
             ["second-name-first", "first-name-second"]
@@ -219,25 +253,39 @@ mod tests {
     fn a_name_on_overlapping_routes_runs_once() -> TestResult {
         let mut registry = EngineRegistry::new();
         registry
-            .register(Route::Prefix("a."), Box::new(Named("one")))?
-            .register(Route::Exact("a.b"), Box::new(Named("two")))?
-            .register(Route::Exact("a.b"), Box::new(Named("one")))?;
+            .register(Route::Prefix("a.".to_owned()), Box::new(Named("one")))?
+            .register(Route::Exact("a.b".to_owned()), Box::new(Named("two")))?
+            .register(Route::Exact("a.b".to_owned()), Box::new(Named("one")))?;
         assert_eq!(names(&registry, "a.b")?, ["one", "two"]);
         assert_eq!(names(&registry, "a.c")?, ["one"]);
         Ok(())
     }
 
     #[test]
+    fn routes_overlap_only_when_one_source_can_match_both() {
+        let exact = |id: &str| Route::Exact(id.to_owned());
+        let prefix = |p: &str| Route::Prefix(p.to_owned());
+        assert!(exact("a.b").overlaps(&exact("a.b")));
+        assert!(!exact("one").overlaps(&exact("two")));
+        assert!(exact("a.b").overlaps(&prefix("a.")));
+        assert!(prefix("a.").overlaps(&exact("a.b")));
+        assert!(!prefix("a.").overlaps(&exact("b.a")));
+        assert!(prefix("a.").overlaps(&prefix("a.b.")));
+        assert!(prefix("a.b.").overlaps(&prefix("a.")));
+        assert!(!prefix("a.").overlaps(&prefix("b.")));
+    }
+
+    #[test]
     fn a_name_at_a_second_version_is_refused() -> TestResult {
         let mut registry = EngineRegistry::new();
-        registry.register(Route::Prefix("a."), Box::new(Versioned(1)))?;
+        registry.register(Route::Prefix("a.".to_owned()), Box::new(Versioned(1)))?;
         let refused = registry
-            .register(Route::Exact("b"), Box::new(Versioned(2)))
+            .register(Route::Exact("b".to_owned()), Box::new(Versioned(2)))
             .err();
         assert_eq!(
             refused,
             Some(RegistryError::VersionConflict {
-                name: "versioned",
+                name: "versioned".to_owned(),
                 registered: 1,
                 rejected: 2
             })
@@ -249,7 +297,7 @@ mod tests {
     #[test]
     fn prefix_includes_its_separator() -> TestResult {
         let mut registry = EngineRegistry::new();
-        registry.register(Route::Prefix("a."), Box::new(Named("one")))?;
+        registry.register(Route::Prefix("a.".to_owned()), Box::new(Named("one")))?;
         assert_eq!(names(&registry, "a.b")?, ["one"]);
         assert!(
             names(&registry, "afoo")?.is_empty(),
@@ -268,36 +316,36 @@ mod tests {
                 } else {
                     Box::new(Named(name))
                 };
-                registry.register(*route, engine)?;
+                registry.register(route.clone(), engine)?;
             }
             Ok(registry.feed_fingerprint())
         };
         let base = build(&[
-            (Route::Exact("a"), 1, "versioned"),
-            (Route::Exact("a"), 1, "x"),
+            (Route::Exact("a".to_owned()), 1, "versioned"),
+            (Route::Exact("a".to_owned()), 1, "x"),
         ])?;
         assert_eq!(
             base,
             build(&[
-                (Route::Exact("a"), 2, "versioned"),
-                (Route::Exact("a"), 1, "x")
+                (Route::Exact("a".to_owned()), 2, "versioned"),
+                (Route::Exact("a".to_owned()), 1, "x")
             ])?,
             "a version bump keeps the fingerprint"
         );
         for other in [
             build(&[
-                (Route::Exact("a"), 1, "x"),
-                (Route::Exact("a"), 1, "versioned"),
+                (Route::Exact("a".to_owned()), 1, "x"),
+                (Route::Exact("a".to_owned()), 1, "versioned"),
             ])?,
             build(&[
-                (Route::Prefix("a"), 1, "versioned"),
-                (Route::Exact("a"), 1, "x"),
+                (Route::Prefix("a".to_owned()), 1, "versioned"),
+                (Route::Exact("a".to_owned()), 1, "x"),
             ])?,
             build(&[
-                (Route::Exact("b"), 1, "versioned"),
-                (Route::Exact("a"), 1, "x"),
+                (Route::Exact("b".to_owned()), 1, "versioned"),
+                (Route::Exact("a".to_owned()), 1, "x"),
             ])?,
-            build(&[(Route::Exact("a"), 1, "versioned")])?,
+            build(&[(Route::Exact("a".to_owned()), 1, "versioned")])?,
         ] {
             assert_ne!(base, other);
         }
