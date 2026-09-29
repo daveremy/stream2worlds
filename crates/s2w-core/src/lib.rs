@@ -11,6 +11,6 @@ mod world;
 
 pub use event::{AttrValue, EntityId, NaturalKey, WorldEvent};
 pub use world::{
-    DEFAULT_HUB_IN_DEGREE_CAP, EntityState, FOLD_VERSION, HubCounters, Relationship, World,
-    WorldId, fold, fold_one,
+    DEFAULT_HUB_IN_DEGREE_CAP, EntityState, FOLD_FIXTURE_HASH, FOLD_VERSION, HubCounters,
+    Relationship, World, WorldId, fold, fold_one,
 };

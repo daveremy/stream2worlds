@@ -78,6 +78,27 @@ impl EngineRegistry {
             .collect()
     }
 
+    /// A fingerprint of what feeds the world: every `(route, engine name)` in registration
+    /// order. Engine versions are left out on purpose: a version bump never re-runs history
+    /// (stored verdicts keep serving, decision 0012), so a replay after one folds the same
+    /// world. Order is kept because the bridge runs matching engines in registration order, so
+    /// reordering can reorder claims. A world snapshot records this and is ignored under any
+    /// other routing (decision 0021, validity rule 4).
+    #[must_use]
+    pub fn feed_fingerprint(&self) -> u64 {
+        let mut hash = crate::snapshot::Fnv64::new();
+        for (route, engine) in &self.routes {
+            let (kind, text) = match route {
+                Route::Exact(id) => ("exact", *id),
+                Route::Prefix(prefix) => ("prefix", *prefix),
+            };
+            hash.write_field(kind.as_bytes())
+                .write_field(text.as_bytes())
+                .write_field(engine.name().as_bytes());
+        }
+        hash.finish()
+    }
+
     /// Adds `engine` on `route`, after every engine already registered.
     ///
     /// Registering the same name and version on a second route is allowed (overlapping routes
@@ -233,6 +254,56 @@ mod tests {
         assert!(
             names(&registry, "afoo")?.is_empty(),
             "no sibling-name match"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn feed_fingerprint_tracks_routes_names_and_order_but_not_versions() -> TestResult {
+        let build = |pairs: &[(Route, u32, &'static str)]| -> Result<u64, RegistryError> {
+            let mut registry = EngineRegistry::new();
+            for (route, version, name) in pairs {
+                let engine: Box<dyn Engine> = if *name == "versioned" {
+                    Box::new(Versioned(*version))
+                } else {
+                    Box::new(Named(name))
+                };
+                registry.register(*route, engine)?;
+            }
+            Ok(registry.feed_fingerprint())
+        };
+        let base = build(&[
+            (Route::Exact("a"), 1, "versioned"),
+            (Route::Exact("a"), 1, "x"),
+        ])?;
+        assert_eq!(
+            base,
+            build(&[
+                (Route::Exact("a"), 2, "versioned"),
+                (Route::Exact("a"), 1, "x")
+            ])?,
+            "a version bump keeps the fingerprint"
+        );
+        for other in [
+            build(&[
+                (Route::Exact("a"), 1, "x"),
+                (Route::Exact("a"), 1, "versioned"),
+            ])?,
+            build(&[
+                (Route::Prefix("a"), 1, "versioned"),
+                (Route::Exact("a"), 1, "x"),
+            ])?,
+            build(&[
+                (Route::Exact("b"), 1, "versioned"),
+                (Route::Exact("a"), 1, "x"),
+            ])?,
+            build(&[(Route::Exact("a"), 1, "versioned")])?,
+        ] {
+            assert_ne!(base, other);
+        }
+        assert_eq!(
+            EngineRegistry::with_defaults().feed_fingerprint(),
+            EngineRegistry::with_defaults().feed_fingerprint()
         );
         Ok(())
     }

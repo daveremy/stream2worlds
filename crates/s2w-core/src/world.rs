@@ -11,6 +11,15 @@ use crate::event::{AttrValue, EntityId, NaturalKey, WorldEvent};
 /// Bump it when a change to [`fold_one`] would fold the same log to a different world.
 pub const FOLD_VERSION: u32 = 1;
 
+/// FNV-1a 64 over the bytes of the human-owned golden fixtures, `tests/fixtures/golden-fold-v1.json`
+/// followed by `tests/fixtures/golden-fold-v1.snapshot.json` (decision 0021).
+///
+/// A world snapshot is valid only for the fold that wrote it. A human-approved fold change edits
+/// the golden snapshot, which changes this value (`tests/fixture_hash.rs` fails until it is
+/// updated), so stored world snapshots invalidate even when [`FOLD_VERSION`] was not bumped. A
+/// literal rather than an `include_bytes!`, which the module-size walker cannot see through.
+pub const FOLD_FIXTURE_HASH: u64 = 0x4c02_9a2f_b104_1c8a;
+
 /// The default in-degree cap: past this many distinct sources, a relationship to an entity
 /// becomes an attribute of the source instead of an edge (research 0006, item 7).
 pub const DEFAULT_HUB_IN_DEGREE_CAP: u64 = 10_000;

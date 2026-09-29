@@ -6,6 +6,7 @@ mod group_commit;
 pub mod mcp;
 pub mod query;
 pub mod serve;
+pub mod snapshot;
 
 /// `s2w`'s `--json` reporter lives on the CLI side (it needs `output.rs`'s rendering seam,
 /// which this crate cannot depend on — see `crates/s2w/AGENTS.md`'s dependency direction);
