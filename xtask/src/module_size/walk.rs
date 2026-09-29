@@ -7,11 +7,13 @@ use proc_macro2::Span;
 use syn::{Attribute, Meta, Token, punctuated::Punctuated, spanned::Spanned, visit::Visit};
 
 #[derive(Default)]
-pub(super) struct Scan {
+pub(crate) struct Scan {
     pub(super) rows: BTreeMap<String, (usize, usize, usize)>, // wc -l, excluded test lines, non-test
     pub(super) visited: BTreeSet<PathBuf>,
     pub(super) findings: Vec<String>,
     pub(super) incomplete: bool,
+    /// Each file module's parsed AST under its module key (read by `module_cycles`).
+    pub(crate) asts: BTreeMap<String, syn::File>,
 }
 fn arms(meta: &Meta) -> Vec<Meta> {
     match meta {
@@ -27,7 +29,7 @@ pub(super) fn test_only(meta: &Meta) -> bool {
         || (meta.path().is_ident("all") && arms(meta).iter().any(test_only))
         || (meta.path().is_ident("any") && arms(meta).iter().all(test_only))
 }
-fn excluded(attrs: &[Attribute]) -> bool {
+pub(crate) fn excluded(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|a| {
         a.path().is_ident("test")
             || (a.path().is_ident("cfg") && a.parse_args::<Meta>().is_ok_and(|m| test_only(&m)))
@@ -143,7 +145,7 @@ impl Scan {
         clippy::too_many_lines,
         reason = "one file scan: parse, cfg-test exclusion and module descent"
     )]
-    pub(super) fn file(&mut self, path: &Path, key: String, root: bool) -> Result<(), String> {
+    pub(crate) fn file(&mut self, path: &Path, key: String, root: bool) -> Result<(), String> {
         let canonical = fs::canonicalize(path)
             .map_err(|e| format!("{}: {e}; restore the module file", path.display()))?;
         // Resolve each module identity, even when multiple targets share the same source file.
@@ -190,6 +192,7 @@ impl Scan {
             non_test += walk.counted.difference(&walk.tests).count();
             tests += walk.tests.len();
         }
+        self.asts.insert(key.clone(), ast);
         self.rows.insert(
             key,
             (

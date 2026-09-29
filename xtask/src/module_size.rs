@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub(super) struct Target {
-    name: String,
-    kind: Vec<String>,
-    src_path: PathBuf,
+    pub(crate) name: String,
+    pub(crate) kind: Vec<String>,
+    pub(crate) src_path: PathBuf,
 }
 #[derive(Deserialize, Serialize)]
 struct Config {
@@ -28,7 +28,7 @@ struct Exempt {
 
 mod depinfo;
 mod ratchet;
-mod walk;
+pub(crate) mod walk;
 
 use depinfo::{dep_check, dep_files};
 use ratchet::growth;
