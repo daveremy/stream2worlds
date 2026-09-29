@@ -1,5 +1,7 @@
-//! The read-only MCP server (decision 0009): `s2w mcp` serves the query API's five read tools
-//! over stdio, one per HTTP route, each returning the route's exact JSON bytes as its text.
+//! The MCP server (decisions 0009, 0020): `s2w mcp` serves the query API's seven read-only
+//! tools over stdio, one per HTTP route, each returning the route's exact JSON bytes as its
+//! text. It is read-only except the opt-in `decision_record` append, registered only with
+//! `--allow-decisions` ([`WorldMcp::with_decisions`]).
 //!
 //! Stdout is the JSON-RPC channel, so nothing on this path writes to it; the only failure that
 //! stops the server is the transport itself ending.
@@ -9,10 +11,14 @@
 //! that serves stdio (stream2worlds#128) — see that function's doc comment for the shutdown and
 //! crash contract.
 
+mod decisions;
 pub mod replay;
 mod tools;
 
-pub use tools::{BranchesArgs, EntityHistoryArgs, TimeArgs, WorldDiffArgs, WorldViewArgs};
+pub use decisions::DecisionRecordArgs;
+pub use tools::{
+    BranchesArgs, EntityHistoryArgs, ProposalsListArgs, TimeArgs, WorldDiffArgs, WorldViewArgs,
+};
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -44,8 +50,8 @@ const MAX_REFRESH_BACKOFF: Duration = Duration::from_secs(30);
 /// this-many failures — sustained lock contention logs periodically, not once per 500ms tick.
 const WARN_EVERY_N_FAILURES: u32 = 10;
 
-/// The MCP server over a [`QueryState`]: the five tools of `tools.rs`, each a read-only mirror
-/// of one query API route.
+/// The MCP server over a [`QueryState`]: the read-only tools of `tools.rs`, each a mirror of
+/// one query API route, plus `decision_record` only when built with [`Self::with_decisions`].
 #[derive(Clone)]
 pub struct WorldMcp {
     /// The timeline every tool reads; cheap to clone (an `Arc` inside), so a later live
@@ -63,6 +69,14 @@ impl WorldMcp {
             state,
             tool_router: Self::tool_router(),
         }
+    }
+
+    /// Also registers the `decision_record` write tool (`s2w mcp --allow-decisions`). Without
+    /// this the tool does not exist on the server at all.
+    #[must_use]
+    pub fn with_decisions(mut self) -> Self {
+        self.tool_router += Self::decision_tool_router();
+        self
     }
 }
 
@@ -92,8 +106,10 @@ impl ServerHandler for WorldMcp {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("s2w", env!("CARGO_PKG_VERSION")))
             .with_instructions(
-                "Read-only view of the s2w world model. Every tool returns the same JSON as the \
-                 matching s2w query API route and requires the tool call's world parameter to \
+                "Read-only view of the s2w world model, except the opt-in decision_record tool \
+                 (present only with --allow-decisions), which appends one agent decision. Every \
+                 read tool returns the same JSON as the matching s2w query API route; every tool \
+                 requires the tool call's world parameter to \
                  match the server's configured world id; errors come back as {\"error\", \
                  \"message\"} objects with stable codes. An on-disk replay serves the first \
                  stored verdict per engine, including historic verdicts from retired engines. \
@@ -120,11 +136,12 @@ impl ServerHandler for WorldMcp {
 /// [`AppError::Mcp`] if the initialize handshake or the serving task fails,
 /// [`AppError::Runtime`] if the runtime cannot be built.
 pub fn run_mcp(state: QueryState) -> Result<(), AppError> {
-    run(state, None)
+    run(WorldMcp::new(state.clone()), state, None)
 }
 
 /// Runs `s2w mcp --log-dir <dir>` over stdio, refreshing `state` from `live` on a plain
 /// `std::thread` outside the tokio runtime until the client disconnects.
+/// With `allow_decisions` (`--allow-decisions`) the server also registers `decision_record`.
 ///
 /// **Why a plain thread, not `tokio::spawn`:** the runtime below is current-thread, the same
 /// one serving stdio JSON-RPC. Spawning the refresh loop onto it would put synchronous SQLite
@@ -164,21 +181,32 @@ pub fn run_mcp(state: QueryState) -> Result<(), AppError> {
 ///
 /// [`AppError::Mcp`] if the initialize handshake or the serving task fails,
 /// [`AppError::Runtime`] if the runtime cannot be built.
-pub fn run_mcp_live(state: QueryState, live: LiveReadOnlyWorld) -> Result<(), AppError> {
-    run(state, Some(live))
+pub fn run_mcp_live(
+    state: QueryState,
+    live: LiveReadOnlyWorld,
+    allow_decisions: bool,
+) -> Result<(), AppError> {
+    let server = WorldMcp::new(state.clone());
+    let server = if allow_decisions {
+        server.with_decisions()
+    } else {
+        server
+    };
+    run(server, state, Some(live))
 }
 
-fn run(state: QueryState, live: Option<LiveReadOnlyWorld>) -> Result<(), AppError> {
+fn run(
+    server: WorldMcp,
+    state: QueryState,
+    live: Option<LiveReadOnlyWorld>,
+) -> Result<(), AppError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(AppError::Runtime)?;
     let refresh = live.map(|live| spawn_refresh(state.clone(), live));
     let result = runtime.block_on(async move {
-        let service = WorldMcp::new(state)
-            .serve(stdio())
-            .await
-            .map_err(mcp_error)?;
+        let service = server.serve(stdio()).await.map_err(mcp_error)?;
         service.waiting().await.map(|_| ()).map_err(mcp_error)?;
         Ok(())
     });

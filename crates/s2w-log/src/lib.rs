@@ -26,8 +26,8 @@ pub use membership::{EffectiveFrom, MembershipRow, members_at};
 pub use presentation::{Palette, Typefaces, WorldPresentation, WorldPresentationInput};
 pub use proposals::{
     Actor, ActorClassGrade, Decider, InMemoryProposalStore, NewDecision, NewProposal, Outcome,
-    ProposalStore, ReadOnlySqliteProposalStore, SqliteProposalStore, StoredDecision,
-    StoredProposal, Tally, grade,
+    PROPOSAL_DATABASE_FILE, ProposalStore, ProposalSummary, ReadOnlySqliteProposalStore,
+    SqliteProposalStore, StoredDecision, StoredProposal, Tally, grade,
 };
 pub use reader::LogReader;
 pub use verdicts::{
@@ -779,6 +779,19 @@ fn map_sqlite(error: rusqlite::Error) -> LogError {
             LogError::Corrupt(error.to_string())
         }
         _ => LogError::Io(error.to_string()),
+    }
+}
+
+/// Maps a SQLite write error: a constraint violation becomes `on_violation()`; anything else
+/// goes through [`map_sqlite`].
+pub(crate) fn map_constraint(
+    error: rusqlite::Error,
+    on_violation: impl FnOnce() -> LogError,
+) -> LogError {
+    if error.sqlite_error_code() == Some(ErrorCode::ConstraintViolation) {
+        on_violation()
+    } else {
+        map_sqlite(error)
     }
 }
 

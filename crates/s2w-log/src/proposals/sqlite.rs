@@ -4,18 +4,24 @@ use std::fmt;
 use std::fs::File;
 use std::path::Path;
 
-use rusqlite::{Connection, ErrorCode, params};
+use rusqlite::{Connection, params};
 
 use super::{
-    Actor, Decider, NewDecision, NewProposal, Outcome, ProposalStore, StoredDecision,
-    StoredProposal, check_integrity, retry_proposal, stored_decision, stored_proposal,
-    validate_decision, validate_proposal,
+    Actor, Decider, NewDecision, NewProposal, Outcome, ProposalStore, ProposalSummary,
+    StoredDecision, StoredProposal, check_integrity, retry_proposal, stored_decision,
+    stored_proposal, validate_decision, validate_proposal,
 };
-use crate::{LogError, LogPosition, map_sqlite, open_sqlite_store, open_sqlite_store_read_only};
+use crate::{
+    LogError, LogPosition, map_constraint, map_sqlite, open_sqlite_store,
+    open_sqlite_store_read_only,
+};
 
-const DATABASE_FILE: &str = "proposals.sqlite3";
+/// The proposal database file name inside a log directory.
+pub const PROPOSAL_DATABASE_FILE: &str = "proposals.sqlite3";
 const LOCK_FILE: &str = "PROPOSALS_LOCK";
-const SCHEMA_VERSION: i64 = 1;
+/// Version 2 adds the `agent` decider. A version-1 store is unsupported (`Corrupt`), like any
+/// other mismatch: no producer ever wrote one, so there is no migration.
+const SCHEMA_VERSION: i64 = 2;
 
 /// Durable append-only proposals and decisions, independent of event/verdict writer locks.
 pub struct SqliteProposalStore {
@@ -56,7 +62,7 @@ impl SqliteProposalStore {
     pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
         let (connection, lock) = open_sqlite_store(
             directory.as_ref(),
-            DATABASE_FILE,
+            PROPOSAL_DATABASE_FILE,
             LOCK_FILE,
             "PRAGMA synchronous = FULL;
              PRAGMA recursive_triggers = ON;
@@ -80,7 +86,7 @@ impl ReadOnlySqliteProposalStore {
     pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
         let connection = open_sqlite_store_read_only(
             directory.as_ref(),
-            DATABASE_FILE,
+            PROPOSAL_DATABASE_FILE,
             SCHEMA_VERSION,
             schema_mismatch,
         )?;
@@ -93,6 +99,26 @@ impl ReadOnlySqliteProposalStore {
     /// Returns storage errors or `Corrupt` for an unknown actor or payload hash mismatch.
     pub fn proposals(&self) -> Result<Vec<StoredProposal>, LogError> {
         proposals_from(&self.connection)
+    }
+
+    /// Reads proposals in sequence order without payload bytes; the payload hash is the
+    /// stored value and is NOT recomputed (only [`Self::proposals`] verifies it).
+    ///
+    /// # Errors
+    /// Returns storage errors or `Corrupt` for an unknown actor.
+    pub fn proposal_summaries(&self) -> Result<Vec<ProposalSummary>, LogError> {
+        summaries_from(&self.connection)
+    }
+
+    /// Whether a proposal with this id is stored.
+    ///
+    /// # Errors
+    /// Returns storage errors.
+    pub fn has_proposal(&self, id: &str) -> Result<bool, LogError> {
+        self.connection
+            .prepare("SELECT 1 FROM proposals WHERE id = ?1")
+            .and_then(|mut statement| statement.exists([id]))
+            .map_err(map_sqlite)
     }
 
     /// Reads decisions in sequence order.
@@ -140,23 +166,14 @@ impl ProposalStore for SqliteProposalStore {
 
     fn append_decision(&mut self, decision: &NewDecision) -> Result<StoredDecision, LogError> {
         validate_decision(decision)?;
-        let decider = match decision.decider {
-            Decider::Policy => "policy",
-            Decider::Human => "human",
-            Decider::Evidence => "evidence",
-        };
-        let outcome = match decision.outcome {
-            Outcome::Accept => "accept",
-            Outcome::Reject => "reject",
-        };
         self.connection
             .execute(
                 "INSERT INTO decisions (proposal_id, decider, outcome, basis, decided_at_ms)
              VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     decision.proposal_id,
-                    decider,
-                    outcome,
+                    decision.decider.as_str(),
+                    decision.outcome.as_str(),
                     decision.basis,
                     decision.decided_at_ms
                 ],
@@ -172,17 +189,18 @@ impl ProposalStore for SqliteProposalStore {
         proposals_from(&self.connection)
     }
 
+    fn proposal_summaries(&self) -> Result<Vec<ProposalSummary>, LogError> {
+        summaries_from(&self.connection)
+    }
+
     fn decisions(&self) -> Result<Vec<StoredDecision>, LogError> {
         decisions_from(&self.connection)
     }
 }
 
 fn map_write_error(error: rusqlite::Error) -> LogError {
-    if error.sqlite_error_code() == Some(ErrorCode::ConstraintViolation) {
-        LogError::Corrupt(error.to_string())
-    } else {
-        map_sqlite(error)
-    }
+    let message = error.to_string();
+    map_constraint(error, || LogError::Corrupt(message))
 }
 
 const PROPOSAL_COLUMNS: &str = "seq, id, class, actor_kind, actor_id, model, model_version,
@@ -213,6 +231,32 @@ fn proposals_from(connection: &Connection) -> Result<Vec<StoredProposal>, LogErr
         proposals.push(decode_proposal(row)?);
     }
     Ok(proposals)
+}
+
+/// Same column order as [`PROPOSAL_COLUMNS`] minus `payload`, so actor indices match.
+const SUMMARY_COLUMNS: &str = "seq, id, class, actor_kind, actor_id, model, model_version,
+    snapshot_offset, payload_hash, proposed_at_ms";
+
+fn summaries_from(connection: &Connection) -> Result<Vec<ProposalSummary>, LogError> {
+    let mut statement = connection
+        .prepare(&format!(
+            "SELECT {SUMMARY_COLUMNS} FROM proposals ORDER BY seq"
+        ))
+        .map_err(map_sqlite)?;
+    let mut rows = statement.query([]).map_err(map_sqlite)?;
+    let mut summaries = Vec::new();
+    while let Some(row) = rows.next().map_err(map_sqlite)? {
+        summaries.push(ProposalSummary {
+            seq: row.get(0).map_err(map_sqlite)?,
+            id: row.get(1).map_err(map_sqlite)?,
+            class: row.get(2).map_err(map_sqlite)?,
+            actor: decode_actor(row)?,
+            snapshot_offset: LogPosition::from_sql(row.get(7).map_err(map_sqlite)?)?,
+            payload_hash: row.get(8).map_err(map_sqlite)?,
+            proposed_at_ms: row.get(9).map_err(map_sqlite)?,
+        });
+    }
+    Ok(summaries)
 }
 
 fn decode_actor(row: &rusqlite::Row<'_>) -> Result<Actor, LogError> {
@@ -268,6 +312,7 @@ fn decode_decider(value: &str) -> Result<Decider, LogError> {
         "policy" => Ok(Decider::Policy),
         "human" => Ok(Decider::Human),
         "evidence" => Ok(Decider::Evidence),
+        "agent" => Ok(Decider::Agent),
         _ => Err(LogError::Corrupt(format!(
             "unknown proposal decider {value}"
         ))),
@@ -305,7 +350,7 @@ const SCHEMA: &str = "
     CREATE TABLE IF NOT EXISTS decisions (
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
         proposal_id TEXT NOT NULL REFERENCES proposals(id),
-        decider TEXT NOT NULL CHECK (decider IN ('policy', 'human', 'evidence')),
+        decider TEXT NOT NULL CHECK (decider IN ('policy', 'human', 'evidence', 'agent')),
         outcome TEXT NOT NULL CHECK (outcome IN ('accept', 'reject')),
         basis TEXT NOT NULL,
         decided_at_ms INTEGER NOT NULL
@@ -322,7 +367,7 @@ const SCHEMA: &str = "
     CREATE TRIGGER IF NOT EXISTS decisions_no_delete BEFORE DELETE ON decisions BEGIN
         SELECT RAISE(ABORT, 'decisions are append-only: delete refused');
     END;
-    PRAGMA user_version = 1;";
+    PRAGMA user_version = 2;";
 
 fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
     let transaction = connection.transaction().map_err(map_sqlite)?;

@@ -1,0 +1,30 @@
+{
+  "proposals": [
+    { "seq": 1, "id": "p-1", "class": "class-a", "actor": { "kind": "human", "id": "reviewer-1" },
+      "snapshot_offset": 10, "payload_hash": "000000000000000b", "proposed_at_ms": 1000 },
+    { "seq": 2, "id": "p-2", "class": "class-a", "actor": { "kind": "agent", "model": "model-x", "version": "1" },
+      "snapshot_offset": 12, "payload_hash": "0000000000000016", "proposed_at_ms": 2000 },
+    { "seq": 3, "id": "p-3", "class": "class-b", "actor": { "kind": "agent", "model": "model-x", "version": "1" },
+      "snapshot_offset": 15, "payload_hash": "0000000000000021", "proposed_at_ms": 3000 }
+  ],
+  "decisions": [
+    { "seq": 4, "proposal_id": "p-2", "decider": "policy", "outcome": "accept", "basis": "<b>rule-1</b>", "decided_at_ms": 2100 },
+    { "seq": 5, "proposal_id": "p-2", "decider": "evidence", "outcome": "reject", "basis": "later-offset-20", "decided_at_ms": 2500 }
+  ],
+  "grades": [
+    { "class": "class-a", "actor": { "kind": "agent", "model": "model-x", "version": "1" },
+      "proposed": 1, "ungraded": 0, "policy_accepted": 1, "policy_rejected": 0,
+      "human": { "accepted": 0, "rejected": 0, "fraction": [0, 0] },
+      "evidence": { "accepted": 0, "rejected": 1, "fraction": [0, 1] },
+      "agent": { "accepted": 0, "rejected": 0, "fraction": [0, 0] },
+      "policy_applied": { "accepted": 0, "rejected": 1, "fraction": [0, 1] },
+      "policy_applied_ungraded": 0 },
+    { "class": "class-b", "actor": { "kind": "agent", "model": "model-x", "version": "1" },
+      "proposed": 1, "ungraded": 1, "policy_accepted": 0, "policy_rejected": 0,
+      "human": { "accepted": 0, "rejected": 0, "fraction": [0, 0] },
+      "evidence": { "accepted": 0, "rejected": 0, "fraction": [0, 0] },
+      "agent": { "accepted": 0, "rejected": 0, "fraction": [0, 0] },
+      "policy_applied": { "accepted": 0, "rejected": 0, "fraction": [0, 0] },
+      "policy_applied_ungraded": 0 }
+  ]
+}

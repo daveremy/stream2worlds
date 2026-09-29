@@ -1,4 +1,4 @@
-//! The six MCP tools: one per query API route, each calling the same [`QueryState`] method its
+//! The seven read-only MCP tools: one per query API route, each calling the same [`QueryState`] method its
 //! route calls. A tool's text is `serde_json::to_string` of the route's DTO — the same
 //! serializer, so the same bytes — and an in-domain [`QueryError`] becomes an `is_error` result
 //! whose text is the route's error body. Arguments that fail to deserialize at all are rejected
@@ -11,15 +11,15 @@ use rmcp::tool;
 use rmcp::tool_router;
 
 use crate::query::{
-    Branch, HistoryEntry, QueryError, SourceInfo, TimeResult, ViewParams, WorldDiff, WorldView,
-    check_branch, check_world, parse_lod, world_view,
+    Branch, HistoryEntry, ProposalsView, QueryError, SourceInfo, TimeResult, ViewParams, WorldDiff,
+    WorldView, check_branch, check_world, parse_lod, world_view,
 };
 
 use super::WorldMcp;
 
 /// A tool result's shared shape: the route's JSON as text, or the route's error body as an
 /// `is_error` text.
-fn serve(dto: Result<impl serde::Serialize, QueryError>) -> CallToolResult {
+pub(super) fn serve(dto: Result<impl serde::Serialize, QueryError>) -> CallToolResult {
     match dto {
         Ok(dto) => match serde_json::to_string(&dto) {
             Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
@@ -102,6 +102,13 @@ pub struct SourcesArgs {
     pub world: String,
     /// The fold offset whose membership to list; the head when absent.
     pub at: Option<u64>,
+}
+
+/// `proposals_list`'s parameters: the `/worlds/{world}/proposals` route's path parameter.
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct ProposalsListArgs {
+    /// The string identifier of the world to query.
+    pub world: String,
 }
 
 #[tool_router(vis = "pub(crate)")]
@@ -207,6 +214,26 @@ impl WorldMcp {
         check_world(&self.state, &args.world)?;
         self.state.sources(args.at)
     }
+
+    /// Stored proposals (without payloads), decisions and their grades, read fresh from the
+    /// proposal store. Requires `world` and mirrors `GET /worlds/{world}/proposals`.
+    #[tool(
+        name = "proposals_list",
+        description = PROPOSALS_LIST,
+        annotations(read_only_hint = true)
+    )]
+    pub fn proposals_list(
+        &self,
+        Parameters(args): Parameters<ProposalsListArgs>,
+    ) -> CallToolResult {
+        serve(self.proposals_of(&args))
+    }
+
+    /// `/worlds/{world}/proposals`'s logic.
+    fn proposals_of(&self, args: &ProposalsListArgs) -> Result<ProposalsView, QueryError> {
+        check_world(&self.state, &args.world)?;
+        self.state.proposals()
+    }
 }
 
 /// Descriptions are `&'static str`s the macro can quote; keeping them as named constants stops
@@ -238,3 +265,8 @@ const SOURCES: &str = "Requires the world string parameter. The world's member s
     fold offset (the head by default), each with consumed and unrouted event counts and \
     recent_unrouted, the most recent events no engine is routed for, most recent first. Mirrors \
     GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet.";
+const PROPOSALS_LIST: &str = "Requires the world string parameter. The stored proposals \
+    (without payloads; payload_hash is the stored value, not re-verified), every decision \
+    including corrections, and grades per class and actor. Mirrors GET \
+    /worlds/{world}/proposals: empty lists when no proposal store exists; a store that cannot \
+    be read is a storage error, never an empty view. Agent decisions fill only the agent tally.";

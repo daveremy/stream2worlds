@@ -8,6 +8,10 @@ use crate::tests::{TestDirectory, retry_until_unlocked};
 const DATABASE_FILE: &str = "proposals.sqlite3";
 type TestResult = Result<(), Box<dyn Error>>;
 
+fn summaries(proposals: &[StoredProposal]) -> Vec<ProposalSummary> {
+    proposals.iter().map(StoredProposal::summary).collect()
+}
+
 fn proposal(id: &str) -> NewProposal {
     NewProposal {
         id: id.into(),
@@ -65,9 +69,12 @@ fn run_round_trip<S: ProposalStore>(mut store: S) -> TestResult {
         expected.push(row);
     }
     assert_eq!(store.decisions()?, expected);
-    let before = grade(&stored, &expected);
+    let before = grade(&summaries(&stored), &expected);
     store.append_decision(&decisions[3])?;
-    assert_eq!(grade(&store.proposals()?, &store.decisions()?), before);
+    assert_eq!(
+        grade(&store.proposal_summaries()?, &store.decisions()?),
+        before
+    );
     assert_eq!(store.decisions()?.len(), 5);
     Ok(())
 }
@@ -231,7 +238,7 @@ fn restart_and_read_only_replay_preserve_rows_and_grades() -> TestResult {
     populated(&mut writer)?;
     let proposals = writer.proposals()?;
     let decisions = writer.decisions()?;
-    let grades = grade(&proposals, &decisions);
+    let grades = grade(&summaries(&proposals), &decisions);
     drop(writer);
     let writer = retry_until_unlocked(|| SqliteProposalStore::open(directory.path()))?;
     let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
@@ -239,8 +246,14 @@ fn restart_and_read_only_replay_preserve_rows_and_grades() -> TestResult {
     assert_eq!(writer.decisions()?, decisions);
     assert_eq!(reader.proposals()?, proposals);
     assert_eq!(reader.decisions()?, decisions);
-    assert_eq!(grade(&writer.proposals()?, &writer.decisions()?), grades);
-    assert_eq!(grade(&reader.proposals()?, &reader.decisions()?), grades);
+    assert_eq!(
+        grade(&writer.proposal_summaries()?, &writer.decisions()?),
+        grades
+    );
+    assert_eq!(
+        grade(&reader.proposal_summaries()?, &reader.decisions()?),
+        grades
+    );
     Ok(())
 }
 
@@ -267,7 +280,7 @@ fn lock_is_independent_and_read_only_coexists_with_writes() -> TestResult {
 
 #[test]
 fn unsupported_or_absent_schema_is_refused() -> TestResult {
-    for version in [0, 2, 99] {
+    for version in [0, 1, 3, 99] {
         let directory = TestDirectory::new("proposal-version")?;
         let connection = Connection::open(directory.path().join(DATABASE_FILE))?;
         connection.execute_batch(&format!("PRAGMA user_version = {version};"))?;
@@ -413,7 +426,7 @@ fn latest_sequence_wins_independent_of_input_order_or_time() -> TestResult {
     let proposals = store.proposals()?;
     let mut decisions = store.decisions()?;
     decisions.reverse();
-    let grades = grade(&proposals, &decisions);
+    let grades = grade(&summaries(&proposals), &decisions);
     assert_eq!(grades.len(), 1);
     let entry = &grades[0];
     assert_eq!(entry.proposed, 2);
@@ -434,7 +447,7 @@ fn latest_sequence_wins_independent_of_input_order_or_time() -> TestResult {
     );
     assert_eq!(entry.policy_applied.fraction(), (0, 1));
     assert_eq!(grade(&[], &decisions), Vec::new());
-    assert_eq!(grade(&proposals, &[])[0].ungraded, 2);
+    assert_eq!(grade(&summaries(&proposals), &[])[0].ungraded, 2);
     Ok(())
 }
 
@@ -448,7 +461,7 @@ fn policy_is_routing_not_accuracy() -> TestResult {
     store.append_decision(&decision("accepted", Decider::Policy, Outcome::Accept))?;
     store.append_decision(&decision("rejected", Decider::Policy, Outcome::Accept))?;
     store.append_decision(&decision("rejected", Decider::Policy, Outcome::Reject))?;
-    let grades = grade(&store.proposals()?, &store.decisions()?);
+    let grades = grade(&store.proposal_summaries()?, &store.decisions()?);
     let entry = &grades[0];
     assert_eq!(entry.proposed, 3);
     assert_eq!(entry.ungraded, 3);
@@ -480,7 +493,7 @@ fn policy_cross_tab_any_reject_wins_and_has_no_time_order() -> TestResult {
             store.append_decision(&policy)?;
         }
     }
-    let entry = grade(&store.proposals()?, &store.decisions()?).remove(0);
+    let entry = grade(&store.proposal_summaries()?, &store.decisions()?).remove(0);
     assert_eq!(entry.proposed, 9);
     assert_eq!(entry.ungraded, 1);
     assert_eq!(entry.policy_accepted, 9);
@@ -519,7 +532,7 @@ fn policy_rejection_excludes_grades_from_cross_tab() -> TestResult {
     }
     store.append_decision(&decision("rejected", Decider::Policy, Outcome::Accept))?;
     store.append_decision(&decision("rejected", Decider::Policy, Outcome::Reject))?;
-    let entry = grade(&store.proposals()?, &store.decisions()?).remove(0);
+    let entry = grade(&store.proposal_summaries()?, &store.decisions()?).remove(0);
     assert_eq!(entry.human.fraction(), (2, 2));
     assert_eq!(entry.ungraded, 0);
     assert_eq!(entry.policy_rejected, 1);
@@ -556,7 +569,7 @@ fn grades_separate_classes_model_versions_and_humans_in_sorted_order() -> TestRe
     store.append_decision(&decision("v1", Decider::Human, Outcome::Reject))?;
     store.append_decision(&decision("v2", Decider::Human, Outcome::Accept))?;
     store.append_decision(&decision("human", Decider::Human, Outcome::Accept))?;
-    let grades = grade(&store.proposals()?, &store.decisions()?);
+    let grades = grade(&store.proposal_summaries()?, &store.decisions()?);
     assert_eq!(grades.len(), 5);
     let keys: Vec<_> = grades
         .iter()
@@ -572,8 +585,268 @@ fn grades_separate_classes_model_versions_and_humans_in_sorted_order() -> TestRe
     assert_eq!(grades[2].human.fraction(), (1, 1));
     assert_eq!(grades[3].human.fraction(), (0, 0));
     assert_eq!(grades[4].human.fraction(), (0, 0));
-    let mut reversed = store.proposals()?;
+    let mut reversed = store.proposal_summaries()?;
     reversed.reverse();
     assert_eq!(grade(&reversed, &store.decisions()?), grades);
+    Ok(())
+}
+
+#[test]
+fn version_one_store_is_corrupt_for_writer_and_reader() -> TestResult {
+    let directory = TestDirectory::new("proposal-v1")?;
+    let mut store = SqliteProposalStore::open(directory.path())?;
+    populated(&mut store)?;
+    drop(store);
+    let connection = Connection::open(directory.path().join(DATABASE_FILE))?;
+    connection.execute_batch("PRAGMA user_version = 1;")?;
+    drop(connection);
+    assert!(matches!(
+        retry_until_unlocked(|| SqliteProposalStore::open(directory.path())),
+        Err(LogError::Corrupt(_))
+    ));
+    assert!(matches!(
+        ReadOnlySqliteProposalStore::open(directory.path()),
+        Err(LogError::Corrupt(_))
+    ));
+    Ok(())
+}
+
+#[test]
+fn sqlite_check_accepts_agent_decider_and_round_trips_it() -> TestResult {
+    let directory = TestDirectory::new("proposal-agent-check")?;
+    let mut store = SqliteProposalStore::open(directory.path())?;
+    store.append_proposal(&proposal("p"))?;
+    let connection = Connection::open(directory.path().join(DATABASE_FILE))?;
+    connection.execute_batch("PRAGMA foreign_keys = ON;")?;
+    connection.execute(
+        "INSERT INTO decisions (proposal_id, decider, outcome, basis, decided_at_ms)
+         VALUES ('p', 'agent', 'reject', 'basis', 0)",
+        [],
+    )?;
+    let stored = store.append_decision(&decision("p", Decider::Agent, Outcome::Accept))?;
+    let deciders: Vec<_> = store
+        .decisions()?
+        .iter()
+        .map(|row| (row.decider, row.outcome))
+        .collect();
+    assert_eq!(
+        deciders,
+        vec![
+            (Decider::Agent, Outcome::Reject),
+            (Decider::Agent, Outcome::Accept)
+        ]
+    );
+    assert_eq!(stored.seq, 2);
+    let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
+    assert_eq!(reader.decisions()?, store.decisions()?);
+    Ok(())
+}
+
+fn run_summaries<S: ProposalStore>(mut store: S) -> TestResult {
+    populated(&mut store)?;
+    let mut human = proposal("human");
+    human.actor = Actor::Human { id: "h".into() };
+    human.payload = Vec::new();
+    store.append_proposal(&human)?;
+    let proposals = store.proposals()?;
+    assert_eq!(store.proposal_summaries()?, summaries(&proposals));
+    assert_eq!(store.proposal_summaries()?.len(), 3);
+    Ok(())
+}
+
+#[test]
+fn summaries_equal_proposals_minus_payload() -> TestResult {
+    run_summaries(InMemoryProposalStore::new())?;
+    let directory = TestDirectory::new("proposal-summaries")?;
+    run_summaries(SqliteProposalStore::open(directory.path())?)?;
+    let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
+    assert_eq!(
+        reader.proposal_summaries()?,
+        summaries(&reader.proposals()?)
+    );
+    Ok(())
+}
+
+#[test]
+fn summaries_do_not_recompute_the_payload_hash() -> TestResult {
+    let directory = TestDirectory::new("proposal-summary-tamper")?;
+    let mut store = SqliteProposalStore::open(directory.path())?;
+    let stored = store.append_proposal(&proposal("p"))?;
+    let connection = Connection::open(directory.path().join(DATABASE_FILE))?;
+    connection.execute_batch(
+        "DROP TRIGGER proposals_no_update;
+        UPDATE proposals SET payload = X'01' WHERE id = 'p';",
+    )?;
+    assert!(matches!(store.proposals(), Err(LogError::Corrupt(_))));
+    assert_eq!(store.proposal_summaries()?, vec![stored.summary()]);
+    Ok(())
+}
+
+fn mixed_store() -> Result<InMemoryProposalStore, Box<dyn Error>> {
+    let mut store = InMemoryProposalStore::new();
+    let mut other_class = proposal("c");
+    other_class.class = "class-b".into();
+    let mut human = proposal("h");
+    human.actor = Actor::Human { id: "h".into() };
+    for new in [proposal("a"), proposal("b"), other_class, human] {
+        store.append_proposal(&new)?;
+    }
+    for (id, decider, outcome) in [
+        ("a", Decider::Policy, Outcome::Accept),
+        ("a", Decider::Human, Outcome::Reject),
+        ("a", Decider::Human, Outcome::Accept),
+        ("b", Decider::Evidence, Outcome::Reject),
+        ("b", Decider::Agent, Outcome::Accept),
+        ("c", Decider::Agent, Outcome::Reject),
+        ("c", Decider::Policy, Outcome::Reject),
+        ("h", Decider::Human, Outcome::Accept),
+        ("h", Decider::Agent, Outcome::Accept),
+        ("h", Decider::Agent, Outcome::Reject),
+    ] {
+        store.append_decision(&decision(id, decider, outcome))?;
+    }
+    Ok(store)
+}
+
+#[test]
+fn grade_over_summaries_matches_grade_over_full_rows() -> TestResult {
+    let memory = mixed_store()?;
+    let directory = TestDirectory::new("proposal-grade-summaries")?;
+    let mut sqlite = SqliteProposalStore::open(directory.path())?;
+    for row in memory.proposals()? {
+        sqlite.append_proposal(&NewProposal {
+            id: row.id,
+            class: row.class,
+            actor: row.actor,
+            snapshot_offset: row.snapshot_offset,
+            payload: row.payload,
+            proposed_at_ms: row.proposed_at_ms,
+        })?;
+    }
+    for row in memory.decisions()? {
+        sqlite.append_decision(&decision(&row.proposal_id, row.decider, row.outcome))?;
+    }
+    let expected = grade(&summaries(&memory.proposals()?), &memory.decisions()?);
+    assert_eq!(expected.len(), 3);
+    assert_eq!(
+        grade(&memory.proposal_summaries()?, &memory.decisions()?),
+        expected
+    );
+    assert_eq!(
+        grade(&sqlite.proposal_summaries()?, &sqlite.decisions()?),
+        expected
+    );
+    let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
+    assert_eq!(
+        grade(&reader.proposal_summaries()?, &reader.decisions()?),
+        expected
+    );
+    Ok(())
+}
+
+fn graded(store: &InMemoryProposalStore) -> Result<ActorClassGrade, Box<dyn Error>> {
+    Ok(grade(&store.proposal_summaries()?, &store.decisions()?).remove(0))
+}
+
+fn without_agent(mut entry: ActorClassGrade) -> ActorClassGrade {
+    entry.agent = Tally::default();
+    entry
+}
+
+#[test]
+fn agent_after_policy_leaves_routing_and_cross_tab_unchanged() -> TestResult {
+    let mut store = InMemoryProposalStore::new();
+    for id in ["accepted", "rejected", "graded"] {
+        store.append_proposal(&proposal(id))?;
+    }
+    store.append_decision(&decision("accepted", Decider::Policy, Outcome::Accept))?;
+    store.append_decision(&decision("rejected", Decider::Policy, Outcome::Reject))?;
+    store.append_decision(&decision("graded", Decider::Policy, Outcome::Accept))?;
+    store.append_decision(&decision("graded", Decider::Evidence, Outcome::Accept))?;
+    let before = graded(&store)?;
+    for id in ["accepted", "rejected", "graded"] {
+        for outcome in [Outcome::Reject, Outcome::Accept] {
+            store.append_decision(&decision(id, Decider::Agent, outcome))?;
+        }
+    }
+    let after = graded(&store)?;
+    assert_eq!(after.agent.fraction(), (3, 3));
+    assert_eq!((after.policy_accepted, after.policy_rejected), (2, 1));
+    assert_eq!(after.policy_applied.fraction(), (1, 1));
+    assert_eq!(after.policy_applied_ungraded, 1);
+    assert_eq!(without_agent(after), before);
+    Ok(())
+}
+
+#[test]
+fn agent_never_changes_human_or_evidence_tallies() -> TestResult {
+    let mut store = InMemoryProposalStore::new();
+    store.append_proposal(&proposal("p"))?;
+    store.append_decision(&decision("p", Decider::Human, Outcome::Accept))?;
+    let before = graded(&store)?;
+    store.append_decision(&decision("p", Decider::Agent, Outcome::Reject))?;
+    let after = graded(&store)?;
+    assert_eq!(after.human.fraction(), (1, 1));
+    assert_eq!(after.evidence.fraction(), (0, 0));
+    assert_eq!(after.agent.fraction(), (0, 1));
+    assert_eq!(without_agent(after), before);
+    Ok(())
+}
+
+#[test]
+fn agent_only_and_policy_plus_agent_proposals_stay_ungraded() -> TestResult {
+    let mut store = InMemoryProposalStore::new();
+    for id in ["agent-only", "policy-agent"] {
+        store.append_proposal(&proposal(id))?;
+        store.append_decision(&decision(id, Decider::Agent, Outcome::Accept))?;
+    }
+    store.append_decision(&decision("policy-agent", Decider::Policy, Outcome::Accept))?;
+    let entry = graded(&store)?;
+    assert_eq!(entry.proposed, 2);
+    assert_eq!(entry.ungraded, 2);
+    assert_eq!(entry.agent.fraction(), (2, 2));
+    assert_eq!(entry.human.fraction(), (0, 0));
+    assert_eq!(entry.policy_applied.fraction(), (0, 0));
+    assert_eq!(entry.policy_applied_ungraded, 1);
+    Ok(())
+}
+
+#[test]
+fn agent_latest_sequence_wins_on_correction() -> TestResult {
+    let mut store = InMemoryProposalStore::new();
+    store.append_proposal(&proposal("p"))?;
+    store.append_decision(&decision("p", Decider::Agent, Outcome::Accept))?;
+    let mut correction = decision("p", Decider::Agent, Outcome::Reject);
+    correction.decided_at_ms = i64::MIN;
+    store.append_decision(&correction)?;
+    assert_eq!(
+        graded(&store)?.agent,
+        Tally {
+            accepted: 0,
+            rejected: 1
+        }
+    );
+    let mut decisions = store.decisions()?;
+    decisions.reverse();
+    assert_eq!(
+        grade(&store.proposal_summaries()?, &decisions)[0]
+            .agent
+            .fraction(),
+        (0, 1)
+    );
+    Ok(())
+}
+
+#[test]
+fn read_only_has_proposal_matches_stored_ids_only() -> TestResult {
+    let directory = TestDirectory::new("proposal-has")?;
+    let mut writer = SqliteProposalStore::open(directory.path())?;
+    let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
+    assert!(!reader.has_proposal("p")?);
+    populated(&mut writer)?;
+    assert!(reader.has_proposal("p")?);
+    assert!(reader.has_proposal("ungraded")?);
+    assert!(!reader.has_proposal("P")?);
+    assert!(!reader.has_proposal("")?);
     Ok(())
 }

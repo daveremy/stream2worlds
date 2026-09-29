@@ -82,3 +82,20 @@ export async function streamStatus(params: URLSearchParams, from: number, signal
   const response = await checked(eventsUrl(params, from, from), signal);
   await response.body?.cancel();
 }
+// Mirrors GET /worlds/{world}/proposals: the generic proposal ledger and its grades.
+export type Actor = { kind: 'human'; id: string } | { kind: 'agent'; model: string; version: string };
+export type Proposal = { seq: number; id: string; class: string; actor: Actor; snapshot_offset: number;
+  payload_hash: string; proposed_at_ms: number };
+export type Decision = { seq: number; proposal_id: string; decider: 'policy' | 'human' | 'evidence' | 'agent';
+  outcome: 'accept' | 'reject'; basis: string; decided_at_ms: number };
+export type Tally = { accepted: number; rejected: number; fraction: [number, number] };
+export type ProposalGrade = { class: string; actor: Actor; proposed: number; ungraded: number;
+  policy_accepted: number; policy_rejected: number; human: Tally; evidence: Tally; agent: Tally;
+  policy_applied: Tally; policy_applied_ungraded: number };
+export type Proposals = { proposals: Proposal[]; decisions: Decision[]; grades: ProposalGrade[] };
+// The ledger is independent of the pinned offset, so `at` is dropped (same as `sources`).
+export async function proposals(params: URLSearchParams, signal: AbortSignal): Promise<Proposals> {
+  const url = endpoint(params, 'proposals');
+  url.searchParams.delete('at');
+  return (await checked(url, signal)).json();
+}

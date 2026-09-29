@@ -18,9 +18,12 @@ use std::fmt;
 use std::fs::File;
 use std::path::Path;
 
-use rusqlite::{Connection, ErrorCode, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
-use crate::{LogError, LogPosition, map_sqlite, open_sqlite_store, open_sqlite_store_read_only};
+use crate::{
+    LogError, LogPosition, map_constraint, map_sqlite, open_sqlite_store,
+    open_sqlite_store_read_only,
+};
 
 const DATABASE_FILE: &str = "verdicts.sqlite3";
 const LOCK_FILE: &str = "VERDICTS_LOCK";
@@ -288,13 +291,7 @@ impl SqliteVerdictStore {
                     row.provenance
                 ],
             );
-            match inserted {
-                Ok(_) => {}
-                Err(error) if error.sqlite_error_code() == Some(ErrorCode::ConstraintViolation) => {
-                    return Err(duplicate_key(row));
-                }
-                Err(error) => return Err(map_sqlite(error)),
-            }
+            inserted.map_err(|error| map_constraint(error, || duplicate_key(row)))?;
         }
         transaction
             .execute(

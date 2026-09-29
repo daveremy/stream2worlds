@@ -1,6 +1,6 @@
 # 0019: System 2 proposal and decision records — durable attribution and grading
 
-Date: 2026-09-28 · Status: accepted · Gate 3 · Issue #88 · Amends the invariant in [s2w-system2/AGENTS.md](../../crates/s2w-system2/AGENTS.md) · Builds on [0012](0012-verdict-log.md)
+Date: 2026-09-28 · Status: accepted · Gate 3 · Issue #88 · Amends the invariant in [s2w-system2/AGENTS.md](../../crates/s2w-system2/AGENTS.md) · Builds on [0012](0012-verdict-log.md) · Amended 2026-09-28 by [0020](0020-proposal-surfaces-and-agent-decider.md): a fourth decider `agent`, `user_version = 2`, and `grade` over payload-less summaries
 
 ## Decision
 

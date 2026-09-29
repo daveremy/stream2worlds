@@ -9,6 +9,7 @@
 mod delta;
 mod diff;
 mod http;
+mod proposals;
 mod timeline;
 mod view;
 
@@ -19,6 +20,9 @@ pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
 pub use http::{
     Branch, QueryState, RawEventInfo, SourceInfo, TimeAt, TimeResult, WorldSummary, router,
 };
+pub use proposals::{
+    ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
+};
 pub use timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
@@ -26,7 +30,7 @@ pub use view::{
 
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
 // never disagree about what a valid `world`, `branch` or `lod` is.
-pub(crate) use http::{check_branch, check_world, parse_lod};
+pub(crate) use http::{check_branch, check_world, open_proposal_reader, parse_lod};
 
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -89,10 +93,25 @@ pub enum QueryError {
     #[error("too many concurrent event streams; retry shortly")]
     StreamLimit,
     /// The log directory could not be opened or read while serving a fresh-per-request value
-    /// (presentation). Distinct from [`Self::Unavailable`], which means the in-memory timeline
+    /// (presentation, proposals). Distinct from [`Self::Unavailable`], which means the in-memory timeline
     /// lock was poisoned by a panicking writer — this is a storage-layer failure instead.
     #[error("storage error: {0}")]
     Storage(String),
+    /// No stored proposal has this id (including when no proposal store exists yet).
+    #[error("no proposal with id '{id}'")]
+    UnknownProposal {
+        /// The requested proposal id.
+        id: String,
+    },
+    /// Another process holds the proposal store's writer lock; retry later.
+    #[error("the proposal store is locked by another writer; retry shortly")]
+    StoreLocked,
+}
+
+impl From<s2w_log::LogError> for QueryError {
+    fn from(error: s2w_log::LogError) -> Self {
+        Self::Storage(error.to_string())
+    }
 }
 
 impl QueryError {
@@ -110,6 +129,8 @@ impl QueryError {
             Self::Unavailable => "unavailable",
             Self::StreamLimit => "stream_limit",
             Self::Storage(_) => "storage",
+            Self::UnknownProposal { .. } => "unknown_proposal",
+            Self::StoreLocked => "store_locked",
         }
     }
 
