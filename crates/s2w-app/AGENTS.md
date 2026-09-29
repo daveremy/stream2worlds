@@ -16,6 +16,14 @@ Runtime wiring: composes sources, the log, the core and the engines; read-only M
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
+## Module layering (s2w#240)
+
+`query` is the bottom of this crate: it depends on no sibling module (one pending exception:
+`query::http` still uses `bridge::SourceStats` until s2w#240 PR 2 moves it). `bridge`, `proposals`,
+`routes`, `snapshot`, `discover` depend on `query` (and on each other downward only); `serve` and
+`mcp` are the top and compose everything. Check 15 (`cargo xtask check`, module cycles) reports
+violations; it is report-only until s2w#240 flips `ENFORCE`.
+
 ## Invariants
 
 - The only crate that composes layers. Business rules live in the core, not here.

@@ -687,14 +687,6 @@ async fn origin_guard(request: Request, next: Next) -> Response {
     next.run(request).await
 }
 
-pub(crate) fn sse_cap_guard(
-    slots: std::sync::Arc<tokio::sync::Semaphore>,
-) -> Result<tokio::sync::OwnedSemaphorePermit, crate::query::QueryError> {
-    slots
-        .try_acquire_owned()
-        .map_err(|_| crate::query::QueryError::StreamLimit)
-}
-
 // A literal loopback authority's port (`None` when absent), or `None` for anything else.
 fn loopback_port(authority: &str) -> Option<Option<&str>> {
     ["localhost", "127.0.0.1", "[::1]"]
