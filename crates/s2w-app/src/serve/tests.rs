@@ -962,6 +962,10 @@ struct ServedRun {
 /// One `serve` process over `dir`: restores per `config`, ingests `events` (cursor, key) from
 /// a stdin-like source, waits until the world holds `nodes` entities, then stops as a signal
 /// would. `None` if the sandbox denies loopback sockets.
+#[expect(
+    clippy::too_many_lines,
+    reason = "scenario helper: server and client halves share the fixture and read as one sequence"
+)]
 async fn serve_until(
     dir: &TestDirectory,
     config: SnapshotConfig,

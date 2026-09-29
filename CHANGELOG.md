@@ -13,6 +13,33 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## World snapshots, part 1b: `serve` restarts from a snapshot — #33 (2026-09-28)
+
+**Shipped:** `serve` now writes world snapshots and restarts from them
+([decision 0021](docs/decisions/0021-snapshots.md)). At start it loads the newest valid
+snapshot, installs it as the timeline's base and resumes the bridge after its log position, so
+a restart replays only the tail. While running it snapshots every 1,000,000 raw events on its
+own writer thread, and on Ctrl-C or SIGTERM it writes a final snapshot when at least 100,000
+events arrived since the last one. **User-visible:** `serve --snapshot-every <n>` and
+`--no-snapshot`; `serve` now stops on SIGTERM as well as SIGINT; `/time.base` becomes the
+snapshot's offset after a restart; an SSE follower whose position falls below a newly installed
+base gets one `event: error` frame with `offset_before_base` before the stream closes. An
+integration test restarts `serve` on the same log directory and checks that restore plus tail
+serves the same world as a full replay.
+
+**Learned:** measured on a synthetic wiki-shaped world, a final write takes 0.18 s at 10^5 raw
+events and 2.4 s at 10^6, well inside the 25 s the demo unit's stop budget leaves after the
+HTTP drain. Memory is the tighter limit: a restored timeline holds a base and a head world, and
+a write briefly holds a second head, so near 10^6 events of that shape `serve` would pass the
+demo box's 1 GiB cap (as the event list without snapshots already would).
+
+**Changed course:** the plan captured a snapshot only after a poll with no reported error. The
+implementation captures after every successful poll, because a poll that reports a per-event
+error still commits a consistent prefix; the decision records why.
+
+**Next:** share the base world with the head after a restore to halve restore memory; `mcp
+--log-dir` loading snapshots; log and verdict compaction (part 2).
+
 ## World snapshots, part 1a: the format and the timeline base — #33 (2026-09-28)
 
 **Shipped:** the pieces a restart-from-snapshot needs, without yet wiring them into `serve`
