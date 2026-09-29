@@ -27,8 +27,10 @@ the same kind: B-tree nodes for the `entities` and `keys` maps.
 
 **Changed course:** none.
 
-**Next:** entities indexed by their dense id, and interned type and attribute names, which
-together should cross decision 0004's 300 B target.
+**Next:** entities indexed by their dense id
+([#190](https://github.com/daveremy/stream2worlds/issues/190)) and interned type and attribute
+names ([#191](https://github.com/daveremy/stream2worlds/issues/191)), the two cuts estimated to
+bring the figure toward decision 0004's 300 B target.
 
 ## Scale fitness function: fold Ir and bytes per entity gated — #175 (2026-09-28)
 

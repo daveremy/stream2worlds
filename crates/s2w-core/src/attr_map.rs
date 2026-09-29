@@ -21,19 +21,7 @@ use crate::event::AttrValue;
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct AttrMap(Vec<(String, AttrValue)>);
 
-/// The iterator [`AttrMap::iter`] returns: `(name, value)` in name order.
-pub type AttrMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (String, AttrValue)>,
-    fn(&'a (String, AttrValue)) -> (&'a String, &'a AttrValue),
->;
-
 impl AttrMap {
-    /// An empty map; allocates nothing.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self(Vec::new())
-    }
-
     /// The number of attributes.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -53,23 +41,9 @@ impl AttrMap {
         self.0.get(index).map(|(_, value)| value)
     }
 
-    /// Sets `name` to `value` and returns the value it replaces, if any.
-    pub fn insert(&mut self, name: String, value: AttrValue) -> Option<AttrValue> {
-        match self.position(&name) {
-            Ok(index) => self
-                .0
-                .get_mut(index)
-                .map(|(_, slot)| std::mem::replace(slot, value)),
-            Err(index) => {
-                self.0.reserve_exact(1);
-                self.0.insert(index, (name, value));
-                None
-            }
-        }
-    }
-
-    /// Sets every attribute in `attrs`, the latest value winning per name, as a sequence of
-    /// [`AttrMap::insert`] calls would. Allocates at most once, to exact capacity.
+    /// Sets every attribute in `attrs`, replacing the value of a name already held, as inserting
+    /// each pair into a map would. Allocates at most once, to exact capacity (`reserve_exact`:
+    /// collecting a `BTreeMap` iterator would round a 1-3 entry `Vec` up to 4).
     pub fn extend_from_map(&mut self, attrs: &BTreeMap<String, AttrValue>) {
         if self.0.is_empty() {
             // The common case, an entity's first observation: `attrs` is already sorted.
@@ -96,26 +70,12 @@ impl AttrMap {
     }
 
     /// The attributes as `(name, value)`, in name order.
-    pub fn iter(&self) -> AttrMapIter<'_> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&String, &AttrValue)> {
         self.0.iter().map(|(name, value)| (name, value))
-    }
-
-    /// The attribute names, in order.
-    pub fn keys(&self) -> impl Iterator<Item = &String> {
-        self.0.iter().map(|(name, _)| name)
     }
 
     fn position(&self, name: &str) -> Result<usize, usize> {
         self.0.binary_search_by(|(key, _)| key.as_str().cmp(name))
-    }
-}
-
-impl<'a> IntoIterator for &'a AttrMap {
-    type Item = (&'a String, &'a AttrValue);
-    type IntoIter = AttrMapIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
     }
 }
 
@@ -124,13 +84,6 @@ impl From<BTreeMap<String, AttrValue>> for AttrMap {
         let mut pairs = Vec::with_capacity(map.len());
         pairs.extend(map);
         Self(pairs)
-    }
-}
-
-impl FromIterator<(String, AttrValue)> for AttrMap {
-    /// Collects as a `BTreeMap` would: sorted, the last value winning per name.
-    fn from_iter<I: IntoIterator<Item = (String, AttrValue)>>(iter: I) -> Self {
-        Self::from(iter.into_iter().collect::<BTreeMap<_, _>>())
     }
 }
 
@@ -151,6 +104,9 @@ impl Serialize for AttrMap {
 }
 
 impl<'de> Deserialize<'de> for AttrMap {
+    /// Through a `BTreeMap`, deliberately: a snapshot is untrusted input, and the map sorts it and
+    /// keeps the last value of a repeated name, which the binary search relies on. The transient
+    /// map per entity on restore is the price of not re-implementing that.
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         BTreeMap::<String, AttrValue>::deserialize(deserializer).map(Self::from)
     }
@@ -179,20 +135,20 @@ mod tests {
     }
 
     #[test]
-    fn insert_keeps_name_order_and_replaces() {
-        let mut attrs = AttrMap::new();
-        assert_eq!(attrs.insert("b".into(), AttrValue::Int(1)), None);
-        assert_eq!(attrs.insert("a".into(), AttrValue::Int(2)), None);
-        assert_eq!(attrs.insert("c".into(), AttrValue::Int(3)), None);
-        assert_eq!(
-            attrs.insert("b".into(), AttrValue::Int(9)),
-            Some(AttrValue::Int(1))
-        );
-        let names: Vec<&str> = attrs.keys().map(String::as_str).collect();
+    fn extend_keeps_name_order_and_replaces() {
+        let mut attrs = AttrMap::default();
+        attrs.extend_from_map(&map(&[("b", AttrValue::Int(1))]));
+        attrs.extend_from_map(&map(&[("c", AttrValue::Int(3)), ("a", AttrValue::Int(2))]));
+        attrs.extend_from_map(&map(&[("b", AttrValue::Int(9))]));
+        let names: Vec<&str> = attrs.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(names, ["a", "b", "c"]);
         assert_eq!(attrs.get("b"), Some(&AttrValue::Int(9)));
         assert_eq!(attrs.get("z"), None);
         assert_eq!(attrs.len(), 3);
+        assert_eq!(
+            format!("{attrs:?}"),
+            r#"{"a": Int(2), "b": Int(9), "c": Int(3)}"#
+        );
     }
 
     #[test]
@@ -203,7 +159,7 @@ mod tests {
             ("aaa", AttrValue::Int(1)),
             ("zzz", AttrValue::Str("tail".into())),
         ]);
-        let mut attrs = AttrMap::new();
+        let mut attrs = AttrMap::default();
         attrs.extend_from_map(&first);
         assert_eq!(
             attrs.0.capacity(),
@@ -250,20 +206,7 @@ mod tests {
         let source: BTreeMap<String, AttrValue> = serde_json::from_str(text).unwrap();
         assert_eq!(attrs, AttrMap::from(source));
         assert_eq!(attrs.get("b"), Some(&AttrValue::Int(3)));
-        let names: Vec<&str> = attrs.keys().map(String::as_str).collect();
+        let names: Vec<&str> = attrs.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(names, ["a", "b"]);
-    }
-
-    #[test]
-    fn from_iter_sorts_and_keeps_the_last_value() {
-        let attrs: AttrMap = [
-            ("b".to_owned(), AttrValue::Int(1)),
-            ("a".to_owned(), AttrValue::Int(2)),
-            ("b".to_owned(), AttrValue::Int(3)),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(attrs.len(), 2);
-        assert_eq!(attrs.get("b"), Some(&AttrValue::Int(3)));
     }
 }

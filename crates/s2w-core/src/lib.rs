@@ -10,7 +10,7 @@ mod attr_map;
 mod event;
 mod world;
 
-pub use attr_map::{AttrMap, AttrMapIter};
+pub use attr_map::AttrMap;
 pub use event::{AttrValue, EntityId, NaturalKey, WorldEvent};
 pub use world::{
     DEFAULT_HUB_IN_DEGREE_CAP, EntityState, FOLD_FIXTURE_HASH, FOLD_VERSION, HubCounters,

@@ -378,11 +378,7 @@ fn attr_map_bytes_are_btreemap_bytes() -> TestResult {
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v))
     .collect();
-    let one: BTreeMap<String, AttrValue> = many
-        .iter()
-        .take(1)
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let one = BTreeMap::from([("k".to_owned(), AttrValue::Int(1))]);
     for source in [BTreeMap::new(), one, many] {
         let attrs = s2w_core::AttrMap::from(source.clone());
         let bytes = postcard::to_stdvec(&source)?;
