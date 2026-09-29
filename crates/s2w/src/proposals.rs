@@ -346,7 +346,10 @@ fn decide_lines(decision: &DecisionDto, route: Option<&RouteAfter>) -> Vec<Strin
             ),
             _ => format!("source '{}' is now unrouted", route.source),
         });
-        lines.push("a running `s2w serve` picks this up at its next start".to_owned());
+        lines.push(
+            "a running `s2w serve` sees the change within a poll and rebuilds the world under the new routes"
+                .to_owned(),
+        );
     }
     lines
 }
