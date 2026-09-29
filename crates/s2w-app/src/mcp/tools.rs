@@ -268,13 +268,15 @@ const WORLD_VIEW: &str = "Requires the world string parameter. The world as a d3
 const WORLD_DIFF: &str = "Requires the world string parameter. What changed between two fold \
     offsets: entity-level nodes, links and merges added, removed and changed. Mirrors GET \
     /worlds/{world}/diff: from defaults to 0 and to to the head; an offset past the head is an \
-    offset_beyond_head error, and one below time.base (a server restored from a snapshot) is an \
-    offset_before_base error, so pass from=time.base. Takes epoch (see world_view).";
+    offset_beyond_head error, and one below time.base is an offset_before_base error, so pass \
+    from=time.base. Once the server has dropped old events (or restored from a snapshot), \
+    time.base is the head. Takes epoch (see world_view).";
 const ENTITY_HISTORY: &str = "Requires the world string parameter. Every delta naming one entity \
     id up to a fold offset, including ids that were merged into it at that moment. Mirrors GET \
     /worlds/{world}/entity/{id}/history: to defaults to the head, and an unknown id is an \
-    unknown_entity error. Entries cover only offsets after time.base (see time.base); a to below \
-    it is an offset_before_base error. Use world_view to find entity ids first. Takes epoch \
+    unknown_entity error. It needs every event since offset 0, so once the server has dropped \
+    old events (or restored from a snapshot; time.base is then the head) it is an \
+    offset_before_base error. Use world_view to find entity ids first. Takes epoch \
     (see world_view).";
 const BRANCHES: &str = "Requires the world string parameter. The world branches that exist. \
     Mirrors GET /worlds/{world}/branches: today exactly one, 'actual', with its head offset, \
@@ -282,10 +284,11 @@ const BRANCHES: &str = "Requires the world string parameter. The world branches 
 const TIME: &str = "Requires the world string parameter. The world's time index. With ts \
     (milliseconds since the epoch), returns the largest fold offset whose events were received \
     at or before it; without ts, returns the range summary: head, first_ts, last_ts and how many \
-    out-of-order timestamps were clamped, plus base, the earliest servable offset (0, or the \
-    snapshot offset this server restored from). A ts before the base's last event is an \
-    offset_before_base error. Mirrors GET /worlds/{world}/time. Fold offsets from base to head \
-    are what world_view, world_diff and entity_history accept. Both shapes carry epoch, the \
+    out-of-order timestamps were clamped, plus base, the earliest offset world_view, world_diff \
+    and entity_history accept (0 while the server keeps every event, else the head: it keeps \
+    only recent events), and replay_base, the earliest offset GET /worlds/{world}/events \
+    replays from. A ts whose offset is below base is an offset_before_base error. Mirrors GET \
+    /worlds/{world}/time. Both shapes carry epoch, the \
     history the offsets belong to (16 hex digits); pass it back with those offsets.";
 const SOURCES: &str = "Requires the world string parameter. The world's member sources at a \
     fold offset (the head by default), each with consumed and unrouted event counts and \

@@ -13,6 +13,42 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The timeline keeps a window, not the whole stream — #216 PR 1 (2026-09-29)
+
+**Shipped:** `serve` keeps the head world and the most recent 20,000 world events, each with the
+delta it made, instead of every event since offset 0
+([decision 0026](docs/decisions/0026-bounded-timeline-history.md)). A backfill of the recorded
+stream cycled to 150,000 raw events (11.3 million world events) now peaks at 588 MiB for the
+whole process, down from about 6.1 GiB, and `tests/backfill_memory.rs` asserts it stays under
+600 MiB. SSE followers replay the stored deltas instead of each folding a private world. The
+web page restarts from a fresh read when its live stream falls behind the window.
+
+**Learned:** on the box the world was never the problem; the history was 93% of resident
+memory, at ~530 bytes per world event. Even with no history at all the process peaks at
+576 MiB, 170 MiB over the head world, so the next lever is the bridge's own transients. One
+`/world` read at the head still clones the head world (+1.1 GiB), so a connected viewer can
+still OOM the box.
+
+**Changed course:** the planned 100,000-event window peaked at 631 MiB, over budget, so the cap
+is 20,000: about 270 raw events on the demo. Time travel and SSE resume reach back seconds to
+minutes, and after a restart from a snapshot, world queries serve the head only.
+
+**Next:** PR 2 of #216 serves `/world` and `/diff` at the head without cloning the world, the
+last step to `demo: PASS`. Older history from snapshots plus the log is
+[#218](https://github.com/daveremy/stream2worlds/issues/218).
+
+## A near-unique key names no type — #208 (2026-09-29)
+
+**Shipped:** the profiler no longer turns a field whose values are nearly all distinct into an
+entity type ([#214](https://github.com/daveremy/stream2worlds/pull/214)). Those fields minted
+about one entity per event. On the recorded stream the discovered mapping drops from 116 to 75
+claims per event and folds to 252.0 MiB at 10^5 events instead of 1,009.9 MiB.
+
+**Learned:** the deployed mapping still OOM-killed the demo box six seconds into its backfill.
+The world was 252 MiB; the timeline history behind it was not measured at all (#216).
+
+**Next:** measure what a serve process holds during a backfill, and bound it (#216).
+
 ## Learned mappings mid-run, and what they cost — #197 PR 4b (2026-09-29)
 
 **Shipped:** a source that reaches the 10,000-event window while `serve` runs is profiled after

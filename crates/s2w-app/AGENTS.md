@@ -51,12 +51,14 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   never changes routes itself (the live-rebuild watcher sees the store move), and keeps a source
   pending only while the store is locked, retrying every `LOCK_RETRY_POLLS` polls.
   A window this actor already filed and someone decided is skipped before profiling.
-- `Timeline` (decision 0024) has a base world (empty, or a restored snapshot's) and serves offsets
-  from the base to the head only; anything below is `offset_before_base` (410). Index the event
-  list only through `events_after`, never by absolute offset. Without a snapshot the base is 0 and
-  every answer is unchanged. Base and head share one world (`Arc`) until the first append after a
-  restore copies it (#179); never hand out the `Arc` itself, or the next append copies the whole
-  world and the old one stays alive.
+- `Timeline` (decisions 0024, 0026) holds one world, the head, and at most `history_cap` recent
+  events (`DEFAULT_HISTORY_CAP`), each with the `Delta` its fold produced; past the cap it drops
+  the oldest down to half. Never add a second resident world (a base, or one per SSE follower):
+  the head alone is most of the memory budget. World queries serve from `base()` (0 while every
+  event since offset 0 is retained, else the head); `/events` replays from `replay_base()` using
+  the stored deltas; anything below is `offset_before_base` (410). Index the event list only
+  through `events_after`, never by absolute offset. Never hand out the head `Arc` itself, or the
+  next append copies the whole world and the old one stays alive.
   `QueryState::replace_timeline` is the one way to install a timeline. `serve`'s startup
   (`snapshots::prepare`) calls it before the bridge exists, and a live rebuild
   (`serve/rebuild.rs`, decision 0023 "Rebuild") calls it between two polls, before

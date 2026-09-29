@@ -12,9 +12,11 @@
 //!   Its resident delta minus `world` is the history the timeline keeps.
 //! - `bridge`: the real `Bridge` over a durable SQLite log holding the raw events, with the
 //!   mapping engine routed, polled to the end of the log. Its peak minus `timeline` is the
-//!   backfill's transient (payload batches, verdict rows, claims in flight).
+//!   backfill's transient (payload batches, verdict rows, claims in flight). It asserts the
+//!   process's peak resident stays under [`SERVE_PEAK_LIMIT`] (600 MiB): the fitness function
+//!   for decision 0026's history cap, with no viewer connected.
 //! - `queries`: after the `timeline` fold, the peak of one `/world` read at the head and one
-//!   `/diff` between the head and the offset before it — what a connected view adds.
+//!   `/diff` from the head to itself — what a connected view adds.
 //!
 //! The fixture (11,667 events) is cycled to 1.5x10^5 with every string leaf suffixed by the
 //! cycle number (`fresh`, as in `discover_volume.rs`), so every cycle observes new entities:
@@ -48,6 +50,12 @@ mod backfill {
     const CAP: u64 = s2w_app::DEFAULT_HUB_IN_DEGREE_CAP;
     const VARIANT: &str = "S2W_BACKFILL_MEMORY_VARIANT";
     const LOG_DIR: &str = "S2W_BACKFILL_MEMORY_LOG";
+    const MAPPING_FILE: &str = "mapping.json";
+    const SOURCE_FILE: &str = "source";
+    /// The most a serve process may hold at its peak during this backfill, whole process,
+    /// no viewer connected (decision 0026): room under the demo box's `MemoryMax=1G` for the
+    /// viewer path and the allocator.
+    const SERVE_PEAK_LIMIT: usize = 600 * 1024 * 1024;
 
     /// A `/proc/self/status` field in bytes (`VmRSS`: resident now, `VmHWM`: peak resident).
     fn status(field: &str) -> usize {
@@ -203,18 +211,26 @@ mod backfill {
             }
         });
         let (_, head, _) = state.bounds().unwrap();
-        report("timeline", before, started, &format!(", {head} world events"));
+        report(
+            "timeline",
+            before,
+            started,
+            &format!(", {head} world events"),
+        );
         if queries {
             let before = reset_peak();
             let started = Instant::now();
-            let view = state.view_at(Some(head), None, &ViewParams::default()).unwrap();
+            let view = state
+                .view_at(Some(head), None, &ViewParams::default())
+                .unwrap();
             drop(view);
             report("query /world at head", before, started, "");
             let before = reset_peak();
             let started = Instant::now();
-            let diff = state.diff(head - 1, Some(head), None).unwrap();
+            // Past the history cap, `/diff` serves the head only (decision 0026).
+            let diff = state.diff(head, Some(head), None).unwrap();
             drop(diff);
-            report("query /diff head-1..head", before, started, "");
+            report("query /diff head..head", before, started, "");
         }
     }
 
@@ -230,8 +246,14 @@ mod backfill {
         log.append_batch(batch).unwrap();
     }
 
-    fn bridge(events: &[RawEvent], engine: MappingEngine, directory: &PathBuf) {
-        let source = events[0].source.as_str().to_owned();
+    /// The `bridge` child starts like a serve process: it reads the mapping and the source
+    /// the parent wrote, never loading the fixture or running the profiler, so its whole-process
+    /// peak is what serve would hold.
+    fn bridge(directory: &PathBuf) {
+        let mapping: StreamMapping =
+            serde_json::from_slice(&std::fs::read(directory.join(MAPPING_FILE)).unwrap()).unwrap();
+        let source = std::fs::read_to_string(directory.join(SOURCE_FILE)).unwrap();
+        let engine = MappingEngine::new(mapping).unwrap();
         let log = SqliteEventLog::open(directory).unwrap();
         let verdicts = SqliteVerdictStore::open(directory).unwrap();
         let mut registry = EngineRegistry::new();
@@ -264,13 +286,26 @@ mod backfill {
             started,
             &format!(", {consumed} raw events, {head} world events"),
         );
+        let peak = status("VmHWM:");
+        eprintln!(
+            "bridge: whole-process peak {} (baseline {} before the bridge)",
+            mib(peak),
+            mib(before)
+        );
+        assert!(
+            peak < SERVE_PEAK_LIMIT,
+            "serve peak {} is over {}",
+            mib(peak),
+            mib(SERVE_PEAK_LIMIT)
+        );
     }
 
     #[test]
     #[ignore = "folds 1.5x10^5 events in four children; run by hand with --release"]
     fn backfill_memory_breakdown() {
         let events = load().unwrap();
-        let id = mapping(events).identity().unwrap();
+        let discovered = mapping(events);
+        let id = discovered.identity().unwrap();
         eprintln!("mapping {id} (window {DISCOVER_WINDOW}), {EVENTS} raw events, fresh cycles");
         let directory =
             PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("backfill-memory-sqlite-log");
@@ -278,10 +313,13 @@ mod backfill {
         std::fs::create_dir_all(&directory).unwrap();
         let started = Instant::now();
         populate(events, &directory);
-        eprintln!(
-            "log populated in {:.1} s",
-            started.elapsed().as_secs_f64()
-        );
+        std::fs::write(
+            directory.join(MAPPING_FILE),
+            serde_json::to_vec(&discovered).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(directory.join(SOURCE_FILE), events[0].source.as_str()).unwrap();
+        eprintln!("log populated in {:.1} s", started.elapsed().as_secs_f64());
         for variant in ["world", "timeline", "queries", "bridge"] {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["backfill::child", "--exact", "--ignored", "--nocapture"])
@@ -303,16 +341,16 @@ mod backfill {
         let Ok(variant) = std::env::var(VARIANT) else {
             return;
         };
+        if variant == "bridge" {
+            bridge(&PathBuf::from(std::env::var(LOG_DIR).unwrap()));
+            return;
+        }
         let events = load().unwrap();
         let engine = MappingEngine::new(mapping(events)).unwrap();
         match variant.as_str() {
             "world" => world(events, &engine),
             "timeline" => timeline(events, &engine, false),
             "queries" => timeline(events, &engine, true),
-            "bridge" => {
-                let directory = PathBuf::from(std::env::var(LOG_DIR).unwrap());
-                bridge(events, engine, &directory);
-            }
             other => panic!("unknown variant {other}"),
         }
     }

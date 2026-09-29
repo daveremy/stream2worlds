@@ -24,7 +24,9 @@ pub use http::{
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
-pub use timeline::{BaseTime, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline};
+pub use timeline::{
+    BaseTime, DEFAULT_HISTORY_CAP, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline,
+};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };

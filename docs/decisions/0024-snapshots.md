@@ -2,6 +2,12 @@
 
 Date: 2026-09-28 · Status: accepted (parts 1a and 1b landed) · Gate 2 · Issue #33 · Research [0006 §3(d)](../../research/0006-scaling.md) · Amends [0006](0006-world-query-api.md) (a new error code and `/time.base`) · Resolves open items in [0005](0005-pure-fold.md) and [0012](0012-verdict-log.md)
 
+*Amended 2026-09-29 by [0026](0026-bounded-timeline-history.md): a timeline no longer holds a
+base world. After a restore above offset 0, world queries (`/world?at`, `/diff`,
+`/entity/{id}/history`, `/time?ts`) serve the head only and `/time.base` is the head; `/events`
+still replays every event since the restore, from `/time.replay_base`. The sections below
+describe the design as first accepted.*
+
 *Numbered 0021 until 2026-09-29, when it was renumbered to 0024 (#181): it landed after [0021 stream mapping](0021-stream-mapping-v0.md), which kept the number. Earlier CHANGELOG entries and commit messages that say "decision 0021" about snapshots mean this record.*
 
 "Snapshot" in this record means the world snapshot file below. It is unrelated to the golden

@@ -1,6 +1,8 @@
 //! The query contract over a timeline restored from a snapshot (decision 0024): every route
 //! that takes an offset answers 410 `offset_before_base` below the base, `/time` reports the
 //! base, and the SSE stream after the base carries the same deltas the full history would.
+//! Decision 0026 extends it to a timeline whose history cap dropped its oldest events: the
+//! retained window replays exactly, and older offsets are gone.
 
 // `allow-unwrap-in-tests` applies inside `#[cfg(test)]` items only.
 #[cfg(test)]
@@ -126,13 +128,17 @@ mod base {
             let (status, time) =
                 get(&router(QueryState::new(restored)), "/worlds/default/time").await;
             assert_eq!(status, StatusCode::OK);
-            assert_eq!(time["base"], BASE);
+            // Decision 0026: world queries serve the head only after a restore; `/events`
+            // replays from the snapshot's offset.
+            assert_eq!(time["base"], full.head());
+            assert_eq!(time["replay_base"], BASE);
             assert_eq!(time["head"], full.head());
             let full_time = full.time_range();
             assert_eq!(time["first_ts"], full_time.first_ts.unwrap());
             assert_eq!(time["last_ts"], full_time.last_ts.unwrap());
             let (_, fresh) = get(&router(QueryState::new(full)), "/worlds/default/time").await;
             assert_eq!(fresh["base"], 0, "no snapshot: base is 0");
+            assert_eq!(fresh["replay_base"], 0);
         });
     }
 
@@ -162,6 +168,42 @@ mod base {
                 Some(&BASE.to_string()),
             )
             .await;
+            assert_eq!(status, StatusCode::OK);
+        });
+    }
+
+    /// Decision 0026: past the history cap, `/events` from inside the retained window carries
+    /// the same frames as an uncapped timeline, below it is 410, and world queries serve the
+    /// head only.
+    #[test]
+    fn a_capped_timeline_replays_its_window_and_nothing_older() {
+        run(async {
+            let events = events();
+            let mut full = Timeline::new(CAP);
+            append(&mut full, &events, 0);
+            let mut capped = Timeline::new(CAP).with_history_cap(8);
+            append(&mut capped, &events, 0);
+            let (from, head) = (capped.replay_base(), capped.head());
+            assert!(from > 0, "the cap dropped events");
+            let n = usize::try_from(head - from).unwrap();
+            let capped_app = router(QueryState::new(capped));
+            let full_app = router(QueryState::new(full));
+            let uri = format!("/worlds/default/events?from={from}&at={head}");
+            let (status, body) = request(&capped_app, &uri, None).await;
+            assert_eq!(status, StatusCode::OK);
+            let got = sse_frames(body, n).await;
+            let (_, body) = request(&full_app, &uri, None).await;
+            assert_eq!(got, sse_frames(body, n).await);
+            for uri in [
+                format!("/worlds/default/events?from={}", from - 1),
+                format!("/worlds/default/world?at={}", head - 1),
+                format!("/worlds/default/entity/0/history?to={head}"),
+            ] {
+                let (status, body) = get(&capped_app, &uri).await;
+                assert_eq!(status, StatusCode::GONE, "{uri}");
+                assert_eq!(body["error"], "offset_before_base", "{uri}");
+            }
+            let (status, _) = get(&capped_app, &format!("/worlds/default/world?at={head}")).await;
             assert_eq!(status, StatusCode::OK);
         });
     }

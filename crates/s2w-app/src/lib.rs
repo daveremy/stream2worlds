@@ -19,6 +19,7 @@ pub mod status;
 pub use group_commit::{HumanReporter, NoteSink, Reporter};
 /// The hub in-degree cap a served timeline starts under, re-exported so the CLI can build the
 /// MCP server's empty world without depending on the core itself.
+pub use query::DEFAULT_HISTORY_CAP;
 pub use s2w_core::DEFAULT_HUB_IN_DEGREE_CAP;
 
 use std::path::{Path, PathBuf};

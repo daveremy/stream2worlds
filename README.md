@@ -146,17 +146,18 @@ same directory with a different `--world` is an error. Existing schema-v2 event 
 atomically to v3, preserving events and cursors. `/worlds` uses the stored display name.
 
 Every offset-taking route serves offsets from `base` to `head`, both reported by
-`GET /worlds/{world}/time`. `base` is 0 unless `serve` restarted from a world snapshot
-([decision 0024](docs/decisions/0024-snapshots.md)). `serve` writes one under
-`<log_dir>/snapshots/` every 1,000,000 raw events (`--snapshot-every <n>`) and, on Ctrl-C or
+`GET /worlds/{world}/time`. `serve` keeps only the most recent 20,000 world events
+([decision 0026](docs/decisions/0026-bounded-timeline-history.md)): `base` is 0 while it still
+holds every event since offset 0, and the head after it drops older ones or restarts from a
+world snapshot ([decision 0024](docs/decisions/0024-snapshots.md)). `/events` replays from
+`replay_base`, also in `/time`: the offset before the oldest event it keeps. `serve` writes a
+snapshot under `<log_dir>/snapshots/` every 1,000,000 raw events (`--snapshot-every <n>`) and, on Ctrl-C or
 SIGTERM, when at least 100,000 events arrived since the last one; at start it loads the newest
 valid snapshot and replays only the tail (`--no-snapshot` turns both off and replays from 0).
-After such a restart `base` is the snapshot's offset and the history before it is gone from
-that process: `/world?at=`,
-`/diff?from=`, `/events?from=` or `Last-Event-ID`, and `/entity/{id}/history?to=` below `base`
-answer `410` with `{"error": "offset_before_base"}`, and so does `/time?ts=` before the base's
-last event. Entity history then starts after `base`, and a scrubber should start at `base`. The
-MCP tools share this contract.
+`/world?at=`, `/diff?from=` and `/time?ts=` below `base`, `/events?from=` or `Last-Event-ID`
+below `replay_base`, and `/entity/{id}/history` whenever `base` is not 0 answer `410` with
+`{"error": "offset_before_base"}`. The web page restarts from a fresh read when its live stream
+falls behind `replay_base`. The MCP tools share this contract.
 
 Offsets belong to a history, named by its **epoch** (16 hex digits, reported by `/world`,
 `/time` and every SSE `id:` as `<epoch>:<offset>`; [decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)).

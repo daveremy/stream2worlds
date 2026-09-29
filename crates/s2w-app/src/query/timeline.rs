@@ -1,5 +1,5 @@
-//! The served world log: timestamped [`WorldEvent`]s the query API folds on demand, on top of a
-//! base world (empty, or restored from a snapshot, decision 0024).
+//! The served world log: the head world and a bounded window of recent timestamped
+//! [`WorldEvent`]s, each with the [`Delta`] it made (decisions 0024 and 0026).
 
 use std::sync::Arc;
 
@@ -10,7 +10,14 @@ use serde::{Deserialize, Serialize};
 use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
 
-/// One world event and the time it was received.
+/// How many recent world events a [`Timeline`] keeps by default (decision 0026): about 12 MiB
+/// on the recorded fixture, and about 270 raw events there at ~75 world events per raw event.
+/// Set by the measured 600 MiB serve budget (`tests/backfill_memory.rs`): 100,000 held
+/// 631 MiB at the peak, 20,000 holds 588 MiB.
+pub const DEFAULT_HISTORY_CAP: usize = 20_000;
+
+/// One world event, the time it was received, and what it did to the world. Held in memory
+/// only: never serialized or persisted (snapshots store the world and its [`BaseTime`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TimedEvent {
     /// When the event was received. Never earlier than the previous event's (see
@@ -18,6 +25,9 @@ pub struct TimedEvent {
     pub at: Timestamp,
     /// The event.
     pub event: WorldEvent,
+    /// What the event did, computed once when it was folded into the head, so a follower
+    /// replays deltas without a world of its own.
+    pub delta: Delta,
 }
 
 /// One entry of an entity's history.
@@ -34,9 +44,13 @@ pub struct HistoryEntry {
 pub struct TimeRange {
     /// The latest offset.
     pub head: u64,
-    /// The earliest offset this process can serve: 0, or the offset of the snapshot it was
-    /// restored from (decision 0024). Offsets below it answer `offset_before_base`.
+    /// The earliest offset world queries (`/world?at`, `/diff`, `/entity/{id}/history`,
+    /// `/time?ts`) can serve: 0 while the timeline holds every event since offset 0, else the
+    /// head (decision 0026). Offsets below it answer `offset_before_base`.
     pub base: u64,
+    /// The earliest offset `/events` can replay from: the offset before the oldest retained
+    /// event (decision 0026). Never above `base`.
+    pub replay_base: u64,
     /// The first event's timestamp in milliseconds, if any.
     pub first_ts: Option<i64>,
     /// The last event's timestamp in milliseconds, if any.
@@ -97,24 +111,32 @@ pub struct BaseTime {
     pub clamped: u64,
 }
 
-/// The world log the query API serves: a base world, the live head world, and the events
-/// between them.
+/// The world log the query API serves: the live head world and at most `history_cap` recent
+/// events before it, each with its delta (decision 0026, amending 0024).
 ///
 /// Offsets are fold offsets ([`World::offset`]): offset `n` is the world after the first `n`
-/// events. The base is the empty world unless the timeline was restored from a snapshot
-/// ([`Timeline::from_snapshot`]); offsets below it are gone ([`QueryError::OffsetBeforeBase`]).
-/// The head world is folded once per [`Timeline::append`], so the world at the head is a clone,
-/// never a refold.
+/// events. The timeline holds exactly one world, the head, folded once per
+/// [`Timeline::append`]. It never holds a base world: while every event since offset 0 is
+/// retained (`full_history`), an older world is refolded from the empty world on demand; once
+/// the oldest events are dropped, or after a restore from a snapshot above offset 0, world
+/// queries are served at the head only and anything older is
+/// [`QueryError::OffsetBeforeBase`]. `/events` replays the retained window from its stored
+/// deltas ([`Timeline::replay_base`]).
 ///
-/// Base and head share one world until the first append (#179): a restored timeline holds one
-/// copy of the snapshot's world, and the first [`Timeline::append`] copies it into a separate
-/// head (`Arc::make_mut`). From then on the timeline holds two worlds, base and head.
+/// When more than `history_cap` events are retained, the oldest are dropped down to
+/// `history_cap / 2`, so the drop is amortized O(1) per append and the window a follower can
+/// resume from is at least `history_cap / 2` events.
 #[derive(Debug)]
 pub struct Timeline {
-    base: Arc<World>,
-    base_time: BaseTime,
     head: Arc<World>,
+    /// Every event since offset 0 is retained, so the empty world plus `events` is any world.
+    full_history: bool,
+    /// The offset before `events[0]`.
+    replay_base: u64,
+    /// The time index of the events before `replay_base`: dropped ones, or a snapshot's.
+    base_time: BaseTime,
     events: Vec<TimedEvent>,
+    history_cap: usize,
     clamped: u64,
     epoch: Epoch,
 }
@@ -126,20 +148,31 @@ impl Timeline {
         Self::from_snapshot(World::with_hub_cap(hub_cap), BaseTime::default())
     }
 
-    /// A timeline whose base is `world`, restored from a snapshot, with the base's time index
-    /// `time`. Appends continue from `world.offset()`. The head shares the base's world until
-    /// the first append, so restoring holds one copy of it, not two.
+    /// A timeline whose head is `world`, restored from a snapshot, with the snapshot's time
+    /// index `time`, keeping [`DEFAULT_HISTORY_CAP`] events. Appends continue from
+    /// `world.offset()`. A world above offset 0 starts without full history: world queries are
+    /// served at the head only (decision 0026).
     #[must_use]
     pub fn from_snapshot(world: World, time: BaseTime) -> Self {
-        let world = Arc::new(world);
+        let offset = world.offset();
         Self {
-            head: Arc::clone(&world),
-            base: world,
+            head: Arc::new(world),
+            full_history: offset == 0,
+            replay_base: offset,
             base_time: time,
             events: Vec::new(),
+            history_cap: DEFAULT_HISTORY_CAP,
             clamped: time.clamped,
             epoch: Epoch::default(),
         }
+    }
+
+    /// This timeline, keeping at most `cap` recent events (at least 2). Applies from the next
+    /// [`Timeline::append`].
+    #[must_use]
+    pub fn with_history_cap(mut self, cap: usize) -> Self {
+        self.history_cap = cap.max(2);
+        self
     }
 
     /// This timeline, serving history `epoch`. [`Timeline::new`] and [`Timeline::from_snapshot`]
@@ -176,13 +209,21 @@ impl Timeline {
     /// The in-degree cap every world on this timeline is folded under.
     #[must_use]
     pub fn hub_cap(&self) -> u64 {
-        self.base.hub_in_degree_cap()
+        self.head.hub_in_degree_cap()
     }
 
-    /// The earliest servable offset: 0, or the snapshot's offset.
+    /// The earliest offset world queries serve: 0 while every event since offset 0 is
+    /// retained, else the head (decision 0026).
     #[must_use]
     pub fn base(&self) -> u64 {
-        self.base.offset()
+        if self.full_history { 0 } else { self.head() }
+    }
+
+    /// The earliest offset [`Timeline::events_after`] serves: the offset before the oldest
+    /// retained event.
+    #[must_use]
+    pub fn replay_base(&self) -> u64 {
+        self.replay_base
     }
 
     /// The latest offset.
@@ -200,17 +241,18 @@ impl Timeline {
     /// The events strictly after `offset`, oldest first.
     ///
     /// # Errors
-    /// [`QueryError::OffsetBeforeBase`] below the base; [`QueryError::OffsetBeyondHead`] past
-    /// the head.
+    /// [`QueryError::OffsetBeforeBase`] below [`Timeline::replay_base`];
+    /// [`QueryError::OffsetBeyondHead`] past the head.
     pub fn events_after(&self, offset: u64) -> Result<&[TimedEvent], QueryError> {
-        let start = self.index(offset)?;
+        let start = self.index(offset, self.replay_base)?;
         Ok(self.events.get(start..).unwrap_or_default())
     }
 
     /// Appends an event, folds it into the head world, and returns the new head. Never refuses
     /// an event: a timestamp earlier than the previous event's (or than the base's last, for
     /// the first event after a snapshot) is clamped to it and counted, so the time index stays
-    /// sorted without dropping a world event.
+    /// sorted without dropping a world event. Past the history cap, drops the oldest events
+    /// down to half the cap.
     pub fn append(&mut self, at: Timestamp, event: WorldEvent) -> u64 {
         let previous = self
             .events
@@ -224,31 +266,58 @@ impl Timeline {
             }
             _ => at,
         };
-        // Copies the world only while the head still shares it with the base: the first append
-        // after a restore (or on a new timeline, whose world is empty).
+        // Nothing else holds the head (query reads clone the world, never the Arc), so this
+        // folds in place.
         let head = Arc::make_mut(&mut self.head);
-        *head = s2w_core::fold_one(std::mem::take(head), &event);
-        self.events.push(TimedEvent { at, event });
+        let (next, delta) = fold_with_delta(std::mem::take(head), &event);
+        *head = next;
+        self.events.push(TimedEvent { at, event, delta });
+        if self.events.len() > self.history_cap {
+            self.drop_oldest(self.events.len() - self.history_cap / 2);
+        }
         self.head()
     }
 
-    /// The index into `events` for `offset`: `offset - base`, checked against both ends.
-    fn index(&self, offset: u64) -> Result<usize, QueryError> {
-        let (base, head) = (self.base(), self.head());
+    /// Drops the oldest `n` retained events, folding their time range into `base_time`.
+    fn drop_oldest(&mut self, n: usize) {
+        let (Some(first), Some(last)) = (
+            self.events.first(),
+            n.checked_sub(1).and_then(|i| self.events.get(i)),
+        ) else {
+            return;
+        };
+        self.base_time.first_ts = self.base_time.first_ts.or(Some(first.at.as_millis()));
+        self.base_time.last_ts = Some(last.at.as_millis());
+        self.events.drain(..n);
+        self.replay_base = self
+            .replay_base
+            .saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
+        self.full_history = false;
+    }
+
+    /// The index into `events` for `offset`, checked against `base` and the head.
+    fn index(&self, offset: u64, base: u64) -> Result<usize, QueryError> {
+        let head = self.head();
         if offset < base {
             return Err(QueryError::OffsetBeforeBase { at: offset, base });
         }
         if offset > head {
             return Err(QueryError::OffsetBeyondHead { at: offset, head });
         }
-        usize::try_from(offset - base)
+        usize::try_from(offset - self.replay_base)
             .map_err(|_| QueryError::OffsetBeyondHead { at: offset, head })
     }
 
-    /// The events from the base up to `offset`.
+    /// The retained events up to `offset`, checked against the world base.
     fn prefix(&self, offset: u64) -> Result<&[TimedEvent], QueryError> {
-        let end = self.index(offset)?;
+        let end = self.index(offset, self.base())?;
         Ok(self.events.get(..end).unwrap_or_default())
+    }
+
+    /// The world every retained event folds from. Only called with full history, where it is
+    /// the empty world.
+    fn empty_world(&self) -> World {
+        World::with_hub_cap(self.hub_cap())
     }
 
     /// The world at `offset`.
@@ -261,8 +330,10 @@ impl Timeline {
         if offset == self.head() {
             return Ok(World::clone(&self.head));
         }
+        // Below the head, `prefix` succeeded only with full history (the base is the head
+        // otherwise), so the retained events fold from the empty world.
         Ok(s2w_core::fold(
-            World::clone(&self.base),
+            self.empty_world(),
             prefix.iter().map(|e| &e.event),
         ))
     }
@@ -270,20 +341,28 @@ impl Timeline {
     /// The largest offset whose events were all received at or before `ts`; 0 if none was.
     ///
     /// # Errors
-    /// [`QueryError::TimeBeforeBase`] when `ts` is before the base's last event: the answer
-    /// lies inside the snapshot, whose per-event times are not kept.
+    /// [`QueryError::TimeBeforeBase`] when the answer is an offset world queries cannot serve:
+    /// `ts` is before the last dropped or snapshotted event (whose per-event times are not
+    /// kept) or, without full history, before the newest event.
     pub fn offset_at(&self, ts: Timestamp) -> Result<u64, QueryError> {
+        let before = |base| QueryError::TimeBeforeBase {
+            ts: ts.as_millis(),
+            base,
+        };
+        if !self.full_history {
+            return match self.time_range().last_ts {
+                Some(last) if ts.as_millis() < last => Err(before(self.head())),
+                _ => Ok(self.head()),
+            };
+        }
         if let Some(last) = self.base_time.last_ts
             && ts.as_millis() < last
         {
-            return Err(QueryError::TimeBeforeBase {
-                ts: ts.as_millis(),
-                base: self.base(),
-            });
+            return Err(before(self.base()));
         }
         let n = self.events.partition_point(|e| e.at <= ts);
         Ok(self
-            .base()
+            .replay_base
             .saturating_add(u64::try_from(n).unwrap_or(u64::MAX)))
     }
 
@@ -293,6 +372,7 @@ impl Timeline {
         TimeRange {
             head: self.head(),
             base: self.base(),
+            replay_base: self.replay_base,
             first_ts: self
                 .base_time
                 .first_ts
@@ -318,16 +398,22 @@ impl Timeline {
         }
     }
 
-    /// Every delta after the base and up to `to` that names entity `id`, or names an id that
-    /// resolved to it at that moment (so events on a merged-away alias appear on the survivor
-    /// while merged).
+    /// Every delta up to `to` that names entity `id`, or names an id that resolved to it at
+    /// that moment (so events on a merged-away alias appear on the survivor while merged).
     ///
     /// # Errors
-    /// [`QueryError::OffsetBeforeBase`] below the base; [`QueryError::OffsetBeyondHead`] past
-    /// the head.
+    /// [`QueryError::OffsetBeforeBase`] without full history (an entity's history needs every
+    /// event since offset 0, decision 0026) or below the base;
+    /// [`QueryError::OffsetBeyondHead`] past the head.
     pub fn history(&self, id: u64, to: u64) -> Result<Vec<HistoryEntry>, QueryError> {
         let prefix = self.prefix(to)?;
-        let mut world = World::clone(&self.base);
+        if !self.full_history {
+            return Err(QueryError::OffsetBeforeBase {
+                at: to,
+                base: self.head(),
+            });
+        }
+        let mut world = self.empty_world();
         let mut out = Vec::new();
         for timed in prefix {
             let (next, delta) = fold_with_delta(world, &timed.event);
@@ -359,7 +445,7 @@ mod tests {
     use s2w_core::{NaturalKey, World, WorldEvent};
     use s2w_model::Timestamp;
 
-    use super::{BaseTime, Timeline};
+    use super::{BaseTime, QueryError, Timeline, fold_with_delta};
 
     fn observed(key: &str) -> WorldEvent {
         WorldEvent::EntityObserved {
@@ -369,24 +455,162 @@ mod tests {
         }
     }
 
-    /// #179: a restored timeline holds one world until its first append, which copies it into
-    /// a separate head and leaves the base as restored.
+    /// A log mixing new entities, repeats, relationships and merges.
+    fn log(n: usize) -> Vec<WorldEvent> {
+        (0..n)
+            .map(|i| match i % 4 {
+                0 | 1 => observed(&format!("k{}", i % 7)),
+                2 => WorldEvent::RelationshipObserved {
+                    from: NaturalKey::new(format!("k{}", i % 7)),
+                    to: NaturalKey::new(format!("k{}", (i + 3) % 7)),
+                    kind: "on".to_owned(),
+                },
+                _ => WorldEvent::EntitiesMerged {
+                    survivor: NaturalKey::new(format!("k{}", i % 5)),
+                    absorbed: NaturalKey::new(format!("k{}", (i + 1) % 5)),
+                },
+            })
+            .collect()
+    }
+
+    /// Decision 0026: a restored timeline holds one world, the head, and serves world queries
+    /// at the head only; `/events` replays what arrived after the restore.
     #[test]
-    fn base_and_head_share_one_world_until_the_first_append() -> Result<(), super::QueryError> {
+    fn a_restored_timeline_holds_only_the_head_world() -> Result<(), QueryError> {
         let restored = s2w_core::fold(World::with_hub_cap(8), &[observed("a")]);
         let mut timeline = Timeline::from_snapshot(restored.clone(), BaseTime::default());
-        assert!(Arc::ptr_eq(&timeline.base, &timeline.head));
+        assert_eq!(
+            (timeline.base(), timeline.replay_base(), timeline.head()),
+            (1, 1, 1)
+        );
+        assert_eq!(timeline.world_at(1)?, restored);
 
         timeline.append(Timestamp::from_millis(1), observed("b"));
-        assert!(!Arc::ptr_eq(&timeline.base, &timeline.head));
-        assert_eq!(*timeline.base, restored);
-        assert_eq!(timeline.world_at(timeline.base())?, restored);
-        assert_eq!((timeline.base(), timeline.head()), (1, 2));
-
-        // Later appends fold the head in place: nothing else holds it.
         timeline.append(Timestamp::from_millis(2), observed("c"));
         assert_eq!(Arc::strong_count(&timeline.head), 1);
-        assert_eq!(timeline.head(), 3);
+        assert_eq!(
+            (timeline.base(), timeline.replay_base(), timeline.head()),
+            (3, 1, 3)
+        );
+        assert_eq!(
+            timeline.world_at(2),
+            Err(QueryError::OffsetBeforeBase { at: 2, base: 3 })
+        );
+        assert_eq!(timeline.events_after(1)?.len(), 2);
+        assert_eq!(
+            timeline.history(0, 3),
+            Err(QueryError::OffsetBeforeBase { at: 3, base: 3 })
+        );
         Ok(())
+    }
+
+    /// The stored deltas are the ones a follower folding from the empty world computes, and
+    /// folding with a delta yields the same world as `fold_one`.
+    #[test]
+    fn stored_deltas_match_a_reference_fold() {
+        let events = log(40);
+        let mut timeline = Timeline::new(3);
+        let mut world = World::with_hub_cap(3);
+        for (i, event) in events.iter().enumerate() {
+            timeline.append(
+                Timestamp::from_millis(i64::try_from(i).unwrap_or(0)),
+                event.clone(),
+            );
+            let plain = s2w_core::fold_one(world.clone(), event);
+            let (next, delta) = fold_with_delta(world, event);
+            assert_eq!(next, plain);
+            assert_eq!(timeline.events.last().map(|e| &e.delta), Some(&delta));
+            world = next;
+        }
+        assert_eq!(*timeline.head, world);
+    }
+
+    /// Every offset `capped` still retains replays exactly what `full` replays; before the
+    /// first drop, every world query matches too.
+    fn assert_window_matches(capped: &Timeline, full: &Timeline) -> Result<(), QueryError> {
+        assert_eq!(capped.head_world(), full.head_world());
+        for o in capped.replay_base()..=capped.head() {
+            assert_eq!(capped.events_after(o)?, full.events_after(o)?);
+        }
+        if capped.full_history {
+            assert_eq!(capped.base(), 0);
+            for o in 0..=capped.head() {
+                assert_eq!(capped.world_at(o)?, full.world_at(o)?);
+            }
+            assert_eq!(
+                capped.history(0, capped.head()),
+                full.history(0, full.head())
+            );
+        }
+        Ok(())
+    }
+
+    /// Past the cap the window drops to half the cap, and every offset still retained replays
+    /// exactly what an uncapped timeline replays; world queries then serve the head only.
+    #[test]
+    fn a_capped_timeline_keeps_a_window_equal_to_the_uncapped_one() -> Result<(), QueryError> {
+        const CAP: usize = 6;
+        let mut full = Timeline::new(3).with_history_cap(usize::MAX);
+        let mut capped = Timeline::new(3).with_history_cap(CAP);
+        for (i, event) in log(50).into_iter().enumerate() {
+            let at = Timestamp::from_millis(i64::try_from(i).unwrap_or(0));
+            full.append(at, event.clone());
+            capped.append(at, event);
+            assert!(capped.events.len() <= CAP);
+            assert_eq!(capped.full_history, i < CAP);
+            assert_window_matches(&capped, &full)?;
+        }
+        let head = capped.head();
+        assert_eq!(capped.base(), head);
+        assert_eq!(capped.time_range().replay_base, capped.replay_base());
+        assert!(capped.replay_base() >= head - u64::try_from(CAP).unwrap_or(0));
+        assert_eq!(
+            capped.world_at(head - 1),
+            Err(QueryError::OffsetBeforeBase {
+                at: head - 1,
+                base: head
+            })
+        );
+        assert_eq!(capped.world_at(head)?, full.world_at(head)?);
+        assert!(matches!(
+            capped.events_after(capped.replay_base() - 1),
+            Err(QueryError::OffsetBeforeBase { .. })
+        ));
+        // `/time?ts` never names an offset the world queries would refuse.
+        assert_eq!(capped.offset_at(Timestamp::from_millis(49))?, head);
+        assert_eq!(
+            capped.offset_at(Timestamp::from_millis(48)),
+            Err(QueryError::TimeBeforeBase { ts: 48, base: head })
+        );
+        // The time index still spans every event, dropped or not.
+        assert_eq!(capped.head_time(), full.head_time());
+        Ok(())
+    }
+
+    /// The minimum cap is 2, which still keeps one event to replay.
+    #[test]
+    fn the_smallest_cap_keeps_a_window() -> Result<(), QueryError> {
+        let mut timeline = Timeline::new(3).with_history_cap(0);
+        for (i, event) in log(9).into_iter().enumerate() {
+            timeline.append(Timestamp::from_millis(i64::try_from(i).unwrap_or(0)), event);
+            assert!((1..=2).contains(&timeline.events.len()));
+        }
+        assert_eq!(
+            timeline.events_after(timeline.replay_base())?.len(),
+            timeline.events.len()
+        );
+        Ok(())
+    }
+
+    /// The vector does not keep a peak allocation: its capacity stays within twice the cap.
+    #[test]
+    fn the_window_allocation_stays_bounded() {
+        const CAP: usize = 1_000;
+        let mut timeline = Timeline::new(3).with_history_cap(CAP);
+        for i in 0..10_000_i64 {
+            timeline.append(Timestamp::from_millis(i), observed("a"));
+        }
+        assert_eq!(timeline.head(), 10_000);
+        assert!(timeline.events.capacity() <= 2 * CAP);
     }
 }
