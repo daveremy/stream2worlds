@@ -24,5 +24,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - An entity id is assigned once and never reused, and the fold enforces it: `keys` is
   write-once. A merge aliases ids under the survivor; revoking a repair splits them back apart;
   neither operation changes an id. Merge edges are stored raw, as named, and resolved on read.
+- Entity ids are dense: minted in order from 0, never deleted, and an id is its index into
+  `World::entities` (a `Vec`, s2w#190). Deserialize rejects a world whose ids are not exactly
+  `0..len`; a world whose id counter is not its entity count mints nothing, and a snapshot
+  carrying one fails `check_fold`. `keys`, `merges` and `hub_counters` in a deserialized world
+  are not bounds-checked against `entities`: a write to an entity past its end is a no-op.
 - `fold_one` is total: an event it cannot apply is a documented no-op, never a panic or error.
 - No domain knowledge in this crate; see decision 0018.

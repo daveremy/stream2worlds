@@ -119,6 +119,40 @@ fn golden_world_hash_is_pinned() -> TestResult {
     Ok(())
 }
 
+/// Length and FNV-1a of the whole snapshot file (header + world, the real `codec::encode`) for
+/// the golden log's head world, measured on the commit before s2w#190 changed how
+/// `World::entities` and `EntityState::hub_refs` are stored. Stored snapshots only restore if
+/// these bytes never move.
+const GOLDEN_SNAPSHOT_BYTES: (usize, u64) = (365, 0x7423_b39f_faeb_e707);
+
+#[test]
+fn golden_snapshot_bytes_are_pinned() -> TestResult {
+    let events: Vec<WorldEvent> = serde_json::from_str(GOLDEN)?;
+    let mut timeline = Timeline::new(GOLDEN_CAP);
+    append_all(&mut timeline, &events, &wobbly_ts(events.len()));
+    let world = timeline.head_world().clone();
+    let snapshot = SnapshotV1 {
+        format: SNAPSHOT_FORMAT,
+        fold_hash: fold_hash(GOLDEN_CAP),
+        feed_hash: 0,
+        hub_cap: GOLDEN_CAP,
+        offset: world.offset(),
+        position: 0,
+        position_event_hash: 0,
+        cursors: Vec::new(),
+        time: timeline.head_time(),
+        world,
+    };
+    let bytes = codec::encode(&snapshot)?;
+    let pinned = (bytes.len(), s2w_model::fnv1a64(&bytes));
+    assert_eq!(
+        pinned, GOLDEN_SNAPSHOT_BYTES,
+        "snapshot bytes moved: ({}, {:#018x})",
+        pinned.0, pinned.1
+    );
+    Ok(())
+}
+
 #[test]
 fn golden_log_restores_to_the_same_world_at_every_split() -> TestResult {
     let events: Vec<WorldEvent> = serde_json::from_str(GOLDEN)?;
@@ -140,7 +174,7 @@ fn history_after_a_restore_matches_the_full_history_past_the_base() -> TestResul
     let timeline = restored(GOLDEN_CAP, &events, &ts, o)?;
     let (base, head) = (u64::try_from(o)?, full.head());
     let world = full.world_at(head)?;
-    for id in world.entities().keys().map(|id| id.get()) {
+    for id in world.entities().map(|(id, _)| id.get()) {
         let tail: Vec<_> = full
             .history(id, head)?
             .into_iter()

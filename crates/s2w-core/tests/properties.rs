@@ -151,7 +151,7 @@ proptest! {
             // Ids are never reused: distinct keys hold distinct ids, one entity each.
             let distinct: BTreeSet<EntityId> = world.keys().values().copied().collect();
             prop_assert_eq!(distinct.len(), world.keys().len());
-            prop_assert_eq!(world.entities().len(), world.keys().len());
+            prop_assert_eq!(world.entity_count(), world.keys().len());
             prop_assert_eq!(
                 world.keys().keys().cloned().collect::<BTreeSet<_>>(),
                 reference.known.clone()

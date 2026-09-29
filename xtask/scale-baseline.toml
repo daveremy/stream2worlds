@@ -23,9 +23,11 @@ profile = "bench"
 
 # Heap bytes per entity after folding entity-observed events, counted by dhat (test profile).
 [memory]
-# Measured 830 B on 2026-09-28, then 438 B after s2w#172 stored entity attributes as a sorted
-# Vec (hub, rustc 1.98.1). Baseline; > +tolerance fails.
-bytes_per_entity = 438
+# Measured 830 B on 2026-09-28, 438 B after s2w#172 stored entity attributes as a sorted Vec,
+# then 360 B after s2w#190 indexed entities by dense id in a Vec (hub, rustc 1.98.1). The Vec
+# doubles, so at 100,000 entities it holds 131,072 slots: the figure steps at powers of two.
+# Baseline; > +tolerance fails.
+bytes_per_entity = 360
 # Decision 0004's planning target; printed with the measured ratio, not a ceiling. Raising it
 # is growth.
 target_bytes_per_entity = 300

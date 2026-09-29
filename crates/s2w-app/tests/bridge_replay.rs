@@ -129,7 +129,7 @@ fn replay_and_check<R: LogReader, V: VerdictStore>(log: R, verdicts: V) -> TestR
     // The merge claim names keys no observation minted, so it folds to a no-op world: the
     // claim is served, and the world stays empty, exactly as the fold's contract says.
     let world = observer.world_at(None)?;
-    assert!(world.entities().is_empty());
+    assert_eq!(world.entity_count(), 0);
     Ok(())
 }
 

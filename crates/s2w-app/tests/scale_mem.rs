@@ -50,16 +50,12 @@ mod tests {
         let before = live_bytes();
         let world = fold(World::default(), &entities);
         let after_entities = live_bytes();
-        assert_eq!(
-            world.entities().len(),
-            MEM_ENTITIES,
-            "stage (a) entity count"
-        );
+        assert_eq!(world.entity_count(), MEM_ENTITIES, "stage (a) entity count");
 
         let world = fold(world, &relationships);
         let after_relationships = live_bytes();
         assert_eq!(
-            world.entities().len(),
+            world.entity_count(),
             MEM_ENTITIES,
             "stage (b) must not mint entities"
         );

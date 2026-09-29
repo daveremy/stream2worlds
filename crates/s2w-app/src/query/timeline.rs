@@ -343,7 +343,7 @@ impl Timeline {
             }
             world = next;
         }
-        if world.entities().keys().any(|e| e.get() == id) {
+        if world.minted_id(id).is_some() {
             Ok(out)
         } else {
             Err(QueryError::UnknownEntity { id })

@@ -45,8 +45,39 @@ pub struct EntityState {
     /// Attributes; each key holds its latest observed value.
     pub attrs: AttrMap,
     /// Relationships this entity has to hub entities, by kind, kept as attributes because the
-    /// target is past the in-degree cap. The value is the hub's id.
-    pub hub_refs: BTreeMap<String, EntityId>,
+    /// target is past the in-degree cap. The value is the hub's id. `None` when there are none
+    /// (nearly every entity), never `Some` of an empty map; on the wire it is a plain map.
+    #[serde(with = "crate::wire::hub_refs")]
+    #[expect(
+        clippy::box_collection,
+        reason = "8 B inline for the empty case, not 24 (s2w#190)"
+    )]
+    hub_refs: Option<Box<BTreeMap<String, EntityId>>>,
+}
+
+// One entity's inline cost, times every entity (s2w#190). A new field must earn its bytes.
+const _: () = assert!(size_of::<EntityState>() <= 56);
+
+impl EntityState {
+    /// Relationships to hub entities, `(kind, hub id)` in kind order.
+    pub fn hub_refs(&self) -> impl Iterator<Item = (&str, EntityId)> {
+        self.hub_refs
+            .iter()
+            .flat_map(|refs| refs.iter())
+            .map(|(kind, &hub)| (kind.as_str(), hub))
+    }
+
+    /// The hub this entity points at under `kind`, if the relationship was folded into a ref.
+    #[must_use]
+    pub fn hub_ref(&self, kind: &str) -> Option<EntityId> {
+        self.hub_refs.as_ref()?.get(kind).copied()
+    }
+
+    /// Whether this entity holds any hub ref.
+    #[must_use]
+    pub const fn has_hub_refs(&self) -> bool {
+        self.hub_refs.is_some()
+    }
 }
 
 /// A materialized edge. Endpoints are the ids resolved when the relationship was observed.
@@ -92,8 +123,10 @@ pub struct World {
     next_entity_id: u64,
     keys: BTreeMap<NaturalKey, EntityId>,
     merges: BTreeMap<EntityId, EntityId>,
-    entities: BTreeMap<EntityId, EntityState>,
-    #[serde(with = "relationships_wire")]
+    /// Indexed by id: ids are dense `0..len` (minted in order by `mint`, never deleted).
+    #[serde(with = "crate::wire::entities")]
+    entities: Vec<EntityState>,
+    #[serde(with = "crate::wire::relationships")]
     relationships: BTreeMap<Relationship, u64>,
     hub_counters: BTreeMap<EntityId, HubCounters>,
 }
@@ -117,7 +150,7 @@ impl World {
             next_entity_id: 0,
             keys: BTreeMap::new(),
             merges: BTreeMap::new(),
-            entities: BTreeMap::new(),
+            entities: Vec::new(),
             relationships: BTreeMap::new(),
             hub_counters: BTreeMap::new(),
         }
@@ -159,10 +192,42 @@ impl World {
         &self.merges
     }
 
-    /// Every entity ever minted. Merges never delete one.
+    /// Every entity ever minted, in id order. Merges never delete one.
+    pub fn entities(&self) -> impl ExactSizeIterator<Item = (EntityId, &EntityState)> {
+        self.entities
+            .iter()
+            .enumerate()
+            .map(|(index, state)| (id_at(index), state))
+    }
+
+    /// The entity minted as `id`, if it has been.
     #[must_use]
-    pub const fn entities(&self) -> &BTreeMap<EntityId, EntityState> {
-        &self.entities
+    pub fn entity(&self, id: EntityId) -> Option<&EntityState> {
+        self.entities.get(index_of(id)?)
+    }
+
+    /// How many entities have been minted.
+    #[must_use]
+    pub fn entity_count(&self) -> usize {
+        self.entities.len()
+    }
+
+    /// `raw` as an id, if an entity was minted with it (an O(1) range check).
+    #[must_use]
+    pub fn minted_id(&self, raw: u64) -> Option<EntityId> {
+        usize::try_from(raw)
+            .is_ok_and(|index| index < self.entities.len())
+            .then(|| EntityId::new(raw))
+    }
+
+    /// The id the next minted entity will get.
+    #[must_use]
+    pub const fn next_entity_id(&self) -> u64 {
+        self.next_entity_id
+    }
+
+    fn entity_mut(&mut self, id: EntityId) -> Option<&mut EntityState> {
+        self.entities.get_mut(index_of(id)?)
     }
 
     /// Materialized relationships and how many times each was observed.
@@ -199,31 +264,24 @@ impl World {
         current
     }
 
-    /// The key's id, minting one on first mention. `None` only if the id space is exhausted.
+    /// The key's id, minting one on first mention.
+    ///
+    /// `None` only for a deserialized world whose id counter is not its entity count: the id is
+    /// the index `push` gives, so such a world mints nothing (the fold stays total, and every
+    /// mint in one event fails alike, so none leaves half its state). The id space itself (the
+    /// `checked_add`) cannot run out first: that needs 2^64 entities in memory.
     fn mint(&mut self, key: &NaturalKey) -> Option<EntityId> {
         if let Some(&id) = self.keys.get(key) {
             return Some(id);
         }
+        if index_of(EntityId::new(self.next_entity_id)) != Some(self.entities.len()) {
+            return None;
+        }
         let id = EntityId::new(self.next_entity_id);
         self.next_entity_id = self.next_entity_id.checked_add(1)?;
         self.keys.insert(key.clone(), id);
-        self.entities.insert(id, EntityState::default());
+        self.entities.push(EntityState::default());
         Some(id)
-    }
-
-    /// Whether `n` more ids can be minted. The id `u64::MAX` is never assigned.
-    fn can_mint(&self, n: u64) -> bool {
-        self.next_entity_id.checked_add(n).is_some()
-    }
-
-    fn unknown(&self, keys: &[&NaturalKey]) -> u64 {
-        let mut distinct: BTreeSet<&NaturalKey> = BTreeSet::new();
-        for k in keys {
-            if !self.keys.contains_key(*k) {
-                distinct.insert(k);
-            }
-        }
-        u64::try_from(distinct.len()).unwrap_or(u64::MAX)
     }
 
     fn observe_entity(
@@ -232,23 +290,20 @@ impl World {
         entity_type: &str,
         attrs: &BTreeMap<String, AttrValue>,
     ) {
-        if !self.can_mint(self.unknown(&[key])) {
-            return;
-        }
         let Some(id) = self.mint(key) else {
             return;
         };
         let target = self.resolve(id);
-        let state = self.entities.entry(target).or_default();
+        // Always minted in a fold-produced world; a snapshot pointing past its entities no-ops.
+        let Some(state) = self.entity_mut(target) else {
+            return;
+        };
         entity_type.clone_into(&mut state.entity_type);
         state.attrs.extend_from_map(attrs);
     }
 
     fn observe_relationship(&mut self, from: &NaturalKey, to: &NaturalKey, kind: &str) {
-        if !self.can_mint(self.unknown(&[from, to])) {
-            return;
-        }
-        // Capacity for both endpoints was checked above, so neither mint can fail alone.
+        // Both mints succeed or both fail (see `mint`), so a failure leaves no half state.
         let (Some(from_id), Some(to_id)) = (self.mint(from), self.mint(to)) else {
             return;
         };
@@ -266,11 +321,12 @@ impl World {
         let over_cap = u64::try_from(counters.sources.len()).map_or(true, |n| n > cap);
 
         if over_cap {
-            self.entities
-                .entry(from_r)
-                .or_default()
-                .hub_refs
-                .insert(kind.to_owned(), to_r);
+            if let Some(state) = self.entity_mut(from_r) {
+                state
+                    .hub_refs
+                    .get_or_insert_with(Box::default)
+                    .insert(kind.to_owned(), to_r);
+            }
         } else {
             let weight = self
                 .relationships
@@ -342,27 +398,13 @@ pub fn fold<'a>(world: World, events: impl IntoIterator<Item = &'a WorldEvent>) 
     events.into_iter().fold(world, fold_one)
 }
 
-/// `relationships` is a struct-keyed map in memory, which JSON cannot key by. On the wire it is
-/// a list of `[relationship, weight]` pairs, sorted because the map iterates in key order.
-mod relationships_wire {
-    use std::collections::BTreeMap;
+/// The id of the entity at `index` in `World::entities`.
+pub(crate) fn id_at(index: usize) -> EntityId {
+    // usize is at most 64 bits on every supported target.
+    EntityId::new(u64::try_from(index).unwrap_or(u64::MAX))
+}
 
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    use super::Relationship;
-
-    pub(super) fn serialize<S: Serializer>(
-        map: &BTreeMap<Relationship, u64>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        map.iter().collect::<Vec<_>>().serialize(serializer)
-    }
-
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<BTreeMap<Relationship, u64>, D::Error> {
-        Ok(Vec::<(Relationship, u64)>::deserialize(deserializer)?
-            .into_iter()
-            .collect())
-    }
+/// The index of `id` in `World::entities`, if it fits a usize.
+fn index_of(id: EntityId) -> Option<usize> {
+    usize::try_from(id.get()).ok()
 }

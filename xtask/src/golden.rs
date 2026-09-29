@@ -43,7 +43,7 @@ pub(crate) fn replay(log: &str, snapshot: &str) -> Vec<String> {
 
     let start = || World::with_hub_cap(HUB_CAP);
     let world = fold(start(), &events);
-    if !world.entities().values().any(|e| !e.hub_refs.is_empty()) {
+    if !world.entities().any(|(_, e)| e.has_hub_refs()) {
         problems.push(format!(
             "golden replay: folding {LOG} trips no hub cap (no entity has a hub_ref at cap {HUB_CAP}). The fixture must exercise the cap; add a target with more than {HUB_CAP} distinct sources."
         ));

@@ -33,7 +33,7 @@ const IR_ENTITIES: usize = IR_EVENTS - IR_EVENTS / 5;
 /// The teardown, outside the measured region: the fold kept every generated entity.
 fn check_entities((world, events): (World, Vec<WorldEvent>)) {
     assert_eq!(
-        world.entities().len(),
+        world.entity_count(),
         IR_ENTITIES,
         "the fold of {} events did not hold the generator's entities",
         events.len()
