@@ -75,8 +75,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/score.rs`: B-cubed P/R/F1 (micro, per type, and without singleton-only types),
     the mention-weighted false-merge rate, entity recovery (≥ 90% both ways, integer
     comparisons), the per-path table and spurious mentions; `grade` scores a mapping and the
-    oracle ceiling on one corpus, dropping the key's excluded mentions from the oracle's
-    prediction only (a mapping cannot exclude a value; the ceiling honours the key). A zero
+    oracle ceiling on one corpus, dropping the key's excluded mentions from both predictions
+    first (the key has no mention there; a v0 mapping cannot exclude a value). A zero
     denominator is `None` (undefined). Fixtures live in `h_measure/score/tests.rs`.
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.

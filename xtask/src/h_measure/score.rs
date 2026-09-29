@@ -318,14 +318,13 @@ pub(crate) struct Grade {
     /// The mapping's score.
     pub mapping: Score,
     /// The oracle v0 mapping's score ([`KeySpec::oracle`]): the ceiling to read `mapping`
-    /// against, since a v0 mapping cannot join aliases with different values. The key's
-    /// excluded mentions are dropped from the oracle's prediction first: a mapping cannot
-    /// exclude a value, but the ceiling honours the key's exclusion. `mapping` is not filtered;
-    /// a mention it predicts where the key excludes one is spurious.
+    /// against, since a v0 mapping cannot join aliases with different values.
     pub ceiling: Score,
     /// Abstained paths from the key executor, per mention path id.
     pub abstained: BTreeMap<String, usize>,
-    /// Excluded mentions from the key executor (`no_identity`), per mention path id.
+    /// Excluded mentions from the key executor (`no_identity`), per mention path id. The key
+    /// has no mention there, so each is dropped from every prediction (the mapping's and the
+    /// oracle's alike) before scoring: neither spurious nor abstained, like an unscored path.
     pub excluded: BTreeMap<String, usize>,
     /// Records the key's decode steps could not decode.
     pub undecodable: usize,
@@ -348,11 +347,8 @@ pub(crate) fn grade(
         other = Decoded::new(payloads, &mapping.decode);
         &other
     };
-    let predicted = mapping_mentions(mapping, mapping_corpus)?;
-    let mut oracle = mapping_mentions(&spec.oracle()?, &corpus)?;
-    oracle
-        .cluster
-        .retain(|mention, _| !gold.excluded.contains(mention));
+    let predicted = without(mapping_mentions(mapping, mapping_corpus)?, &gold.excluded);
+    let oracle = without(mapping_mentions(&spec.oracle()?, &corpus)?, &gold.excluded);
     Ok(Grade {
         mapping: score(&gold.partition, &predicted, &unscored),
         ceiling: score(&gold.partition, &oracle, &unscored),
@@ -360,6 +356,17 @@ pub(crate) fn grade(
         abstained: gold.abstained,
         undecodable: corpus.undecodable(),
     })
+}
+
+/// A prediction with the key's excluded mentions dropped. `no_identity` means the key has no
+/// mention at that record and path, and the v0 mapping format cannot exclude a value, so every
+/// prediction (graded mapping and oracle alike) is filtered the same way; filtering only the
+/// oracle would make the ceiling unreachable by any expressible mapping.
+fn without(mut predicted: Partition, excluded: &BTreeSet<Mention>) -> Partition {
+    predicted
+        .cluster
+        .retain(|mention, _| !excluded.contains(mention));
+    predicted
 }
 
 #[cfg(test)]

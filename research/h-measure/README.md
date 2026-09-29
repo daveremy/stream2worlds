@@ -72,9 +72,13 @@ report these as excluded mentions, per path. Rules:
   in a `"version": 1` spec. An alias rule (path not in its identity) cannot carry it, and an
   alias mention of a sentinel identity is **not** excluded; a key that needs that is another
   format change.
-- The oracle mapping cannot exclude a value, so the ceiling row drops the key's excluded
-  mentions from the oracle's prediction. A graded mapping is not filtered: a mention it
-  predicts where the key excludes one is spurious and lowers precision.
+- `grade` drops the key's excluded mentions from **every** prediction before scoring, the
+  graded mapping's and the oracle ceiling's alike (karpathy, 2026-09-29): the key has no
+  mention there, so a predicted one is neither spurious nor abstained, as on an unscored path.
+  The v0 mapping format cannot exclude a value, so every expressible mapping mints the
+  sentinel; filtering only the oracle would make the ceiling unreachable. The cost: a future
+  method that correctly declines to mint the sentinel gets no credit for it. Crediting that
+  needs a richer mapping format, like the alias limit above.
 - A format-0 file reads exactly as before, so every v0 pin still validates unchanged.
 
 `dev-key-v1.json` is the v0 base key with `"version": 1` and `"no_identity": [0]` on the
