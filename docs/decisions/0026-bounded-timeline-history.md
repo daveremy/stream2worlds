@@ -24,7 +24,7 @@ not one per SSE follower (each `/events` subscriber used to fold its own).
 ## Decision
 
 **The timeline holds one world, the head, and at most `history_cap` recent world events**
-(`DEFAULT_HISTORY_CAP = 20,000`), each stored with the `Delta` its fold produced.
+(`DEFAULT_HISTORY_CAP = 50,000`; 20,000 until #220 PR B), each stored with the `Delta` its fold produced.
 `Timeline::new` and `Timeline::from_snapshot` apply the default, so every serve, rebuild and
 MCP construction site is bounded without a flag.
 
@@ -54,7 +54,7 @@ MCP construction site is bounded without a flag.
 - **`TimedEvent` gains `delta`.** It is never serialized or persisted (snapshots store the world
   and its `BaseTime`), so there is no compatibility concern.
 
-**The trade, plainly.** 20,000 world events is about 270 raw events at 75 claims per event: on
+**The trade, plainly.** 50,000 world events is about 670 raw events at 75 claims per event: on
 the demo, time travel and SSE resume reach back seconds to minutes, not the whole stream, and
 after a restart from a snapshot, world queries serve the head only. Serving older history from
 snapshots plus the log is a separate issue ([#218](https://github.com/daveremy/stream2worlds/issues/218)).
@@ -126,6 +126,34 @@ so the fold's slowdown scales with read frequency: one page at 5 s costs about 1
 reader about 4.5x. No 304s during a backfill, because the head moves every batch. Many
 concurrent viewers act like a faster tick; a shorter guard (a snapshot `Arc<World>` handoff) is
 s2w#235.
+
+**2026-09-29, #220 PR B (poll batch 250, rows freed before the fold, cap 50,000).**
+PR A's knobs (`S2W_BACKFILL_MEMORY_HISTORY_CAP`, `_BATCH`, the `bridge-run` variant) measured
+where the bridge's ~170 MiB went: a Rust heap peak of 470 MiB (dhat) against 589 MiB resident,
+and batch size as the largest lever
+([results](https://github.com/daveremy/stream2worlds/issues/220#issuecomment-5897477984)).
+`BridgeConfig::default().batch` is now 250 (it was 1000), and `poll_once` frees a batch's events
+and verdict rows once they are committed, before the fold grows the world. `mcp/replay.rs`'s
+catch-up uses the same default, so it now reads the log in batches of 250. `bridge` polls on the
+test's main thread, as before; `bridge-run` polls on the tokio blocking pool, as `Bridge::run`
+does in serve. Release build, runs interleaved on a shared host:
+
+| Whole-process peak | Before (batch 1000, 3 runs) | `bridge`, after (3 runs) | `bridge-run`, after (5 runs) |
+|---|---|---|---|
+| History cap 2 | 577.2 MiB | 520.3-520.4 MiB | 537.0-538.5 MiB |
+| History cap 20,000 | 589.0 MiB (`bridge-run`: 589 or ~646) | 530.9-531.0 MiB | 531.2-547.8 MiB |
+| History cap 100,000 | 631.7 MiB | 578.1 MiB | 588.6-591.6 MiB |
+| **History cap 50,000 (the new default)** | | **548.3-548.5 MiB** | **548.5-563.0 MiB** |
+| Backfill with a viewer (5 s tick), cap 50,000 | 876-902 MiB (cap 20,000) | 871.6-882.9 MiB (2 runs) | |
+
+The early drop adds little on its own (531.0 MiB against PR A's 530.9 at batch 250); the batch
+size is the saving. `bridge-run`'s second mode, about 60 MiB higher at batch 1000, shrank to about
+15 MiB. Wall time did not rise. Each retained world event costs about 0.53-0.59 KiB. The cap is
+the largest multiple of 10,000 whose predicted peak, from the worst cap-2 run of either topology,
+stays under 570 MiB (a 30 MiB margin under the asserted 600 MiB). `bridge` still asserts 600 MiB;
+`bridge-run` is reported and not asserted, because a bimodal value would flake. Neither variant
+includes serve's snapshot encode, HTTP server or SSE, so the demo box holding at 1 GiB is inferred
+from these runs rather than measured there. The allocator swap is #220's PR C.
 
 ## Alternatives considered
 
