@@ -1,6 +1,6 @@
 # 0006: The world query API
 
-Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §6](../../research/0003-rust-substrate.md), [0005](../../research/0005-3d-exploration.md), [0006](../../research/0006-scaling.md) · Amended by [0015](0015-named-worlds.md), [0016](0016-web-delivery.md), [0024](0024-snapshots.md)
+Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §6](../../research/0003-rust-substrate.md), [0005](../../research/0005-3d-exploration.md), [0006](../../research/0006-scaling.md) · Amended by [0015](0015-named-worlds.md), [0016](0016-web-delivery.md), [0024](0024-snapshots.md), [0023](0023-routes-from-stored-mappings.md)
 
 > **Amended by 0015 (2026-09-27):** every route below moves under `/worlds/{world}/…`; the
 > unscoped paths in this record are removed, not aliased. The endpoint semantics, error codes
@@ -19,6 +19,18 @@ Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §
 > `/time?ts=` before the base's last event. `/time` gains `base` (0 without a snapshot), and
 > entity history covers only offsets after `b`. The world at the head is no longer refolded
 > per request.
+>
+> **Amended by 0023 (2026-09-29, PR 2b-i):** every response that names offsets names the
+> history they belong to. `/world` and `/time` (with or without `ts`) carry `epoch`, 16 hex
+> digits; an SSE `id:` is `<epoch>:<offset>`. Every offset-taking route (`/world`, `/diff`,
+> `/events`, `/entity/{id}/history`, `/time`, `/sources`) takes an optional `?epoch=`, and
+> `Last-Event-ID` may carry the `<epoch>:` prefix (which wins over `?epoch=`). A supplied epoch
+> that is not the served one answers 410 `stale_epoch` before any bounds check, so a URL pinned
+> under a replaced history is refused, never answered with another world's bytes or a 404. A
+> bare offset or a bare `Last-Event-ID` opts out and behaves as before. An `/events` stream ends
+> with one `event: error` frame carrying `stale_epoch` if the served history is replaced under
+> it. A malformed epoch is `bad_parameter`. Pinned URLs that should survive a restart only
+> while the history is unchanged should carry `epoch`.
 
 ## Decision
 
@@ -29,8 +41,8 @@ I/O and is callable directly; `router` serves it over HTTP with `axum` 0.8 and a
 
 | Endpoint | Returns |
 |---|---|
-| `GET /world?at=&branch=&lod=&focus=&hops=` | d3 `{nodes, links}` at a fold offset, plus `offset`, `fold_version`, `hub_in_degree_cap` |
-| `GET /events?from=` (or `Last-Event-ID`) | SSE, exactly one typed delta per offset: `entity`, `link`, `hub_ref` (with `tripped`), `merge`, `split`, `noop`; `id:` is the offset after the event |
+| `GET /world?at=&branch=&lod=&focus=&hops=&epoch=` | d3 `{nodes, links}` at a fold offset, plus `offset`, `epoch`, `fold_version`, `hub_in_degree_cap` |
+| `GET /events?from=` (or `Last-Event-ID`) | SSE, exactly one typed delta per offset: `entity`, `link`, `hub_ref` (with `tripped`), `merge`, `split`, `noop`; `id:` is `<epoch>:<offset>`, the offset after the event (decision 0023) |
 | `GET /branches` | `[{name: "actual", world_id: 0, head, fold_version, hub_in_degree_cap}]` |
 | `GET /diff?from=&to=` | entity-level nodes, links and merges added, removed, changed |
 | `GET /entity/{id}/history?to=` | every delta naming the id, or an id resolved to it at that moment |
@@ -39,7 +51,8 @@ I/O and is callable directly; `router` serves it over HTTP with `axum` 0.8 and a
 Errors are `{"error": <code>, "message": <text>}` with stable codes: `offset_beyond_head` and
 `unknown_entity` (404), `bad_parameter` and `hops_too_large` (400), `branch_not_yet` and
 `lod_not_yet` (501), `unavailable` (503, poisoned lock), `stream_limit` (503, event-stream cap),
-`offset_before_base` (410, below a restored snapshot's base; decision 0024).
+`offset_before_base` (410, below a restored snapshot's base; decision 0024), `stale_epoch` (410,
+a supplied epoch that is not the served one; decision 0023).
 
 ## Contract details
 

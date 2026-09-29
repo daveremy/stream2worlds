@@ -63,6 +63,11 @@ makes `/events` finite: replay through that offset and close. An invalid range i
 bound past the head is 404. This reuses `fold_with_delta` and the existing flattened SSE
 message shape; it does not introduce another event representation.
 
+Since decision 0023 (PR 2b-i) the viewer pins the `epoch` of its first snapshot on its stream,
+evidence and probe URLs. A `stale_epoch` answer (the stream's final error frame, a 410 probe, or
+a refreshed snapshot with another epoch) rebuilds the page from a fresh snapshot rather than
+reconnecting at an offset of another history.
+
 A pinned URL has `at=` and opens no EventSource. Both live and pinned views first fetch the
 world, then seed the latest 500 deltas through that exact snapshot offset using finite replay.
 The table uses offset keys and no invented timestamps. In live mode, deltas update only the

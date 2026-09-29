@@ -1,6 +1,6 @@
 # 0023: Routes from stored stream mappings
 
-Date: 2026-09-29 · Status: accepted · Gate 3 · Issue #163 (PR 2a of 5) · Amends [0021 stream mapping](0021-stream-mapping-v0.md), [0011](0011-system1-bridge.md) (routing) · Builds on [0012](0012-verdict-log.md), [0019](0019-system2-proposal-records.md), [0024 snapshots](0024-snapshots.md)
+Date: 2026-09-29 · Status: accepted · Gate 3 · Issue #163 (PR 2a of 5) · Amends [0021 stream mapping](0021-stream-mapping-v0.md), [0011](0011-system1-bridge.md) (routing), [0006](0006-world-query-api.md) (epoch, PR 2b-i of #184) · Builds on [0012](0012-verdict-log.md), [0019](0019-system2-proposal-records.md), [0024 snapshots](0024-snapshots.md)
 
 ## Decision
 
@@ -98,6 +98,31 @@ and the world equals a cold fold under B. A mutant engine with the bare name `ma
 the name matters: A's verdicts replay under B's name (`replayed > 0`, `evaluated == 0`), A's
 snapshot is restored under B, and both worlds differ from the cold fold under B. A non-vacuity
 check first asserts the two mappings fold different worlds.
+
+## Epoch (PR 2b-i)
+
+A restart under another mapping serves another history under the same offsets: offset `k`
+under B is not offset `k` under A. The query contract names the history. The **epoch** is
+`EngineRegistry::feed_fingerprint()`, printed as 16 hex digits; `snapshots::prepare` installs
+it on the empty timeline before anything is served, and a restored timeline carries it too
+(`Timeline::with_epoch`). `/world`, `/time` and each SSE `id:` (`<epoch>:<offset>`) report it;
+every offset-taking HTTP route and MCP tool takes an optional `epoch`, and a supplied epoch that
+is not the served one is 410 `stale_epoch` before any bounds check (decision 0006's amendment).
+A bare offset opts out. The viewer pins the epoch of its first snapshot on its stream and
+probes, and rebuilds from a fresh snapshot on `stale_epoch`.
+
+The epoch is stateless: nothing is stored, so it is the same across restarts under the same
+routes. A restart A, then B, then A serves A's epoch again. That reuse is sound because the
+fold is deterministic: the same routes over the same log fold the same world at every offset,
+so a URL pinned under A's first run means the same thing under A's third. Epoch `0` is reserved
+for "no serving registry": a fresh `Timeline::new`, and the standalone `s2w mcp` replay, where
+the epoch argument is additive (a caller may pass it; omitting it changes nothing).
+
+Tests: `tests/epoch.rs` (every surface answers 410, not 404, after a swap to a shorter history;
+bare forms unchanged; SSE ids; a follower ends with one `stale_epoch`), `tests/mcp.rs` (MCP
+errors byte-equal to HTTP), and `serve/tests.rs` (a restart under B serves B's fingerprint and
+refuses A's; a restored timeline serves the registry's epoch; two mutants, both histories under
+epoch 0 and an id-only design that serves a bare reconnect, show what the epoch rules out).
 
 ## The world manifest
 
