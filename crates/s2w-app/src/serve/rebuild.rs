@@ -77,6 +77,11 @@ impl RouteWatcher {
         Ok((registry, watcher))
     }
 
+    /// The sources the watcher last resolved a learned route for.
+    pub(super) fn routed(&self) -> impl Iterator<Item = &SourceId> {
+        self.resolution.routes.keys()
+    }
+
     /// Checks the store once: `None` unless the routes now resolve to another feed fingerprint.
     fn check(&mut self, notes: &NoteSink) -> Option<Change> {
         let dir = self.log_dir.clone();

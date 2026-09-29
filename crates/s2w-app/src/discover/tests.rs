@@ -123,8 +123,14 @@ fn start(producer: Producer, dir: &Path, cfg: &DiscoverConfig) -> (bool, Notes) 
     let log = SqliteEventLog::open(dir).expect("log");
     let resolution = routes::load(dir).expect("routes");
     let mut notes = Notes::default();
-    let wrote = run_with(producer, (&log, dir), &resolution, cfg, &mut notes);
-    (wrote, notes)
+    let ran = run_with(
+        producer,
+        (&log, dir),
+        (&resolution, None),
+        (cfg, Trigger::Start),
+        &mut notes,
+    );
+    (ran.resolve_again, notes)
 }
 
 fn source() -> SourceId {
@@ -498,13 +504,16 @@ fn a_decision_recorded_after_the_resolution_is_seen_under_the_lock() {
     drop(store);
     let log = SqliteEventLog::open(dir.path()).expect("log");
     let mut notes = Notes::default();
-    assert!(run_with(
-        REAL,
-        (&log, dir.path()),
-        &stale,
-        &small(),
-        &mut notes
-    ));
+    assert!(
+        run_with(
+            REAL,
+            (&log, dir.path()),
+            (&stale, None),
+            (&small(), Trigger::Start),
+            &mut notes
+        )
+        .resolve_again
+    );
     assert!(
         notes.has("routed by a decision recorded since start-up"),
         "{:?}",

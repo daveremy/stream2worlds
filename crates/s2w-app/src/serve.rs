@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::future::{Future, IntoFuture};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Duration;
@@ -22,6 +22,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
+use crate::discover::in_run::{InRun, Seed, SinkReporter};
 use crate::discover::{self, DiscoverConfig};
 use crate::query::{QueryState, router};
 use crate::{AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters};
@@ -100,10 +101,8 @@ async fn run_serve_async(
     // Routes resolve before the source starts: a corrupt proposal store fails before it
     // connects. Between the two resolutions the learned-mapping producer (decision 0025) may
     // file and accept a mapping for an unrouted source; its failures are notes, never an error.
-    let (registry, watcher) =
-        RouteWatcher::start(args.log_dir.clone(), reporter, |resolution, reporter| {
-            discover::run(&log, &args.log_dir, resolution, &args.discover, reporter)
-        })?;
+    let (registry, watcher, discover) =
+        routed_registry(&log, &args.log_dir, &args.discover, reporter)?;
     let name = source.name();
     // Start before sharing: no RefCell borrow survives an await, even during cursor lookup.
     let started = source
@@ -139,6 +138,7 @@ async fn run_serve_async(
             resume,
             snapshots,
             watch: Some((watcher, args.snapshots)),
+            discover: Some(discover),
         },
         started,
         name,
@@ -147,6 +147,35 @@ async fn run_serve_async(
         reporter,
     )
     .await
+}
+
+/// The start-up routes (decision 0023) with the learned-mapping producer's start pass (decision
+/// 0025) run between the two resolutions, plus the proposal-store watcher for the live rebuild
+/// and the seed for the in-run trigger: it waits only for sources neither routed nor windowed
+/// by the start pass.
+///
+/// # Errors
+/// As [`RouteWatcher::start`].
+fn routed_registry(
+    log: &SqliteEventLog,
+    log_dir: &Path,
+    discover: &DiscoverConfig,
+    reporter: &mut dyn Reporter,
+) -> Result<(EngineRegistry, RouteWatcher, Seed), AppError> {
+    let mut settled = std::collections::BTreeSet::new();
+    let (registry, watcher) =
+        RouteWatcher::start(log_dir.to_path_buf(), reporter, |resolution, reporter| {
+            let ran = discover::run(log, log_dir, resolution, discover, reporter);
+            settled = ran.windowed;
+            ran.resolve_again
+        })?;
+    settled.extend(watcher.routed().cloned());
+    let seed = Seed {
+        log_dir: log_dir.to_path_buf(),
+        cfg: discover.clone(),
+        settled,
+    };
+    Ok((registry, watcher, seed))
 }
 
 fn now_millis() -> Result<i64, AppError> {
@@ -219,6 +248,8 @@ struct ServeStorage {
     /// The proposal-store watcher that drives a live rebuild (s2w#184) and the snapshot
     /// configuration a rebuild restarts with. Absent in tests that pin a registry.
     watch: Option<(RouteWatcher, snapshots::SnapshotConfig)>,
+    /// The in-run producer's start state (decision 0025); `None` turns the trigger off.
+    discover: Option<Seed>,
 }
 
 impl LogReader for SharedLogReader {
@@ -267,6 +298,7 @@ async fn local_bridge(
     ready: oneshot::Sender<()>,
     snapshots: Option<(Rc<RefCell<Snapshotter>>, QueryState)>,
     mut rebuild: Option<Rebuild>,
+    mut discover: Option<(InRun, Rc<RefCell<SqliteEventLog>>, SinkReporter)>,
 ) -> Result<(), BridgeError> {
     let mut ready = Some(ready);
     let mut delay = config.poll;
@@ -277,6 +309,14 @@ async fn local_bridge(
             snapshotter
                 .borrow_mut()
                 .after_poll(bridge.mark(), report.stats.consumed, state);
+        }
+        // Profiling is synchronous: a source reaching its window stalls this loop once. It runs
+        // before the rebuild check, so a mapping it files is picked up by the live rebuild.
+        if let Some((in_run, log, reporter)) = &mut discover {
+            in_run.after_poll(&log.borrow(), reporter);
+            if in_run.is_done() {
+                discover = None;
+            }
         }
         if let Some(rebuild) = &mut rebuild {
             bridge = rebuild.after_poll(bridge, &report)?;
@@ -365,6 +405,11 @@ async fn serve_live(
         )
     });
     let bridge_snapshots = snapshots.map(|s| (s, state.clone()));
+    // The pump holds `reporter` while the bridge runs; the trigger notes through its sink.
+    let in_run = storage
+        .discover
+        .and_then(|seed| seed.arm(&started.sources))
+        .map(|in_run| (in_run, shared.clone(), SinkReporter(reporter.note_sink())));
     let writer = SharedLogWriter(shared.clone());
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -406,7 +451,7 @@ async fn serve_live(
                 }
             })
         },
-        local_bridge(bridge, config, ready_tx, bridge_snapshots, rebuild),
+        local_bridge(bridge, config, ready_tx, bridge_snapshots, rebuild, in_run),
         server,
         stop,
         shutdown_tx,
