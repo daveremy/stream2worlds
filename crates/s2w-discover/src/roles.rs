@@ -28,15 +28,20 @@ pub enum Role {
     FewGroups,
     /// Something depends on it, but not clearly enough: abstain.
     GreyDependency,
-    /// Values repeat, but nothing else is constant under them.
+    /// Values repeat, but nothing else is constant under them clearly enough, and they fail
+    /// the second entity test (`recurs` in `roles.rs`).
     NoDependents,
-    /// An entity identifier: repeated values that other fields are constant under.
+    /// An entity identifier, by either of two tests. The first: repeated values that an
+    /// informative field is constant under in at least `fd_accept_pct` of groups. The second
+    /// (s2w#250 PR 2), for a key the first neither passes nor abstains on: values that come back
+    /// apart across the stream, followed by a field that varies (`spread_groups_pct`,
+    /// `spread_window_pct`, `fd_grey_pct`).
     Entity,
-    /// Passes the entity test, but at least `type_uniqueness_pct` of its values are new: nearly
+    /// Passes an entity test, but at least `type_uniqueness_pct` of its values are new: nearly
     /// every event carrying it would mint a new entity, so the world would grow with every
     /// event (s2w#208). It keys no type; it may still be another type's attribute.
     NearUnique,
-    /// Passes the entity test, but has at most `category_max` values and each of its repeated
+    /// Passes an entity test, but has at most `category_max` values and each of its repeated
     /// values decides which optional fields its events carry: it names a kind of event, not a
     /// thing that recurs (s2w#250). It keys no type; it may still be another type's attribute.
     Category,
@@ -148,7 +153,8 @@ pub(crate) fn single_column(column: &Column, cfg: &Config) -> Option<Role> {
     })
 }
 
-/// The dependency test for a candidate key `k`: the best informative dependent decides. A path
+/// The dependency test for a candidate key `k`: the best informative dependent decides, and a
+/// key it rejects outright may still pass the second entity test (`recurs`). A path
 /// in the grey uniqueness band gets the test too, since uniqueness falls as the window grows;
 /// it abstains as `GreyUniqueness` unless it passes. A path that passes at or above
 /// `type_uniqueness_pct` is `NearUnique`, not an entity.
@@ -164,15 +170,20 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
             Role::FewGroups
         };
     }
-    let best = (0..table.paths.len())
+    let dependents: Vec<(usize, Dependency)> = (0..table.paths.len())
         .filter(|&a| a != k && candidate_dependent(&table.columns[a], cfg))
         .filter(|&a| !aliased(table, k, a, cfg))
-        .map(|a| Dependency::measure(table, &groups, a))
-        .filter(Dependency::informative)
-        .map(|d| d.share())
+        .map(|a| (a, Dependency::measure(table, &groups, a)))
+        .collect();
+    let best = dependents
+        .iter()
+        .filter(|(_, d)| d.informative())
+        .map(|(_, d)| d.share())
         .max()
         .unwrap_or(0);
-    if best >= cfg.fd_accept_pct {
+    let passes = best >= cfg.fd_accept_pct
+        || (!grey && best < cfg.fd_grey_pct && recurs(table, k, &groups, &dependents, cfg));
+    if passes {
         if unique >= cfg.type_uniqueness_pct {
             Role::NearUnique
         } else if column.texts.len() <= cfg.category_max && decides_shape(table, k, &groups, cfg) {
@@ -187,6 +198,53 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
     } else {
         Role::NoDependents
     }
+}
+
+/// The second entity test, for a key whose best informative dependent is below `fd_grey_pct`
+/// (s2w#250 PR 2): `k` names a thing that recurs across the stream when
+/// - its values come back apart: at least `spread_groups_pct` of its repeat groups span, first
+///   event to last, at least `spread_window_pct` of the events profiled (a burst, like a
+///   request id or a timestamp, spans a moment), and
+/// - some other path, which varies, follows it: that path is constant in at least
+///   `fd_grey_pct` of `k`'s repeat groups, takes at least `min_groups` values across those
+///   groups, and no one of its values is carried by more than half of the events carrying `k`
+///   and it (so the constancy is not what a near-constant path gives by chance).
+///
+/// `dependents` are the candidate dependents `dependency_role` measured under `groups`.
+/// Stream order, presence and value equality only, never a name or a value's text.
+fn recurs(
+    table: &Table,
+    k: usize,
+    groups: &[Vec<usize>],
+    dependents: &[(usize, Dependency)],
+    cfg: &Config,
+) -> bool {
+    let apart = groups
+        .iter()
+        .filter(|g| match g.as_slice() {
+            [first, .., last] => (last - first) * 100 >= table.events * cfg.spread_window_pct,
+            _ => false,
+        })
+        .count();
+    pct(apart, groups.len()) >= cfg.spread_groups_pct
+        && dependents.iter().any(|&(a, ref d)| {
+            d.share() >= cfg.fd_grey_pct && d.distinct >= cfg.min_groups && varies(table, k, a)
+        })
+}
+
+/// Whether no one value of `a` is carried by more than half of the events that carry both `k`
+/// and `a`.
+fn varies(table: &Table, k: usize, a: usize) -> bool {
+    let mut counts: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut both = 0;
+    for row in &table.rows {
+        if let (Some(_), Some(v)) = (row[k], row[a]) {
+            both += 1;
+            *counts.entry(v).or_default() += 1;
+        }
+    }
+    let top = counts.values().copied().max().unwrap_or(0);
+    both > 0 && top * 2 <= both
 }
 
 /// Whether `k`'s values decide the shape of the events that carry it: among those events at

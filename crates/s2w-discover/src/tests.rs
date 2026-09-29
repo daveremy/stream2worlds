@@ -61,10 +61,14 @@ fn stream(n: u64) -> Vec<Value> {
 }
 
 fn run(events: &[Value], extra: &[&[u8]]) -> (Profile, Discovery) {
+    run_with(events, extra, &Config::default())
+}
+
+fn run_with(events: &[Value], extra: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
     let bytes: Vec<Vec<u8>> = events.iter().map(|v| v.to_string().into_bytes()).collect();
     let mut refs: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
     refs.extend_from_slice(extra);
-    discover(&refs, &Config::default())
+    discover(&refs, cfg)
 }
 
 fn path(keys: &[&str]) -> FieldPath {
@@ -197,6 +201,157 @@ fn only_a_key_with_at_most_category_max_values_can_be_a_category() {
     assert_eq!(role(&many, &["d"]), Role::Entity);
     let (few, _) = run(&devices(3000, 20), &[]);
     assert_eq!(role(&few, &["d"]), Role::Category);
+}
+
+#[test]
+fn the_category_max_boundary_is_inclusive() {
+    let (at, _) = run(&devices(3000, 32), &[]);
+    assert_eq!(role(&at, &["d"]), Role::Category);
+    let (past, _) = run(&devices(3000, 33), &[]);
+    assert_eq!(role(&past, &["d"]), Role::Entity);
+}
+
+/// How `recurring` lays out `q`'s values and chooses its follower `y`.
+#[derive(Clone, Copy)]
+enum Recur {
+    /// Each of `q`'s 30 values is drawn at random, so its events come back apart across the
+    /// stream; `y` (six values) is constant under 26 of them.
+    Spread,
+    /// As `Spread`, but each value of `q` is confined to a stretch of 200 events (a burst),
+    /// alternating with one other value.
+    Bunched,
+    /// As `Spread`, but one value of `y` is carried by about two thirds of the events.
+    NearConstant,
+    /// As `Spread`, and `q`'s even values always carry `o`, its odd values never.
+    Shaped,
+}
+
+/// `q` recurs; `y` follows it in 26 of its 30 repeat groups but with six values over 26
+/// constant groups is not informative, so `q` fails the first entity test (s2w#250 PR 2).
+fn recurring(n: u64, mode: Recur) -> Vec<Value> {
+    let mut rng = Lcg(17);
+    (0..n)
+        .map(|i| {
+            let q = match mode {
+                Recur::Bunched => 2 * (i / 200) + rng.below(2),
+                _ => rng.below(30),
+            };
+            let noise = rng.below(6);
+            let y = match mode {
+                Recur::NearConstant if q % 3 != 0 => "y-common".to_owned(),
+                Recur::NearConstant => format!("y{}", (q / 3) % 5),
+                _ if q < 4 => format!("y{noise}"),
+                _ => format!("y{}", q % 6),
+            };
+            let mut event = json!({"q": format!("q{q}"), "y": y});
+            if matches!(mode, Recur::Shaped) && q % 2 == 0 {
+                event["o"] = json!(format!("o{}", rng.below(40)));
+            }
+            event
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_that_recurs_apart_and_is_followed_by_a_varying_path_is_an_entity() {
+    let (profile, discovery) = run(&recurring(3000, Recur::Spread), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::Entity);
+    assert_eq!(role(&profile, &["y"]), Role::NoDependents);
+    let m = mapping(discovery);
+    entity(&m, "q");
+}
+
+#[test]
+fn a_key_whose_repeats_are_bursts_has_no_dependents() {
+    let (profile, _) = run(&recurring(3000, Recur::Bunched), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::NoDependents);
+}
+
+#[test]
+fn a_key_followed_only_by_a_near_constant_path_has_no_dependents() {
+    let (profile, _) = run(&recurring(3000, Recur::NearConstant), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::NoDependents);
+}
+
+#[test]
+fn a_small_shape_deciding_key_that_passes_only_the_second_test_is_a_category() {
+    let (profile, _) = run(&recurring(3000, Recur::Shaped), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::Category);
+}
+
+/// 1000 events. `q` has 20 values, each followed by `y` (six values, so not informative).
+/// Five values are carried exactly twice, 100 events apart (a tenth of the stream); fifteen
+/// come back three events apart. Every other event carries only `x`.
+fn spread_boundary() -> Vec<Value> {
+    let mut at: BTreeMap<u64, u64> = BTreeMap::new();
+    for j in 0..5 {
+        at.insert(10 * j, j);
+        at.insert(10 * j + 100, j);
+    }
+    for t in 0..5 {
+        for k in 0..3 {
+            let q = 5 + 3 * t + k;
+            at.insert(300 + 10 * t + k, q);
+            at.insert(303 + 10 * t + k, q);
+        }
+    }
+    (0..1000)
+        .map(|i| match at.get(&i) {
+            Some(q) => json!({"q": format!("q{q}"), "y": format!("y{}", q % 6)}),
+            None => json!({"x": format!("x{}", i % 7)}),
+        })
+        .collect()
+}
+
+#[test]
+fn the_spread_thresholds_are_inclusive() {
+    let events = spread_boundary();
+    let exact = Config::default();
+    assert_eq!((exact.spread_groups_pct, exact.spread_window_pct), (25, 10));
+    assert_eq!(
+        role(&run_with(&events, &[], &exact).0, &["q"]),
+        Role::Entity
+    );
+    let wider = Config {
+        spread_window_pct: 11,
+        ..Config::default()
+    };
+    assert_eq!(
+        role(&run_with(&events, &[], &wider).0, &["q"]),
+        Role::NoDependents
+    );
+    let more = Config {
+        spread_groups_pct: 26,
+        ..Config::default()
+    };
+    assert_eq!(
+        role(&run_with(&events, &[], &more).0, &["q"]),
+        Role::NoDependents
+    );
+}
+
+/// `shaped` plus `p` (60 values, each fixing `s`), which recurs and is followed by `s` (six
+/// values, not informative over 60 groups): `s` is a `Category` and `p` passes only the
+/// second entity test.
+fn shaped_with_recurring_key(n: u64) -> Vec<Value> {
+    let mut rng = Lcg(19);
+    shaped(n, false)
+        .into_iter()
+        .map(|mut event| {
+            let s: u64 = event["s"].as_str().unwrap()[1..].parse().unwrap();
+            event["p"] = json!(format!("p{}", s + 6 * rng.below(10)));
+            event
+        })
+        .collect()
+}
+
+#[test]
+fn a_category_is_still_another_types_attribute() {
+    let (profile, discovery) = run(&shaped_with_recurring_key(1200), &[]);
+    assert_eq!(role(&profile, &["s"]), Role::Category);
+    assert_eq!(role(&profile, &["p"]), Role::Entity);
+    let m = mapping(discovery);
+    assert!(entity(&m, "p").attrs.iter().any(|a| a.name == "s"), "{m:?}");
 }
 
 #[test]
@@ -435,6 +590,20 @@ fn renaming_keys_and_hashing_strings_only_renames_the_mapping() {
         a.entities.len() >= 4 && !a.relationships.is_empty(),
         "vacuous: {a:?}"
     );
+    assert_eq!(canonical(mapping(b)), obf.mapping(&a));
+    assert_eq!(pb.event_type, pa.event_type.as_ref().map(|p| obf.path(p)));
+}
+
+#[test]
+fn renaming_is_invariant_with_a_category_and_a_second_test_entity() {
+    let plain = shaped_with_recurring_key(1200);
+    let obf = Obfuscate::new(&plain);
+    let hidden: Vec<Value> = plain.iter().map(|v| obf.value(v)).collect();
+    let (pa, a) = run(&plain, &[]);
+    let (pb, b) = run(&hidden, &[]);
+    assert_eq!(role(&pa, &["s"]), Role::Category);
+    assert_eq!(role(&pa, &["p"]), Role::Entity);
+    let a = mapping(a);
     assert_eq!(canonical(mapping(b)), obf.mapping(&a));
     assert_eq!(pb.event_type, pa.event_type.as_ref().map(|p| obf.path(p)));
 }
