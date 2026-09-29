@@ -30,7 +30,7 @@
   stream mapping a source runs. `serve` picks up a decision at its next start.
   [#185](https://github.com/daveremy/stream2worlds/issues/185)
 - **Restarting from a snapshot takes about half the memory.** A restored world is shared
-  instead of copied, and writing a snapshot no longer clones the world: at 10^6 entities the
+  instead of copied, and writing a snapshot no longer clones the world: folding 10^6 events the
   restore peak fell from 1,624 MiB to 861 MiB and the write peak from 919 MiB to 50 MiB.
   [#179](https://github.com/daveremy/stream2worlds/issues/179)
 - **The world holds 438 bytes per entity, down from 830, and scale is gated.** Heap bytes per
@@ -39,7 +39,7 @@
   cost, fork cost and per-partition lag are not measured yet.
   [#32](https://github.com/daveremy/stream2worlds/issues/32) · [#172](https://github.com/daveremy/stream2worlds/issues/172)
 - **The stream profiler is checked for domain-freedom.** `cargo xtask check` profiles a
-  recorded stream with `s2w-discover` twice, plain and with every field renamed and every
+  recorded stream with `s2w-discover` twice, plain and with every field renamed and every string
   value hashed, and fails unless both runs propose the same mapping. The profiler is not wired
   into `serve` yet. [#163](https://github.com/daveremy/stream2worlds/issues/163)
 - **In progress:** the demo world is still empty: no mapping is accepted for Wikipedia yet, so

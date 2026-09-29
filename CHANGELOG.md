@@ -25,7 +25,7 @@ proposed and accepted for it yet. Alongside, the scale gates went live and the f
 - **Routes from stored mappings** ([#187](https://github.com/daveremy/stream2worlds/pull/187),
   [decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)). `serve` reads the
   proposal store and routes each source to the mapping its accepted `stream-mapping` proposal
-  names. The engine is named `mapping-<identity>`, a hash of the mapping's canonical JSON, so
+  names. The engine is named `mapping-<identity>`, a hash of the mapping's canonical JSON and its key and mapping format versions, so
   replacing a mapping can never replay the old one's verdicts or restore its snapshots.
 - **Human review from the command line** ([#195](https://github.com/daveremy/stream2worlds/pull/195),
   issue [#185](https://github.com/daveremy/stream2worlds/issues/185)). `s2w proposals
@@ -38,7 +38,7 @@ proposed and accepted for it yet. Alongside, the scale gates went live and the f
   per entity in `cargo xtask check`, fold instructions per event in CI job `scale`, and storage
   figures on `watch`'s status line. Details in the #175 entry below.
 - **Memory cuts under the new gates.** Snapshot restore shares one world instead of holding two
-  ([#186](https://github.com/daveremy/stream2worlds/pull/186)): at 10^6 entities the restore
+  ([#186](https://github.com/daveremy/stream2worlds/pull/186)): folding 10^6 events the restore
   peak fell from 1,624 MiB to 861 MiB and the snapshot write peak from 919 MiB to 50 MiB.
   Attributes stored as a sorted `Vec` ([#194](https://github.com/daveremy/stream2worlds/pull/194))
   took the fold from 830 to 438 bytes per entity; the gate's ceiling followed it down to 600 B.
