@@ -47,7 +47,9 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    the constant groups). Best share ≥95%: `Entity`; 80–95%: `GreyDependency` (abstain); lower:
    `NoDependents`. Fewer than 5 repeat groups: `FewGroups`. A path at 90–98% uniqueness gets the
    test too, since uniqueness falls as the window grows; it abstains as `GreyUniqueness` unless
-   it passes.
+   it passes. *2026-09-29 (s2w#208): a path that passes at or above `type_uniqueness_pct` (90,
+   equal to the grey band's floor) is `NearUnique` instead of `Entity`: it keys no type, so a
+   grey-band path never does. See the amendment below.*
 5. **Aliases.** Two entity paths equal in ≥99% of the ≥20 events carrying both are one class.
 6. **1:1 merge.** Classes that determine each other, transitively (both directions functional, same 95% / 5
    group rule over the events carrying both, ≥20 of them) are two encodings of one entity (research 0002 §4) and merge.
@@ -107,7 +109,38 @@ timestamps, so `dt` fields fall to `NoDependents` through the dependency test in
 **Claim volume.** 143 relationship rules is a lot of claims per window. PR 4 measures what
 applying the mapping costs and decides whether to prune (for example, relationships between
 aliases of one pair of types) before auto-apply. *2026-09-29: auto-apply shipped first (#197 PR 4a); the
-measurement is #197 PR 4b.*
+measurement is #197 PR 4b.* *2026-09-29: the measurement found the world too large; the prune is the amendment below.*
+
+## Amendment 2026-09-29: a near-unique key names no type (s2w#208, `PROFILER_VERSION` 2)
+
+The learned mapping OOMed the demo box at 1 GiB inside 131k events (#197). Measured with #197
+PR 4b's `discover_volume` test (10k-event window, fold to 10^5 events with fresh strings per
+fixture cycle, the upper bound decision 0025 reads against ~350 MiB):
+
+| lever | relationship rules | claims/event | entities | relationships | resident |
+|---|---|---|---|---|---|
+| none (`PROFILER_VERSION` 1) | 142 | 115.9 | 287,582 | 2,763,239 | 1,009.9 MiB |
+| drop every `n:m` relationship | 65 | 65.6 | 287,582 | 1,124,257 | 685.3 MiB |
+| **near-unique key names no type** | 94 | 75.1 | 97,633 | 916,641 | **252.0 MiB** |
+| both | 39 | 38.3 | 97,633 | 333,931 | 175.8 MiB |
+
+Three paths in the 10k window passed the entity test from inside the grey band (96–97% unique).
+Each was a type of its own; nearly every event minted a new entity of each, carrying 15 to 18
+attributes and about ten edges, so they made most of the world's growth. The rule: a path that
+passes the dependency test with distinct/count at or above `Config::type_uniqueness_pct` (90) is
+`Role::NearUnique`. It is reported in `Profile`, keys no type, and stays eligible as another
+type's attribute. The statistic is the role stage's own integer ratio, so renaming keys and
+hashing strings leaves it unchanged (check 12). This extends research 0002 §3's argument for
+`EventId` into the grey band: a key that is new in nine events of ten names the event, not a
+thing that recurs. The surviving entity paths in the 10k window top out at 87.5% unique.
+
+Kept: `n:m` relationships, since the prune alone meets the gate. Not done: collapsing a type
+pair's relationship rules to one endpoint pair. Alias members of one type share a natural key,
+so those rules repeat claims but not world edges; they cost log volume, not memory.
+
+On the 1,615-event fixture the mapping is now 5 types, 12 entity rules and 46 relationship rules
+(32 `n:1`), down from 12 types and 143: in a short window more keys look near-unique. The window
+serve profiles is 10,000 events.
 
 *2026-09-29, measured (#197 PR 4b, `crates/s2w-app/tests/discover_volume.rs`, release build, hub).*
 On the recorded fixture (11,667 events) with the production `Config`, the first 10,000 events
