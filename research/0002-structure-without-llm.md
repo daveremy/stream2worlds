@@ -392,7 +392,7 @@ ID attribute" paper, Zhang et al. 2010's full text, and SortingHat's names-off a
    → adopted: gate-3 epic stream2worlds#13 sequencing (2026-09-27)
 3. H may exceed 0.90 identity F1 on Wikipedia, making B4's 0.10 margin unreachable.
    → deferred: stream2worlds#4 (measure first; if true, Dave re-decides the margin before the freeze)
-4. The four contract questions in §9. → deferred: stream2worlds#17
+4. The four contract questions in §9. → adopted: [evaluation contract](../docs/evaluation-contract.md) amendment 2026-09-29 (stream2worlds#17)
 5. Three signals that appear unpublished (distinct-count growth, burstiness, carry-over pairs).
    → deferred: stream2worlds#1 (paper candidates, not claims)
 
