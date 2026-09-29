@@ -7,9 +7,19 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 pub(super) struct Target {
-    name: String,
+    pub(crate) name: String,
     kind: Vec<String>,
-    src_path: PathBuf,
+    pub(crate) src_path: PathBuf,
+}
+impl Target {
+    /// Skip only the kinds the doctrine exempts, so lib crate-types such as cdylib or rlib
+    /// (reported as their own kind) are walked rather than silently dropped.
+    pub(crate) fn walked(&self) -> bool {
+        !self
+            .kind
+            .iter()
+            .any(|k| matches!(k.as_str(), "test" | "bench" | "example" | "custom-build"))
+    }
 }
 #[derive(Deserialize, Serialize)]
 struct Config {
@@ -28,7 +38,7 @@ struct Exempt {
 
 mod depinfo;
 mod ratchet;
-mod walk;
+pub(crate) mod walk;
 
 use depinfo::{dep_check, dep_files};
 use ratchet::growth;
@@ -77,13 +87,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
     }
     for pkg in &meta.packages {
         for target in &pkg.targets {
-            // Skip only the kinds the doctrine exempts, so lib crate-types such as cdylib or
-            // rlib (reported as their own kind) are walked rather than silently dropped.
-            if target
-                .kind
-                .iter()
-                .any(|k| matches!(k.as_str(), "test" | "bench" | "example" | "custom-build"))
-            {
+            if !target.walked() {
                 continue;
             }
             let mut target_scan = Scan::default();

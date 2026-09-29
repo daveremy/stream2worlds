@@ -53,6 +53,10 @@
 //!     (decision 0004, s2w#174).
 //! 14. **Decision numbers** (`decision_numbers.rs`): no two files in `docs/decisions/` share a
 //!     numeric prefix; the failure names every file holding the number (s2w#181).
+//! 15. **Module cycles** (`module_cycles.rs`): no dependency cycle between the modules of one
+//!     crate target. Edges run from the naming module to the module that defines the item,
+//!     through `use`/`pub use` re-exports and globs; ancestor edges are containment (s2w#67).
+//!     Report-only until s2w#240 and s2w#241.
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -70,6 +74,7 @@ mod decision_numbers;
 mod discover_replay;
 mod golden;
 mod h_measure;
+mod module_cycles;
 mod module_size;
 mod obfuscation;
 mod obfuscation_raw;
@@ -136,6 +141,7 @@ struct Package {
 struct Dependency {
     name: String,
     kind: Option<String>,
+    rename: Option<String>,
     source: Option<String>,
     path: Option<PathBuf>,
 }
@@ -253,6 +259,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(overrides(root));
     problems.extend(golden::check(root));
     problems.extend(module_size::check(root, &meta, tighten));
+    problems.extend(module_cycles::check(&meta));
     problems.extend(vocabulary::check(root));
     problems.extend(obfuscation::check(root));
     problems.extend(obfuscation_raw::check(root));
