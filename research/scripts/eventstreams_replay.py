@@ -14,9 +14,10 @@ Default (the revert pilot, research 0004): keeps enwiki only and writes parsed N
 
 An event past `until` is skipped; the replay stops once every topic in the stream's id has
 passed `until` (or at --max-events). Each topic ends separately because a history replay
-delivers the codfw topic first, and for mediawiki.recentchange codfw carries only the hourly
-canary events: stopping at the first event past `until` ended the window after ~300 canaries,
-before any eqiad (real) event. This changes the default mode too; it is a bug fix (s2w#56).
+delivers the whole codfw topic first, and for mediawiki.recentchange codfw carries only a
+trickle (canary events plus a few dozen real events per window): stopping at the first event
+past `until` ended the window after ~300 codfw events, before any eqiad event, where the
+traffic is. This changes the default mode too; it is a bug fix (s2w#56).
 
 Prints one summary line on stdout when done:
   done <events> events <reconnects> reconnects first_dt=<min dt> last_dt=<max dt>

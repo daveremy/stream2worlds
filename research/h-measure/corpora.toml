@@ -7,9 +7,13 @@
 # Produced by `research/h-measure/capture.sh 2026-09-28T00:00:00Z <dir>` on 2026-09-29, before
 # any H-lite threshold, key or score touched these events (hygiene, contract B3): the git log
 # is the order proof. `until` bounds each window; `first_dt`/`last_dt` are the min and max
-# `meta.dt` kept. A history replay delivers the codfw topic (hourly canary events only) before
-# the eqiad topic (the traffic), so file order is by topic, then time, and `last_dt` is usually
-# a canary near `until`. Each corpus starts 6 h of stream time after the previous `last_dt`.
+# `meta.dt` kept. A history replay delivers the codfw topic (a trickle: canaries plus a few
+# dozen real events) before the eqiad topic (the traffic), so file order is by topic, then
+# time, and `last_dt` is the max over both topics: with `--max-events` the eqiad data can end
+# well before it (dev: eqiad ends 01:22:49, `last_dt` is a codfw event at 02:44:42). Each
+# corpus starts 6 h of stream time after the previous `last_dt`.
+# The files were written by eventstreams_replay.py at commit 2322bd7; later revisions write the
+# same frame bytes but a different `:` header line, so a re-capture differs in the header too.
 #
 # Roles (plan, s2w#56 comment 5892219272):
 #   dev        development window: `freeze` discovers on it; the only corpus anyone looks at
