@@ -110,3 +110,16 @@ fn score_refuses_a_changed_key_before_reading_the_corpus() {
         "does not match its pin",
     );
 }
+
+#[test]
+fn score_refuses_a_corpus_relabelled_since_the_freeze() {
+    let (root, dir, out) = frozen("relabel");
+    let path = root.join(DATA).join("corpora.toml");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(
+        &path,
+        text.replace("role = \"reserved\"", "role = \"heldout\""),
+    )
+    .unwrap();
+    refused(score(&root, &dir, &out, "res", &[KEY]), "changed since");
+}

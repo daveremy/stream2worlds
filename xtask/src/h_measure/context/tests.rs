@@ -53,8 +53,14 @@ fn a_mapping_keyed_without_the_context_merges_the_collision_group() {
     let (name, row) = only_row(&got);
     assert!(name.starts_with("P @ ") && name.contains("wiki"), "{name}");
     assert_eq!((row.groups, row.entities), (1, 2));
-    // Both entities' mentions at `id` and at the alias `title`; `(en, 2)` is outside the set.
+    // Both entities' mentions at `id` and at the alias `title` are in the set; `(en, 2)` is not.
     assert_eq!(row.mentions, 4);
+    // The oracle has no rule for the alias path, so even the ceiling misses those mentions.
+    assert!(
+        row.ceiling.recall.is_some_and(|r| r < 1.0),
+        "{:?}",
+        row.ceiling
+    );
     assert_eq!(row.mapping.precision, Some(0.5));
     assert_eq!(row.ceiling.precision, Some(1.0));
 }
@@ -70,18 +76,6 @@ fn a_mapping_keyed_with_the_context_scores_the_ceilings_precision() {
     let (_, row) = only_row(&got);
     assert_eq!(row.mapping.precision, Some(1.0));
     assert_eq!(row.mapping, row.ceiling);
-}
-
-#[test]
-fn an_alias_mention_of_a_colliding_entity_is_in_the_set() {
-    let got = grade(&composite(), &keyed_on(json!([["id"]])), &colliding()).expect("grades");
-    let (_, row) = only_row(&got);
-    // The oracle has no rule for the alias path, so the ceiling cannot recall every mention.
-    assert!(
-        row.ceiling.recall.is_some_and(|r| r < 1.0),
-        "{:?}",
-        row.ceiling
-    );
 }
 
 #[test]
