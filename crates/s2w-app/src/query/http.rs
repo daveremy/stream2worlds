@@ -251,7 +251,7 @@ impl QueryState {
     /// records (decision 0024). `serve` encodes the snapshot inside `f`, so the head is never
     /// cloned (#179). `f` runs on the caller's thread with the read lock held: other readers
     /// proceed, appends wait. Only the bridge appends, and it calls this between polls (under
-    /// its [`Self::reserve_write`], s2w#259).
+    /// its `reserve_write`, s2w#259).
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.
@@ -311,7 +311,8 @@ impl QueryState {
     /// write lock there with no await in between.
     ///
     /// A body already waiting goes first, for at most [`stream::STALL`]: it wakes within
-    /// [`YIELD_MAX_BACKOFF`], so this wait is short unless a body is stuck.
+    /// [`YIELD_MAX_BACKOFF`], so this wait is short unless a body is stuck. A body already
+    /// streaming is waited out: at most [`stream::BODY_BUDGET`], as before this reservation.
     pub(crate) async fn reserve_write(&self) -> WriteReservation {
         let until = Instant::now() + stream::STALL;
         let mut backoff = Duration::from_millis(1);
@@ -369,7 +370,7 @@ impl QueryState {
     /// The view at `at` (or the head), labelled with the epoch it was read under. World,
     /// epoch and projection all come from one read: the head is projected where it lies,
     /// never copied (#216), so appends wait for the projection (`serve`'s bridge without
-    /// blocking the runtime: [`Self::reserve_write`], s2w#259).
+    /// blocking the runtime: `reserve_write`, s2w#259).
     ///
     /// # Errors
     /// [`QueryError::StaleEpoch`] when `epoch` is given and is not the served one (checked
