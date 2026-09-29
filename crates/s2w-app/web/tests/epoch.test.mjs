@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isStaleEpoch } from '../src/state.ts';
+import { isBeforeBase, isStaleEpoch } from '../src/state.ts';
 
 test('a stale_epoch ApiError or SSE error frame is recognised; nothing else is', () => {
   // ApiError shape (HTTP 410 body `{"error":"stale_epoch"}`).
@@ -13,6 +13,15 @@ test('a stale_epoch ApiError or SSE error frame is recognised; nothing else is',
     { type: 'error' }, // a plain connection error carries no data
     { data: '{"error":"stream_limit"}' }, { data: 'not json' }, { data: 'null' },
   ]) assert.equal(isStaleEpoch(other), false, JSON.stringify(other));
+});
+
+test('an offset_before_base ApiError or SSE error frame is recognised; nothing else is', () => {
+  assert.equal(isBeforeBase({ status: 410, code: 'offset_before_base', message: 'x' }), true);
+  assert.equal(isBeforeBase({ type: 'error', data: '{"error":"offset_before_base","message":"x"}' }), true);
+  for (const other of [
+    undefined, null, 'offset_before_base', { status: 410, code: 'stale_epoch' },
+    { type: 'error' }, { data: '{"error":"stale_epoch"}' }, { data: 'not json' },
+  ]) assert.equal(isBeforeBase(other), false, JSON.stringify(other));
 });
 
 test('eventsUrl pins the epoch when given one and leaves bare offsets bare', async () => {

@@ -8,6 +8,7 @@
 
 mod delta;
 mod diff;
+mod epoch;
 mod http;
 mod proposals;
 mod timeline;
@@ -17,6 +18,7 @@ use thiserror::Error;
 
 pub use delta::{Delta, fold_with_delta};
 pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
+pub use epoch::Epoch;
 pub use http::{
     Branch, QueryState, RawEventInfo, Rebuilding, SourceInfo, TimeAt, TimeResult, WorldSummary,
     router,
@@ -24,7 +26,7 @@ pub use http::{
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
-pub use timeline::{BaseTime, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline};
+pub use timeline::{BaseTime, DEFAULT_HISTORY_CAP, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };
@@ -44,11 +46,12 @@ pub enum QueryError {
         /// The latest offset.
         head: u64,
     },
-    /// The requested offset is below the timeline's base: this process was restored from a
-    /// snapshot at `base` and no longer holds the events before it (decision 0024).
+    /// The requested offset is below what this route serves: the process was restored from a
+    /// snapshot (decision 0024) or has dropped events past its history cap (decision 0026).
     #[error(
-        "offset {at} is before the snapshot base ({base}); history below it is gone from this \
-         process, try an offset of at least {base} (see time.base)"
+        "offset {at} is before the earliest offset this route serves ({base}); history below it \
+         is gone from this process, try an offset of at least {base} (see /time's base and \
+         replay_base)"
     )]
     OffsetBeforeBase {
         /// The requested offset.
@@ -56,12 +59,12 @@ pub enum QueryError {
         /// The earliest servable offset.
         base: u64,
     },
-    /// The requested time is before the snapshot base's last event, so its offset lies inside
-    /// the snapshot, whose per-event times are not kept (decision 0024). Shares the
-    /// `offset_before_base` code.
+    /// The requested time maps to an offset world queries cannot serve: inside a snapshot, whose
+    /// per-event times are not kept (decision 0024), or, once the window has dropped events,
+    /// before the newest event (decision 0026). Shares the `offset_before_base` code.
     #[error(
-        "ts {ts} is before the snapshot base (offset {base}); per-event times below it are gone \
-         from this process, try a ts of at least time.last_ts at the base"
+        "ts {ts} is before the earliest time this process serves (offset {base}); try a ts of \
+         at least time.last_ts"
     )]
     TimeBeforeBase {
         /// The requested timestamp in milliseconds.

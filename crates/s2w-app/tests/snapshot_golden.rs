@@ -2,6 +2,10 @@
 //! world as restoring a snapshot taken at offset `o` and appending the tail, for every `o`
 //! tried, over the human-owned golden log and over generated streams. The snapshot goes through
 //! the real file format (`encode` then `decode`). No fixture is regenerated.
+//!
+//! Decision 0026 amends what a restored timeline serves: it holds only the head world, so world
+//! queries below the head answer `offset_before_base`, while `/events` still replays every
+//! event appended after the restore.
 
 use std::collections::BTreeMap;
 
@@ -56,7 +60,8 @@ fn restored(
     Ok(timeline)
 }
 
-/// Asserts the restored timeline serves exactly what the full one does from `o` on.
+/// Asserts the restored timeline serves the full one's head world and the events after `o`,
+/// and, restored above offset 0, nothing older than its head (decision 0026).
 fn assert_equivalent(
     cap: u64,
     events: &[WorldEvent],
@@ -73,13 +78,27 @@ fn assert_equivalent(
     let base = u64::try_from(o)?;
     assert_eq!(timeline.head(), head);
     assert_eq!(world_hash(&timeline.world_at(head)?)?, expected, "o={o}");
+    // Restored at offset 0, the timeline holds every event and serves every offset.
+    let world_base = if base == 0 { 0 } else { head };
     for at in [base, base.midpoint(head), head] {
-        assert_eq!(timeline.world_at(at)?, full.world_at(at)?, "o={o} at={at}");
+        if at >= world_base {
+            assert_eq!(timeline.world_at(at)?, full.world_at(at)?, "o={o} at={at}");
+        } else {
+            assert_eq!(
+                timeline.world_at(at),
+                Err(QueryError::OffsetBeforeBase {
+                    at,
+                    base: world_base
+                }),
+                "o={o} at={at}"
+            );
+        }
     }
     assert_eq!(
         timeline.time_range(),
         TimeRange {
-            base,
+            base: world_base,
+            replay_base: base,
             ..full.time_range()
         },
         "o={o}: the time index survives the snapshot, clamping included"
@@ -87,7 +106,7 @@ fn assert_equivalent(
     assert_eq!(timeline.events_after(base)?, full.events_after(base)?);
     if base > 0 {
         assert_eq!(
-            timeline.world_at(base - 1),
+            timeline.events_after(base - 1),
             Err(QueryError::OffsetBeforeBase { at: base - 1, base })
         );
     }
@@ -164,8 +183,10 @@ fn golden_log_restores_to_the_same_world_at_every_split() -> TestResult {
     Ok(())
 }
 
+/// Decision 0026: an entity's history needs every event since offset 0, so a restored
+/// timeline answers `offset_before_base` for it, never a partial or empty list.
 #[test]
-fn history_after_a_restore_matches_the_full_history_past_the_base() -> TestResult {
+fn history_after_a_restore_is_gone() -> TestResult {
     let events: Vec<WorldEvent> = serde_json::from_str(GOLDEN)?;
     let ts = wobbly_ts(events.len());
     let o = events.len() / 2;
@@ -175,22 +196,29 @@ fn history_after_a_restore_matches_the_full_history_past_the_base() -> TestResul
     let (base, head) = (u64::try_from(o)?, full.head());
     let world = full.world_at(head)?;
     for id in world.entities().map(|(id, _)| id.get()) {
-        let tail: Vec<_> = full
-            .history(id, head)?
-            .into_iter()
-            .filter(|entry| entry.offset > base)
-            .collect();
-        assert_eq!(timeline.history(id, head)?, tail, "entity {id}");
+        assert_eq!(
+            timeline.history(id, head),
+            Err(QueryError::OffsetBeforeBase {
+                at: head,
+                base: head
+            }),
+            "entity {id}"
+        );
     }
     assert_eq!(
         timeline.history(0, base - 1),
-        Err(QueryError::OffsetBeforeBase { at: base - 1, base })
+        Err(QueryError::OffsetBeforeBase {
+            at: base - 1,
+            base: head
+        })
     );
     Ok(())
 }
 
+/// Decision 0026: a restored timeline maps a time to the head when the head is the answer,
+/// and to `time_before_base` otherwise, never to an offset its world queries would refuse.
 #[test]
-fn time_below_the_base_is_gone_and_at_or_after_it_is_served() -> TestResult {
+fn time_before_the_newest_event_is_gone_after_a_restore() -> TestResult {
     let events: Vec<WorldEvent> = serde_json::from_str(GOLDEN)?;
     let ts: Vec<i64> = (0..events.len())
         .map(|i| i64::try_from(i).unwrap_or(0) * 1000)
@@ -200,16 +228,18 @@ fn time_below_the_base_is_gone_and_at_or_after_it_is_served() -> TestResult {
     append_all(&mut full, &events, &ts);
     let timeline = restored(GOLDEN_CAP, &events, &ts, o)?;
     let base_last = *ts.get(o - 1).ok_or("ts")?;
-    assert_eq!(
-        timeline.offset_at(Timestamp::from_millis(base_last - 1)),
-        Err(QueryError::TimeBeforeBase {
-            ts: base_last - 1,
-            base: 10
-        })
-    );
-    for at in [base_last, base_last + 1, base_last + 1000, i64::MAX] {
+    let newest = *ts.last().ok_or("ts")?;
+    let head = timeline.head();
+    for at in [base_last - 1, base_last, base_last + 1000, newest - 1] {
+        assert_eq!(
+            timeline.offset_at(Timestamp::from_millis(at)),
+            Err(QueryError::TimeBeforeBase { ts: at, base: head })
+        );
+    }
+    for at in [newest, i64::MAX] {
         let at = Timestamp::from_millis(at);
-        assert_eq!(timeline.offset_at(at)?, full.offset_at(at)?);
+        assert_eq!(timeline.offset_at(at)?, head);
+        assert_eq!(full.offset_at(at)?, head);
     }
     assert!(timeline.events_after(9).is_err());
     Ok(())

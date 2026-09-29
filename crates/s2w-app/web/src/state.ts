@@ -30,16 +30,28 @@ export function rebuildingStatus(sources: SourceInfo[]): string | undefined {
 export function staleEpochDelay(restarts: number): number {
   return restarts <= 0 ? 0 : Math.min(1000 * 2 ** (restarts - 1), 30_000);
 }
+/// The stable error code of an `ApiError` (`code`) or of the SSE stream's final `event: error`
+/// frame (`data` holds `{"error": ...}`); undefined for anything else. Pure.
+function errorCode(error: unknown): unknown {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  if (code !== undefined) return code;
+  const data = (error as { data?: unknown }).data;
+  if (typeof data !== 'string') return undefined;
+  try { return (JSON.parse(data) as { error?: unknown } | null)?.error; }
+  catch { return undefined; }
+}
 /// True for a `stale_epoch` answer: an `ApiError` (HTTP 410) or the SSE stream's final
 /// `event: error` frame. The served history was replaced, so every offset the page holds names
 /// another world: the caller rebuilds from a fresh snapshot instead of reconnecting (#184).
 export function isStaleEpoch(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false;
-  if ((error as { code?: unknown }).code === 'stale_epoch') return true;
-  const data = (error as { data?: unknown }).data;
-  if (typeof data !== 'string') return false;
-  try { return (JSON.parse(data) as { error?: unknown } | null)?.error === 'stale_epoch'; }
-  catch { return false; }
+  return errorCode(error) === 'stale_epoch';
+}
+/// True for an `offset_before_base` answer, in the same two shapes. On a live stream it means
+/// the page fell further behind than the events the server keeps (decision 0026): reconnecting
+/// from the same offset would fail forever, so the caller restarts from a fresh snapshot.
+export function isBeforeBase(error: unknown): boolean {
+  return errorCode(error) === 'offset_before_base';
 }
 export class ViewState {
   nodes = new Map<string, Node>();

@@ -1,7 +1,7 @@
 import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, snapshot,
   sources as fetchSources, streamStatus, proposals as fetchProposals } from './api';
 import type { Message } from './api';
-import { ViewState, isStaleEpoch, rebuildingStatus, staleEpochDelay, unroutedStatus } from './state';
+import { ViewState, isBeforeBase, isStaleEpoch, rebuildingStatus, staleEpochDelay, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
 import { renderProposals } from './proposals';
@@ -24,14 +24,15 @@ let staleRestarts = 0, lastStaleRestart = 0;
 let staleTimer: ReturnType<typeof setTimeout> | undefined;
 // The served history was replaced: start over from a fresh snapshot, backing off when it keeps
 // happening (#184, deferred from 2b-i).
-function restartStale(): void {
+function restartStale(reason = 'The world was rebuilt; reloading'): void {
   dispose(); clearTimeout(staleTimer);
   const now = Date.now();
   staleRestarts = now - lastStaleRestart < STALE_WINDOW_MS ? staleRestarts + 1 : 0;
   lastStaleRestart = now;
-  status.textContent = 'The world was rebuilt; reloading';
+  status.textContent = reason;
   staleTimer = setTimeout(() => void start(), staleEpochDelay(staleRestarts));
 }
+const BEHIND = 'Fell behind the live stream; reloading';
 const keys = ['world', 'at', 'branch', 'lod', 'focus', 'hops'];
 // The proposal ledger changes on System 2's cadence, not per event: poll it on its own slow timer.
 const PROPOSALS_POLL_MS = 5000;
@@ -141,8 +142,10 @@ async function start(): Promise<void> {
     });
     current.onerror = async event => {
       if (signal.aborted || source !== current) return;
-      // The stream's final `event: error` frame names a replaced history: rebuild, skip the probe.
+      // The stream's final `event: error` frame names a replaced history, or an offset the
+      // server no longer keeps (decision 0026): rebuild, skip the probe.
       if (isStaleEpoch(event)) { current.close(); restartStale(); return; }
+      if (isBeforeBase(event)) { current.close(); restartStale(BEHIND); return; }
       // CONNECTING means the browser wants to retry; close it and own retry timing instead.
       const readyState = current.readyState;
       current.close(); source = undefined;
@@ -151,6 +154,7 @@ async function start(): Promise<void> {
       catch (error) {
         if (signal.aborted) return;
         if (isStaleEpoch(error)) { restartStale(); return; }
+        if (isBeforeBase(error)) { restartStale(BEHIND); return; }
         if (error instanceof ApiError && error.status === 403) {
           status.textContent = `Connection rejected: ${error.message}`; return;
         }

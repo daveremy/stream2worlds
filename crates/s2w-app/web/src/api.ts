@@ -76,9 +76,16 @@ export function eventsUrl(params: URLSearchParams, from: number, at?: number, ep
   if (epoch) url.searchParams.set('epoch', epoch);
   return url;
 }
-// A finite SSE response from the same route seeds pinned and live evidence alike.
+// A finite SSE response from the same route seeds pinned and live evidence alike. The server
+// keeps only recent events (decision 0026): when the last 500 reach past them (just after a
+// restart from a snapshot), the page starts with no evidence rather than failing.
 export async function evidence(params: URLSearchParams, at: number, epoch: string, signal: AbortSignal): Promise<Message[]> {
-  const response = await checked(eventsUrl(params, Math.max(0, at - 500), at, epoch), signal);
+  let response: Response;
+  try { response = await checked(eventsUrl(params, Math.max(0, at - 500), at, epoch), signal); }
+  catch (error) {
+    if (error instanceof ApiError && error.code === 'offset_before_base') return [];
+    throw error;
+  }
   const text = await response.text();
   return text.split(/\r?\n\r?\n/).flatMap(block => {
     const data = block.split(/\r?\n/).filter(line => line.startsWith('data:'))

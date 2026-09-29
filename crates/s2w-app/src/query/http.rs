@@ -23,10 +23,11 @@ use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::QueryError;
-use super::delta::{Delta, fold_with_delta};
+use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
+use super::epoch::Epoch;
 use super::proposals::ProposalsView;
-use super::timeline::{BaseTime, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline};
+use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{ACTUAL_BRANCH, Lod, ViewParams, WorldView, world_view};
 use crate::bridge::SourceStats;
 
@@ -170,12 +171,13 @@ impl QueryState {
         Ok(())
     }
 
-    /// The timeline's base offset, head offset and hub cap, read under one lock.
+    /// The timeline's replay base (the offset before its oldest retained event, so
+    /// `base == head` means it holds no events), head offset and hub cap, read under one lock.
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.
     pub fn bounds(&self) -> Result<(u64, u64, u64), QueryError> {
-        self.read(|t| Ok((t.base(), t.head(), t.hub_cap())))
+        self.read(|t| Ok((t.replay_base(), t.head(), t.hub_cap())))
     }
 
     /// Runs `f` on the head world and its time bounds under one read lock: what a snapshot
@@ -219,10 +221,10 @@ impl QueryState {
         (epoch, self.rebuilding.borrow().len())
     }
 
-    /// The events between the served base and head, in order.
+    /// The retained events, in order.
     #[cfg(test)]
     pub(crate) fn timeline_events(&self) -> Vec<super::TimedEvent> {
-        self.read(|t| Ok(t.events_after(t.base())?.to_vec()))
+        self.read(|t| Ok(t.events_after(t.replay_base())?.to_vec()))
             .unwrap_or_default()
     }
 
@@ -705,20 +707,20 @@ async fn events(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let start = || events_start(&state, &world, &p, last_event_id.as_deref());
-    // Acquire the stream-cap permit BEFORE folding any history (round-1 review finding): a
-    // request arriving over the cap should pay only the semaphore check, not the full fold
-    // `start()` does under the read lock. The permit is dropped (freeing the slot) if `start()`
-    // then fails validation — no slot is held past this function returning an error response.
+    // Acquire the stream-cap permit before validating (round-1 review finding): a request
+    // arriving over the cap pays only the semaphore check. The permit is dropped (freeing the
+    // slot) if `start()` then fails validation — no slot is held past this function returning
+    // an error response.
     let permit = match crate::serve::sse_cap_guard(state.sse_slots.clone()) {
         Ok(permit) => permit,
         Err(error) => return error.into_response(),
     };
-    let (cursor, world) = match start() {
+    let cursor = match start() {
         Ok(ok) => ok,
         Err(e) => return e.into_response(),
     };
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
-    tokio::spawn(follow(state, cursor, world, tx));
+    tokio::spawn(follow(state, cursor, tx));
     let headers = [(
         HeaderName::from_static("x-accel-buffering"),
         HeaderValue::from_static("no"),
@@ -734,14 +736,14 @@ async fn events(
         .into_response()
 }
 
-/// Validates an `/events` request and folds the world it starts from, all under one read:
-/// the epoch check first, then the bounds.
+/// Validates an `/events` request under one read: the epoch first, then `at >= from`, then
+/// `from` against the retained window (decision 0026), then `at` against the head.
 fn events_start(
     state: &QueryState,
     world: &str,
     p: &Params,
     last_event_id: Option<&str>,
-) -> Result<(Cursor, World), QueryError> {
+) -> Result<Cursor, QueryError> {
     check_world(state, world)?;
     check_branch(p.branch.as_deref())?;
     let query_epoch = parse("epoch", p.epoch.as_deref())?;
@@ -755,24 +757,24 @@ fn events_start(
     let at = parse("at", p.at.as_deref())?;
     state.read(|t| {
         t.check_epoch(epoch)?;
-        if let Some(at) = at {
-            if at < from {
-                return Err(QueryError::BadParameter {
-                    name: "at",
-                    reason: "must be at least from".to_owned(),
-                });
-            }
-            // Validate the bound without folding a second snapshot.
-            if at > t.head() {
-                return Err(QueryError::OffsetBeyondHead { at, head: t.head() });
-            }
+        if at.is_some_and(|at| at < from) {
+            return Err(QueryError::BadParameter {
+                name: "at",
+                reason: "must be at least from".to_owned(),
+            });
         }
-        let cursor = Cursor {
+        // Bounds check only: `from` must still be inside the replay window (410 otherwise).
+        t.events_after(from)?;
+        if let Some(at) = at
+            && at > t.head()
+        {
+            return Err(QueryError::OffsetBeyondHead { at, head: t.head() });
+        }
+        Ok(Cursor {
             epoch: t.epoch(),
             pos: from,
             at,
-        };
-        Ok((cursor, t.world_at(from)?))
+        })
     })
 }
 
@@ -784,12 +786,7 @@ struct Cursor {
     at: Option<u64>,
 }
 
-async fn follow(
-    state: QueryState,
-    cursor: Cursor,
-    mut world: World,
-    tx: mpsc::Sender<Result<Event, Infallible>>,
-) {
+async fn follow(state: QueryState, cursor: Cursor, tx: mpsc::Sender<Result<Event, Infallible>>) {
     let Cursor { epoch, mut pos, at } = cursor;
     let mut head = state.head.subscribe();
     loop {
@@ -798,13 +795,19 @@ async fn follow(
         // base's offset, never offset 0 (decision 0024). The epoch check comes first: after a
         // timeline swap, `pos` names an offset of another history, and continuing would send
         // the new history's events as if they followed the old one's (even from `pos == 0`).
-        let batch: Vec<TimedEvent> = match state.read(|t| {
+        // Only the deltas are cloned, and only while the read lock is held: `append` waits on it.
+        let batch: Vec<Delta> = match state.read(|t| {
             t.check_epoch(Some(epoch))?;
             let after = t.events_after(pos)?;
             let take = at.map_or(after.len(), |at| {
                 usize::try_from(at.saturating_sub(pos)).map_or(after.len(), |n| n.min(after.len()))
             });
-            Ok(after.get(..take).unwrap_or_default().to_vec())
+            Ok(after
+                .get(..take)
+                .unwrap_or_default()
+                .iter()
+                .map(|timed| timed.delta.clone())
+                .collect())
         }) {
             Ok(batch) => batch,
             Err(error) => {
@@ -814,9 +817,8 @@ async fn follow(
                 return;
             }
         };
-        for timed in batch {
-            let (next, delta) = fold_with_delta(world, &timed.event);
-            world = next;
+        // Each event carries the delta it made at append: the follower holds no world.
+        for delta in batch {
             pos = pos.saturating_add(1);
             if tx.send(Ok(sse_event(epoch, pos, &delta))).await.is_err() {
                 return;
