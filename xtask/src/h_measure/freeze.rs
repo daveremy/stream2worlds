@@ -1,7 +1,7 @@
 //! `cargo xtask h-measure freeze`: runs `s2w-discover` on the first `window` events of the
 //! development corpus and writes what it proposed, with every pin it was frozen under. It first
 //! checks every pinned key and the corpus against their sha256 pins. A later `score` finds the
-//! pins it uses unchanged and re-runs [`derive`] to prove the file is this command's output.
+//! pins it uses unchanged and re-runs [`derive()`] to prove the file is this command's output.
 
 use std::collections::BTreeMap;
 use std::fs;

@@ -84,7 +84,7 @@ pub struct WorldPresentation {
     pub typefaces: Option<Typefaces>,
     /// Optional per-world CSS, the escape hatch beyond palette and typefaces. Operator-supplied
     /// text: size-capped and free of anything that loads a resource or breaks out of a style
-    /// element (see [`validate_stylesheet`]). The viewer injects it on this world's page only,
+    /// element (see `validate_stylesheet`). The viewer injects it on this world's page only,
     /// never on the home page or another world's page.
     #[serde(default)]
     pub stylesheet: Option<String>,

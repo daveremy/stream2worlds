@@ -29,7 +29,7 @@ pub(crate) const MAX_DELAY: Duration = Duration::from_millis(50);
 /// (s2w#79): `--json` reports every flush instead, so a second timer would be redundant noise.
 pub(crate) const PROGRESS_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Where the pump reports progress and errors, split out from [`pump`] so `s2w` can choose
+/// Where the pump reports progress and errors, split out from `pump` so `s2w` can choose
 /// human text (the long-standing default) or NDJSON (`--json`, s2w#79) without a second pump
 /// implementation. `pub` (s2w#79 round 2): the concrete `--json` reporter lives in `crates/s2w`
 /// (it needs `output.rs`'s rendering seam, which this crate cannot depend on), so the trait and
@@ -55,7 +55,7 @@ pub trait Reporter: Send {
     /// renders the message, it does not count. (The one fatal error that stops the pump is
     /// rendered by the caller, not through this trait — see `s2w::run_watch`.)
     fn source_error(&mut self, message: &str, retry: bool);
-    /// Whether the periodic human rate line ([`report_progress`]) should run alongside this
+    /// Whether the periodic human rate line (`report_progress`) should run alongside this
     /// reporter. Human: yes, so a quiet source doesn't read as a hang. Json: no — `flushed`
     /// already reports every batch, and a plain-text line would break an NDJSON stderr reader.
     fn wants_ticker(&self) -> bool {

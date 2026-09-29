@@ -37,6 +37,8 @@ jobs:
         run: cargo fmt --all --check
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: rustdoc (broken or private intra-doc links fail, s2w#251)
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: test
         run: cargo test --workspace
       - name: fitness functions

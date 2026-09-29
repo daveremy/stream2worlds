@@ -218,7 +218,7 @@ fn bench(root: &Path, target: &Path) -> Result<PathBuf, String> {
     Ok(output)
 }
 
-/// One supply's total Callgrind `Ir`. [`bench`] deleted the output directory first, so a
+/// One supply's total Callgrind `Ir`. [`bench()`] deleted the output directory first, so a
 /// summary that exists is this run's.
 fn summary_total(output: &Path, supply: Supply) -> Result<u64, String> {
     let (summary, name) = (output.join(supply.ir_summary()), supply.name("fold Ir"));
