@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use s2w_discover::{Discovery, PROFILER_VERSION};
 use s2w_log::{
     Actor, Decider, LogError, LogPosition, LogReader, NewDecision, NewProposal, Outcome,
-    ProposalStore, ReadOnlySqliteProposalStore, SqliteEventLog, SqliteProposalStore,
+    ProposalStore, SqliteEventLog, SqliteProposalStore, StoredProposal, members_at,
 };
 use s2w_model::{SourceId, StreamMapping, fnv1a64_hex};
 
@@ -98,7 +98,7 @@ pub fn proposal_id(
     let last = last.as_u64().to_string();
     let mut bytes = Vec::new();
     for field in [actor.as_str(), source.as_str(), &first, &last, identity] {
-        bytes.extend_from_slice(&field.len().to_le_bytes());
+        bytes.extend_from_slice(&u64::try_from(field.len()).unwrap_or(u64::MAX).to_le_bytes());
         bytes.extend_from_slice(field.as_bytes());
     }
     fnv1a64_hex(&bytes)
@@ -172,20 +172,19 @@ fn run_with(
 
 /// The first `window` events of each unrouted member source, or its event count when it has
 /// fewer. Stops reading once every candidate is full. With no membership rows (a log from
-/// before membership, or a test log) every source in the log is a candidate.
+/// before membership, or a test log) every source in the log is a candidate, and the whole log
+/// is read.
 fn windows(
     log: &SqliteEventLog,
     resolution: &Resolution,
     window: usize,
 ) -> Result<BTreeMap<SourceId, Result<Window, usize>>, LogError> {
     let history = log.membership_history()?;
-    let mut members = BTreeSet::new();
-    for row in &history {
-        if !resolution.routes.contains_key(&row.source) && log.is_source_member(&row.source)? {
-            members.insert(row.source.clone());
-        }
-    }
-    if !history.is_empty() && members.is_empty() {
+    let members: BTreeSet<SourceId> = members_at(&history, u64::MAX)
+        .into_iter()
+        .filter(|source| !resolution.routes.contains_key(source))
+        .collect();
+    if window == 0 || (!history.is_empty() && members.is_empty()) {
         return Ok(BTreeMap::new());
     }
     let mut found: BTreeMap<SourceId, Vec<(LogPosition, Vec<u8>)>> = BTreeMap::new();
@@ -212,7 +211,7 @@ fn windows(
         .into_iter()
         .map(|(source, events)| {
             let window = match (events.first(), events.last()) {
-                (Some(first), Some(last)) if events.len() >= window && window > 0 => Ok(Window {
+                (Some(first), Some(last)) if events.len() >= window => Ok(Window {
                     source: source.clone(),
                     first: first.0,
                     last: last.0,
@@ -234,121 +233,156 @@ fn produce(
     cfg: &DiscoverConfig,
     reporter: &mut dyn Reporter,
 ) -> bool {
-    let source = &window.source;
+    let source = window.source.as_str();
     let payloads: Vec<&[u8]> = window.payloads.iter().map(Vec::as_slice).collect();
     let mapping = match s2w_discover::discover(&payloads, &cfg.profiler).1 {
         Discovery::Mapping(mapping) => mapping,
         Discovery::Abstain(reason) => {
             reporter.note(&format!(
-                "discover: {}: abstained ({reason}) over {} events",
-                source.as_str(),
+                "discover: {source}: abstained ({reason}) over {} events",
                 payloads.len()
             ));
             return false;
         }
     };
-    match file(producer, window, &mapping, log_dir) {
-        Ok(Filed::Written { id, identity }) => {
-            reporter.note(&format!(
-                "discover: {}: proposed mapping {identity} (proposal {id}), accepted by policy {POLICY}",
-                source.as_str()
-            ));
-            true
-        }
-        Ok(Filed::Exists { id, identity }) => {
-            reporter.note(&format!(
-                "discover: {}: mapping {identity} is already proposed (proposal {id}); nothing written",
-                source.as_str()
-            ));
-            false
-        }
-        Err(LogError::Locked) => {
-            reporter.note(&format!(
-                "discover: {}: store_locked: another writer holds the proposal store; routes unchanged, retried at the next start",
-                source.as_str()
-            ));
-            false
-        }
-        Err(error) => {
-            reporter.note(&format!(
-                "discover: {}: {error}; routes unchanged",
-                source.as_str()
-            ));
-            false
+    let (note, wrote) = match file(producer, window, &mapping, log_dir) {
+        Ok(Filed::Written { id, identity }) => (
+            format!("proposed mapping {identity} (proposal {id}), accepted by policy {POLICY}"),
+            true,
+        ),
+        Ok(Filed::Completed { id, identity }) => (
+            format!(
+                "mapping {identity} (proposal {id}) had no decision; accepted by policy {POLICY}"
+            ),
+            true,
+        ),
+        Ok(Filed::Exists { id, identity }) => (
+            format!("mapping {identity} is already proposed (proposal {id}); nothing written"),
+            false,
+        ),
+        Ok(Filed::Routed) => (
+            "routed by a decision recorded since start-up; nothing written".to_owned(),
+            true,
+        ),
+        Err(Unfiled::Locked) => (
+            "store_locked: another writer holds the proposal store; routes unchanged, retried at the next start"
+                .to_owned(),
+            false,
+        ),
+        Err(Unfiled::Failed(error)) => (format!("{error}; routes unchanged"), false),
+    };
+    reporter.note(&format!("discover: {source}: {note}"));
+    wrote
+}
+
+/// What [`file`] did.
+enum Filed {
+    /// A new proposal and its policy accept.
+    Written { id: String, identity: String },
+    /// This producer's own proposal from an earlier start whose accept never landed (the
+    /// process stopped between the two appends): the accept, now.
+    Completed { id: String, identity: String },
+    /// A proposal for this (source, identity) exists from some actor and has a decision.
+    Exists { id: String, identity: String },
+    /// A decision recorded after the start-up resolution routes the source already.
+    Routed,
+}
+
+/// Why [`file`] wrote nothing.
+enum Unfiled {
+    /// Another writer holds the proposal store (the CLI or MCP `decision_record`).
+    Locked,
+    /// Anything else, as a message.
+    Failed(String),
+}
+
+impl From<LogError> for Unfiled {
+    fn from(error: LogError) -> Self {
+        match error {
+            LogError::Locked => Self::Locked,
+            other => Self::Failed(other.to_string()),
         }
     }
 }
 
-enum Filed {
-    Written { id: String, identity: String },
-    Exists { id: String, identity: String },
-}
-
-/// Opens the writer (the lock), looks the identity up, appends, and drops the writer.
+/// Opens the writer (the lock), re-reads the store under it, and appends what is missing. The
+/// check and the write see the same store: no other writer can land between them.
 fn file(
     producer: Producer,
     window: &Window,
     mapping: &StreamMapping,
     log_dir: &Path,
-) -> Result<Filed, LogError> {
+) -> Result<Filed, Unfiled> {
     let identity = mapping
         .identity()
-        .map_err(|error| LogError::Corrupt(format!("discovered mapping: {error}")))?;
+        .map_err(|error| Unfiled::Failed(format!("discovered mapping: {error}")))?;
     let mut store = SqliteProposalStore::open(log_dir)?;
-    if producer.lookup
-        && let Some(id) = proposed(log_dir, &window.source, &identity)?
+    let proposals = store.proposals()?;
+    let decisions = store.decisions()?;
+    if routes::resolve(&proposals, &decisions)
+        .routes
+        .contains_key(&window.source)
     {
-        return Ok(Filed::Exists { id, identity });
+        return Ok(Filed::Routed);
     }
     let actor = actor();
     let id = (producer.id)(&actor, &window.source, window.first, window.last, &identity);
+    let accept = NewDecision {
+        proposal_id: id.clone(),
+        decider: Decider::Policy,
+        outcome: Outcome::Accept,
+        basis: basis(window.first, window.last, window.payloads.len(), mapping),
+        decided_at_ms: now_ms()?,
+    };
+    if producer.lookup
+        && let Some(existing) = proposed(&proposals, &window.source, &identity)
+    {
+        if existing != id || decisions.iter().any(|d| d.proposal_id == existing) {
+            return Ok(Filed::Exists {
+                id: existing,
+                identity,
+            });
+        }
+        store.append_decision(&accept)?;
+        return Ok(Filed::Completed { id, identity });
+    }
     let envelope = MappingEnvelope {
         format: ENVELOPE_FORMAT,
         source: window.source.as_str().to_owned(),
         mapping: mapping.clone(),
     };
     let payload = serde_json::to_vec(&envelope)
-        .map_err(|error| LogError::Corrupt(format!("envelope: {error}")))?;
-    let now = now_ms()?;
+        .map_err(|error| Unfiled::Failed(format!("envelope: {error}")))?;
     store.append_proposal(&NewProposal {
         id: id.clone(),
         class: STREAM_MAPPING_CLASS.to_owned(),
         actor,
         snapshot_offset: window.last,
         payload,
-        proposed_at_ms: now,
+        proposed_at_ms: accept.decided_at_ms,
     })?;
-    store.append_decision(&NewDecision {
-        proposal_id: id.clone(),
-        decider: Decider::Policy,
-        outcome: Outcome::Accept,
-        basis: basis(window.first, window.last, window.payloads.len(), mapping),
-        decided_at_ms: now,
-    })?;
-    drop(store);
+    store.append_decision(&accept)?;
     Ok(Filed::Written { id, identity })
 }
 
-/// The id of a `stream-mapping` proposal for (`source`, `identity`) from any actor, if one exists.
-fn proposed(log_dir: &Path, source: &SourceId, identity: &str) -> Result<Option<String>, LogError> {
-    let store = ReadOnlySqliteProposalStore::open(log_dir)?;
-    Ok(store
-        .proposals()?
-        .into_iter()
+/// The id of the first `stream-mapping` proposal for (`source`, `identity`) from any actor.
+fn proposed(proposals: &[StoredProposal], source: &SourceId, identity: &str) -> Option<String> {
+    proposals
+        .iter()
         .filter(|proposal| proposal.class == STREAM_MAPPING_CLASS)
         .find(|proposal| {
             routes::decode_envelope(&proposal.payload)
                 .is_ok_and(|(s, _, id)| &s == source && id == identity)
         })
-        .map(|proposal| proposal.id))
+        .map(|proposal| proposal.id.clone())
 }
 
-fn now_ms() -> Result<i64, LogError> {
+fn now_ms() -> Result<i64, Unfiled> {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|error| LogError::Corrupt(format!("system clock before epoch: {error}")))?;
+        .map_err(|error| Unfiled::Failed(format!("system clock before epoch: {error}")))?;
     i64::try_from(elapsed.as_millis())
-        .map_err(|error| LogError::Corrupt(format!("system clock out of range: {error}")))
+        .map_err(|error| Unfiled::Failed(format!("system clock out of range: {error}")))
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use s2w_log::{EventLog, StoredDecision, StoredProposal};
+use s2w_log::{EventLog, ReadOnlySqliteProposalStore, StoredDecision};
 use s2w_model::{Cursor, RawEvent, Timestamp};
 use serde_json::json;
 
@@ -366,4 +366,124 @@ fn an_identity_filed_by_another_actor_is_not_filed_again() {
         notes.0
     );
     assert_eq!(rows(dir.path()).0.len(), 1);
+}
+
+/// The one discovered mapping of `stream(300)` under [`small`].
+fn discovered() -> StreamMapping {
+    let payloads = stream(300);
+    let refs: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
+    let Discovery::Mapping(mapping) = s2w_discover::discover(&refs, &small().profiler).1 else {
+        panic!("the synthetic stream maps");
+    };
+    mapping
+}
+
+#[test]
+fn a_proposal_left_without_its_accept_is_accepted_at_the_next_start() {
+    let dir = TestDirectory::new("discover-partial");
+    append(dir.path(), SOURCE, stream(300));
+    let mapping = discovered();
+    let identity = mapping.identity().expect("identity");
+    let id = proposal_id(&actor(), &source(), position(1), position(300), &identity);
+    let envelope = MappingEnvelope {
+        format: ENVELOPE_FORMAT,
+        source: SOURCE.to_owned(),
+        mapping,
+    };
+    let mut store = SqliteProposalStore::open(dir.path()).expect("writer");
+    store
+        .append_proposal(&NewProposal {
+            id: id.clone(),
+            class: STREAM_MAPPING_CLASS.to_owned(),
+            actor: actor(),
+            snapshot_offset: position(300),
+            payload: serde_json::to_vec(&envelope).expect("envelope"),
+            proposed_at_ms: 0,
+        })
+        .expect("proposal");
+    drop(store);
+    let (wrote, notes) = start(REAL, dir.path(), &small());
+    assert!(wrote, "{:?}", notes.0);
+    assert!(
+        notes.has("had no decision; accepted by policy"),
+        "{:?}",
+        notes.0
+    );
+    let (proposals, decisions) = rows(dir.path());
+    assert_eq!((proposals.len(), decisions.len()), (1, 1));
+    let resolution = routes::load(dir.path()).expect("routes");
+    assert_eq!(resolution.routes[&source()].proposal_id, id);
+}
+
+#[test]
+fn a_decision_recorded_after_the_resolution_is_seen_under_the_lock() {
+    let dir = TestDirectory::new("discover-late-route");
+    append(dir.path(), SOURCE, stream(300));
+    let stale = routes::load(dir.path()).expect("routes");
+    let envelope = MappingEnvelope {
+        format: ENVELOPE_FORMAT,
+        source: SOURCE.to_owned(),
+        mapping: discovered(),
+    };
+    let mut store = SqliteProposalStore::open(dir.path()).expect("writer");
+    store
+        .append_proposal(&NewProposal {
+            id: "by-hand".to_owned(),
+            class: STREAM_MAPPING_CLASS.to_owned(),
+            actor: Actor::Human { id: "h".to_owned() },
+            snapshot_offset: position(1),
+            payload: serde_json::to_vec(&envelope).expect("envelope"),
+            proposed_at_ms: 0,
+        })
+        .expect("proposal");
+    store
+        .append_decision(&NewDecision {
+            proposal_id: "by-hand".to_owned(),
+            decider: Decider::Human,
+            outcome: Outcome::Accept,
+            basis: "reviewer=h; fine".to_owned(),
+            decided_at_ms: 0,
+        })
+        .expect("accept");
+    drop(store);
+    let log = SqliteEventLog::open(dir.path()).expect("log");
+    let mut notes = Notes::default();
+    assert!(run_with(
+        REAL,
+        (&log, dir.path()),
+        &stale,
+        &small(),
+        &mut notes
+    ));
+    assert!(
+        notes.has("routed by a decision recorded since start-up"),
+        "{:?}",
+        notes.0
+    );
+    assert_eq!(
+        rows(dir.path()).0.len(),
+        1,
+        "nothing filed over the human's route"
+    );
+}
+
+#[test]
+fn a_removed_member_is_not_profiled() {
+    let dir = TestDirectory::new("discover-removed");
+    append(dir.path(), SOURCE, stream(300));
+    append(dir.path(), "test.kept", stream(300));
+    let mut log = SqliteEventLog::open(dir.path()).expect("log");
+    log.bootstrap_source(&source()).expect("bootstrap");
+    log.bootstrap_source(&SourceId::new("test.kept").expect("source"))
+        .expect("bootstrap");
+    log.record_source_removed(&source()).expect("remove");
+    drop(log);
+    let (wrote, notes) = start(REAL, dir.path(), &small());
+    assert!(wrote);
+    assert!(
+        notes.has("discover: test.kept: proposed mapping"),
+        "{:?}",
+        notes.0
+    );
+    assert!(!notes.has(&format!("discover: {SOURCE}")), "{:?}", notes.0);
 }
