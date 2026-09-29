@@ -785,7 +785,8 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
     <tbody>
       <tr><td>Dependency allowlist</td><td>Each crate's external dependencies, from <code>cargo metadata</code>. Built first.</td><td>Every PR</td></tr>
       <tr><td>Replay determinism</td><td>Golden logs replay to the same world, with expected answers as well as hashes, across partition interleavings, thread counts, restarts, and both histories.</td><td>Every PR</td></tr>
-      <tr><td>Escape-hatch ratchet</td><td>A committed per-crate count of <code>#[allow]</code>, <code>unwrap</code>, <code>todo!</code> and <code>pub</code> items. Counts may only fall without a decision record. <em>Dropped 2026-09-27; see the note below.</em></td><td>Every PR</td></tr>
+      <tr><td>Module size</td><td>Structural module-size caps from a <code>syn</code> AST walk, with a baseline of exemptions that may only shrink (<code>cargo xtask check</code>, <a href="https://github.com/daveremy/stream2worlds/issues/44">#44</a>, PR #72). Report-only until <code>module-size.toml</code> enables enforcement; baseline growth always blocks without a <code>Baseline-growth:</code> trailer.</td><td>Every PR</td></tr>
+      <tr><td>Function size (clippy)</td><td>Workspace lints deny <code>too_many_lines</code>, <code>cognitive_complexity</code> and <code>too_many_arguments</code>; xtask check 8 keeps every crate's <code>clippy.toml</code> thresholds equal to the root (<a href="https://github.com/daveremy/stream2worlds/issues/65">#65</a>, PR #157).</td><td>Every PR</td></tr>
       <tr><td>Forecast integrity</td><td>No repair, replay or restart changes an issuance; no future evidence leaks in; every issuance is accounted for across pruning, censoring and abstention.</td><td>From step 4</td></tr>
       <tr><td>Dedupe correctness</td><td>Identical payloads with different legitimate source identities are never merged.</td><td>Every PR</td></tr>
       <tr><td>Authority boundaries</td><td>Provisional state cannot trigger anything; agents and tenants cannot reach what they were not granted.</td><td>Once writes or cloud exist</td></tr>
@@ -806,6 +807,11 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
   Text scanning of Rust source stays out of <code>xtask</code>; a later amendment allows <code>syn</code>
   AST parsing for structural checks. The "first three fitness functions" in the slice are now the
   dependency allowlist, replay determinism and the forbidden lints.</p></div>
+  <div class="prose"><p><strong>Fitness table note, 2026-09-28:</strong> the table above now matches
+  what <code>cargo xtask check</code> enforces. The escape-hatch ratchet row is removed (dropped by
+  <a href="../decisions/0001-workspace-layers.md">decision 0001</a>, see the enforcement note above).
+  Two rows are added: module size (<a href="https://github.com/daveremy/stream2worlds/issues/44">#44</a>, PR #72)
+  and clippy function size (<a href="https://github.com/daveremy/stream2worlds/issues/65">#65</a>, PR #157).</p></div>
   <div class="prose" style="margin-top:18px">
     <h3 style="font-size:19px;margin-bottom:8px">Cadence</h3>
   </div>
