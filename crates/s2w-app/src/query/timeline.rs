@@ -11,11 +11,12 @@ use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
 use super::epoch::Epoch;
 
-/// How many recent world events a [`Timeline`] keeps by default (decision 0026): about 12 MiB
-/// on the recorded fixture, and about 270 raw events there at ~75 world events per raw event.
-/// Set by the measured 600 MiB serve budget (`tests/backfill_memory.rs`): 100,000 held
-/// 631 MiB at the peak, 20,000 holds 588 MiB.
-pub const DEFAULT_HISTORY_CAP: usize = 20_000;
+/// How many recent world events a [`Timeline`] keeps by default (decision 0026): about 29 MiB
+/// on the recorded fixture at ~0.59 KiB per event, and about 670 raw events there at ~75 world
+/// events per raw event. Set by the measured 600 MiB serve budget (`tests/backfill_memory.rs`)
+/// with a 30 MiB margin, against the worse of the two poll topologies (s2w#220): with a cap of 2
+/// the backfill peaks at 538 MiB when polled on the blocking pool, as serve does.
+pub const DEFAULT_HISTORY_CAP: usize = 50_000;
 
 /// One world event, the time it was received, and what it did to the world. Held in memory
 /// only: never serialized or persisted (snapshots store the world and its [`BaseTime`]).
