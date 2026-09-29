@@ -1,4 +1,4 @@
-import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, snapshot,
+import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, refreshSnapshot, snapshot,
   sources as fetchSources, streamStatus, proposals as fetchProposals } from './api';
 import type { Message } from './api';
 import { ViewState, isBeforeBase, isStaleEpoch, rebuildingStatus, staleEpochDelay, unroutedStatus } from './state';
@@ -100,10 +100,11 @@ async function start(): Promise<void> {
     refresh = setTimeout(async () => {
       refresh = undefined; dirty = false; fetching = true; lastFetch = Date.now();
       try {
-        const view = await snapshot(params, signal);
+        // `null`: 304, the view already shown is current (#216).
+        const view = await refreshSnapshot(params, signal);
         if (signal.aborted) return;
         // Another history is served: this page's offsets name another world, so rebuild.
-        if (view.epoch !== state.epoch) { restartStale(); return; }
+        if (view && view.epoch !== state.epoch) { restartStale(); return; }
         // A rebuild in progress: keep its count current, and keep refreshing on a quiet log,
         // until the server says it is done (it clears the field on its next idle poll).
         if (rebuildingStatus(state.sources) !== undefined) {
@@ -111,9 +112,9 @@ async function start(): Promise<void> {
           if (signal.aborted) return;
           const rebuilding = rebuildingStatus(state.sources);
           if (rebuilding !== undefined) dirty = true;
-          status.textContent = rebuilding ?? (view.nodes.length ? '' : 'Waiting for events');
+          status.textContent = rebuilding ?? ((view ? view.nodes.length : state.nodes.size) ? '' : 'Waiting for events');
         }
-        state.snapshot(view); renderer.update(state); paint();
+        if (view) { state.snapshot(view); renderer.update(state); paint(); }
       } catch (error) {
         if (!signal.aborted) {
           status.textContent = describe(error);

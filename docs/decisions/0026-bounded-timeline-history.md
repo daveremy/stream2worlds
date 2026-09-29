@@ -105,6 +105,28 @@ every 5 s. The projection still runs on the HTTP runtime's thread, as it did bef
 with the lock held: once the bridge is waiting to append, every other read waits behind it too.
 PR 2b moves the projection to `spawn_blocking`.
 
+**2026-09-29, #216 PR 2b (streamed `/world`, on 2b-i's one write lock per poll batch).**
+`/world` now streams from the head with no owned view, on `spawn_blocking`, and a quiet head
+answers 304 from its `ETag` before any projection. The `viewer` variant's tick is now
+`S2W_BACKFILL_MEMORY_VIEWER_TICK_MS` (default 5000, the page's refresh cadence) and it sends
+`If-None-Match` as the page does. Three runs on a loaded host (load average 14-17; the same-run
+no-viewer `bridge` took 54.8-115.7 s against its quiet 43-48 s):
+
+| Part | 5 s tick (the page) | 1 s tick (worst case) |
+|---|---|---|
+| Backfill with a viewer, whole process | **876-902 MiB peak (2 runs)** | **923 MiB peak** |
+| Backfill wall time with a viewer (no viewer: 43-48 s) | 60-65 s | 207 s |
+| Slowest `/world` (bounds one read-lock hold) | 2.2-2.5 s | 4.1 s |
+| Slowest `poll_once` | 2.4-2.7 s | 5.1 s |
+| `/world` answered 304 | 0 of 12-13 | 0 of 115 |
+
+Both cadences are under the 1 GiB finish line, and the `viewer` variant now asserts it. The
+lock is held through projection and serialization, and a poll batch waits out one whole `/world`,
+so the fold's slowdown scales with read frequency: one page at 5 s costs about 1.3x, a 1 s
+reader about 4.5x. No 304s during a backfill, because the head moves every batch. Many
+concurrent viewers act like a faster tick; a shorter guard (a snapshot `Arc<World>` handoff) is
+s2w#235.
+
 ## Alternatives considered
 
 - **Keep a base world and advance it at each drop.** Rejected: a second 403 MiB world does not

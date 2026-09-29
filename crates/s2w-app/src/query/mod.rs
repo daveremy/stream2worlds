@@ -11,6 +11,7 @@ mod diff;
 mod epoch;
 mod http;
 mod proposals;
+mod stream;
 mod timeline;
 mod view;
 
@@ -28,7 +29,7 @@ pub use proposals::{
 };
 pub use timeline::{BaseTime, DEFAULT_HISTORY_CAP, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
-    ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
+    ACTUAL_BRANCH, HeadView, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };
 
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
