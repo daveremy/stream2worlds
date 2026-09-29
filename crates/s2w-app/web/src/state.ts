@@ -17,6 +17,17 @@ export function unroutedStatus(sources: SourceInfo[]): string | undefined {
   return candidate === undefined ? undefined :
     `${candidate.consumed} events logged from ${candidate.source}, no engine routed yet (#71)`;
 }
+/// True for a `stale_epoch` answer: an `ApiError` (HTTP 410) or the SSE stream's final
+/// `event: error` frame. The served history was replaced, so every offset the page holds names
+/// another world: the caller rebuilds from a fresh snapshot instead of reconnecting (#184).
+export function isStaleEpoch(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  if ((error as { code?: unknown }).code === 'stale_epoch') return true;
+  const data = (error as { data?: unknown }).data;
+  if (typeof data !== 'string') return false;
+  try { return (JSON.parse(data) as { error?: unknown } | null)?.error === 'stale_epoch'; }
+  catch { return false; }
+}
 export class ViewState {
   nodes = new Map<string, Node>();
   links = new Map<string, Link>();
@@ -31,6 +42,8 @@ export class ViewState {
   sources: SourceInfo[] = [];
   lastAppliedOffset = 0;
   offset = 0;
+  // The epoch the page's offsets belong to; set by the first snapshot (main.ts).
+  epoch = '';
   params: URLSearchParams;
   constructor(params: URLSearchParams) { this.params = params; }
   snapshot(view: WorldView): void {

@@ -6,7 +6,8 @@ export type Node = (Entity & { kind: 'entity' }) | (Entity & { kind: 'hub';
   in_degree: number; by_kind: Record<string, number>; last_seen_offset: number }) |
   { kind: 'type'; id: string; entity_type: string; count: number };
 export type Link = { source: string; target: string; kind: string; weight: number };
-export type WorldView = { offset: number; branch: string; fold_version: number;
+// `epoch`: the served history (16 hex); pinning it makes a replaced history a 410 `stale_epoch`.
+export type WorldView = { offset: number; epoch: string; branch: string; fold_version: number;
   hub_in_degree_cap: number; lod: 'entity' | 'type'; focus: number | null; nodes: Node[]; links: Link[] };
 export type Delta = { type: 'entity'; entity: number; resolved: number; minted: boolean } |
   { type: 'link'; source: number; target: number; kind: string; weight: number } |
@@ -60,16 +61,17 @@ export async function sources(params: URLSearchParams, signal: AbortSignal): Pro
   url.searchParams.delete('at');
   return (await checked(url, signal)).json();
 }
-export function eventsUrl(params: URLSearchParams, from: number, at?: number): URL {
+export function eventsUrl(params: URLSearchParams, from: number, at?: number, epoch?: string): URL {
   const url = endpoint(params, 'events');
   url.searchParams.set('from', String(from));
   if (at === undefined) url.searchParams.delete('at');
   else url.searchParams.set('at', String(at));
+  if (epoch) url.searchParams.set('epoch', epoch);
   return url;
 }
 // A finite SSE response from the same route seeds pinned and live evidence alike.
-export async function evidence(params: URLSearchParams, at: number, signal: AbortSignal): Promise<Message[]> {
-  const response = await checked(eventsUrl(params, Math.max(0, at - 500), at), signal);
+export async function evidence(params: URLSearchParams, at: number, epoch: string, signal: AbortSignal): Promise<Message[]> {
+  const response = await checked(eventsUrl(params, Math.max(0, at - 500), at, epoch), signal);
   const text = await response.text();
   return text.split(/\r?\n\r?\n/).flatMap(block => {
     const data = block.split(/\r?\n/).filter(line => line.startsWith('data:'))
@@ -78,8 +80,8 @@ export async function evidence(params: URLSearchParams, at: number, signal: Abor
   });
 }
 // EventSource hides HTTP status. A finite, empty replay probes the same guarded route.
-export async function streamStatus(params: URLSearchParams, from: number, signal: AbortSignal): Promise<void> {
-  const response = await checked(eventsUrl(params, from, from), signal);
+export async function streamStatus(params: URLSearchParams, from: number, epoch: string, signal: AbortSignal): Promise<void> {
+  const response = await checked(eventsUrl(params, from, from, epoch), signal);
   await response.body?.cancel();
 }
 // Mirrors GET /worlds/{world}/proposals: the generic proposal ledger and its grades.

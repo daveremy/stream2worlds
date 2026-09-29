@@ -1,7 +1,7 @@
 import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, snapshot,
   sources as fetchSources, streamStatus, proposals as fetchProposals } from './api';
 import type { Message } from './api';
-import { ViewState, unroutedStatus } from './state';
+import { ViewState, isStaleEpoch, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
 import { renderProposals } from './proposals';
@@ -81,8 +81,12 @@ async function start(): Promise<void> {
       refresh = undefined; dirty = false; fetching = true; lastFetch = Date.now();
       try {
         const view = await snapshot(params, signal);
-        if (!signal.aborted) { state.snapshot(view); renderer.update(state); paint(); }
+        if (signal.aborted) return;
+        // Another history is served: this page's offsets name another world, so rebuild.
+        if (view.epoch !== state.epoch) { void start(); return; }
+        state.snapshot(view); renderer.update(state); paint();
       } catch (error) {
+        if (!signal.aborted && isStaleEpoch(error)) { void start(); return; }
         if (!signal.aborted) {
           status.textContent = describe(error);
           // Only retry on something that can plausibly resolve itself (503/network); a
@@ -102,7 +106,7 @@ async function start(): Promise<void> {
   function open(): void {
     if (signal.aborted) return;
     source?.close();
-    const current = new EventSource(eventsUrl(params, state.lastAppliedOffset)); source = current;
+    const current = new EventSource(eventsUrl(params, state.lastAppliedOffset, undefined, state.epoch)); source = current;
     for (const kind of kinds) current.addEventListener(kind, event => {
       if (signal.aborted || source !== current) return;
       try {
@@ -112,15 +116,18 @@ async function start(): Promise<void> {
         if (message.type !== 'noop') scheduleRefresh();
       } catch (error) { current.close(); status.textContent = describe(error); }
     });
-    current.onerror = async () => {
+    current.onerror = async event => {
       if (signal.aborted || source !== current) return;
+      // The stream's final `event: error` frame names a replaced history: rebuild, skip the probe.
+      if (isStaleEpoch(event)) { void start(); return; }
       // CONNECTING means the browser wants to retry; close it and own retry timing instead.
       const readyState = current.readyState;
       current.close(); source = undefined;
       status.textContent = readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting';
-      try { await streamStatus(params, state.lastAppliedOffset, AbortSignal.any([signal, AbortSignal.timeout(10_000)])); }
+      try { await streamStatus(params, state.lastAppliedOffset, state.epoch, AbortSignal.any([signal, AbortSignal.timeout(10_000)])); }
       catch (error) {
         if (signal.aborted) return;
+        if (isStaleEpoch(error)) { void start(); return; }
         if (error instanceof ApiError && error.status === 403) {
           status.textContent = `Connection rejected: ${error.message}`; return;
         }
@@ -140,8 +147,9 @@ async function start(): Promise<void> {
       } catch { /* non-essential */ }
       if (signal.aborted) return;
       const view = await snapshot(params, signal); lastFetch = Date.now();
-      const seed = await evidence(params, view.offset, signal);
+      const seed = await evidence(params, view.offset, view.epoch, signal);
       if (signal.aborted) return;
+      state.epoch = view.epoch;
       state.snapshot(view); seed.forEach(message => state.apply(message));
       state.lastAppliedOffset = view.offset;
       // Empty live view only: learn whether the log has unrouted traffic so the page can name
@@ -157,6 +165,8 @@ async function start(): Promise<void> {
       if (!params.has('at')) open();
     } catch (error) {
       if (signal.aborted) return;
+      // The history was replaced between the snapshot and the evidence read: start over.
+      if (isStaleEpoch(error)) { void start(); return; }
       if (error instanceof ApiError && error.status !== 503) { status.textContent = describe(error); return; }
       status.textContent = `Reconnecting: ${describe(error)}`;
       retry = setTimeout(() => void initialize(), delay); delay = Math.min(delay * 2, 30_000);
