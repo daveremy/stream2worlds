@@ -2,9 +2,7 @@
 //! from rows only. The pure half is [`proposals_view`]; `QueryState::proposals` reads the rows
 //! fresh from the log directory on every call.
 
-use s2w_log::{
-    Actor, ActorClassGrade, Decider, Outcome, ProposalSummary, StoredDecision, Tally, grade,
-};
+use s2w_log::{Actor, ActorClassGrade, ProposalSummary, StoredDecision, Tally, grade};
 use serde::Serialize;
 
 /// Everything the proposal store holds, minus payload bytes, plus the grades of those rows.
@@ -101,33 +99,13 @@ pub struct DecisionDto {
     pub decided_at_ms: i64,
 }
 
-/// The wire spelling of a decider.
-#[must_use]
-pub const fn decider_name(decider: Decider) -> &'static str {
-    match decider {
-        Decider::Policy => "policy",
-        Decider::Human => "human",
-        Decider::Evidence => "evidence",
-        Decider::Agent => "agent",
-    }
-}
-
-/// The wire spelling of an outcome.
-#[must_use]
-pub const fn outcome_name(outcome: Outcome) -> &'static str {
-    match outcome {
-        Outcome::Accept => "accept",
-        Outcome::Reject => "reject",
-    }
-}
-
 impl From<&StoredDecision> for DecisionDto {
     fn from(decision: &StoredDecision) -> Self {
         Self {
             seq: decision.seq,
             proposal_id: decision.proposal_id.clone(),
-            decider: decider_name(decision.decider),
-            outcome: outcome_name(decision.outcome),
+            decider: decision.decider.as_str(),
+            outcome: decision.outcome.as_str(),
             basis: decision.basis.clone(),
             decided_at_ms: decision.decided_at_ms,
         }

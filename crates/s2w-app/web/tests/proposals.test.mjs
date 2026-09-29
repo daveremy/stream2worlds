@@ -23,8 +23,6 @@ test('formatFraction shows n/d and an empty denominator as 0/0, never a percenta
   assert.equal(formatFraction([0, 1]), '0/1');
   assert.equal(formatFraction([0, 0]), '0/0');
   assert.equal(formatFraction([5, 0]), '0/0');
-  assert.equal(formatFraction(undefined), '0/0');
-  assert.equal(formatTally(undefined), '0/0');
   assert.equal(formatTally({ accepted: 2, rejected: 0, fraction: [2, 2] }), '2/2');
 });
 
@@ -44,7 +42,7 @@ test('gradeRow labels policy as routing and keeps empty denominators at 0/0', ()
 });
 
 test('empty state renders a message when there are no proposals', () => {
-  for (const data of [undefined, null, { proposals: [], decisions: [], grades: [] }]) {
+  for (const data of [{ proposals: [], decisions: [], grades: [] }]) {
     assert.equal(isEmpty(data), true);
     const panel = new Element('div'); renderProposals(panel, data);
     assert.equal(panel.children.length, 1);

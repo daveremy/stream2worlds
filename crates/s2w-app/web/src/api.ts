@@ -85,7 +85,7 @@ export async function streamStatus(params: URLSearchParams, from: number, signal
 // Mirrors GET /worlds/{world}/proposals: the generic proposal ledger and its grades.
 export type Actor = { kind: 'human'; id: string } | { kind: 'agent'; model: string; version: string };
 export type Proposal = { seq: number; id: string; class: string; actor: Actor; snapshot_offset: number;
-  payload_hash: string; proposed_at_ms: number };
+  payload_hash: number; proposed_at_ms: number };
 export type Decision = { seq: number; proposal_id: string; decider: 'policy' | 'human' | 'evidence' | 'agent';
   outcome: 'accept' | 'reject'; basis: string; decided_at_ms: number };
 export type Tally = { accepted: number; rejected: number; fraction: [number, number] };

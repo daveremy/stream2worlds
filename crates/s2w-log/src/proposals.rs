@@ -43,6 +43,19 @@ pub enum Decider {
     Agent,
 }
 
+impl Decider {
+    /// The stored and wire spelling: `policy`, `human`, `evidence` or `agent`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Policy => "policy",
+            Self::Human => "human",
+            Self::Evidence => "evidence",
+            Self::Agent => "agent",
+        }
+    }
+}
+
 /// A decision's result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Outcome {
@@ -50,6 +63,17 @@ pub enum Outcome {
     Accept,
     /// Rejected or refuted.
     Reject,
+}
+
+impl Outcome {
+    /// The stored and wire spelling: `accept` or `reject`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Accept => "accept",
+            Self::Reject => "reject",
+        }
+    }
 }
 
 /// Caller-supplied proposal; the store computes its payload hash.

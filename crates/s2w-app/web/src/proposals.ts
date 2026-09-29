@@ -7,26 +7,24 @@ import type { Actor, Proposals, ProposalGrade, Tally } from './api';
 
 /// `n/d`, always. An empty denominator is "0/0": no evidence is never shown as a percentage or
 /// as a perfect score.
-export function formatFraction(fraction: readonly [number, number] | null | undefined): string {
-  if (!fraction) return '0/0';
+export function formatFraction(fraction: readonly [number, number]): string {
   const [num, den] = fraction;
   return den > 0 ? `${num}/${den}` : '0/0';
 }
 
-export function formatTally(tally: Tally | null | undefined): string {
-  return formatFraction(tally?.fraction);
+export function formatTally(tally: Tally): string {
+  return formatFraction(tally.fraction);
 }
 
-export function formatActor(actor: Actor | string): string {
-  if (typeof actor === 'string') return actor;
+export function formatActor(actor: Actor): string {
   return actor.kind === 'human' ? `human:${actor.id}` : `agent:${actor.model}@${actor.version}`;
 }
 
 export const EMPTY_MESSAGE = 'No proposals yet.';
 
 /// True when the panel should show its empty state instead of tables.
-export function isEmpty(data: Proposals | null | undefined): boolean {
-  return !data || (data.proposals?.length ?? 0) === 0;
+export function isEmpty(data: Proposals): boolean {
+  return data.proposals.length === 0;
 }
 
 export const GRADE_COLUMNS = ['Class', 'Actor', 'Proposed', 'Ungraded', 'Human', 'Evidence',
@@ -54,13 +52,13 @@ function heading(text: string): HTMLElement {
   const h = document.createElement('h3'); h.textContent = text; return h;
 }
 
-export function renderProposals(element: HTMLElement, data: Proposals | null | undefined): void {
+export function renderProposals(element: HTMLElement, data: Proposals): void {
   if (isEmpty(data)) {
     const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = EMPTY_MESSAGE;
     element.replaceChildren(empty);
     return;
   }
-  const { proposals, decisions = [], grades = [] } = data!;
+  const { proposals, decisions, grades } = data;
   const byProposal = new Map<string, Proposals['decisions']>();
   for (const decision of decisions) {
     const list = byProposal.get(decision.proposal_id) ?? [];

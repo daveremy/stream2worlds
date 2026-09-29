@@ -19,6 +19,8 @@ const proposalsPanel = document.querySelector<HTMLElement>('#proposals')!;
 let dispose = () => {};
 let activeState: ViewState;
 const keys = ['world', 'at', 'branch', 'lod', 'focus', 'hops'];
+// The proposal ledger changes on System 2's cadence, not per event: poll it on its own slow timer.
+const PROPOSALS_POLL_MS = 5000;
 function describe(error: unknown): string {
   return error instanceof ApiError && error.code === 'offset_beyond_head' ? 'No data at this offset' :
     error instanceof Error ? error.message : String(error);
@@ -48,8 +50,10 @@ async function start(): Promise<void> {
   let source: EventSource | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let refresh: ReturnType<typeof setTimeout> | undefined;
+  let proposalsTimer: ReturnType<typeof setTimeout> | undefined;
+  let proposalsGeneration = 0;
   let delay = 1000, lastFetch = 0, fetching = false, dirty = false;
-  dispose = () => { controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(refresh); renderer.destroy(); };
+  dispose = () => { controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(refresh); clearTimeout(proposalsTimer); renderer.destroy(); };
   status.textContent = 'Connecting'; position.textContent = ''; table.replaceChildren(); proposalsPanel.replaceChildren();
   for (const key of keys) (form.elements.namedItem(key) as HTMLInputElement).value =
     params.get(key) ?? ({ branch: 'actual', lod: 'entity', hops: '1' }[key] ?? '');
@@ -59,12 +63,15 @@ async function start(): Promise<void> {
     renderActive(active, state);
     position.textContent = `${params.has('at') ? 'Pinned' : 'Live'} · graph at ${state.offset} · evidence through ${state.lastAppliedOffset}`;
   }
-  // Best-effort: a missing or failing proposals route must never block the graph.
-  async function loadProposals(): Promise<void> {
+  // Best-effort: a missing or failing proposals route must never block the graph. The next poll
+  // is scheduled only after this one settles, and the generation check drops any stale response.
+  async function pollProposals(): Promise<void> {
+    const generation = ++proposalsGeneration;
     try {
       const data = await fetchProposals(params, signal);
-      if (!signal.aborted) renderProposals(proposalsPanel, data);
+      if (!signal.aborted && generation === proposalsGeneration) renderProposals(proposalsPanel, data);
     } catch { /* non-essential */ }
+    if (!signal.aborted && generation === proposalsGeneration) proposalsTimer = setTimeout(() => void pollProposals(), PROPOSALS_POLL_MS);
   }
   function scheduleRefresh(): void {
     dirty = true;
@@ -73,7 +80,7 @@ async function start(): Promise<void> {
       refresh = undefined; dirty = false; fetching = true; lastFetch = Date.now();
       try {
         const view = await snapshot(params, signal);
-        if (!signal.aborted) { state.snapshot(view); renderer.update(state); paint(); void loadProposals(); }
+        if (!signal.aborted) { state.snapshot(view); renderer.update(state); paint(); }
       } catch (error) {
         if (!signal.aborted) {
           status.textContent = describe(error);
@@ -143,7 +150,7 @@ async function start(): Promise<void> {
         try { state.sources = await fetchSources(params, signal); } catch { /* non-essential */ }
         if (signal.aborted) return;
       }
-      renderer.mount(graph, state); paint(); void loadProposals();
+      renderer.mount(graph, state); paint(); void pollProposals();
       status.textContent = view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
         (unroutedStatus(state.sources) ?? 'Waiting for events');
       if (!params.has('at')) open();

@@ -21,8 +21,7 @@ pub use http::{
     Branch, QueryState, RawEventInfo, SourceInfo, TimeAt, TimeResult, WorldSummary, router,
 };
 pub use proposals::{
-    ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, decider_name,
-    outcome_name, proposals_view,
+    ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
 pub use timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
@@ -31,7 +30,7 @@ pub use view::{
 
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
 // never disagree about what a valid `world`, `branch` or `lod` is.
-pub(crate) use http::{check_branch, check_world, parse_lod, proposal_store_exists};
+pub(crate) use http::{check_branch, check_world, open_proposal_reader, parse_lod};
 
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -107,6 +106,12 @@ pub enum QueryError {
     /// Another process holds the proposal store's writer lock; retry later.
     #[error("the proposal store is locked by another writer; retry shortly")]
     StoreLocked,
+}
+
+impl From<s2w_log::LogError> for QueryError {
+    fn from(error: s2w_log::LogError) -> Self {
+        Self::Storage(error.to_string())
+    }
 }
 
 impl QueryError {

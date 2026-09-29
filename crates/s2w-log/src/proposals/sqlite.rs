@@ -110,6 +110,17 @@ impl ReadOnlySqliteProposalStore {
         summaries_from(&self.connection)
     }
 
+    /// Whether a proposal with this id is stored.
+    ///
+    /// # Errors
+    /// Returns storage errors.
+    pub fn has_proposal(&self, id: &str) -> Result<bool, LogError> {
+        self.connection
+            .prepare("SELECT 1 FROM proposals WHERE id = ?1")
+            .and_then(|mut statement| statement.exists([id]))
+            .map_err(map_sqlite)
+    }
+
     /// Reads decisions in sequence order.
     ///
     /// # Errors
@@ -155,24 +166,14 @@ impl ProposalStore for SqliteProposalStore {
 
     fn append_decision(&mut self, decision: &NewDecision) -> Result<StoredDecision, LogError> {
         validate_decision(decision)?;
-        let decider = match decision.decider {
-            Decider::Policy => "policy",
-            Decider::Human => "human",
-            Decider::Evidence => "evidence",
-            Decider::Agent => "agent",
-        };
-        let outcome = match decision.outcome {
-            Outcome::Accept => "accept",
-            Outcome::Reject => "reject",
-        };
         self.connection
             .execute(
                 "INSERT INTO decisions (proposal_id, decider, outcome, basis, decided_at_ms)
              VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     decision.proposal_id,
-                    decider,
-                    outcome,
+                    decision.decider.as_str(),
+                    decision.outcome.as_str(),
                     decision.basis,
                     decision.decided_at_ms
                 ],

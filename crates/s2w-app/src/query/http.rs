@@ -14,7 +14,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use s2w_core::{FOLD_VERSION, World, WorldEvent};
 use s2w_log::{
-    LogError, MembershipRow, ReadOnlySqliteEventLog, ReadOnlySqliteProposalStore, WorldManifest,
+    MembershipRow, ReadOnlySqliteEventLog, ReadOnlySqliteProposalStore, WorldManifest,
     WorldPresentation, members_at,
 };
 use s2w_model::{SourceId, Timestamp};
@@ -133,14 +133,13 @@ impl QueryState {
         let Some(log_dir) = self.log_dir() else {
             return Ok(ProposalsView::default());
         };
-        if !proposal_store_exists(log_dir) {
+        let Some(reader) = open_proposal_reader(log_dir)? else {
             return Ok(ProposalsView::default());
-        }
-        let storage = |error: LogError| QueryError::Storage(error.to_string());
-        let reader = ReadOnlySqliteProposalStore::open(log_dir).map_err(storage)?;
-        let summaries = reader.proposal_summaries().map_err(storage)?;
-        let decisions = reader.decisions().map_err(storage)?;
-        Ok(proposals_view(&summaries, &decisions))
+        };
+        Ok(proposals_view(
+            &reader.proposal_summaries()?,
+            &reader.decisions()?,
+        ))
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
@@ -292,9 +291,18 @@ where
     .transpose()
 }
 
-/// Whether `log_dir` holds a proposal store; checked before opening so reads never create one.
-pub(crate) fn proposal_store_exists(log_dir: &std::path::Path) -> bool {
-    log_dir.join(s2w_log::PROPOSAL_DATABASE_FILE).exists()
+/// Opens `log_dir`'s proposal store read-only, or `None` when the store file does not exist.
+/// The existence check comes first so a read never creates the store.
+///
+/// # Errors
+/// [`QueryError::Storage`] if the store exists but cannot be opened.
+pub(crate) fn open_proposal_reader(
+    log_dir: &std::path::Path,
+) -> Result<Option<ReadOnlySqliteProposalStore>, QueryError> {
+    if !log_dir.join(s2w_log::PROPOSAL_DATABASE_FILE).exists() {
+        return Ok(None);
+    }
+    Ok(Some(ReadOnlySqliteProposalStore::open(log_dir)?))
 }
 
 pub(crate) fn check_branch(branch: Option<&str>) -> Result<(), QueryError> {

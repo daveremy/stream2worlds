@@ -361,6 +361,24 @@ mod tests {
     }
 
     #[test]
+    fn decision_record_rejects_a_blank_proposal_id_before_consulting_the_store() {
+        let dir = TestDirectory::new("blank-id");
+        run(async {
+            let server = WorldMcp::new(state_at(dir.path())).with_decisions();
+            let (client, task) = connect(server).await;
+            for id in ["", " \t"] {
+                let result = call(&client, "decision_record", &record_args(id, "why")).await;
+                assert_eq!(result.is_error, Some(true));
+                let error = body(&result);
+                assert_eq!(error["error"], "bad_parameter", "{error}");
+            }
+            client.cancel().await.unwrap();
+            task.await.unwrap();
+        });
+        assert!(fs::read_dir(dir.path()).unwrap().next().is_none());
+    }
+
+    #[test]
     fn decision_record_does_not_exist_without_the_option() {
         let dir = TestDirectory::new("absent-tool");
         drop(seed(dir.path()));

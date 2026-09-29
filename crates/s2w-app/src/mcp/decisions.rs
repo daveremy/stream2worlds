@@ -10,12 +10,9 @@ use rmcp::model::CallToolResult;
 use rmcp::schemars;
 use rmcp::tool;
 use rmcp::tool_router;
-use s2w_log::{
-    Decider, LogError, NewDecision, Outcome, ProposalStore, ReadOnlySqliteProposalStore,
-    SqliteProposalStore,
-};
+use s2w_log::{Decider, LogError, NewDecision, Outcome, ProposalStore, SqliteProposalStore};
 
-use crate::query::{DecisionDto, QueryError, QueryState, check_world, proposal_store_exists};
+use crate::query::{DecisionDto, QueryError, QueryState, check_world, open_proposal_reader};
 
 use super::WorldMcp;
 use super::tools::serve;
@@ -49,10 +46,6 @@ impl WorldMcp {
     }
 }
 
-fn storage(error: LogError) -> QueryError {
-    QueryError::Storage(error.to_string())
-}
-
 fn parse_outcome(raw: &str) -> Result<Outcome, QueryError> {
     match raw {
         "accept" => Ok(Outcome::Accept),
@@ -62,6 +55,16 @@ fn parse_outcome(raw: &str) -> Result<Outcome, QueryError> {
             reason: format!("'{other}' is not one of accept, reject"),
         }),
     }
+}
+
+fn non_blank(name: &'static str, value: &str) -> Result<(), QueryError> {
+    if value.trim().is_empty() {
+        return Err(QueryError::BadParameter {
+            name,
+            reason: "must not be empty".to_owned(),
+        });
+    }
+    Ok(())
 }
 
 fn now_ms() -> Result<i64, QueryError> {
@@ -75,30 +78,19 @@ fn now_ms() -> Result<i64, QueryError> {
 /// Checks the proposal exists through a lockless reader, so a missing store or id never opens
 /// (and so never creates) the writable store.
 fn check_known(log_dir: &std::path::Path, proposal_id: &str) -> Result<(), QueryError> {
-    let unknown = || QueryError::UnknownProposal {
-        id: proposal_id.to_owned(),
-    };
-    if !proposal_store_exists(log_dir) {
-        return Err(unknown());
-    }
-    let reader = ReadOnlySqliteProposalStore::open(log_dir).map_err(storage)?;
-    let summaries = reader.proposal_summaries().map_err(storage)?;
-    if summaries.iter().any(|summary| summary.id == proposal_id) {
-        Ok(())
-    } else {
-        Err(unknown())
+    match open_proposal_reader(log_dir)? {
+        Some(reader) if reader.has_proposal(proposal_id)? => Ok(()),
+        _ => Err(QueryError::UnknownProposal {
+            id: proposal_id.to_owned(),
+        }),
     }
 }
 
 fn record(state: &QueryState, args: &DecisionRecordArgs) -> Result<DecisionDto, QueryError> {
     check_world(state, &args.world)?;
     let outcome = parse_outcome(&args.outcome)?;
-    if args.basis.trim().is_empty() {
-        return Err(QueryError::BadParameter {
-            name: "basis",
-            reason: "must not be empty".to_owned(),
-        });
-    }
+    non_blank("proposal_id", &args.proposal_id)?;
+    non_blank("basis", &args.basis)?;
     let Some(log_dir) = state.log_dir() else {
         return Err(QueryError::Storage(
             "decision_record needs a log directory".to_owned(),
@@ -107,17 +99,15 @@ fn record(state: &QueryState, args: &DecisionRecordArgs) -> Result<DecisionDto, 
     check_known(log_dir, &args.proposal_id)?;
     let mut store = SqliteProposalStore::open(log_dir).map_err(|error| match error {
         LogError::Locked => QueryError::StoreLocked,
-        other => storage(other),
+        other => other.into(),
     })?;
-    let stored = store
-        .append_decision(&NewDecision {
-            proposal_id: args.proposal_id.clone(),
-            decider: Decider::Agent,
-            outcome,
-            basis: args.basis.clone(),
-            decided_at_ms: now_ms()?,
-        })
-        .map_err(storage)?;
+    let stored = store.append_decision(&NewDecision {
+        proposal_id: args.proposal_id.clone(),
+        decider: Decider::Agent,
+        outcome,
+        basis: args.basis.clone(),
+        decided_at_ms: now_ms()?,
+    })?;
     Ok(DecisionDto::from(&stored))
 }
 

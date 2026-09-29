@@ -77,17 +77,16 @@ pub(crate) fn dispatch(args: &[String], format: Format) -> ExitCode {
         Ok(args) => args,
         Err(message) => return usage_error(format, message),
     };
-    let outcome =
-        match args.log_dir {
-            Some(log_dir) => open_live(&log_dir, args.world, DEFAULT_HUB_IN_DEGREE_CAP).and_then(
-                |(state, live)| s2w_app::mcp::run_mcp_live(state, live, args.allow_decisions),
-            ),
-            None => {
-                let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP))
-                    .with_world(args.world);
-                s2w_app::mcp::run_mcp(state)
-            }
-        };
+    let allow = args.allow_decisions;
+    let outcome = match args.log_dir {
+        Some(log_dir) => open_live(&log_dir, args.world, DEFAULT_HUB_IN_DEGREE_CAP)
+            .and_then(|(state, live)| s2w_app::mcp::run_mcp_live(state, live, allow)),
+        None => {
+            let state =
+                QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP)).with_world(args.world);
+            s2w_app::mcp::run_mcp(state)
+        }
+    };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => exit_code(error, format),
