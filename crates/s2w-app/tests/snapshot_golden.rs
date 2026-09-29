@@ -104,6 +104,21 @@ fn wobbly_ts(n: usize) -> Vec<i64> {
         .collect()
 }
 
+/// `world_hash` (FNV-1a of the postcard bytes) of the golden log's head world, measured on the
+/// commit before s2w#172 changed how `EntityState::attrs` is stored. A storage change that moves
+/// a single snapshot byte fails here, and stored snapshots would no longer restore.
+const GOLDEN_WORLD_HASH: u64 = 0xdda8_4f6c_f3aa_e043;
+
+#[test]
+fn golden_world_hash_is_pinned() -> TestResult {
+    let events: Vec<WorldEvent> = serde_json::from_str(GOLDEN)?;
+    let mut timeline = Timeline::new(GOLDEN_CAP);
+    append_all(&mut timeline, &events, &wobbly_ts(events.len()));
+    let hash = world_hash(timeline.head_world())?;
+    assert_eq!(hash, GOLDEN_WORLD_HASH, "world_hash moved: {hash:#018x}");
+    Ok(())
+}
+
 #[test]
 fn golden_log_restores_to_the_same_world_at_every_split() -> TestResult {
     let events: Vec<WorldEvent> = serde_json::from_str(GOLDEN)?;
