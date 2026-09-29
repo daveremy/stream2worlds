@@ -31,15 +31,15 @@
 //!     instead of just shape. Covers `s2w-core`'s fold and, run through `s2w-system1`'s
 //!     engines (`JsonClaimsEngine` today), the engine layer; the bridge registry
 //!     (`s2w-app::Bridge`/`EngineRegistry`) is not yet covered.
+//! 8. **Clippy config consistency** (`clippy_config.rs`, reads TOML only): a per-crate
+//!    `clippy.toml` or `.clippy.toml` replaces the root file, so every workspace member's effective
+//!    config must carry the root's `too-many-lines`, `cognitive-complexity` and `too-many-arguments`
+//!    thresholds with equal values, and `CLIPPY_CONF_DIR` must be unset (process env and cargo `[env]`).
 //! 11. **Raw obfuscation replay** (`obfuscation_raw.rs`): `s2w-system1`'s `MappingEngine`,
 //!     run over a recorded raw stream and a mapping, builds the same world when every object
 //!     key and string value in both (including inside decoded JSON strings) is renamed and
 //!     hashed first. Check 10 covers engines that read claims; this one covers the engine that
 //!     reads raw payloads through a mapping (decision 0021).
-//! 8. **Clippy config consistency** (`clippy_config.rs`, reads TOML only): a per-crate
-//!    `clippy.toml` or `.clippy.toml` replaces the root file, so every workspace member's effective
-//!    config must carry the root's `too-many-lines`, `cognitive-complexity` and `too-many-arguments`
-//!    thresholds with equal values, and `CLIPPY_CONF_DIR` must be unset (process env and cargo `[env]`).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
