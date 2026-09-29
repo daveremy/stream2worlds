@@ -84,8 +84,10 @@ pass through, as in check 11's obfuscator) must change the proposed mapping only
 renaming: same types, same rules, same relationships and kinds, ids, labels and attribute names
 re-derived from the renamed paths. A unit test checks this on a synthetic stream whose renaming
 reverses key sort order; a profiler that drops attributes by name fails it (mutation-checked).
-Check 12 in `cargo xtask check` (#163 PR 3b) will assert it on the recorded Wikipedia fixture,
-read through a neutral-named symlink so the vocabulary scan stays clean.
+Check 12 in `cargo xtask check` (#163 PR 3b) asserts it on the recorded Wikipedia fixture,
+read through the neutral-named link `crates/s2w-discover/testdata/recorded.raw.sse` so the
+vocabulary scan stays clean, with check 11's key and value maps. It adds about 3 s to an
+unoptimized `cargo xtask check` (two profiler passes over 1,615 events).
 
 ## Measured on the recorded fixture
 
