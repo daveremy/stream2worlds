@@ -13,6 +13,43 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## A viewer no longer copies the world, and the gate-3 corpus is frozen — #216 PR 2a and 2b-i, #56 PR 2a (2026-09-29)
+
+**Shipped:** `/world` and `/diff` at the head borrow the head world under the read lock
+instead of cloning it, `/diff` with `from == to` answers with no projection, and the web page
+refetches every 5 s instead of every 1 s
+([#229](https://github.com/daveremy/stream2worlds/pull/229)). The bridge appends a whole poll
+batch under one write lock, `QueryState::append_batch`, instead of one lock per claim
+([#233](https://github.com/daveremy/stream2worlds/pull/233)). For gate 3, four
+`mediawiki.recentchange` corpora across all 231 wikis are captured and pinned by sha256 before
+any key or score existed: a 200,000-event development corpus and three held-out sets
+([#227](https://github.com/daveremy/stream2worlds/pull/227)). Key format 1 adds `no_identity`,
+so the 1,348 AbuseFilter events with `log_id` 0 no longer merge into one fake entity, and
+grading drops them from every prediction alike
+([#231](https://github.com/daveremy/stream2worlds/pull/231)). The four identifier-domain
+answers from #17 are a dated amendment to the evaluation contract
+([#226](https://github.com/daveremy/stream2worlds/pull/226)). CI runs on a self-hosted runner,
+with `S2W_RUNNER=down` as the escape hatch back to hosted runners
+([#232](https://github.com/daveremy/stream2worlds/pull/232)).
+
+**Learned:** a backfill with a viewer attached fell from 3,983 MiB to about 1,700 MiB with the
+clone gone, and to a 935.5 MiB peak with 2b-i plus the streamed `/world` of 2b-ii on top, under
+the demo box's 1 GiB. Memory is no longer the limit; lock contention is. A viewer refetching
+every 1 s slows the backfill from 43–48 s to 224 s, because a reader holds the lock most of the
+time. Before 2b-i, the fold did not finish in 27 minutes. The corpus capture took about
+2 minutes, not the planned 2 hours: history replays at about 3,000 events/s.
+
+**Changed course:** PR 2b of #216 was planned as one ~300-line PR and grew to ~620 lines while
+hitting the lock contention the plan had flagged as conditional. It is split: 2b-i
+(`append_batch`, merged) and 2b-ii (streamed `/world`, ETag/304, the viewer assertion), which
+is measured at the page's real 5 s cadence before any redesign. PR 2b of #56 is split the same
+way, into `freeze` and `score`.
+
+**Next:** measure 2b-ii at a 5 s viewer cadence, review it, and redeploy the demo box for
+`demo: PASS`. Review #56 PR 2b (freeze and score), then the pre-registered held-out run.
+Measure where the bridge's ~170 MiB over the head world goes
+([#220](https://github.com/daveremy/stream2worlds/issues/220)).
+
 ## The timeline keeps a window, not the whole stream — #216 PR 1 (2026-09-29)
 
 **Shipped:** `serve` keeps the head world and the most recent 20,000 world events, each with the
