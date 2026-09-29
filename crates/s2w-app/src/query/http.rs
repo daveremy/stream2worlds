@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -19,7 +19,7 @@ use s2w_log::{
 };
 use s2w_model::{SourceId, Timestamp};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::QueryError;
@@ -27,8 +27,9 @@ use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
 use super::epoch::Epoch;
 use super::proposals::ProposalsView;
+use super::stream;
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
-use super::view::{ACTUAL_BRANCH, Lod, ViewParams, WorldView, world_view};
+use super::view::{ACTUAL_BRANCH, HeadView, Lod, ViewParams, WorldView, world_view};
 use crate::bridge::SourceStats;
 
 /// Shared server state: the timeline and a head-offset signal that wakes SSE subscribers.
@@ -296,6 +297,38 @@ impl QueryState {
         })
     }
 
+    /// `/world`'s blocking half: under one read guard, resolves the offset, answers `304` or
+    /// an error through `answer`, then serializes the view into `writer`. The guard is held
+    /// until the last chunk is handed over, so appends wait for the whole body; `writer` gives
+    /// up on a client that stops reading ([`stream::STALL`]).
+    fn stream_world(
+        &self,
+        request: &WorldRequest,
+        answer: oneshot::Sender<Result<WorldAnswer, QueryError>>,
+        writer: stream::ChunkWriter,
+    ) {
+        let Ok(t) = self.timeline.read() else {
+            let _ = answer.send(Err(QueryError::Unavailable));
+            return;
+        };
+        let result = match resolve_world(&t, request) {
+            Err(error) => Err(error),
+            Ok(Resolved::NotModified(tag)) => Ok(WorldAnswer::NotModified(tag)),
+            Ok(Resolved::World(tag, world)) => {
+                match HeadView::new(&world, &request.params, t.epoch()) {
+                    Err(error) => Err(error),
+                    Ok(view) => {
+                        if answer.send(Ok(WorldAnswer::Body(tag))).is_ok() {
+                            write_view(&view, writer);
+                        }
+                        return;
+                    }
+                }
+            }
+        };
+        let _ = answer.send(result);
+    }
+
     /// The one branch served, with its head and fold version.
     ///
     /// # Errors
@@ -494,12 +527,17 @@ pub(crate) fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
     }
 }
 
+/// `/world`: the view, streamed (#216). The projection and serialization run on a blocking
+/// thread holding the read guard, and the JSON reaches the client in bounded chunks, so neither
+/// a [`WorldView`] nor the whole body is ever resident. Answers `304` to a matching
+/// `If-None-Match` before projecting anything.
 async fn world(
     State(state): State<QueryState>,
     Path(world): Path<String>,
     Query(p): Query<Params>,
+    headers: HeaderMap,
 ) -> Response {
-    let run = || -> Result<_, QueryError> {
+    let parsed = || -> Result<_, QueryError> {
         check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
         let params = ViewParams {
@@ -508,9 +546,106 @@ async fn world(
             hops: parse("hops", p.hops.as_deref())?.unwrap_or(1),
         };
         let at = parse("at", p.at.as_deref())?;
-        state.view_at(at, parse("epoch", p.epoch.as_deref())?, &params)
+        Ok((at, parse("epoch", p.epoch.as_deref())?, params))
     };
-    run().map(Json).into_response()
+    let (at, epoch, params) = match parsed() {
+        Ok(parsed) => parsed,
+        Err(error) => return error.into_response(),
+    };
+    let request = WorldRequest {
+        at,
+        epoch,
+        params,
+        if_none_match: headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned),
+    };
+    let (answer_tx, answer_rx) = oneshot::channel();
+    let (writer, body) = stream::channel();
+    tokio::task::spawn_blocking(move || state.stream_world(&request, answer_tx, writer));
+    match answer_rx.await {
+        Ok(Ok(WorldAnswer::NotModified(tag))) => {
+            (StatusCode::NOT_MODIFIED, [(header::ETAG, tag)]).into_response()
+        }
+        Ok(Ok(WorldAnswer::Body(tag))) => (
+            [
+                (header::CONTENT_TYPE, HeaderValue::from_static("application/json")),
+                (header::ETAG, tag),
+            ],
+            axum::body::Body::from_stream(body),
+        )
+            .into_response(),
+        Ok(Err(error)) => error.into_response(),
+        // The blocking task panicked before answering.
+        Err(_) => QueryError::Unavailable.into_response(),
+    }
+}
+
+/// `/world`'s parsed request.
+struct WorldRequest {
+    at: Option<u64>,
+    epoch: Option<Epoch>,
+    params: ViewParams,
+    if_none_match: Option<String>,
+}
+
+/// The world a `/world` request names, or `304` when the client already has its view.
+enum Resolved<'t> {
+    NotModified(HeaderValue),
+    World(HeaderValue, std::borrow::Cow<'t, World>),
+}
+
+/// Checks the epoch and the offset (in that order, as every offset read does), then answers
+/// `304` before any projection when `If-None-Match` names this view's tag.
+fn resolve_world<'t>(t: &'t Timeline, request: &WorldRequest) -> Result<Resolved<'t>, QueryError> {
+    t.check_epoch(request.epoch)?;
+    let offset = request.at.unwrap_or_else(|| t.head());
+    t.check_offset(offset)?;
+    let tag = world_etag(t.epoch(), offset, &request.params);
+    if request
+        .if_none_match
+        .as_deref()
+        .is_some_and(|inm| etag_matches(inm, &tag))
+    {
+        return Ok(Resolved::NotModified(tag));
+    }
+    Ok(Resolved::World(tag, t.world_at(offset)?))
+}
+
+/// Serializes `view` into `writer`. A failed write (client gone or stalled) drops `writer`
+/// unfinished, which ends the body with an error; there is no one left to report it to.
+fn write_view(view: &HeadView<'_>, mut writer: stream::ChunkWriter) {
+    if serde_json::to_writer(&mut writer, view).is_ok() {
+        let _ = writer.finish();
+    }
+}
+
+/// What `/world` answers once the read guard is held.
+enum WorldAnswer {
+    NotModified(HeaderValue),
+    Body(HeaderValue),
+}
+
+/// `/world`'s entity tag: the view is a pure function of (epoch, offset, params), so equal tags
+/// name equal bytes.
+fn world_etag(epoch: Epoch, offset: u64, params: &ViewParams) -> HeaderValue {
+    let lod = match params.lod {
+        Lod::Type => "type",
+        Lod::Entity => "entity",
+    };
+    let focus = params.focus.map_or_else(|| "-".to_owned(), |f| f.to_string());
+    let tag = format!("\"{epoch}-{offset}-{lod}-{focus}-{}\"", params.hops);
+    // Hex, digits, letters, dashes and quotes only: always a valid header value.
+    HeaderValue::from_str(&tag).unwrap_or_else(|_| HeaderValue::from_static("\"\""))
+}
+
+/// Whether an `If-None-Match` value names `tag` (weak comparison, or `*`).
+fn etag_matches(if_none_match: &str, tag: &HeaderValue) -> bool {
+    let tag = tag.to_str().unwrap_or_default();
+    if_none_match.split(',').map(str::trim).any(|candidate| {
+        candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == tag
+    })
 }
 
 /// One world served by this process.
