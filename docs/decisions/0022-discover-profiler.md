@@ -158,6 +158,10 @@ name-free prune and a window rule.
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a
-learned scorer and the evaluation corpus (#56's H-min and H-full). Wiring into `serve` and
+learned scorer and the evaluation corpus (#56's H-min and H-full). *2026-09-29: the evaluation corpus
+exists and H-lite at `PROFILER_VERSION` 2 is measured on it (research
+[0009](../../research/0009-h-min-plain-wikipedia.md)): on plain `recentchange` it proposes no
+`user` or revision type, keys a small action-name field (`log_action`) as an entity, and keys
+pages and wikis at alias paths. Inclusion dependencies are #244.* Wiring into `serve` and
 auto-apply (#163 PR 4; *2026-09-29: done, [decision 0025](0025-learned-mapping-auto-apply.md)*) and the mapping state surfaces [0017](0017-view-and-agents-first-class.md) requires (#163
 PR 5).

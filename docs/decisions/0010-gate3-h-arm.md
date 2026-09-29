@@ -82,3 +82,7 @@ inside that definition rather than debated separately every time it comes up.
   can be compared against an obfuscated one instead of standing alone.
 - H-min is measured (issue #56) and either confirms or revises the "lower bound" reading
   above.
+  *2026-09-29: measured as H-lite (H-min without containment, `PROFILER_VERSION` 2; research
+  [0009](../../research/0009-h-min-plain-wikipedia.md)). Held-out identity F1 0.284 and 0.293
+  on two spans, entity recovery 0. The lower-bound reading stands; containment, the stage that
+  makes H-lite H-min, is #244.*

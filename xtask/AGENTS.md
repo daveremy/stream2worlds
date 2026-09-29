@@ -106,6 +106,15 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/context.rs`: the context-collision rows (the unfloored composite-key
     sub-metric; definition in `research/h-measure/README.md`), added to `Grade.contexts`.
     Fixtures live in `h_measure/context/tests.rs`.
+  - The first pre-registered run (s2w#56 PR 3, research 0009): frozen files in
+    `research/h-measure/frozen/`, reports in `research/h-measure/results/`. `score` re-runs the
+    freeze, so a later `PROFILER_VERSION` or `Config` change, or any `s2w-discover` change that
+    alters the mapping written, makes those files refuse to score; that is intended (the commit that froze them names the build). A new profiler version
+    is frozen to a new file and scored on the `reserved` corpus (#244), never on the spans 0009
+    already read.
+  - The ceiling row is `KeySpec::oracle()`'s mapping, not the best v0 mapping for the key: a
+    mapping that joins two alias paths holding equal values can beat it on that type (H-lite
+    does on the plain key's `wiki`). Reports and notes call it the oracle-v0 ceiling (#245).
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
 - `module_cycles.rs`: check 15, no dependency cycle between the modules of one crate target
