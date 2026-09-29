@@ -5,6 +5,7 @@ pub mod bridge;
 mod group_commit;
 pub mod mcp;
 pub mod query;
+pub mod routes;
 pub mod serve;
 pub mod snapshot;
 
@@ -58,6 +59,10 @@ pub enum AppError {
     /// something is wrong, not that the work is done.
     #[error("the {0} source stream ended unexpectedly; it should keep running until stopped")]
     StreamEnded(&'static str),
+    /// The proposal store exists but could not be opened or read while resolving routes from
+    /// stored mappings (decision 0023).
+    #[error("proposal store: {0}")]
+    Proposals(#[source] s2w_log::LogError),
     /// The command cannot run as given, and says what to try instead. The binary maps this to
     /// its usage exit code.
     #[error("{0}")]

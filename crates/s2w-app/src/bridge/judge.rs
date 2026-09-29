@@ -41,7 +41,11 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         let Some(batch_end) = events.last().map(|e| e.position) else {
             return (judged, None);
         };
-        let stored = match self.verdicts.read_range(self.last, batch_end) {
+        // Registered names only: rows of a replaced engine are never read (decision 0023).
+        let stored = match self
+            .verdicts
+            .read_range_of(self.last, batch_end, &self.engine_names)
+        {
             Ok(stored) => stored,
             Err(error) => return (judged, Some(error)),
         };

@@ -29,6 +29,31 @@ fn row(at: u64, engine: &str, version: u32) -> StoredVerdict {
     }
 }
 
+/// `read_range_of` over the suite's first two batches: filtered by engine name, same order; no
+/// names reads nothing (decision 0023).
+fn check_engine_filter<S: VerdictStore>(store: &S, with_provenance: &StoredVerdict) -> TestResult {
+    assert_eq!(
+        store.read_range_of(None, position(4), &["lexicon".to_owned()])?,
+        vec![row(1, "lexicon", 3)]
+    );
+    assert_eq!(
+        store.read_range_of(
+            None,
+            position(4),
+            &["keyword".to_owned(), "absent".to_owned()]
+        )?,
+        vec![
+            row(1, "keyword", 1),
+            row(1, "keyword", 2),
+            with_provenance.clone(),
+            row(4, "keyword", 1),
+        ]
+    );
+    assert!(store.read_range_of(None, position(4), &[])?.is_empty());
+
+    Ok(())
+}
+
 /// The contract every [`VerdictStore`] meets; run over both implementations.
 #[expect(
     clippy::cognitive_complexity,
@@ -63,6 +88,8 @@ fn run_verdict_suite<S: VerdictStore>(mut store: S) -> TestResult {
         vec![first[1].clone()]
     );
     assert!(store.read_range(Some(position(4)), position(9))?.is_empty());
+
+    check_engine_filter(&store, &first[1])?;
 
     // Atomicity: a duplicate key, stored or in-batch, fails the whole batch.
     for bad in [

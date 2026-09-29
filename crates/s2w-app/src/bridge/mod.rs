@@ -265,6 +265,8 @@ pub struct Bridge<R: LogReader, V: VerdictStore> {
     reader: R,
     verdicts: V,
     registry: EngineRegistry,
+    /// `registry.names()`, computed once: the only engines whose stored rows replay reads.
+    engine_names: Vec<String>,
     state: QueryState,
     config: BridgeConfig,
     last: Option<LogPosition>,
@@ -350,6 +352,7 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         Ok(Self {
             reader,
             verdicts,
+            engine_names: registry.names(),
             registry,
             state,
             config,
