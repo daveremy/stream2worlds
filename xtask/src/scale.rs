@@ -11,60 +11,13 @@ use serde::de::DeserializeOwned;
 
 use crate::module_size::{git, trailer};
 
+mod supply;
+pub(super) use supply::Supply;
+
 /// The baseline file, relative to the workspace root.
 pub(super) const BASELINE: &str = "xtask/scale-baseline.toml";
 /// The recorded fixture the second supply replays (s2w#174), relative to the workspace root.
 pub(super) const FIXTURE: &str = "crates/s2w-app/tests/fixtures/recorded-10min.raw.sse";
-
-/// The event supply a measurement folds: the seeded generator, or the recorded fixture (s2w#174).
-/// Two implementations of one seam; both are gated and neither replaces the other.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Supply {
-    Synthetic,
-    Recorded,
-}
-
-impl Supply {
-    pub(super) const ALL: [Self; 2] = [Self::Synthetic, Self::Recorded];
-
-    fn ir(self) -> &'static str {
-        match self {
-            Self::Synthetic => "[ir]",
-            Self::Recorded => "[ir.recorded]",
-        }
-    }
-
-    pub(super) fn memory(self) -> &'static str {
-        match self {
-            Self::Synthetic => "[memory]",
-            Self::Recorded => "[memory.recorded]",
-        }
-    }
-
-    /// Suffix on every report line, so the two supplies' numbers are never confused.
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::Synthetic => "",
-            Self::Recorded => " (recorded)",
-        }
-    }
-
-    fn changed(self) -> &'static str {
-        match self {
-            Self::Synthetic => "the generator changed",
-            Self::Recorded => "the fixture, its mapping or the fold changed",
-        }
-    }
-}
-
-/// One supply's `[memory]` figures.
-struct MemGate {
-    bytes_per_entity: u64,
-    entities: u64,
-    /// Pinned for the recorded supply only; the generator's count is reported.
-    relationships: Option<u64>,
-    reported: u64,
-}
 
 /// `xtask/scale-baseline.toml`. Every field is required: a renamed or missing key is a parse
 /// failure, never a silent default.
@@ -76,34 +29,6 @@ pub(super) struct Baseline {
     pub(super) recorded: RecordedFixture,
     pub(super) ir: IrBaseline,
     pub(super) memory: MemoryBaseline,
-}
-
-impl Baseline {
-    /// `(fold_ir_per_event, events)` for `supply`.
-    fn ir_gate(&self, supply: Supply) -> (u64, u64) {
-        match supply {
-            Supply::Synthetic => (self.ir.fold_ir_per_event, self.ir.events),
-            Supply::Recorded => (self.ir.recorded.fold_ir_per_event, self.ir.recorded.events),
-        }
-    }
-
-    fn memory_gate(&self, supply: Supply) -> MemGate {
-        let (m, r) = (&self.memory, &self.memory.recorded);
-        match supply {
-            Supply::Synthetic => MemGate {
-                bytes_per_entity: m.bytes_per_entity,
-                entities: m.entities,
-                relationships: None,
-                reported: m.bytes_per_relationship_reported,
-            },
-            Supply::Recorded => MemGate {
-                bytes_per_entity: r.bytes_per_entity,
-                entities: r.entities,
-                relationships: Some(r.relationships),
-                reported: r.bytes_per_relationship_reported,
-            },
-        }
-    }
 }
 
 /// `[recorded]`: the pin on the recorded fixture's bytes (FNV-1a 64, as `s2w_model::Fnv64`

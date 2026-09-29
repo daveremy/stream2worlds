@@ -9,7 +9,8 @@ Valgrind-measured scale numbers (s2w#32).
   the golden log), `s2w-model` (the obfuscation replay's engine-layer coverage builds
   `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`; check
   11 runs a recorded raw stream through `MappingEngine`), `s2w-discover` (check 12 profiles a
-  recorded raw stream twice)
+  recorded raw stream twice), `s2w-sources` (checks 12 and 13 and `cargo xtask scale` cut a
+  recorded stream into frames with the live SSE adapter's `replay_frames`, s2w#174)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -39,7 +40,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.
   - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer; its `git` and `trailer` helpers are shared with `scale.rs`.
-- `scale.rs`: `xtask/scale-baseline.toml` (every key required), the pure `[ir]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
+- `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64 and `[ir.recorded] events`), the pure `[ir]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
+  - `scale/supply.rs`: the two event supplies each scale number is measured on, the seeded generator (`[ir]`, `[memory]`) and the recorded fixture (`[ir.recorded]`, `[memory.recorded]`), gated side by side (s2w#174).
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` and needs the JSON line that test prints.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
 - `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory, the `[ir]` judgment, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` baseline belongs to that job's image.
