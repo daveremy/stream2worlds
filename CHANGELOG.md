@@ -13,6 +13,58 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The first gate-3 number, and a demo that passed once — #56 PR 2b and 3, #216 PR 2b-ii, #67 (2026-09-29)
+
+**Shipped:** the gate-3 instrument can now freeze a mapping, prove the freeze is real, and
+score it. `cargo xtask h-measure freeze` pins every key and corpus by sha256 and writes a
+frozen mapping once ([#236](https://github.com/daveremy/stream2worlds/pull/236)).
+`h-measure score` refuses anything whose pins moved, grades held-out corpora, and reports the
+context-collision sub-metric ([#237](https://github.com/daveremy/stream2worlds/pull/237)).
+`score` also re-runs the freeze on the recorded development corpus and refuses a file that
+differs, so a hand-written frozen file cannot score, and it compares only the pins it uses, so
+a new corpus row no longer breaks old freezes
+([#242](https://github.com/daveremy/stream2worlds/pull/242)). The first number came out of it:
+H-lite, frozen on the development corpus and scored once on two held-out plain-Wikipedia spans,
+reaches identity F1 0.284 and 0.293 with precision 0.97 to 0.98 and entity recovery 0
+([#249](https://github.com/daveremy/stream2worlds/pull/249), research note 0009). Plain
+Wikipedia is reported and never counted toward gate 3 (contract B2.1), so this is not a pass or
+a fail. `/world` now streams from the head one node at a time with ETag/304, and the memory test's
+viewer refresh is an env knob
+([#239](https://github.com/daveremy/stream2worlds/pull/239)). `cargo xtask check` gains Check
+15, a report-only test for module cycles inside a crate
+([#246](https://github.com/daveremy/stream2worlds/pull/246)); it found three real cycles, one
+fixed by moving `grade` out of `score`
+([#247](https://github.com/daveremy/stream2worlds/pull/247)) and two of the three `s2w_app`
+edges fixed by moving proposal reads and `sse_cap_guard` into `query`
+([#248](https://github.com/daveremy/stream2worlds/pull/248)); the last edge, through
+`bridge::SourceStats`, is #240 PR 2. The Sprint 80 entry was written
+late ([#234](https://github.com/daveremy/stream2worlds/pull/234)).
+
+**Learned:** a viewer at the page's real 5 s cadence costs the backfill about 1.4×, not the 5× a 1 s
+viewer showed: 60–65 s against 43–48 s with no viewer, at a peak of 876–902 MiB. One viewer
+needs no redesign. The oracle-v0 reference scores F1 0.587 and 0.566 on the same spans, so
+H-lite is too weak to be a baseline yet: it has no `user` or `revision` type and mints
+`log_action` as an entity. The demo passed its check once and then failed to hold. After the
+box was redeployed the check printed `demo: PASS`, and 2 s after `rebuild complete` the kernel
+OOM-killed the process at 1,016 MiB under `MemoryMax=1G`. After the restart the backfill
+reached 1,012 MiB, so the mapping was rejected again to stop a crash loop and the box is up with
+an empty world. Freed memory is not returned to the OS either: with the world dropped, RSS
+stayed at 906 MiB, which points at allocator settings. A point-in-time check is not a hold.
+
+**Changed course:** #216 was closed on that single PASS and is reopened; the demo is not yet
+holding. The remaining 40 to 100 MiB is now
+[#220](https://github.com/daveremy/stream2worlds/issues/220) (the bridge's transients and
+allocator retention), not a guess. Many concurrent viewers are their own planned fix
+([#235](https://github.com/daveremy/stream2worlds/issues/235)), and a hold mode for the demo
+check is filed as a process fix.
+
+**Next:** #220, then redeploy for a `demo: PASS` that holds for 10 minutes. For gate 3, fix
+H-lite's type selection and score it on a reserved span
+([#250](https://github.com/daveremy/stream2worlds/issues/250)), then containment
+([#244](https://github.com/daveremy/stream2worlds/issues/244)) and the mapping format's alias
+limit ([#245](https://github.com/daveremy/stream2worlds/issues/245)), and then the H versus
+H+S2 comparison. Check 15 flips to enforcing after #240 PR 2.
+
 ## A viewer no longer copies the world, and the gate-3 corpus is pinned — #216 PR 2a and 2b-i, #56 PR 2a (2026-09-29)
 
 **Shipped:** `/world` and `/diff` at the head borrow the head world under the read lock
