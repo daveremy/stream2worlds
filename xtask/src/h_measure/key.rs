@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 
+use s2w_discover::rule_id;
 use s2w_model::{FieldPath, KEY_SEPARATOR, StreamMapping};
 use serde::Deserialize;
 
@@ -61,6 +62,9 @@ impl KeySpec {
     /// drift apart. Rules that repeat a type's mention path with the same identity collapse to
     /// one rule; any other clash fails validation.
     pub(crate) fn from_mapping(mapping: &StreamMapping) -> Result<Self, String> {
+        mapping
+            .validate()
+            .map_err(|e| format!("the mapping is not valid: {e}"))?;
         let mut types: Vec<KeyType> = Vec::new();
         for rule in &mapping.entities {
             let Some(last) = rule.key.last() else {
@@ -105,7 +109,8 @@ impl KeySpec {
             if path.0.is_empty() {
                 return Err("an unscored path is empty".to_owned());
             }
-            if !unscored.insert(path) {
+            // Compared as the executors' mention id, so `["a", 1]` and `["a", "1"]` are one path.
+            if !unscored.insert(rule_id(path)) {
                 return Err(format!("unscored path {path:?} is listed twice"));
             }
         }
@@ -134,13 +139,14 @@ impl KeySpec {
                         kind.label
                     ));
                 }
-                if !paths.insert(&rule.path) {
+                let id = rule_id(&rule.path);
+                if !paths.insert(id.clone()) {
                     return Err(format!(
                         "mention path {:?} is listed twice: one (record, path) would mention two entities",
                         rule.path
                     ));
                 }
-                if unscored.contains(&rule.path) {
+                if unscored.contains(&id) {
                     return Err(format!("mention path {:?} is also unscored", rule.path));
                 }
             }

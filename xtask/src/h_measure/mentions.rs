@@ -50,6 +50,8 @@ pub(crate) fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Result<Partiti
                 if lookup(&value, &rule.path).and_then(key_part).is_none() {
                     continue;
                 }
+                // A validated spec has one rule per mention id, so this insert never replaces
+                // a mention; relaxing that rule would need the mapping executor's conflict error.
                 if let Some(gold) = natural_key(&value, &kind.label, &rule.identity) {
                     partition
                         .cluster

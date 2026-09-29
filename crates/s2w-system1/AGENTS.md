@@ -28,8 +28,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `testdata/sample.mapping.json`. `testdata/` holds recorded domain data (decision 0018 §4);
   change a fixture only with the command recorded in decision 0021.
 - `decode` (path lookup, in-place decode, `key_part`, and `natural_key` with its `entity_key`
-  wrapper, the engine's one key builder) is public because check 11 and `cargo xtask h-measure` run it too: one
-  implementation, so neither can drift from `MappingEngine`. Keys are built with
-  `s2w_model::NaturalKey::from_parts`, never by hand.
+  wrapper, the engine's one key builder) is public because check 11 and `cargo xtask
+  h-measure` run it too: one implementation, so neither can drift from `MappingEngine`. Keys
+  are built with `s2w_model::NaturalKey::from_parts`, never by hand.
 - Never depends on the core or on another adapter.
 - No domain knowledge in this crate; see decision 0018.

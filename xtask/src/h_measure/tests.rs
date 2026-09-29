@@ -114,6 +114,32 @@ fn a_bad_or_repeated_label_is_rejected() {
 }
 
 #[test]
+fn an_index_and_a_digit_key_are_one_mention_path() {
+    let mut value = example();
+    value["types"] = json!([
+        { "type": "T", "mentions": [{ "path": ["a", 1], "identity": [["a", 1]] }] },
+        { "type": "U", "mentions": [{ "path": ["a", "1"], "identity": [["a", "1"]] }] }
+    ]);
+    rejects(&value, "listed twice");
+}
+
+#[test]
+fn an_index_segment_reads_an_array_element() {
+    let key = spec(&json!({
+        "version": 0,
+        "types": [{ "type": "T", "mentions": [
+            { "path": ["items", 0, "id"], "identity": [["items", 0, "id"]] }
+        ] }]
+    }));
+    let payloads = [json!({ "items": [{ "id": 3 }] }), json!({ "items": [] })];
+    let got = key_mentions(&key, &payloads).expect("valid").cluster;
+    assert_eq!(
+        got.keys().collect::<Vec<_>>(),
+        [&(0, "items.0.id".to_owned())]
+    );
+}
+
+#[test]
 fn an_unknown_field_does_not_parse() {
     let mut value = example();
     value["extra"] = json!(true);
