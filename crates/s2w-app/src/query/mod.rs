@@ -8,6 +8,7 @@
 
 mod delta;
 mod diff;
+mod epoch;
 mod http;
 mod proposals;
 mod timeline;
@@ -17,6 +18,7 @@ use thiserror::Error;
 
 pub use delta::{Delta, fold_with_delta};
 pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
+pub use epoch::Epoch;
 pub use http::{
     Branch, QueryState, RawEventInfo, Rebuilding, SourceInfo, TimeAt, TimeResult, WorldSummary,
     router,
@@ -24,9 +26,7 @@ pub use http::{
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
-pub use timeline::{
-    BaseTime, DEFAULT_HISTORY_CAP, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline,
-};
+pub use timeline::{BaseTime, DEFAULT_HISTORY_CAP, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };

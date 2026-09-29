@@ -144,7 +144,7 @@ mod backfill {
         );
     }
 
-    /// Claims of every cycled event under `engine`, in batches of about 20k, to `sink`.
+    /// The claims of every cycled event under `engine`, one event at a time, to `sink`.
     fn claims(
         events: &[RawEvent],
         engine: &MappingEngine,

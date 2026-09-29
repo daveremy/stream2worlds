@@ -72,7 +72,10 @@ The bridge child asserts the whole-process peak stays under 600 MiB. The cap was
 at 100,000 (#216's ruling: "about 1,300 raw events"); at 631 MiB that misses the budget, so it
 is 20,000. The history is no longer the cost: with a cap of 2 the process still peaks at
 576 MiB, about 170 MiB over the head world, in the bridge's own transients and allocator
-fragmentation. That is the next lever if the budget tightens.
+fragmentation. That is the next lever (#220): shrinking it is what lets the cap rise again. A
+second, smaller one: once the window has dropped events, no reader uses a retained event's
+`WorldEvent`, only its `Delta`, so dropping the event after the first trim would shrink the
+window further.
 
 **Not covered: a connected viewer.** One `/world` read at the head clones the head world and
 projects it: +1.1 GiB resident, +1.4 GiB peak on this load; one `/diff` +1.5 GiB (+2.3 peak).

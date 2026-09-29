@@ -25,8 +25,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use super::QueryError;
 use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
+use super::epoch::Epoch;
 use super::proposals::ProposalsView;
-use super::timeline::{BaseTime, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline};
+use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{ACTUAL_BRANCH, Lod, ViewParams, WorldView, world_view};
 use crate::bridge::SourceStats;
 
@@ -762,6 +763,7 @@ fn events_start(
                 reason: "must be at least from".to_owned(),
             });
         }
+        // Bounds check only: `from` must still be inside the replay window (410 otherwise).
         t.events_after(from)?;
         if let Some(at) = at
             && at > t.head()
@@ -793,13 +795,19 @@ async fn follow(state: QueryState, cursor: Cursor, tx: mpsc::Sender<Result<Event
         // base's offset, never offset 0 (decision 0024). The epoch check comes first: after a
         // timeline swap, `pos` names an offset of another history, and continuing would send
         // the new history's events as if they followed the old one's (even from `pos == 0`).
-        let batch: Vec<TimedEvent> = match state.read(|t| {
+        // Only the deltas are cloned, and only while the read lock is held: `append` waits on it.
+        let batch: Vec<Delta> = match state.read(|t| {
             t.check_epoch(Some(epoch))?;
             let after = t.events_after(pos)?;
             let take = at.map_or(after.len(), |at| {
                 usize::try_from(at.saturating_sub(pos)).map_or(after.len(), |n| n.min(after.len()))
             });
-            Ok(after.get(..take).unwrap_or_default().to_vec())
+            Ok(after
+                .get(..take)
+                .unwrap_or_default()
+                .iter()
+                .map(|timed| timed.delta.clone())
+                .collect())
         }) {
             Ok(batch) => batch,
             Err(error) => {
@@ -810,13 +818,9 @@ async fn follow(state: QueryState, cursor: Cursor, tx: mpsc::Sender<Result<Event
             }
         };
         // Each event carries the delta it made at append: the follower holds no world.
-        for timed in batch {
+        for delta in batch {
             pos = pos.saturating_add(1);
-            if tx
-                .send(Ok(sse_event(epoch, pos, &timed.delta)))
-                .await
-                .is_err()
-            {
+            if tx.send(Ok(sse_event(epoch, pos, &delta))).await.is_err() {
                 return;
             }
         }

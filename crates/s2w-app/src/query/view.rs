@@ -6,7 +6,7 @@ use s2w_core::{AttrMap, EntityId, World};
 use serde::Serialize;
 
 use super::QueryError;
-use super::timeline::Epoch;
+use super::epoch::Epoch;
 
 /// The most hops a focused view may request.
 pub const MAX_HOPS: u32 = 5;
