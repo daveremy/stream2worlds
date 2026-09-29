@@ -159,8 +159,8 @@ impl QueryState {
     /// per event, so every event keeps its own offset and delta) and wakes live subscribers
     /// once with the final head (s2w#216). The bridge calls this once per poll batch rather
     /// than [`Self::append`] once per claim, so a long read (a `/world` projection) delays a
-    /// batch at most once instead of once per claim. An empty batch takes no lock and wakes
-    /// nobody; it returns the current head.
+    /// batch at most once instead of once per claim. An empty batch takes no write lock and
+    /// wakes nobody; it returns the current head (under a read lock).
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned; nothing in the batch is appended.
@@ -172,6 +172,7 @@ impl QueryState {
         if events.peek().is_none() {
             return self.read(|t| Ok(t.head()));
         }
+        // The guard drops at the end of this block, before subscribers are woken.
         let head = {
             let mut timeline = self.timeline.write().map_err(|_| QueryError::Unavailable)?;
             let mut head = timeline.head();
