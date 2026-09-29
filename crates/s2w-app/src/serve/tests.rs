@@ -462,6 +462,32 @@ fn world_routing_serves_the_shell_for_a_matching_world_and_404s_a_mismatch() {
 }
 
 #[test]
+fn world_and_home_pages_carry_the_content_security_policy() {
+    run(false, async {
+        let full_app = app(state().with_world("foo"));
+        for uri in ["/w/foo/", "/", "/main.js", "/style.css"] {
+            let (status, headers, _) = web_response(&full_app, uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            let csp = headers
+                .get(axum::http::header::CONTENT_SECURITY_POLICY)
+                .unwrap_or_else(|| panic!("{uri} has no CSP: {headers:?}"))
+                .to_str()
+                .expect("ascii");
+            for directive in [
+                "img-src 'self' data:",
+                "font-src 'self'",
+                "connect-src 'self'",
+                "style-src 'self' 'unsafe-inline'",
+                "script-src 'self'",
+            ] {
+                assert!(csp.contains(directive), "{uri}: {directive} in {csp}");
+            }
+            assert!(!csp.contains("script-src 'self' 'unsafe"), "{uri}: {csp}");
+        }
+    });
+}
+
+#[test]
 fn bare_root_serves_the_home_dashboard_and_the_world_view_serves_the_shell() {
     run(false, async {
         let full_app = app(state().with_world("foo"));
