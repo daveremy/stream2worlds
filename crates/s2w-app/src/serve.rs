@@ -359,8 +359,8 @@ fn app(state: QueryState) -> axum::Router {
 }
 
 /// `/w/{world}/` (+ no-trailing-slash, + legacy `/?world=`), stream2worlds#144. Rewrites the
-/// request's URI to `/` and forwards it — the same fallback asset router that already serves
-/// `/` as the SPA shell — rather than duplicating its index-serving logic. Applied as a
+/// request's URI to `/index.html` and forwards it — the same fallback asset router that
+/// serves the SPA shell — rather than duplicating its serving logic (bare `/` is the home page). Applied as a
 /// whole-router `.layer`, not `.route_layer`, because none of these three paths is one of
 /// `router`'s own `.route`s; they only exist by intercepting requests the fallback would
 /// otherwise have handled unchanged.
@@ -379,7 +379,7 @@ async fn world_routing(
         if let Err(error) = crate::query::check_world(&state, &percent_decode(world, false)) {
             return error.into_response();
         }
-        *request.uri_mut() = Uri::from_static("/");
+        *request.uri_mut() = Uri::from_static("/index.html");
         return next.run(request).await;
     }
     if let Some(world) = path
@@ -410,7 +410,7 @@ async fn world_routing(
 }
 
 /// Builds the `/w/<world>/[?<preserved params>]` target for a legacy `/?world=<x>` request, or
-/// `None` when `?world=` is absent (today's `/` behavior is then unchanged). The other
+/// `None` when `?world=` is absent (`/` then serves the home page unchanged). The other
 /// recognized query keys are forwarded as their original (already query-percent-encoded) bytes
 /// — no decode/re-encode round trip, so nothing can be double-encoded.
 fn world_query_redirect(uri: &Uri) -> Option<String> {

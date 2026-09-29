@@ -462,6 +462,33 @@ fn world_routing_serves_the_shell_for_a_matching_world_and_404s_a_mismatch() {
 }
 
 #[test]
+fn bare_root_serves_the_home_dashboard_and_the_world_view_serves_the_shell() {
+    run(false, async {
+        let full_app = app(state().with_world("foo"));
+        let dist = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("web/dist");
+        let home = std::fs::read(dist.join("home.html")).expect("home.html");
+        let shell = std::fs::read(dist.join("index.html")).expect("index.html");
+        let (status, _, body) = web_response(&full_app, "/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body.as_ref(), home.as_slice(), "/ is the home page");
+        let (status, _, body) = web_response(&full_app, "/w/foo/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body.as_ref(),
+            shell.as_slice(),
+            "/w/foo/ is the world shell"
+        );
+        let (status, _, body) = web_response(&full_app, "/home.js").await;
+        assert_eq!(status, StatusCode::OK);
+        let home_js = std::fs::read(dist.join("home.js")).expect("home.js");
+        assert_eq!(body.as_ref(), home_js.as_slice());
+        // An unknown path is pinned, not assumed: it must not serve either page as a 200.
+        let (status, _, _) = web_response(&full_app, "/nope").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    });
+}
+
+#[test]
 fn world_routing_redirects_the_no_slash_and_legacy_query_forms() {
     run(false, async {
         let full_app = app(state().with_world("foo"));
@@ -628,7 +655,7 @@ fn web_assets_and_api_share_the_host_boundary() {
         // The committed bundle, served from the binary's embed: an embedded asset carries a
         // content-hash ETag (a disk-loaded one does not) and its bytes are the committed file's.
         for (uri, file, content_type) in [
-            ("/", "index.html", "text/html"),
+            ("/", "home.html", "text/html"),
             ("/main.js", "main.js", "javascript"),
         ] {
             let response = app.clone().oneshot(web_request(uri)).await.expect("asset");
