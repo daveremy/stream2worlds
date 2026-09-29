@@ -39,10 +39,13 @@ export async function loadWorld(params: URLSearchParams,
   const probe = new URLSearchParams(params); probe.set('lod', 'type');
   const view = await fetchView(probe);
   if (lod === 'type') return { view, request: probe };
-  const count = entityCount(view);
+  let count = entityCount(view);
   if (count <= ENTITY_VIEW_LIMIT) {
     const request = new URLSearchParams(params); request.set('lod', 'entity');
-    return { view: await fetchView(request), request };
+    const entities = await fetchView(request);
+    // A live world can grow past the limit between the probe and this fetch.
+    if (!outgrown(request, entities)) return { view: entities, request };
+    count = entities.nodes.length;
   }
   return { view, request: probe, note: `${count.toLocaleString('en-US')} entities is too many to draw at ` +
     'once. Showing types; set a Focus entity to see its neighbourhood.' };

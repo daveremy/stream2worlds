@@ -65,6 +65,17 @@ test('a focus and an unknown level go as asked, in one request', async () => {
   }
 });
 
+test('a world that grows past the limit between the probe and the entity fetch shows types', async () => {
+  const sent = [];
+  const fetchView = async request => { sent.push(String(request));
+    return request.get('lod') === 'type' ? typeView(SMALL) : entityView(ENTITY_VIEW_LIMIT + 1); };
+  const loaded = await loadWorld(new URLSearchParams(), fetchView);
+  assert.deepEqual(sent, ['lod=type', 'lod=entity']);
+  assert.equal(loaded.view.lod, 'type');
+  assert.equal(loaded.request.get('lod'), 'type');
+  assert.match(loaded.note, /5,001 entities/);
+});
+
 test('entityCount counts a type by its count and a hub as one', () => {
   assert.equal(entityCount(typeView(12)), 12);
   assert.equal(entityCount(entityView(4)), 4);
