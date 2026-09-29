@@ -75,3 +75,7 @@ Amendment, 2026-09-29 (s2w#190): entities are now a `Vec` indexed by their dense
 `world_hash` pinned. Measured **360 B** per entity (1.20×). The `Vec` doubles, so the figure is
 lumpy at powers of two: at 100,000 entities it holds 131,072 slots, 73 B per entity.
 Relationships are unchanged at 234 B. s2w#191 (interning) is the remaining cut toward 300 B.
+
+Amendment, 2026-09-29 (s2w#202): #198 (entities as a `Vec` by dense id) cut fold cost from 9093 to
+5763 Ir/event (-36.6%), measured by CI run 36563251251 (job `scale`) on main. `fold_ir_per_event` is
+now 5764 so the gate keeps the gain.
