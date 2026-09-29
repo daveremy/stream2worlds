@@ -18,13 +18,14 @@ A stream mapping v0 (decision 0021) cannot say that **different** values name on
 rules with one type label join only when their values are equal. The base answer key lists one
 wiki four ways (`wiki` = `enwiki`, `server_name` and `meta.domain` = `en.wikipedia.org`,
 `server_url` = `https://en.wikipedia.org`) and one page two ways (`title`, `title_url`). No v0
-mapping can put all of an entity's mentions in one cluster, so no v0 mapping, from H-lite,
-System 2 or B3, can reach recall 1.0 on this key. Every score below is therefore read against
+mapping can put all of a page's or a wiki's mentions in one cluster, so no v0 mapping, from
+H-lite, System 2 or B3, can reach recall 1.0 on this key. Every score below is therefore read against
 three references, not against 1.0 alone:
 
 - **Ceiling:** the oracle-v0 mapping that `KeySpec::oracle()` derives from the key (one rule per
   mention rule whose path is in its identity; alias paths get no rule). It is a reference, not
-  a proven upper bound: on `wiki` H-lite beats it (below).
+  a proven upper bound: on `wiki` H-lite beats it (below). The generated reports' preamble
+  calls it "the best v0 mapping for that key"; that wording is wrong and is tracked in #245.
 - **Canonical-mention key:** the same key with the alias-only paths (`server_name`,
   `server_url`, `meta.domain`, `title_url`) unscored, so a perfect v0 mapping can score 1.0.
 - **Without singleton-only types:** `event` (`meta.id`) and, on these corpora, `log` have one
@@ -33,8 +34,8 @@ three references, not against 1.0 alone:
 
 ## Method and hygiene
 
-Pre-registered in the #56 plan (comment 5892219272) and rulings 5892231182, 5894100984 and
-5895163962. The order is in the git log. Parent order, not timestamps, is the evidence: PR
+Pre-registered in the [#56 plan](https://github.com/daveremy/stream2worlds/issues/56#issuecomment-5892219272) and karpathy's rulings
+([1](https://github.com/daveremy/stream2worlds/issues/56#issuecomment-5892231182), [2](https://github.com/daveremy/stream2worlds/issues/56#issuecomment-5894100984), [3](https://github.com/daveremy/stream2worlds/issues/56#issuecomment-5895163962)). The order is in the git log. Parent order, not timestamps, is the evidence: PR
 #227's commits carry one rebased author time.
 
 | Step | Commit |
@@ -46,13 +47,14 @@ Pre-registered in the #56 plan (comment 5892219272) and rulings 5892231182, 5894
 | Held-out corpora scored, reports committed with this note | the next commit on this branch |
 
 The git log proves that the frozen files were committed before the reports. It cannot prove
-when a file was first read. The stronger argument is that the frozen mapping cannot depend on
+when a file was first read: the earliest provable point is the hash commit 2bf39ba, and git
+cannot show the spans were unseen before it. The stronger argument is that the frozen mapping cannot depend on
 the held-out spans: H-lite is deterministic, and `score` re-runs the freeze from the
 development corpus with the scoring build and refuses a frozen file that differs (s2w#238).
-The mapping is therefore a function of the development corpus, the code at eeeced7 and the
-`Config`. The last commit to `crates/s2w-discover` on main is 32adce5 (#214, decision 0022's
-s2w#208 amendment, made for the demo box's memory budget), which is an ancestor of 97a6fcc and
-so predates the corpora on main; `git log 97a6fcc..eeeced7 -- crates/s2w-discover` is empty.
+The mapping is therefore a function of the development corpus, the profiler code and the
+`Config`. The last commit to `crates/s2w-discover` is 32adce5 (#214, decision 0022's s2w#208
+amendment, made for the demo box's memory budget). It is an ancestor of 2bf39ba, the hash
+commit, and `git log 2bf39ba..eeeced7 -- crates/s2w-discover crates/s2w-model` is empty.
 
 - **Corpora** (`research/h-measure/corpora.toml`): `mediawiki.recentchange`, all wikis,
   replayed from EventStreams history as SSE frames. Development: 200,000 events from
@@ -62,8 +64,9 @@ so predates the corpora on main; `git log 97a6fcc..eeeced7 -- crates/s2w-discove
 - **Freeze:** `cargo xtask h-measure freeze --corpus dev --window N`, release build of
   `origin/main` at eeeced7, production `Config` (in the frozen file). N = 10^4 is the window
   `serve` runs and gives the headline. N = 2×10^5 gives the same eight entity rules with the
-  same keys (only attribute lists differ), and every number below is identical to four decimals
-  on both held-out corpora; its reports are not committed and rerun with the command below.
+  same keys (attributes, relationships and abstained paths differ; relationships are not
+  scored), and its reports are identical to the N = 10^4 reports below their header lines. All
+  four reports are committed.
 - **Score:** `cargo xtask h-measure score --mapping research/h-measure/frozen/h-lite-v2.dev-10000.json
   --corpus heldout --key dev-key-v1.json --key dev-key-v1.canonical-mention.json --key
   dev-key-v1.q1-no-wiki.json --key dev-key-v1.q3-rcid-scored.json --key
@@ -104,8 +107,9 @@ Base key (`dev-key-v1.json`), mapping frozen at N = 10^4:
   predicted cluster holding 90% of its mentions at 90% purity. The oracle reaches 0.20 and 0.21.
   Under this key no v0 mapping can recover a page or a wiki entity: a v0 cluster id is a
   function of the values at one rule's key paths, and `title` and `title_url` (or the four wiki
-  paths) hold different values. The recoverable entities are users, revisions and logs, and
-  H-lite mints none of them.
+  paths) hold different values. Logs are singletons here, so the recoverable entities are
+  users and revisions (the oracle recovers all of them), and H-lite mints neither. So 0.20 and
+  0.21 are the most any v0 mapping can reach on this key.
 
 Canonical-mention key (alias paths unscored), both spans:
 
@@ -114,14 +118,14 @@ Canonical-mention key (alias paths unscored), both spans:
 | H-lite | 0.0000 | 0.0000 | undefined | 0.0000 |
 | Ceiling (oracle v0) | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
 
-This 0 / 0 row is expected (ruling 5895163962, item 5), and it is not the same finding as the
+This 0 / 0 row is expected ([ruling](https://github.com/daveremy/stream2worlds/issues/56#issuecomment-5895163962), item 5), and it is not the same finding as the
 base key's low recall. H-lite keys `page` at `title_url` (with `meta.uri` sharing its label)
 and `wiki` at `server_name` and `meta.domain`. Those are exactly the paths this variant does not
 score, so every page and wiki mention H-lite predicts is dropped, and what remains is its
 spurious `log_action` clusters (7,921 and 5,091 mentions), which set P to 0. The key-path choice
 comes from decision 0022's name-free 1:1 merge, which keeps the class member with the most
 aliases and demotes the others to attributes. A mapping that keyed pages on (`wiki`,
-`namespace`, `title`) would score 1.0 here. So H-lite's page and wiki clusters are right as
+`namespace`, `title`) would score page recall 1.0 here. So H-lite's page and wiki clusters are right as
 partitions of the alias mentions, and this variant, by construction, gives no credit for
 clustering at an alias path.
 
@@ -129,8 +133,8 @@ clustering at an alias path.
 
 | Type | H-lite P | H-lite R | Ceiling R | Why |
 |---|---|---|---|---|
-| page | 1.0000 | 0.2500 | 0.2500 | Keyed at `title_url`: half of each page's mentions, in one cluster. Equal to the ceiling. |
-| wiki | 0.9976 | 0.2486 | 0.0625 | `server_name` and `meta.domain` hold equal values and share a label, so H-lite joins 2 of the 4 alias paths. The oracle joins none. H-lite beats the ceiling here. |
+| page | 1.0000 | 0.2500 | 0.2500 | Keyed at `title_url`: the `title_url` half of each page's mentions (recall 0.4999 at that path), in one cluster. Equal to the ceiling. |
+| wiki | 0.9976 | 0.2486 | 0.0625 | `server_name` and `meta.domain` hold equal values and share a label, so H-lite joins 2 of the 4 alias paths. The oracle keys only `wiki`, 1 of the 4 paths. H-lite beats the ceiling here. |
 | user | undefined | 0 | 1.0 | No rule keys `user`; it appears only as an attribute of two rules. |
 | revision | undefined | 0 | 1.0 | No rule keys `revision.new` or `revision.old`. |
 | log | undefined | 0 | 1.0 | `log_id` abstained in the profile (`FewGroups` at N = 10^4, `GreyUniqueness` at 2×10^5). Singleton-only here. |
@@ -140,8 +144,9 @@ clustering at an alias path.
   (36 values in the development corpus, most often `block`, `upload` and `hit`) that H-lite
   keys as an entity. No key type holds them. Four and five
   predicted mentions at `meta.domain` are canary events, which the key does not mention.
-- The frozen file records roles only for abstained paths, so this note does not say which role
-  `user` and the revision paths received. Finding that out uses the development corpus, not
+- The frozen file records roles only for abstained paths. `user` appears as an attribute of
+  the `notify_url` and `parsedcomment` rules; the revision paths appear nowhere in it (not as a
+  rule, an attribute or an abstained path). This note does not say which role they received. Finding that out uses the development corpus, not
   these spans (#244's hygiene rule).
 
 ### Context collisions (the composite-key sub-metric, unfloored)
@@ -157,7 +162,7 @@ Rows where two entities differ only in a context path (definition:
 
 `page @ wiki` is the cross-wiki sub-metric: pages with the same namespace and title on
 different wikis. H-lite never merges them (P 1.0), because `title_url` carries the wiki's
-domain. Its F1 there equals the alias-limited ceiling. `user @ wiki` is undefined because
+domain. Its F1 there is within 0.002 of the alias-limited ceiling. `user @ wiki` is undefined because
 H-lite has no user type.
 
 ### Sensitivity to #17's readings (F1, `heldout` / `heldout-2`)
@@ -165,14 +170,14 @@ H-lite has no user type.
 | Key | H-lite | Ceiling | What changes |
 |---|---|---|---|
 | base | 0.2843 / 0.2929 | 0.5868 / 0.5661 | |
-| q1-no-wiki (page identity without `wiki`) | 0.2840 / 0.2928 | 0.5868 / 0.5661 | Almost nothing. Pages with one namespace and title on two wikis become one gold entity; H-lite keeps them apart (`title_url` carries the domain), which costs 0.0001 to 0.0003 of recall. |
+| q1-no-wiki (page identity without `wiki`) | 0.2840 / 0.2928 | 0.5868 / 0.5661 | Almost nothing. Pages with one namespace and title on two wikis become one gold entity; H-lite keeps them apart (`title_url` carries the domain), which costs 0.0001 of recall on each span (F1 falls 0.0003 and 0.0001). |
 | q3-rcid-scored (rcid is an entity) | 0.2600 / 0.2672 | 0.6421 / 0.6268 | H-lite mints no rcid entity, so recall falls. |
-| q4-separate (four wiki types) | 0.3898 / 0.4004 | 0.9089 / 0.9054 | Aliases vanish, so both rise. H-lite's P falls to 0.65 because its `server_name` + `meta.domain` join is now a merge across two types. |
+| q4-separate (four wiki types) | 0.3898 / 0.4004 | 0.9089 / 0.9054 | The wiki aliases vanish, so both rise (the page alias remains, so the ceiling is 0.91, not 1.0). H-lite's P falls to 0.65 because its `server_name` + `meta.domain` join is now a merge across two types. |
 | user-global (user identity without `wiki`) | 0.2843 / 0.2929 | 0.5868 / 0.5661 | Nothing for F1: no user type. |
 | canonical-mention | undefined / undefined | 1.0 / 1.0 | See above. |
 
 The recovery row is 0 for H-lite under every key. The q4 reading moves the number most, which
-is the alias limit again: a key that asks for no aliases is one a v0 mapping can satisfy.
+is the alias limit again: the fewer aliases a key asks for, the closer a v0 mapping can get.
 
 ## Which row of #4's decision table applies
 
@@ -182,20 +187,22 @@ H-min itself is too weak to be a meaningful baseline. Fix stage-4 thresholds or 
 before anything else."** The ≥ 0.85 row does not fire, so there is no escalation to Dave on
 headroom.
 
-Two qualifications, both from the numbers above:
+Two qualifications:
 
 1. The table was written before the alias limit was known. Under the base key the oracle-v0
    ceiling's recovery is 0.20, so no v0 mapping reaches the 0.60 recovery bar on this key.
    Under the canonical-mention key the bar is reachable (ceiling 1.0) and H-lite scores 0. The
    row applies under both keys, for different reasons.
-2. The table's action names the right place. H-lite loses on types it never proposes (`user`,
-   `revision`), on one spurious type (`log_action`), and on its choice of an alias path as the
-   key. None of these is containment, so #244 alone would not move this row.
+2. The table's action points at the stages that fail. H-lite loses on types it never proposes
+   (`user`, `revision`), on one spurious type (`log_action`), and on its choice of an alias
+   path as the key. None is obviously a containment failure, though containment could plausibly
+   propose a revision type (`revision.old` and `revision.new` draw on one id space). Whether
+   #244 moves the row is measured on the reserved corpus.
 
 What this does not say: H-lite is a lower bound on H (decision 0010). H-full adds containment,
-composite keys, carry-over and name embeddings, and could score higher. A low H-lite number is
-evidence that headroom exists on this stream today; it does not measure how much remains once
-H is complete.
+composite keys, carry-over and name embeddings, and could score higher. H-lite sits well below the
+oracle-v0 reference (F1 0.28 to 0.29 against 0.57 to 0.59). That is not a measure of gate-3
+headroom: the v0 format limits System 2 as well, and H is not complete.
 
 ## Design implications
 
