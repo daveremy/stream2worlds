@@ -86,7 +86,6 @@ async function start(): Promise<void> {
         if (view.epoch !== state.epoch) { void start(); return; }
         state.snapshot(view); renderer.update(state); paint();
       } catch (error) {
-        if (!signal.aborted && isStaleEpoch(error)) { void start(); return; }
         if (!signal.aborted) {
           status.textContent = describe(error);
           // Only retry on something that can plausibly resolve itself (503/network); a

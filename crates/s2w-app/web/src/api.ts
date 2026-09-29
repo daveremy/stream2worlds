@@ -18,8 +18,11 @@ export const kinds = ['entity', 'link', 'hub_ref', 'merge', 'split', 'noop'] as 
 // Mirrors query/http.rs's SourceInfo: what the bridge did with one member source.
 export type RawEventInfo = { offset: number; received_at: number; payload: unknown };
 export type SourceInfo = { source: string; consumed: number; unrouted: number; recent_unrouted: RawEventInfo[] };
+// Explicit fields, not parameter properties: Node's type stripping (tests/*.test.mjs) rejects those.
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) { super(message); }
+  status: number;
+  code: string;
+  constructor(status: number, code: string, message: string) { super(message); this.status = status; this.code = code; }
 }
 export function endpoint(params: URLSearchParams, route: string): URL {
   const url = new URL(`/worlds/${encodeURIComponent(params.get('world') || 'default')}/${route}`, location.origin);

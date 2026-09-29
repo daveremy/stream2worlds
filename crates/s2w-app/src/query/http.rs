@@ -220,14 +220,6 @@ impl QueryState {
         self.read(|t| t.world_at(at.unwrap_or_else(|| t.head())))
     }
 
-    /// The history this process serves now.
-    ///
-    /// # Errors
-    /// [`QueryError::Unavailable`] if the lock was poisoned.
-    pub fn epoch(&self) -> Result<Epoch, QueryError> {
-        self.read(|t| Ok(t.epoch()))
-    }
-
     /// The view at `at` (or the head), labelled with the epoch it was read under. World and
     /// epoch come from one read; the projection runs after the lock is released.
     ///
@@ -245,7 +237,10 @@ impl QueryState {
             t.check_epoch(epoch)?;
             Ok((t.world_at(at.unwrap_or_else(|| t.head()))?, t.epoch()))
         })?;
-        world_view(&world, params, epoch)
+        Ok(WorldView {
+            epoch,
+            ..world_view(&world, params)?
+        })
     }
 
     /// The one branch served, with its head and fold version.

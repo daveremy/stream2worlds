@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ViewState, isStaleEpoch } from '../src/state.ts';
+import { isStaleEpoch } from '../src/state.ts';
 
 test('a stale_epoch ApiError or SSE error frame is recognised; nothing else is', () => {
   // ApiError shape (HTTP 410 body `{"error":"stale_epoch"}`).
@@ -15,7 +15,16 @@ test('a stale_epoch ApiError or SSE error frame is recognised; nothing else is',
   ]) assert.equal(isStaleEpoch(other), false, JSON.stringify(other));
 });
 
-test('a fresh view state has no epoch until the page sets one', () => {
-  const state = new ViewState(new URLSearchParams());
-  assert.equal(state.epoch, '');
+test('eventsUrl pins the epoch when given one and leaves bare offsets bare', async () => {
+  globalThis.location = new URL('http://127.0.0.1:8080/w/default/');
+  const { eventsUrl } = await import('../src/api.ts');
+  const params = new URLSearchParams('world=default&at=9');
+  const pinned = eventsUrl(params, 3, 7, '1111111111111111');
+  assert.equal(pinned.pathname, '/worlds/default/events');
+  assert.equal(pinned.searchParams.get('epoch'), '1111111111111111');
+  assert.equal(pinned.searchParams.get('from'), '3');
+  assert.equal(pinned.searchParams.get('at'), '7');
+  const bare = eventsUrl(params, 3, undefined, '');
+  assert.equal(bare.searchParams.has('epoch'), false);
+  assert.equal(bare.searchParams.has('at'), false);
 });

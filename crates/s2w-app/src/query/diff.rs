@@ -6,7 +6,6 @@ use s2w_core::{EntityId, World};
 use serde::Serialize;
 
 use super::QueryError;
-use super::timeline::Epoch;
 use super::view::{Link, Node, ViewParams, world_view};
 
 /// A node or link present in both worlds with different contents.
@@ -86,10 +85,7 @@ fn changes<K: Ord, T: Clone + PartialEq>(
 /// None in practice: an unfocused view cannot fail. The `Result` keeps the view's contract.
 pub fn diff(from: &World, to: &World) -> Result<WorldDiff, QueryError> {
     let params = ViewParams::default();
-    let (a, b) = (
-        world_view(from, &params, Epoch::default())?,
-        world_view(to, &params, Epoch::default())?,
-    );
+    let (a, b) = (world_view(from, &params)?, world_view(to, &params)?);
     let nodes = |v: &super::view::WorldView| -> BTreeMap<String, Node> {
         v.nodes
             .iter()

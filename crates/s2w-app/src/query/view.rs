@@ -341,8 +341,8 @@ impl<'w> Graph<'w> {
     }
 }
 
-/// Projects `world` at `params`, labelled with the history `epoch` it was read from. Pure: the
-/// HTTP handler, `--json` and MCP all call this.
+/// Projects `world` at `params`. Pure: the HTTP handler, `--json` and MCP all call this. The
+/// view's `epoch` is 0 here; [`super::QueryState::view_at`] labels it with the served one.
 ///
 /// # Errors
 /// [`QueryError::UnknownEntity`] for an unknown focus, [`QueryError::HopsTooLarge`] past
@@ -351,11 +351,7 @@ impl<'w> Graph<'w> {
     clippy::too_many_lines,
     reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
 )]
-pub fn world_view(
-    world: &World,
-    params: &ViewParams,
-    epoch: Epoch,
-) -> Result<WorldView, QueryError> {
+pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
     let graph = Graph::new(world);
     let subset = match params.focus {
         None => None,
@@ -436,7 +432,7 @@ pub fn world_view(
     }
     Ok(WorldView {
         offset: world.offset(),
-        epoch,
+        epoch: Epoch::default(),
         branch: ACTUAL_BRANCH,
         fold_version: world.fold_version(),
         hub_in_degree_cap: world.hub_in_degree_cap(),

@@ -7,7 +7,7 @@ mod golden {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use s2w_app::query::{Epoch, QueryState, Timeline, ViewParams, router, world_view};
+    use s2w_app::query::{QueryState, Timeline, ViewParams, router, world_view};
     use s2w_core::{NaturalKey, World, WorldEvent, fold};
     use s2w_model::Timestamp;
     use serde_json::Value;
@@ -126,10 +126,8 @@ mod golden {
         let log = events();
         for at in 0..=log.len() {
             let world = fold(World::with_hub_cap(CAP), &log[..at]);
-            let expected = serde_json::to_value(
-                world_view(&world, &ViewParams::default(), Epoch::default()).unwrap(),
-            )
-            .unwrap();
+            let expected =
+                serde_json::to_value(world_view(&world, &ViewParams::default()).unwrap()).unwrap();
             let (status, got) = get(&app, &format!("/worlds/default/world?at={at}")).await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(got, expected, "at={at}");
@@ -637,7 +635,7 @@ mod golden {
 /// A hub relating to another hub (#42): not in the golden log, so a small in-test world.
 #[cfg(test)]
 mod hub_to_hub {
-    use s2w_app::query::{Epoch, Lod, ViewParams, world_view};
+    use s2w_app::query::{Lod, ViewParams, world_view};
     use s2w_core::{NaturalKey, World, WorldEvent, fold};
     use serde_json::Value;
 
@@ -672,7 +670,7 @@ mod hub_to_hub {
             lod,
             ..ViewParams::default()
         };
-        serde_json::to_value(world_view(world, &params, Epoch::default()).unwrap()).unwrap()
+        serde_json::to_value(world_view(world, &params).unwrap()).unwrap()
     }
 
     fn node<'a>(view: &'a Value, id: &str) -> &'a Value {
