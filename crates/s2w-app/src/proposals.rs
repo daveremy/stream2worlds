@@ -10,7 +10,10 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use s2w_log::{Decider, LogError, NewDecision, Outcome, ProposalStore, SqliteProposalStore};
+use s2w_log::{
+    Decider, LogError, NewDecision, Outcome, ProposalStore, SqliteProposalStore, StoredProposal,
+};
+use s2w_model::SourceId;
 use serde::Serialize;
 
 use crate::query::{DecisionDto, ProposalsView, QueryError, open_proposal_reader, proposals_view};
@@ -158,24 +161,7 @@ pub fn record_decision(
         .transpose()?
         .flatten()
         .ok_or_else(unknown)?;
-    let mapping_source = if proposal.class == STREAM_MAPPING_CLASS {
-        match routes::decode_envelope(&proposal.payload) {
-            Ok((source, _, _)) => Some(source),
-            Err(reason) if outcome == Outcome::Accept => {
-                return Err(QueryError::BadParameter {
-                    name: "proposal",
-                    reason: format!(
-                        "{proposal_id} is not a valid {STREAM_MAPPING_CLASS} envelope, so routing \
-                         excludes it and an accept could never take effect ({reason}); reject it \
-                         instead"
-                    ),
-                });
-            }
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
+    let mapping_source = mapping_source(&proposal, outcome)?;
     let mut store = SqliteProposalStore::open(log_dir).map_err(|error| match error {
         LogError::Locked => QueryError::StoreLocked,
         other => other.into(),
@@ -188,21 +174,49 @@ pub fn record_decision(
         decided_at_ms: now_ms()?,
     })?;
     drop(store);
-    let route = match mapping_source {
-        Some(source) => {
-            let resolution =
-                routes::load(log_dir).map_err(|error| QueryError::Storage(error.to_string()))?;
-            let resolved = resolution.routes.get(&source);
-            Some(RouteAfter {
-                source: source.as_str().to_owned(),
-                mapping: resolved.map(|resolved| resolved.identity.clone()),
-                proposal_id: resolved.map(|resolved| resolved.proposal_id.clone()),
-            })
-        }
-        None => None,
-    };
+    let route = mapping_source
+        .map(|source| route_after(log_dir, &source))
+        .transpose()?;
     Ok(Recorded {
         decision: DecisionDto::from(&stored),
         route,
+    })
+}
+
+/// The source a `stream-mapping` proposal names, or `None` for any other class and for a mapping
+/// whose payload does not decode.
+///
+/// # Errors
+/// [`QueryError::BadParameter`] naming `proposal` for an accept on an undecodable envelope.
+fn mapping_source(
+    proposal: &StoredProposal,
+    outcome: Outcome,
+) -> Result<Option<SourceId>, QueryError> {
+    if proposal.class != STREAM_MAPPING_CLASS {
+        return Ok(None);
+    }
+    match routes::decode_envelope(&proposal.payload) {
+        Ok((source, _, _)) => Ok(Some(source)),
+        Err(reason) if outcome == Outcome::Accept => Err(QueryError::BadParameter {
+            name: "proposal",
+            reason: format!(
+                "{} is not a valid {STREAM_MAPPING_CLASS} envelope, so routing excludes it and \
+                 an accept could never take effect ({reason}); reject it instead",
+                proposal.id
+            ),
+        }),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Reads back what `source` runs after a write.
+fn route_after(log_dir: &Path, source: &SourceId) -> Result<RouteAfter, QueryError> {
+    let resolution =
+        routes::load(log_dir).map_err(|error| QueryError::Storage(error.to_string()))?;
+    let resolved = resolution.routes.get(source);
+    Ok(RouteAfter {
+        source: source.as_str().to_owned(),
+        mapping: resolved.map(|resolved| resolved.identity.clone()),
+        proposal_id: resolved.map(|resolved| resolved.proposal_id.clone()),
     })
 }
