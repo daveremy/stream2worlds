@@ -1,7 +1,7 @@
 //! JSON path lookup and in-place decode for [`s2w_model::StreamMapping`] payloads. The one
 //! implementation: [`crate::MappingEngine`] runs it per event and `cargo xtask check` 11
 //! (raw obfuscation replay) runs the same decode and lookups to rename payloads, so the check
-//! cannot drift from the engine. [`entity_key`] is the engine's one key builder; `cargo xtask
+//! cannot drift from the engine. [`natural_key`] is the engine's one key builder; `cargo xtask
 //! h-measure` reads mentions with it, so a scored cluster is the entity `serve` would fold.
 
 use s2w_model::{EntityRule, FieldPath, KeyPart, NaturalKey, Segment};
@@ -64,11 +64,18 @@ pub fn key_part(value: &Value) -> Option<KeyPart> {
 /// The rule's natural key in a decoded payload, when every key path holds a key part.
 #[must_use]
 pub fn entity_key(value: &Value, rule: &EntityRule) -> Option<NaturalKey> {
-    let parts = rule
-        .key
+    natural_key(value, &rule.type_label, &rule.key)
+}
+
+/// The natural key of `type_label` and the key parts at `paths`, when every path holds one.
+/// The one key builder: [`entity_key`] and `cargo xtask h-measure`'s key executor both call it.
+#[must_use]
+pub fn natural_key(value: &Value, type_label: &str, paths: &[FieldPath]) -> Option<NaturalKey> {
+    let parts = paths
         .iter()
         .map(|path| key_part(lookup(value, path)?))
         .collect::<Option<Vec<_>>>()?;
-    // A validated mapping's labels never hold the separator, so this never declines.
-    NaturalKey::from_parts(&rule.type_label, &parts).ok()
+    // A validated mapping's or key spec's labels never hold the separator, so this never
+    // declines for one.
+    NaturalKey::from_parts(type_label, &parts).ok()
 }

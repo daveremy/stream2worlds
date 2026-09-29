@@ -100,9 +100,14 @@ impl KeySpec {
         if self.types.is_empty() {
             return Err("key spec has no types".to_owned());
         }
-        let unscored: BTreeSet<&FieldPath> = self.unscored.iter().collect();
-        if let Some(empty) = self.unscored.iter().find(|p| p.0.is_empty()) {
-            return Err(format!("an unscored path is empty: {empty:?}"));
+        let mut unscored = BTreeSet::new();
+        for path in &self.unscored {
+            if path.0.is_empty() {
+                return Err("an unscored path is empty".to_owned());
+            }
+            if !unscored.insert(path) {
+                return Err(format!("unscored path {path:?} is listed twice"));
+            }
         }
         let mut labels = BTreeSet::new();
         let mut paths = BTreeSet::new();

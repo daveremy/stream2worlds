@@ -6,10 +6,11 @@
 //! `MappingEngine` runs, so a predicted cluster is byte for byte the natural key `serve` folds.
 
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 
 use s2w_discover::rule_id;
-use s2w_model::{FieldPath, NaturalKey, StreamMapping};
-use s2w_system1::decode::{decode_path, entity_key, key_part, lookup};
+use s2w_model::{FieldPath, StreamMapping};
+use s2w_system1::decode::{decode_path, entity_key, key_part, lookup, natural_key};
 use serde_json::Value;
 
 use super::key::KeySpec;
@@ -23,13 +24,6 @@ pub(crate) struct Partition {
     pub cluster: BTreeMap<Mention, String>,
 }
 
-/// The key side: its partition and each mention's key type.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Key {
-    pub partition: Partition,
-    pub kind: BTreeMap<Mention, String>,
-}
-
 /// The payload with every decode step applied, or `None` when a step holds a non-string or
 /// invalid JSON: `MappingEngine` abstains `Unparseable` on that payload, so it mentions nothing.
 /// An absent decode path is skipped, as in the engine.
@@ -41,11 +35,12 @@ fn decoded(payload: &Value, decode: &[FieldPath]) -> Option<Value> {
     Some(value)
 }
 
-/// Applies a key spec: a record mentions an entity at a rule's path when that path and every
-/// identity path hold a key part. The gold cluster is the type and the identity parts, encoded
-/// as a natural key.
-pub(crate) fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Key {
-    let mut key = Key::default();
+/// Applies a key spec, after validating it: a record mentions an entity at a rule's path when
+/// that path and every identity path hold a key part. The gold cluster is the type and the
+/// identity parts, encoded as a natural key; its type is the key's label part.
+pub(crate) fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Result<Partition, String> {
+    spec.validate()?;
+    let mut partition = Partition::default();
     for (record, payload) in payloads.iter().enumerate() {
         let Some(value) = decoded(payload, &spec.decode) else {
             continue;
@@ -55,27 +50,15 @@ pub(crate) fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Key {
                 if lookup(&value, &rule.path).and_then(key_part).is_none() {
                     continue;
                 }
-                let Some(parts) = rule
-                    .identity
-                    .iter()
-                    .map(|path| lookup(&value, path).and_then(key_part))
-                    .collect::<Option<Vec<_>>>()
-                else {
-                    continue;
-                };
-                // A validated spec's labels never hold the separator.
-                let Ok(gold) = NaturalKey::from_parts(&kind.label, &parts) else {
-                    continue;
-                };
-                let mention = (record, rule_id(&rule.path));
-                key.partition
-                    .cluster
-                    .insert(mention.clone(), gold.as_str().to_owned());
-                key.kind.insert(mention, kind.label.clone());
+                if let Some(gold) = natural_key(&value, &kind.label, &rule.identity) {
+                    partition
+                        .cluster
+                        .insert((record, rule_id(&rule.path)), gold.as_str().to_owned());
+                }
             }
         }
     }
-    key
+    Ok(partition)
 }
 
 /// Applies a stream mapping. Each matching entity rule mentions its entity at the rule's last
@@ -90,8 +73,8 @@ pub(crate) fn mapping_mentions(
     mapping
         .validate()
         .map_err(|e| format!("the mapping is not valid: {e}"))?;
-    let mut partition = Partition::default();
-    let mut owner: BTreeMap<Mention, &str> = BTreeMap::new();
+    // Each mention's cluster and the rule that placed it there, for the conflict message.
+    let mut placed: BTreeMap<Mention, (String, &str)> = BTreeMap::new();
     for (record, payload) in payloads.iter().enumerate() {
         let Some(value) = decoded(payload, &mapping.decode) else {
             continue;
@@ -100,24 +83,26 @@ pub(crate) fn mapping_mentions(
             let (Some(cluster), Some(last)) = (entity_key(&value, rule), rule.key.last()) else {
                 continue;
             };
-            let mention = (record, rule_id(last));
             let cluster = cluster.as_str().to_owned();
-            match partition.cluster.get(&mention) {
-                Some(existing) if *existing != cluster => {
+            match placed.entry((record, rule_id(last))) {
+                Entry::Vacant(slot) => {
+                    slot.insert((cluster, &rule.id));
+                }
+                Entry::Occupied(slot) if slot.get().0 != cluster => {
                     return Err(format!(
                         "record {record}: rules {:?} and {:?} place the mention at {:?} in different clusters",
-                        owner.get(&mention).copied().unwrap_or_default(),
+                        slot.get().1,
                         rule.id,
-                        mention.1
+                        slot.key().1
                     ));
                 }
-                Some(_) => {}
-                None => {
-                    owner.insert(mention.clone(), &rule.id);
-                    partition.cluster.insert(mention, cluster);
-                }
+                Entry::Occupied(_) => {}
             }
         }
     }
-    Ok(partition)
+    let cluster = placed
+        .into_iter()
+        .map(|(mention, (cluster, _))| (mention, cluster))
+        .collect();
+    Ok(Partition { cluster })
 }

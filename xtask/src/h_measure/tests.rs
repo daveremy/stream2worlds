@@ -87,6 +87,20 @@ fn an_empty_identity_or_path_is_rejected() {
 }
 
 #[test]
+fn a_repeated_unscored_path_is_rejected() {
+    let mut value = example();
+    value["unscored"] = json!([["data", "z"], ["data", "z"]]);
+    rejects(&value, "unscored path");
+}
+
+#[test]
+fn the_key_executor_refuses_an_invalid_spec() {
+    let mut value = example();
+    value["version"] = json!(9);
+    assert!(key_mentions(&spec(&value), &[json!({})]).is_err());
+}
+
+#[test]
 fn a_bad_or_repeated_label_is_rejected() {
     let mut value = example();
     value["types"][0]["type"] = json!("a\u{1f}b");
@@ -119,7 +133,7 @@ fn aliases_with_equal_identity_values_join_one_cluster() {
         json!({ "name": "x", "alias": "x" }),
         json!({ "alias": "y" }),
     ];
-    let got = key_mentions(&key, &payloads).partition.cluster;
+    let got = key_mentions(&key, &payloads).expect("valid").cluster;
     assert_eq!(got.len(), 3);
     assert_eq!(got[&(0, "name".to_owned())], got[&(0, "alias".to_owned())]);
     assert_ne!(got[&(0, "alias".to_owned())], got[&(1, "alias".to_owned())]);
@@ -139,8 +153,8 @@ fn a_non_scalar_identity_gives_no_mention() {
         json!({ "a": "x" }),
         json!({ "a": null, "ctx": "c" }),
     ];
-    let got = key_mentions(&key, &payloads);
-    assert!(got.partition.cluster.is_empty(), "{got:?}");
+    let got = key_mentions(&key, &payloads).expect("valid");
+    assert!(got.cluster.is_empty(), "{got:?}");
 }
 
 #[test]
@@ -157,9 +171,9 @@ fn an_undecodable_payload_mentions_nothing() {
         json!({ "data": "not json" }),
         json!({ "data": 7 }),
     ];
-    let got = key_mentions(&key, &payloads);
-    assert_eq!(got.partition.cluster.len(), 1);
-    assert_eq!(got.kind[&(0, "data.a".to_owned())], "T");
+    let got = key_mentions(&key, &payloads).expect("valid").cluster;
+    assert_eq!(got.len(), 1);
+    assert!(got.contains_key(&(0, "data.a".to_owned())), "{got:?}");
 }
 
 #[test]
@@ -214,7 +228,7 @@ fn a_mapping_read_as_its_own_key_reproduces_its_mentions() {
     let key = KeySpec::from_mapping(&rules).expect("valid key");
     assert_eq!(key.types.len(), 2);
     assert_eq!(
-        key_mentions(&key, &payloads).partition,
+        key_mentions(&key, &payloads).expect("valid"),
         mapping_mentions(&rules, &payloads).expect("no conflict")
     );
 }

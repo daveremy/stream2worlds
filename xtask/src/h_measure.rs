@@ -15,15 +15,14 @@ use std::process::ExitCode;
 
 use s2w_model::{Cursor, RawEvent, SourceId, StreamMapping, Timestamp, WorldEvent};
 use s2w_system1::{Engine, MappingEngine, Verdict};
+
+// The committed sample the self-test grades: 20 stored envelopes and a hand-written mapping
+// with a composite key (decision 0021), the same pair check 11 replays.
+use crate::obfuscation_raw::{MAPPING as SAMPLE_MAPPING, RAW as SAMPLE};
 use serde_json::Value;
 
 pub(crate) mod key;
 pub(crate) mod mentions;
-
-/// The committed sample the self-test grades: 20 stored envelopes and a hand-written mapping
-/// with a composite key (decision 0021).
-const SAMPLE: &str = "crates/s2w-system1/testdata/raw-sample.jsonl";
-const SAMPLE_MAPPING: &str = "crates/s2w-system1/testdata/sample.mapping.json";
 
 /// Runs `cargo xtask h-measure <args>`.
 pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
@@ -67,11 +66,11 @@ fn selftest(root: &Path) -> Result<String, String> {
         ));
     }
     let own_key = key::KeySpec::from_mapping(&mapping)?;
-    let graded = mentions::key_mentions(&own_key, &payloads);
-    if graded.partition != predicted {
+    let graded = mentions::key_mentions(&own_key, &payloads)?;
+    if graded != predicted {
         return Err(format!(
             "executor parity: {SAMPLE_MAPPING} read as a key spec does not reproduce its own mentions ({} key mentions, {} mapping mentions)",
-            graded.partition.cluster.len(),
+            graded.cluster.len(),
             predicted.cluster.len()
         ));
     }
