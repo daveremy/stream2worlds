@@ -3,11 +3,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use s2w_model::{AttrRule, EntityRule, FieldPath, MAPPING_VERSION, RelationshipRule, StreamMapping};
+use s2w_model::{
+    AttrRule, EntityRule, FieldPath, MAPPING_VERSION, RelationshipRule, StreamMapping,
+};
 
 use crate::flatten::{BOOL, INT, STR, Table, pct};
 use crate::roles::{Dependency, Role, aliased, candidate_dependent, repeat_groups};
-use crate::{Config, rule_id, type_label};
+use crate::{Config, rule_id, type_labels};
 
 /// An entity type: an alias class, plus the key paths of classes merged into it as 1:1.
 struct Type {
@@ -16,17 +18,25 @@ struct Type {
 }
 
 /// Builds the mapping from the entity paths in `roles`, or says why there is none.
-pub(crate) fn assemble(table: &Table, roles: &[Role], cfg: &Config) -> Result<StreamMapping, String> {
-    let keys: Vec<usize> = (0..roles.len()).filter(|&p| roles[p] == Role::Entity).collect();
+pub(crate) fn assemble(
+    table: &Table,
+    roles: &[Role],
+    cfg: &Config,
+) -> Result<StreamMapping, String> {
+    let keys: Vec<usize> = (0..roles.len())
+        .filter(|&p| roles[p] == Role::Entity)
+        .collect();
     if keys.is_empty() {
         return Err("no path passed the entity test".to_owned());
     }
     let types = merge_one_to_one(table, alias_classes(table, &keys, cfg), cfg);
     let key_set: BTreeSet<usize> = keys.iter().copied().collect();
+    let classes: Vec<Vec<FieldPath>> = types
+        .iter()
+        .map(|ty| ty.members.iter().map(|&p| table.paths[p].clone()).collect())
+        .collect();
     let mut entities = Vec::new();
-    for ty in &types {
-        let paths: Vec<FieldPath> = ty.members.iter().map(|&p| table.paths[p].clone()).collect();
-        let label = type_label(&paths);
+    for (ty, label) in types.iter().zip(type_labels(&classes)) {
         for &k in &ty.members {
             let mut attrs = attributes(table, k, &key_set, cfg);
             attrs.extend(ty.merged.iter().map(|&m| attr(table, m)));
@@ -53,12 +63,17 @@ pub(crate) fn assemble(table: &Table, roles: &[Role], cfg: &Config) -> Result<St
         entities,
         relationships,
     };
-    mapping.validate().map_err(|e| format!("emitted mapping is invalid: {e}"))?;
+    mapping
+        .validate()
+        .map_err(|e| format!("emitted mapping is invalid: {e}"))?;
     Ok(mapping)
 }
 
 fn attr(table: &Table, path: usize) -> AttrRule {
-    AttrRule { name: rule_id(&table.paths[path]), path: table.paths[path].clone() }
+    AttrRule {
+        name: rule_id(&table.paths[path]),
+        path: table.paths[path].clone(),
+    }
 }
 
 /// Merges classes that determine each other (1:1, research 0002 §4: two encodings of one
@@ -71,7 +86,10 @@ fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Ve
         for j in i + 1..classes.len() {
             let pairs = co_occurring(&values[i], &values[j]);
             let swapped: Vec<(&str, &str)> = pairs.iter().map(|&(x, y)| (y, x)).collect();
-            if pairs.len() >= cfg.min_support && functional(&pairs, cfg) && functional(&swapped, cfg) {
+            if pairs.len() >= cfg.min_support
+                && functional(&pairs, cfg)
+                && functional(&swapped, cfg)
+            {
                 let (ri, rj) = (find(&parent, i), find(&parent, j));
                 parent[ri.max(rj)] = ri.min(rj);
             }
@@ -84,7 +102,10 @@ fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Ve
     let rank = |c: &Vec<usize>| {
         let col = |p: usize| &table.columns[p];
         let kind = c.iter().map(|&p| col(p).kinds).max().unwrap_or(0);
-        let kind = [BOOL, STR, INT].iter().position(|k| *k == kind).unwrap_or(0);
+        let kind = [BOOL, STR, INT]
+            .iter()
+            .position(|k| *k == kind)
+            .unwrap_or(0);
         let count = c.iter().map(|&p| col(p).cells.len()).max().unwrap_or(0);
         let distinct = c.iter().map(|&p| col(p).texts.len()).max().unwrap_or(0);
         (c.len(), count, distinct, kind)
@@ -92,13 +113,22 @@ fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Ve
     let mut types = Vec::new();
     for members in components.into_values() {
         let mut ranked: Vec<_> = members.iter().map(|&i| (rank(&classes[i]), i)).collect();
-        ranked.sort_by(|a, b| b.0.cmp(&a.0));
+        ranked.sort_by_key(|r| std::cmp::Reverse(r.0));
         let unique_top = ranked.len() == 1 || ranked[0].0 != ranked[1].0;
         if unique_top {
-            let merged = ranked[1..].iter().flat_map(|&(_, i)| classes[i].clone()).collect();
-            types.push(Type { members: classes[ranked[0].1].clone(), merged });
+            let merged = ranked[1..]
+                .iter()
+                .flat_map(|&(_, i)| classes[i].clone())
+                .collect();
+            types.push(Type {
+                members: classes[ranked[0].1].clone(),
+                merged,
+            });
         } else {
-            types.extend(members.iter().map(|&i| Type { members: classes[i].clone(), merged: Vec::new() }));
+            types.extend(members.iter().map(|&i| Type {
+                members: classes[i].clone(),
+                merged: Vec::new(),
+            }));
         }
     }
     types
@@ -152,7 +182,10 @@ fn attributes(table: &Table, k: usize, keys: &BTreeSet<usize>, cfg: &Config) -> 
             let d = Dependency::measure(table, &groups, a);
             d.considered >= cfg.min_groups && d.share() >= cfg.fd_accept_pct
         })
-        .map(|a| AttrRule { name: rule_id(&table.paths[a]), path: table.paths[a].clone() })
+        .map(|a| AttrRule {
+            name: rule_id(&table.paths[a]),
+            path: table.paths[a].clone(),
+        })
         .collect();
     attrs.sort_by(|a, b| a.name.cmp(&b.name));
     attrs
@@ -162,7 +195,12 @@ fn attributes(table: &Table, k: usize, keys: &BTreeSet<usize>, cfg: &Config) -> 
 /// any present member will do.
 fn class_values(table: &Table, class: &[usize]) -> Vec<Option<String>> {
     (0..table.events)
-        .map(|e| class.iter().find_map(|&p| table.text(e, p)).map(str::to_owned))
+        .map(|e| {
+            class
+                .iter()
+                .find_map(|&p| table.text(e, p))
+                .map(str::to_owned)
+        })
         .collect()
 }
 
@@ -202,8 +240,16 @@ fn relate(table: &Table, a: &[usize], b: &[usize], cfg: &Config) -> Vec<Relation
 /// The members of a class that relationships name: those carried by the most events. Aliases
 /// hold equal values, so one would do; a tie keeps every tied member rather than pick by name.
 fn endpoints(table: &Table, class: &[usize]) -> Vec<usize> {
-    let most = class.iter().map(|&p| table.columns[p].cells.len()).max().unwrap_or(0);
-    class.iter().copied().filter(|&p| table.columns[p].cells.len() == most).collect()
+    let most = class
+        .iter()
+        .map(|&p| table.columns[p].cells.len())
+        .max()
+        .unwrap_or(0);
+    class
+        .iter()
+        .copied()
+        .filter(|&p| table.columns[p].cells.len() == most)
+        .collect()
 }
 
 /// Whether the left value determines the right one: constant right values under repeated

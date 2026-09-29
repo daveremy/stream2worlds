@@ -48,7 +48,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            min_events: 200,
+            min_events: 1000,
             min_support: 20,
             min_groups: 5,
             event_id_pct: 98,
@@ -131,7 +131,10 @@ pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
         paths,
     };
     let discovery = if table.events < cfg.min_events {
-        Discovery::Abstain(format!("{} events, fewer than {}", table.events, cfg.min_events))
+        Discovery::Abstain(format!(
+            "{} events, fewer than {}",
+            table.events, cfg.min_events
+        ))
     } else {
         match assemble::assemble(&table, &roles, cfg) {
             Ok(mapping) => Discovery::Mapping(mapping),
@@ -141,38 +144,68 @@ pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
     (profile, discovery)
 }
 
-/// A rule id or attribute name for `path`: its segments joined by `.`.
+/// A rule id or attribute name for `path`: its segments joined by `.`, with `\` and `.` inside
+/// a segment escaped by `\`, so distinct paths never share an id.
 #[must_use]
 pub fn rule_id(path: &FieldPath) -> String {
     path.0
         .iter()
         .map(|s| match s {
-            Segment::Key(k) => k.clone(),
+            Segment::Key(k) => escape(k, &['.']),
             Segment::Index(i) => i.to_string(),
         })
         .collect::<Vec<_>>()
         .join(".")
 }
 
-/// A type label for an alias class: the sorted, distinct `parent/leaf` tails of its key paths,
-/// joined by `+`. Built from the stream's own key names until System 2 names types.
+/// Type labels for entity types, one per class of key paths, in the same order. A label is the
+/// sorted, distinct `parent/leaf` tails of the class's paths joined by `+` (`\`, `/` and `+`
+/// escaped), built from the stream's own key names until System 2 names types. When two classes
+/// would share a label, both use their full paths instead, which are distinct.
 #[must_use]
-pub fn type_label(paths: &[FieldPath]) -> String {
+pub fn type_labels(classes: &[Vec<FieldPath>]) -> Vec<String> {
+    let short: Vec<String> = classes.iter().map(|c| label(c, 2)).collect();
+    short
+        .iter()
+        .zip(classes)
+        .map(|(l, c)| {
+            if short.iter().filter(|o| *o == l).count() > 1 {
+                label(c, usize::MAX)
+            } else {
+                l.clone()
+            }
+        })
+        .collect()
+}
+
+/// The last `depth` key segments of each path, joined by `/`; distinct tails joined by `+`.
+fn label(paths: &[FieldPath], depth: usize) -> String {
     let tails: std::collections::BTreeSet<String> = paths
         .iter()
         .map(|p| {
-            let keys: Vec<&str> = p
-                .0
-                .iter()
-                .filter_map(|s| match s {
-                    Segment::Key(k) => Some(k.as_str()),
-                    Segment::Index(_) => None,
-                })
-                .collect();
-            keys[keys.len().saturating_sub(2)..].join("/")
+            let keys: Vec<String> =
+                p.0.iter()
+                    .filter_map(|s| match s {
+                        Segment::Key(k) => Some(escape(k, &['/', '+'])),
+                        Segment::Index(_) => None,
+                    })
+                    .collect();
+            keys[keys.len().saturating_sub(depth)..].join("/")
         })
         .collect();
     tails.into_iter().collect::<Vec<_>>().join("+")
+}
+
+/// `text` with `\` and every char in `special` prefixed by `\`.
+fn escape(text: &str, special: &[char]) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if c == '\\' || special.contains(&c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 #[cfg(test)]

@@ -106,3 +106,10 @@ The initial 400-line cap is report-only. Exemption growth is separately checked 
 `origin/main`, requiring a `Baseline-growth: s2w#<N>` trailer anywhere in the PR commit range.
 One trailer authorizes every exemption that grows in that range. A failed base read allows
 no unauthorised growth and prints its cause.
+
+### Amendment, 2026-09-28: `s2w-discover`, a second pure crate ([0022](0022-discover-profiler.md))
+
+`s2w-discover → s2w-model` joins the layer diagram as a pure crate under the same rules as the
+core: no I/O, no clock, no randomness, no hash-order iteration, its own `clippy.toml` with the
+core's bans. It profiles raw payloads and proposes a `StreamMapping`. No crate depends on it yet;
+wiring it into `serve` is #163 PR 4, which amends this record again if the layer line changes.

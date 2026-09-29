@@ -101,7 +101,11 @@ impl Dependency {
                 values.insert(seen[0]);
             }
         }
-        Self { considered: groups.len(), constant, distinct: values.len() }
+        Self {
+            considered: groups.len(),
+            constant,
+            distinct: values.len(),
+        }
     }
 
     /// Share of considered groups where `a` is constant, in percent.
@@ -131,7 +135,8 @@ pub(crate) fn single_column(column: &Column, cfg: &Config) -> Option<Role> {
     } else if pct(distinct, count) >= cfg.event_id_pct {
         Role::EventId
     } else if pct(distinct, count) < cfg.grey_uniqueness_pct
-        && recurrence_pct(column) < cfg.min_recurrence_pct {
+        && recurrence_pct(column) < cfg.min_recurrence_pct
+    {
         Role::Sequence
     } else {
         return None;
@@ -146,7 +151,11 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
     let grey = pct(column.texts.len(), column.cells.len()) >= cfg.grey_uniqueness_pct;
     let groups = repeat_groups(column);
     if groups.len() < cfg.min_groups {
-        return if grey { Role::GreyUniqueness } else { Role::FewGroups };
+        return if grey {
+            Role::GreyUniqueness
+        } else {
+            Role::FewGroups
+        };
     }
     let best = (0..table.paths.len())
         .filter(|&a| a != k && candidate_dependent(&table.columns[a], cfg))
@@ -191,7 +200,7 @@ pub(crate) fn event_type(table: &Table, cfg: &Config) -> Option<usize> {
         .map(|c| (explained(table, c, &optional), c))
         .filter(|&(score, _)| score > 0)
         .collect();
-    scored.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_unstable_by_key(|s| std::cmp::Reverse(s.0));
     match scored[..] {
         [(top, c), (next, _), ..] if top > next => Some(c),
         [(_, c)] => Some(c),
@@ -212,7 +221,10 @@ fn explained(table: &Table, c: usize, optional: &[usize]) -> usize {
         .iter()
         .filter(|&&p| {
             by_value.values().all(|events| {
-                let carried = events.iter().filter(|&&e| table.rows[e].contains_key(&p)).count();
+                let carried = events
+                    .iter()
+                    .filter(|&&e| table.rows[e].contains_key(&p))
+                    .count();
                 let share = pct(carried, events.len());
                 share <= 2 || share >= 98
             })

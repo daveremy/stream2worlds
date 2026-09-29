@@ -132,7 +132,10 @@ impl Table {
     /// The value text of `path` in `event`, if keyable and present.
     pub(crate) fn text(&self, event: usize, path: usize) -> Option<&str> {
         let id = *self.rows[event].get(&path)?;
-        self.columns[path].texts.get(id as usize).map(String::as_str)
+        self.columns[path]
+            .texts
+            .get(id as usize)
+            .map(String::as_str)
     }
 }
 
@@ -161,5 +164,5 @@ fn decode_keys(objects: &[Map<String, Value>], cfg: &Config) -> Vec<String> {
 
 /// `part / whole` in whole percent, rounded down; 0 when `whole` is 0.
 pub(crate) fn pct(part: usize, whole: usize) -> usize {
-    if whole == 0 { 0 } else { part * 100 / whole }
+    (part * 100).checked_div(whole).unwrap_or(0)
 }
