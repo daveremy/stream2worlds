@@ -33,7 +33,8 @@ cargo xtask h-measure freeze --corpus dev --window 10000 --out FILE [--dir DIR]
 `--dir` defaults to `~/.local/share/stream2worlds/h-measure`. `freeze` checks every key pin
 and the corpus pin, and refuses: a corpus whose `role` is not `development` (a mapping
 is never discovered on held-out or reserved data), an `--out` that exists (a frozen mapping is
-never overwritten), and a corpus whose frame count is not its pinned `events`. The file
+never overwritten), a corpus whose frame count is not its pinned `events`, and a `--window`
+outside 1 to that count (the mapping is discovered on the first `--window` events). The file
 records the corpus sha256, the window, the profiler version and config, every key and corpus
 pin (a corpus pin includes its role, file and event count), and the profile's abstained paths, so a score can prove what it was frozen against.
 
