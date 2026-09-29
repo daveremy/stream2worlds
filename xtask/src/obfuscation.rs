@@ -30,7 +30,7 @@ use std::fs;
 use std::path::Path;
 
 use s2w_core::{World, WorldEvent, fold};
-use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
+use s2w_model::{Cursor, RawEvent, SourceId, Timestamp, fnv1a64_hex};
 use s2w_system1::{Engine, JsonClaimsEngine, Verdict};
 use serde_json::Value;
 
@@ -340,21 +340,6 @@ fn normalize(mut v: Value) -> Value {
         rels.sort_by_key(ToString::to_string);
     }
     v
-}
-
-// ---------- FNV-1a, 64-bit ----------
-//
-// xtask cannot depend on s2w-sources (its own dependency allowlist forbids it — this check
-// enforces exactly that kind of edge on every other crate); this is the same algorithm as
-// `s2w_sources::hash::fnv1a64_hex`, kept in sync by inspection, not by sharing code.
-
-pub(crate) fn fnv1a64_hex(bytes: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for &byte in bytes {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }
 
 #[cfg(test)]

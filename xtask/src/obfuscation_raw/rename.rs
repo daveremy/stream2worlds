@@ -3,15 +3,15 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use s2w_model::{
-    AttrValue, FieldPath, KEY_SEPARATOR, NaturalKey, Segment, StreamMapping, WorldEvent,
-};
+use s2w_model::{AttrValue, FieldPath, KeyPart, NaturalKey, StreamMapping, WorldEvent};
+use s2w_system1::decode::{decode_path, lookup_mut};
 use serde_json::Value;
 
 use super::Maps;
 
-/// Decodes `payload` at each `decode` path in order, exactly as the engine does: an absent path
-/// is skipped, a non-string or invalid JSON is an error. Returns the tree and the paths decoded.
+/// Decodes `payload` at each `decode` path in order with the engine's own [`decode_path`]: an
+/// absent path is skipped, a non-string or invalid JSON is an error. Returns the tree and the
+/// paths decoded.
 pub(super) fn decode_all(
     payload: &Value,
     decode: &[FieldPath],
@@ -19,26 +19,11 @@ pub(super) fn decode_all(
     let mut tree = payload.clone();
     let mut applied = Vec::new();
     for path in decode {
-        let Some(slot) = lookup_mut(&mut tree, path) else {
-            continue;
-        };
-        let Value::String(text) = slot else {
-            return Err("a decode path holds a non-string value".to_owned());
-        };
-        *slot = serde_json::from_str(text)
-            .map_err(|e| format!("a decode path holds invalid JSON: {e}"))?;
-        applied.push(path.clone());
+        if decode_path(&mut tree, path)? {
+            applied.push(path.clone());
+        }
     }
     Ok((tree, applied))
-}
-
-fn lookup_mut<'v>(value: &'v mut Value, path: &FieldPath) -> Option<&'v mut Value> {
-    path.0
-        .iter()
-        .try_fold(value, |node, segment| match segment {
-            Segment::Key(key) => node.as_object_mut()?.get_mut(key),
-            Segment::Index(index) => node.as_array_mut()?.get_mut(*index),
-        })
 }
 
 impl Maps {
@@ -124,30 +109,31 @@ impl Maps {
         }
     }
 
-    /// Splits a key on the separator: the label via the value map, each JSON string part via
-    /// the value map (re-quoted), integer and boolean parts unchanged.
+    /// Reads a key with [`NaturalKey::parts`]: the label and each string part via the value
+    /// map, integer and boolean parts unchanged, rebuilt with [`NaturalKey::from_parts`].
     fn natural_key(&self, key: &NaturalKey) -> Result<NaturalKey, String> {
-        let mut parts = key.as_str().split(KEY_SEPARATOR);
-        let label = parts.next().unwrap_or_default();
-        let mut renamed = self.value(label)?;
-        for part in parts {
-            let parsed: Value = serde_json::from_str(part)
-                .map_err(|e| format!("raw obfuscation replay: key part {part:?}: {e}"))?;
-            let part = match parsed {
-                Value::String(text) => {
-                    serde_json::to_string(&self.value(&text)?).map_err(|e| e.to_string())?
-                }
-                _ => part.to_owned(),
-            };
-            renamed.push(KEY_SEPARATOR);
-            renamed.push_str(&part);
-        }
-        Ok(NaturalKey::new(renamed))
+        let (label, parts) = read_key(key)?;
+        let parts = parts
+            .into_iter()
+            .map(|part| match part {
+                KeyPart::Str(text) => self.value(&text).map(KeyPart::Str),
+                other => Ok(other),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        NaturalKey::from_parts(&self.value(label)?, &parts)
+            .map_err(|e| format!("raw obfuscation replay: renamed key {key:?}: {e}"))
     }
+}
+
+/// A key's label and parts; a key that does not read is a check failure, never skipped.
+fn read_key(key: &NaturalKey) -> Result<(&str, Vec<KeyPart>), String> {
+    key.parts()
+        .map_err(|e| format!("raw obfuscation replay: key {key:?}: {e}"))
 }
 
 /// What pass A must exercise for the replay to mean anything.
 pub(super) fn non_vacuity(claims: &[WorldEvent], expected: &[WorldEvent]) -> Vec<String> {
+    let mut problems = Vec::new();
     let mut types = BTreeSet::new();
     let (mut rels, mut multi, mut int_part, mut str_attr) = (0, false, false, false);
     for claim in claims {
@@ -158,9 +144,13 @@ pub(super) fn non_vacuity(claims: &[WorldEvent], expected: &[WorldEvent]) -> Vec
                 attrs,
             } => {
                 types.insert(entity_type.as_str());
-                let parts: Vec<&str> = key.as_str().split(KEY_SEPARATOR).skip(1).collect();
-                multi |= parts.len() >= 2;
-                int_part |= parts.iter().any(|p| p.parse::<i64>().is_ok());
+                match read_key(key) {
+                    Ok((_, parts)) => {
+                        multi |= parts.len() >= 2;
+                        int_part |= parts.iter().any(|p| matches!(p, KeyPart::Int(_)));
+                    }
+                    Err(problem) => problems.push(problem),
+                }
                 str_attr |= attrs.values().any(|v| matches!(v, AttrValue::Str(_)));
             }
             WorldEvent::RelationshipObserved { .. } => rels += 1,
@@ -180,12 +170,14 @@ pub(super) fn non_vacuity(claims: &[WorldEvent], expected: &[WorldEvent]) -> Vec
     .map(|(_, what)| {
         format!("raw obfuscation replay is vacuous: pass A must yield at least {what}. Extend the fixture or the mapping")
     })
+    .chain(problems)
     .collect()
 }
 
 /// Every string pass B carries that is an original raw string leaf: the obfuscation missed it.
 pub(super) fn leaked_leaves(claims: &[WorldEvent], raw_leaves: &BTreeSet<String>) -> Vec<String> {
     let mut seen = BTreeSet::new();
+    let mut problems = Vec::new();
     for claim in claims {
         let (keys, labels): (Vec<&NaturalKey>, Vec<&str>) = match claim {
             WorldEvent::EntityObserved {
@@ -205,22 +197,27 @@ pub(super) fn leaked_leaves(claims: &[WorldEvent], raw_leaves: &BTreeSet<String>
             }
             _ => (vec![], vec![]),
         };
-        let parts = keys.into_iter().flat_map(key_strings);
-        seen.extend(labels.into_iter().map(str::to_owned).chain(parts));
+        seen.extend(labels.into_iter().map(str::to_owned));
+        for key in keys {
+            match key_strings(key) {
+                Ok(strings) => seen.extend(strings),
+                Err(problem) => problems.push(problem),
+            }
+        }
     }
     seen.intersection(raw_leaves)
         .map(|leaf| format!("raw obfuscation replay: pass B still carries the raw string {leaf:?}; the obfuscation missed a field"))
+        .chain(problems)
         .collect()
 }
 
 /// A key's label and its string parts, unquoted.
-fn key_strings(key: &NaturalKey) -> Vec<String> {
-    let mut parts = key.as_str().split(KEY_SEPARATOR);
-    let label = parts.next().unwrap_or_default().to_owned();
-    std::iter::once(label)
-        .chain(parts.filter_map(|p| match serde_json::from_str(p) {
-            Ok(Value::String(text)) => Some(text),
+fn key_strings(key: &NaturalKey) -> Result<Vec<String>, String> {
+    let (label, parts) = read_key(key)?;
+    Ok(std::iter::once(label.to_owned())
+        .chain(parts.into_iter().filter_map(|part| match part {
+            KeyPart::Str(text) => Some(text),
             _ => None,
         }))
-        .collect()
+        .collect())
 }

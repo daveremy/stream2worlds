@@ -1,5 +1,6 @@
 //! Deterministic per-event engines proposing claims without seeing the folded world.
 
+pub mod decode;
 mod engines;
 mod verdict;
 

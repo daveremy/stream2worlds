@@ -149,6 +149,23 @@ fn a_raw_leaf_left_in_pass_b_is_reported() {
 }
 
 #[test]
+fn a_key_that_does_not_read_fails_closed() {
+    let claim = WorldEvent::EntityObserved {
+        key: NaturalKey::new(format!("t{KEY_SEPARATOR}007")),
+        entity_type: "t".to_owned(),
+        attrs: BTreeMap::new(),
+    };
+    let leaked = rename::leaked_leaves(std::slice::from_ref(&claim), &BTreeSet::new());
+    assert_eq!(leaked.len(), 1, "{leaked:?}");
+    assert!(leaked[0].contains("key part 0"), "{leaked:?}");
+    let vacuous = rename::non_vacuity(std::slice::from_ref(&claim), &[]);
+    assert!(
+        vacuous.iter().any(|p| p.contains("key part 0")),
+        "{vacuous:?}"
+    );
+}
+
+#[test]
 fn the_maps_cover_every_mapping_name_and_decode_into_the_data_string() {
     let payloads = parse_lines(&RAW_TEXT.lines().collect::<Vec<_>>()).unwrap();
     let mapping: StreamMapping = serde_json::from_str(MAPPING_TEXT).unwrap();

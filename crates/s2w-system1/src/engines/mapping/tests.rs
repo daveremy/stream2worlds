@@ -1,6 +1,6 @@
 use super::*;
 use crate::raw;
-use s2w_model::{AttrRule, MAPPING_VERSION, RelationshipRule};
+use s2w_model::{AttrRule, FieldPath, KEY_SEPARATOR, MAPPING_VERSION, RelationshipRule, Segment};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
