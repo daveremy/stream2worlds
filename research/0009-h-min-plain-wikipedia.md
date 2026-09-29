@@ -325,7 +325,7 @@ ceiling (0.25, the best single v0 type).
 
 | | prediction | measured | |
 |---|---|---|---|
-| P1 | `user` R >= 0.95, `user` P in [0.85, 0.97] | R 1.0000, P 0.9682 | hit (P 0.003 inside the upper bound) |
+| P1 | `user` R >= 0.95, `user` P in [0.85, 0.97] | R 1.0000, P 0.9682 | hit (P 0.002 inside the upper bound) |
 | P2 | mapping R delta >= +0.08, F1 delta >= +0.10 | +0.1143, +0.1511 | hit |
 | P3 | mapping P >= 0.95 and below v3's; no new spurious cluster at a scored path | 0.9912 < 0.9988; only `data.user` changes | hit |
 | P4 | entity recovery > 0 and < 0.60 | 0.0420 | hit |
