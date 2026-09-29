@@ -244,13 +244,11 @@ impl Resolver<'_> {
                 {
                     return Res::External;
                 }
-                // A generic parameter, or a name from a glob of an extern crate's module.
-                None if self.modules.get(m).is_some_and(|x| {
-                    x.generics.contains(name)
-                        || x.uses.iter().any(|u| {
-                            matches!(u, Use::Glob(p) if self.path(m, p, depth + 1) == Res::External)
-                        })
-                }) =>
+                // A generic parameter.
+                None if self
+                    .modules
+                    .get(m)
+                    .is_some_and(|x| x.generics.contains(name)) =>
                 {
                     return Res::External;
                 }
@@ -293,12 +291,24 @@ impl Resolver<'_> {
                 return Some(self.path(m, path, depth + 1));
             }
         }
-        module.uses.iter().find_map(|u| match u {
-            Use::Glob(path) => match self.path(m, path, depth + 1) {
-                Res::Module(g) if &g != m => self.lookup(&g, name, depth + 1),
+        // Globs of modules first; then, as a last resort, a glob of an enum (its variants live
+        // in the enum's module) or of an extern crate's module. Both over-approximate: the name
+        // may not be in that glob, but the glob's own path is already an edge of this module.
+        let globs: Vec<Res> = module
+            .uses
+            .iter()
+            .filter_map(|u| match u {
+                Use::Glob(path) => Some(self.path(m, path, depth + 1)),
+                Use::Named(..) => None,
+            })
+            .collect();
+        globs
+            .iter()
+            .find_map(|g| match g {
+                Res::Module(g) if g != m => self.lookup(g, name, depth + 1),
                 _ => None,
-            },
-            Use::Named(..) => None,
-        })
+            })
+            .or_else(|| globs.iter().find(|g| matches!(g, Res::Item(_))).cloned())
+            .or_else(|| globs.contains(&Res::External).then_some(Res::External))
     }
 }

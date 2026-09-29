@@ -186,3 +186,35 @@ fn a_deeper_cycle_does_not_hide_a_wider_shallow_one() {
         "{f:?}"
     );
 }
+
+#[test]
+fn an_enum_variant_glob_re_export_resolves_to_the_enum_module() {
+    // `pub use self::Kind::*;` flattens variants; `use crate::k::K` must resolve (not be an
+    // unresolvable-path finding) and carry the `m -> k` edge that closes this cycle.
+    let f = findings(&[
+        ("lib.rs", "mod k;\nmod m;\n"),
+        (
+            "k.rs",
+            "pub enum Kind { K }\npub use self::Kind::*;\nfn f(_: crate::m::M) {}\n",
+        ),
+        (
+            "m.rs",
+            "use crate::k::K;\npub struct M;\nfn g() { let _ = K; }\n",
+        ),
+    ]);
+    assert_eq!(f.len(), 1, "{f:?}");
+    assert!(f[0].contains("module cycle in demo::k, demo::m"), "{f:?}");
+}
+
+#[test]
+fn an_extern_glob_through_an_internal_prelude_is_not_a_finding() {
+    let f = findings(&[
+        ("lib.rs", "mod prelude;\nmod m;\n"),
+        ("prelude.rs", "pub use std::fmt::*;\n"),
+        (
+            "m.rs",
+            "use crate::prelude::*;\nfn f(x: &u8, out: &mut Formatter) { let _ = Display::fmt(x, out); }\n",
+        ),
+    ]);
+    assert!(f.is_empty(), "{f:?}");
+}

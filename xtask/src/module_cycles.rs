@@ -5,10 +5,13 @@
 //! a `mod.rs` or `lib.rs` re-export is seen. An edge between a module and its own ancestor is
 //! containment and is dropped; siblings under a shared ancestor are real edges. Tarjan's SCCs
 //! with more than one module are violations. Test-only code is skipped, like the size walker.
-//! Gap, accepted: paths that exist only after macro expansion, and macro bodies that do not
-//! parse as comma-separated expressions, are invisible to this check. Single-segment names are
-//! resolved without local scopes, so a local variable named like an imported module's item
-//! adds that edge.
+//! Gaps, accepted: paths that exist only after macro expansion, and macro bodies that do not
+//! parse as comma-separated expressions (`matches!(x, Some(_))`, `vec![v; n]`), are invisible
+//! to this check, as are textually scoped `macro_rules!` used across siblings via
+//! `#[macro_use]`. Single-segment names are resolved without local scopes, so a local variable
+//! named like an imported module's item adds that edge, and any single-segment name that does
+//! not resolve is skipped rather than reported. `extern crate foo as bar;` renames are not
+//! followed, so `bar::X` is reported as unresolvable.
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
