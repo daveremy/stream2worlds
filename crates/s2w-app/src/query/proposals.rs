@@ -60,7 +60,10 @@ pub struct ProposalDto {
     pub class: String,
     /// The proposal's author.
     pub actor: ActorDto,
-    /// The event-log position the proposal was made against.
+    /// The event-log position the proposal was made against: a position in the append-only
+    /// event log, not a fold offset, so it carries no epoch (s2w#201). A rebuild re-folds the
+    /// same log under new routes and changes every fold offset's meaning, never a log position.
+    /// Do not pass it as `at` with an epoch.
     pub snapshot_offset: u64,
     /// Stored payload hash as 16 lowercase hex digits (the unsigned 64-bit
     /// value), a string because JSON numbers above 2^53 lose precision in JS.

@@ -39,6 +39,15 @@ not recompute the hash; only `proposals()` verifies integrity. `grade` takes sum
 **Shared helper.** `map_constraint` in `s2w-log` maps a SQLite constraint violation for both
 `verdicts.rs` and `proposals/sqlite.rs`.
 
+**`snapshot_offset` carries no epoch (2026-09-29, s2w#201).** A proposal's `snapshot_offset` is
+a position in the append-only event log (discover writes its window's last position), not a
+fold offset. The epoch (decision 0023) names a fold history: a rebuild re-folds the same log
+under new routes, so fold offsets change meaning and log positions do not. The view therefore
+serves the same bytes under every epoch, on HTTP, MCP and `s2w proposals list --json`, and a
+client must not pass `snapshot_offset` as `at`. Pinned by
+`snapshot_offset_is_a_log_position_with_no_epoch_and_survives_a_rebuild` in
+`tests/proposals.rs`.
+
 ## Consequences
 
 - Follow-up (not in this change): an `s2w proposals` CLI and a human-decision surface.

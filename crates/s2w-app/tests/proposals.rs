@@ -16,7 +16,7 @@ mod tests {
     use rmcp::{RoleClient, ServiceExt};
     use s2w_app::mcp::WorldMcp;
     use s2w_app::query::{
-        GradeDto, ProposalsView, QueryError, QueryState, Timeline, proposals_view, router,
+        Epoch, GradeDto, ProposalsView, QueryError, QueryState, Timeline, proposals_view, router,
     };
     use s2w_core::DEFAULT_HUB_IN_DEGREE_CAP;
     use s2w_log::{
@@ -242,6 +242,52 @@ mod tests {
             let (status, body) = http_get(state, "/worlds/other/proposals").await;
             assert_eq!(status, StatusCode::NOT_FOUND);
             assert_eq!(body["error"], "unknown_world");
+        });
+    }
+
+    /// s2w#201: a proposal's `snapshot_offset` is an event-log position, not a fold offset, so
+    /// it carries no epoch. A rebuild (another epoch over the same log) serves the same bytes.
+    #[test]
+    fn snapshot_offset_is_a_log_position_with_no_epoch_and_survives_a_rebuild() {
+        let dir = TestDirectory::new("epoch-free");
+        drop(seed(dir.path()));
+        let under = |epoch: u64| {
+            QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP).with_epoch(Epoch(epoch)))
+                .with_log_dir(dir.path())
+        };
+        run(async {
+            let (_, time_a) = http_get(under(0xa), "/worlds/default/time").await;
+            let (_, time_b) = http_get(under(0xb), "/worlds/default/time").await;
+            assert_ne!(time_a["epoch"], time_b["epoch"], "two histories");
+            let (status, a) = http_get(under(0xa), "/worlds/default/proposals").await;
+            assert_eq!(status, StatusCode::OK);
+            let (_, b) = http_get(under(0xb), "/worlds/default/proposals").await;
+            assert_eq!(
+                a, b,
+                "the proposals view does not depend on the served epoch"
+            );
+            let top: Vec<&str> = a.as_object().unwrap().keys().map(String::as_str).collect();
+            assert_eq!(top, ["decisions", "grades", "proposals"]);
+            let keys: Vec<&str> = a["proposals"][0]
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            assert_eq!(
+                keys,
+                [
+                    "actor",
+                    "class",
+                    "id",
+                    "payload_hash",
+                    "proposed_at_ms",
+                    "seq",
+                    "snapshot_offset"
+                ],
+                "no epoch next to snapshot_offset"
+            );
+            assert_eq!(a["proposals"][0]["snapshot_offset"], position().as_u64());
         });
     }
 
