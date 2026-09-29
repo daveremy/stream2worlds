@@ -3,7 +3,6 @@
 //! maps a `s2w watch` URI to one. None joins a consumer group or commits offsets.
 
 mod filter;
-mod hash;
 mod kafka;
 mod ndjson;
 mod presets;

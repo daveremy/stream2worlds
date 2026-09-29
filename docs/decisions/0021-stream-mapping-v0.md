@@ -44,7 +44,8 @@ knowledge needs, whether a heuristic profiler, System 2 or an operator: a mappin
 `name()` is `mapping`; `version()` is 1 and versions the executor's code only. The mapping is
 named in `provenance()` as `{"mapping_hash":"<16 hex>"}`, FNV-1a/64 over the mapping's
 serde_json bytes (field order is declaration order). The FNV helper is a local copy: this crate
-may not depend on `s2w-sources`. **(engine name, version) does not identify a mapping.** The
+may not depend on `s2w-sources`. *(Amended 2026-09-28, s2w#170: FNV-1a 64 now lives once, in
+`s2w_model::fnv1a64`; see Amendments.)* **(engine name, version) does not identify a mapping.** The
 verdict log keys verdicts on (position, engine, version) (0012), so two mappings run under the
 same executor version would share keys. PR 2, which builds routes from stored mappings, must
 fold a mapping digest into that identity or reset stored verdicts when the mapping changes.
@@ -102,5 +103,17 @@ object → site. It is recorded domain data under `testdata/` (0018 §4); no Rus
   about mappings yet. #163 PR 5 adds per-source mapping state to `/worlds/{w}/sources`, the MCP
   `sources` tool and the web sources line.
 - No new dependencies; the allowlist is unchanged.
+
+## Amendments
+
+**2026-09-28 (s2w#170).** One owner for each shared piece, with no value changed:
+- The natural-key text (rule 3) is built and read only by `s2w_model::NaturalKey::from_parts` and
+  `NaturalKey::parts`, next to `KEY_SEPARATOR`. The string-part encoding is pinned byte for byte
+  against `serde_json::to_string`; `parts` accepts only what `from_parts` writes. The format is
+  not versioned yet: s2w#163 PR 2, which first persists key text, owns that decision.
+- Decode and path lookup live in `s2w_system1::decode`; `MappingEngine` and `cargo xtask check`
+  11 both call it, so the check cannot drift from the engine.
+- FNV-1a 64 lives in `s2w_model` (`Fnv64`, `fnv1a64`, `fnv1a64_hex`). Every former copy calls it;
+  source ids, log content hashes, snapshot checksums and `FOLD_FIXTURE_HASH` are unchanged.
 
 verify: `cargo test -p s2w-system1 mapping && cargo xtask check` passes.

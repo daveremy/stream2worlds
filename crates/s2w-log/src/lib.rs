@@ -40,8 +40,6 @@ const LOCK_FILE: &str = "LOCK";
 const SCHEMA_VERSION: i64 = 4;
 const MAX_PAYLOAD_BYTES: usize = 8 * 1024 * 1024;
 const REPLAY_PAGE_SIZE: i64 = 256;
-const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x100_0000_01b3;
 
 /// Opens (creating if needed) a SQLite-backed store in `directory`: acquires an exclusive file
 /// lock, opens the database, forces WAL mode and `extra_pragmas`, then checks the stored
@@ -151,18 +149,13 @@ fn check_payload_size(len: usize) -> Result<(), LogError> {
 
 /// A deterministic, dependency-free hash of a payload's bytes, used to key append dedupe.
 ///
-/// FNV-1a over the payload, reinterpreted as a signed integer for SQLite storage. Deliberately
+/// `s2w_model::fnv1a64` over the payload, reinterpreted as a signed integer for SQLite storage. Deliberately
 /// not `DefaultHasher`, whose per-process random seed would break dedupe across restarts. The
 /// value is persisted, so the algorithm is pinned by a known-answer test: changing it silently
 /// would change dedupe for every existing log. A 64-bit hash can collide, so the append paths
 /// compare payload bytes on a hit and fail loudly instead of dropping a distinct event.
 fn content_hash(payload: &[u8]) -> i64 {
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in payload {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    i64::from_ne_bytes(hash.to_ne_bytes())
+    i64::from_ne_bytes(s2w_model::fnv1a64(payload).to_ne_bytes())
 }
 
 /// A monotonically increasing position assigned by one event log.
