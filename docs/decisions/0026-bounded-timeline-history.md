@@ -146,11 +146,13 @@ does in serve. Release build, runs interleaved on a shared host:
 | **History cap 50,000 (the new default)** | | **548.3-548.5 MiB** | **548.5-563.0 MiB** |
 | Backfill with a viewer (5 s tick), cap 50,000 | 876-902 MiB (cap 20,000) | 871.6-882.9 MiB (2 runs) | |
 
-The early drop adds little on its own (531.0 MiB against PR A's 530.9 at batch 250); the batch
-size is the saving. `bridge-run`'s second mode, about 60 MiB higher at batch 1000, shrank to about
-15 MiB. Wall time did not rise. Each retained world event costs about 0.53-0.59 KiB. The cap is
-the largest multiple of 10,000 whose predicted peak, from the worst cap-2 run of either topology,
-stays under 570 MiB (a 30 MiB margin under the asserted 600 MiB). `bridge` still asserts 600 MiB;
+The early drop saved nothing measurable (531.0 MiB against PR A's 530.9 at batch 250); the batch
+size is the whole saving. `bridge-run`'s second mode, about 60 MiB higher at batch 1000, shrank to about
+15 MiB. Wall times on the shared host were too noisy to compare; PR A's quieter sweep measured
+73.2 s at batch 1000 and 73.4 s at 250. Each retained world event costs about 0.53 KiB
+(`bridge-run`) to 0.59 KiB (`bridge`). The cap is the largest multiple of 10,000 whose predicted
+peak, from the worst cap-2 run of either topology (538.5 MiB) plus 0.59 KiB per event (the larger
+slope), stays under 570 MiB (a 30 MiB margin under the asserted 600 MiB). `bridge` still asserts 600 MiB;
 `bridge-run` is reported and not asserted, because a bimodal value would flake. Neither variant
 includes serve's snapshot encode, HTTP server or SSE, so the demo box holding at 1 GiB is inferred
 from these runs rather than measured there. The allocator swap is #220's PR C.

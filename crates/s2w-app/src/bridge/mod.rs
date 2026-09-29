@@ -479,7 +479,8 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             .find(|event| event.position == through)
             .map(|event| event.content_hash);
         // The batch's events and verdict rows are durable now: free them before the fold grows
-        // the world, so they are not live at its peak (s2w#220).
+        // the world. At batch 250 this measured no saving (s2w#220); it keeps the order right if
+        // the batch grows again.
         drop(events);
         drop(judged.new_rows);
         // One write lock per batch, not per claim (s2w#216): a reader holding the lock (a
