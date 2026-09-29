@@ -210,7 +210,8 @@ Each is a candidate; karpathy assigns the disposition.
 
 1. **Containment (inclusion dependencies) as s2w-discover stage 5b, `PROFILER_VERSION` 3 =
    H-min proper,** decided from the development-window table and scored on the reserved corpus.
-   → deferred: #244.
+   → deferred: #244. *2026-09-29: `PROFILER_VERSION` 3 went to #250 PR 1 (addendum below);
+   #244's change takes 4.*
 2. **The mapping format's alias limit is a finding for System 2's design,** not only for H: no
    v0 producer can join different values that name one entity, and the oracle ceiling is not
    the best v0 mapping (H-lite beats it on `wiki`). → deferred: #245.
@@ -218,5 +219,54 @@ Each is a candidate; karpathy assigns the disposition.
    `log_action` minted, the key placed at an alias path), which #4's table says to fix before
    comparing H with H+S2. → candidate: an issue scoped from the development corpus only, whose
    score uses the reserved corpus (shared with #244, or a second reserved span).
+   *2026-09-29: #250. PR 1 fixes `log_action` (a second reserved span, `reserved-2`; addendum
+   below); `user` is #250 PR 2; `revision` is #244; the alias key is #245.*
 4. **Decision 0010's lower-bound reading** is unchanged by this measurement. → adopted: dated
    note on decision 0010 in this PR.
+
+## Addendum 2026-09-29: implication 3, PR 1 (s2w#250, `PROFILER_VERSION` 3)
+
+**Change.** Decision 0022's second 2026-09-29 amendment: a path that passes the entity test with
+at most 32 values, whose repeated values each decide which optional paths their events carry, is
+a `Category` and keys no type. On `dev` at N = 10^4 it removes the `log_action` type and nothing
+else. At N = 2x10^5 `log_action` has 36 values, so the rule does not fire and the mapping is
+v2's, rule for rule.
+
+**Hygiene.** A second reserved span, `reserved-2` (10^5 events, 2026-09-29 11:15 to 14:15 UTC),
+was captured and pinned (b6c4263) before the rule was written (ded59ae), and opened as held-out
+(c2d6894) after the rule and its docs. v3 was frozen on `dev` after the opening (90ddc1e) with
+the profiler unchanged since ded59ae; `score` re-derives each freeze, so the frozen files are the
+rule's output on `dev`, not a fit. The predictions below were posted in the plan on #250
+([comment](https://github.com/daveremy/stream2worlds/issues/250#issuecomment-5898060671),
+20:21 UTC) before `reserved-2` was opened (c2d6894, 20:33 UTC). v2 was scored on the same span from a build of `main` @ 7481bbf
+with only the `corpora.toml` flip applied. #244's `reserved` stays unopened. Reports:
+`research/h-measure/results/h-lite-v{2,3}.dev-{10000,200000}.reserved-2.md`.
+
+**Result** on `reserved-2`, base key `dev-key-v1.json`:
+
+| mapping | P | R | F1 | false-merge | recovery | spurious mentions at `log_action` |
+|---|---|---|---|---|---|---|
+| v2, N = 10^4 | 0.9840 | 0.1716 | 0.2923 | 0.0160 | 0.0000 | 4,474 |
+| **v3, N = 10^4** | **0.9987** | 0.1716 | **0.2929** | 0.0013 | 0.0000 | **0** |
+| v2, N = 2x10^5 | 0.9840 | 0.1716 | 0.2923 | 0.0160 | 0.0000 | 4,474 |
+| v3, N = 2x10^5 | 0.9840 | 0.1716 | 0.2923 | 0.0160 | 0.0000 | 4,474 |
+| ceiling (oracle v0) | 1.0000 | 0.3973 | 0.5687 | 0.0000 | 0.1833 | |
+
+The remaining 0.0013 of false merge is the `wiki` type (P 0.9980 in both versions). The two
+2x10^5 reports are identical except for the mapping's name and hash. Canonical-mention key,
+N = 10^4: v2 P 0.0000, R 0.0000; v3 predicts no mention at a scored path (P undefined), R 0.0000.
+
+**Pre-registered predictions** (N = 10^4, base key unless stated):
+
+| | prediction | measured | |
+|---|---|---|---|
+| P1 | recall v3 = recall v2 exactly | 0.1716 = 0.1716 | hit |
+| P2 | precision v3 >= v2; `log_action` predicted mentions v2 > 0, v3 = 0 | 0.9987 >= 0.9840; 4,474 and 0 | hit |
+| P3 | F1 v3 - v2 in [0.000, +0.020]; the decision-table row does not move | +0.0006; entity recovery still 0 | hit |
+| P4 | canonical-mention: v2 P = 0, v3 no predicted mention at a scored path | P 0.0000; P undefined | hit |
+| control | N = 2x10^5: rule does not fire, score equals v2's to 4 decimals | identical reports | hit |
+
+**Reading.** This is a precision cleanup. It removes the one spurious type, it does not move
+recall or entity recovery, and the row of #4's decision table that applies is unchanged
+("entity recovery < 0.60"). The recall losses this report names (`user`, `revision`, the alias
+key) remain: #250 PR 2, #244 and #245.

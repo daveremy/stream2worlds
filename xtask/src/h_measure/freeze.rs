@@ -46,24 +46,9 @@ pub(super) fn derive(
     window: usize,
 ) -> Result<Frozen, String> {
     let pin = pins.corpus(corpus)?;
-    if pin.role != Role::Development {
-        return Err(format!(
-            "{corpus} is a {:?} corpus; a mapping is frozen only on the development corpus",
-            pin.role
-        ));
-    }
-    let payloads = pins.payloads(dir, corpus)?;
-    let window_events = payloads
-        .get(..window)
-        .filter(|events| !events.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "--window {window}: must be 1 to {n}, the {corpus} corpus has {n} events",
-                n = payloads.len()
-            )
-        })?;
+    let window_events = development_window(pins, dir, corpus, window)?;
     let config = Config::default();
-    let (profile, discovery) = profiled(window_events, &config)?;
+    let (profile, discovery) = profiled(&window_events, &config)?;
     let (mapping, abstain) = match discovery {
         Discovery::Mapping(m) => (Some(m), None),
         Discovery::Abstain(reason) => (None, Some(reason)),
@@ -91,6 +76,74 @@ pub(crate) struct Summary {
     pub event_type: Option<String>,
     /// Paths the profiler abstained on, by path id, with the abstaining role.
     pub abstained: BTreeMap<String, String>,
+}
+
+/// The first `window` events of `corpus`, after checking it is the pinned development corpus:
+/// the only corpus the profiler may read, for a freeze or a profile.
+fn development_window(
+    pins: &Pins,
+    dir: &Path,
+    corpus: &str,
+    window: usize,
+) -> Result<Vec<Value>, String> {
+    let pin = pins.corpus(corpus)?;
+    if pin.role != Role::Development {
+        return Err(format!(
+            "{corpus} is a {:?} corpus; a mapping is frozen or profiled only on the development corpus",
+            pin.role
+        ));
+    }
+    let mut payloads = pins.payloads(dir, corpus)?;
+    if window == 0 || window > payloads.len() {
+        return Err(format!(
+            "--window {window}: must be 1 to {n}, the {corpus} corpus has {n} events",
+            n = payloads.len()
+        ));
+    }
+    payloads.truncate(window);
+    Ok(payloads)
+}
+
+/// `cargo xtask h-measure profile`: the profiler's per-path table (count, distinct values,
+/// role) on the first `window` events of the development corpus, as markdown. The disclosed
+/// development table a profiler rule is justified on (s2w#250); it never reads another corpus.
+pub(crate) fn profile(
+    root: &Path,
+    dir: &Path,
+    corpus: &str,
+    window: usize,
+) -> Result<String, String> {
+    let pins = Pins::load(root)?;
+    let pin = pins.corpus(corpus)?;
+    let events = development_window(&pins, dir, corpus, window)?;
+    let (profile, _) = profiled(&events, &Config::default())?;
+    let mut out = format!(
+        "# Profile: {corpus} (sha256 {}), first {window} events, profiler {PROFILER_VERSION}\n\n\
+         events {}, skipped {}, decode {:?}, event-type field {}\n\n\
+         | path | count | distinct | role |\n|---|---|---|---|\n",
+        pin.sha256,
+        profile.events,
+        profile.skipped,
+        profile
+            .decode
+            .iter()
+            .map(s2w_discover::rule_id)
+            .collect::<Vec<_>>(),
+        profile
+            .event_type
+            .as_ref()
+            .map_or_else(|| "none".to_owned(), s2w_discover::rule_id),
+    );
+    for p in &profile.paths {
+        out += &format!(
+            "| `{}` | {} | {} | {:?} |\n",
+            s2w_discover::rule_id(&p.path),
+            p.count,
+            p.distinct,
+            p.role
+        );
+    }
+    Ok(out)
 }
 
 fn summary(profile: &Profile) -> Summary {

@@ -33,7 +33,7 @@ mod report;
 pub(crate) mod score;
 
 /// The command's usage line.
-pub(crate) const USAGE: &str = "cargo xtask h-measure selftest | freeze --corpus NAME --window N --out FILE [--dir DIR] | score --mapping FILE --corpus NAME --key FILE [--key FILE ...] [--json FILE] [--dir DIR]";
+pub(crate) const USAGE: &str = "cargo xtask h-measure selftest | freeze --corpus NAME --window N --out FILE [--dir DIR] | profile --corpus NAME --window N [--dir DIR] | score --mapping FILE --corpus NAME --key FILE [--key FILE ...] [--json FILE] [--dir DIR]";
 
 /// Where the corpora live when `--dir` is not given, under `$HOME`.
 const CORPUS_DIR: &str = ".local/share/stream2worlds/h-measure";
@@ -42,7 +42,7 @@ const CORPUS_DIR: &str = ".local/share/stream2worlds/h-measure";
 pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
     let result = match args.split_first() {
         Some((one, [])) if one == "selftest" => selftest(root),
-        Some((verb, rest)) if verb == "freeze" || verb == "score" => {
+        Some((verb, rest)) if ["freeze", "profile", "score"].contains(&verb.as_str()) => {
             flags(rest).and_then(|f| subcommand(root, verb, &f))
         }
         _ => {
@@ -96,6 +96,8 @@ fn one<'a>(flags: &'a Flags, name: &str) -> Result<&'a str, String> {
 fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> {
     let known: &[&str] = if verb == "freeze" {
         &["corpus", "window", "out", "dir"]
+    } else if verb == "profile" {
+        &["corpus", "window", "dir"]
     } else {
         &["mapping", "corpus", "key", "json", "dir"]
     };
@@ -108,9 +110,12 @@ fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> 
             .join(CORPUS_DIR),
     };
     let corpus = one(flags, "corpus")?;
-    if verb == "freeze" {
+    if verb == "freeze" || verb == "profile" {
         let raw = one(flags, "window")?;
         let window = raw.parse().map_err(|e| format!("--window {raw:?}: {e}"))?;
+        if verb == "profile" {
+            return freeze::profile(root, &dir, corpus, window);
+        }
         return freeze::freeze(root, &dir, corpus, window, Path::new(one(flags, "out")?));
     }
     let json = flags

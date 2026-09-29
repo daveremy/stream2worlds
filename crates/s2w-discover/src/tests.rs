@@ -123,6 +123,82 @@ fn aliases_share_one_label_and_attributes_follow_the_key() {
     );
 }
 
+/// A stream where `s` (six values, with `f` = its family, three values) decides which of the
+/// optional fields `u` and `v` an event carries, and `w` is carried only by `s`'s first value.
+/// `b` (20 values, attribute `bn`) and `w` (8 values, attribute `wn`) are entities whose values
+/// decide nothing about shape. With `stray`, one event in ten of `s`'s last value also carries
+/// `u`, so that value's group is no longer all-or-none.
+fn shaped(n: u64, stray: bool) -> Vec<Value> {
+    let mut rng = Lcg(11);
+    (0..n)
+        .map(|i| {
+            let s = rng.below(6);
+            let b = rng.below(20);
+            let mut event = json!({
+                "s": format!("s{s}"),
+                "f": format!("f{}", s / 2),
+                "b": format!("b{b}"),
+                "bn": format!("n{}", b / 2),
+            });
+            if matches!(s, 0 | 2) || (stray && s == 5 && i.is_multiple_of(10)) {
+                event["u"] = json!(format!("u{}", rng.below(40)));
+            }
+            if matches!(s, 1 | 2) {
+                event["v"] = json!(format!("v{}", rng.below(40)));
+            }
+            if s == 0 {
+                let w = rng.below(8);
+                event["w"] = json!(format!("w{w}"));
+                event["wn"] = json!(format!("m{}", w / 2));
+            }
+            event
+        })
+        .collect()
+}
+
+/// `devices` ids (attribute `dn`), each of which always or never carries `z`.
+fn devices(n: u64, devices: u64) -> Vec<Value> {
+    let mut rng = Lcg(13);
+    (0..n)
+        .map(|_| {
+            let d = rng.below(devices);
+            let mut event = json!({"d": format!("d{d}"), "dn": format!("n{}", d / 2)});
+            if d.is_multiple_of(2) {
+                event["z"] = json!(format!("z{}", rng.below(40)));
+            }
+            event
+        })
+        .collect()
+}
+
+#[test]
+fn a_small_key_whose_values_decide_the_event_shape_is_a_category_not_a_type() {
+    let (profile, discovery) = run(&shaped(1200, false), &[]);
+    assert_eq!(role(&profile, &["s"]), Role::Category);
+    assert_eq!(role(&profile, &["b"]), Role::Entity);
+    // No optional path among the events that carry `w`: it cannot decide their shape.
+    assert_eq!(role(&profile, &["w"]), Role::Entity);
+    let m = mapping(discovery);
+    assert!(m.entities.iter().all(|e| e.id != "s"), "s keys no type");
+    assert!(entity(&m, "b").attrs.iter().any(|a| a.name == "bn"));
+}
+
+#[test]
+fn one_value_that_is_not_all_or_none_keeps_the_key_an_entity() {
+    let (profile, _) = run(&shaped(1200, true), &[]);
+    assert_eq!(role(&profile, &["s"]), Role::Entity);
+}
+
+#[test]
+fn only_a_key_with_at_most_category_max_values_can_be_a_category() {
+    // Every device always or never carries `z`. Past `category_max` values it stays an entity;
+    // at or below it, it reads as a category: the accepted false demotion (decision 0022).
+    let (many, _) = run(&devices(3000, 60), &[]);
+    assert_eq!(role(&many, &["d"]), Role::Entity);
+    let (few, _) = run(&devices(3000, 20), &[]);
+    assert_eq!(role(&few, &["d"]), Role::Category);
+}
+
 #[test]
 fn a_near_unique_key_names_no_type_unless_the_threshold_allows_it() {
     let m = mapping(run(&stream(1200), &[]).1);

@@ -36,6 +36,10 @@ pub enum Role {
     /// every event carrying it would mint a new entity, so the world would grow with every
     /// event (s2w#208). It keys no type; it may still be another type's attribute.
     NearUnique,
+    /// Passes the entity test, but has at most `category_max` values and each of its repeated
+    /// values decides which optional fields its events carry: it names a kind of event, not a
+    /// thing that recurs (s2w#250). It keys no type; it may still be another type's attribute.
+    Category,
 }
 
 /// Values that occur at least twice in a column, each with the events that carry it.
@@ -171,6 +175,8 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
     if best >= cfg.fd_accept_pct {
         if unique >= cfg.type_uniqueness_pct {
             Role::NearUnique
+        } else if column.texts.len() <= cfg.category_max && decides_shape(table, k, &groups, cfg) {
+            Role::Category
         } else {
             Role::Entity
         }
@@ -181,6 +187,41 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
     } else {
         Role::NoDependents
     }
+}
+
+/// Whether `k`'s values decide the shape of the events that carry it: among those events at
+/// least one path is optional (carried by at least `min_support` of them and by more than 2%
+/// and fewer than 98% of them), and every repeat group of `k` carries every optional path in
+/// all or none of its events, within 2% either way (stage 3's band; `pct` rounds down, so a
+/// group of 49 with one stray reads 2%). Only repeat groups count: a value seen once would
+/// trivially explain every path. Presence only, never a name or a value's text.
+fn decides_shape(table: &Table, k: usize, groups: &[Vec<usize>], cfg: &Config) -> bool {
+    let carriers = &table.columns[k].cells;
+    let optional: Vec<usize> = (0..table.paths.len())
+        .filter(|&p| p != k && table.columns[p].keyable())
+        .filter(|&p| {
+            let carried = carriers
+                .iter()
+                .filter(|&&(e, _)| table.rows[e][p].is_some())
+                .count();
+            carried >= cfg.min_support && !pure(pct(carried, carriers.len()))
+        })
+        .collect();
+    !optional.is_empty()
+        && optional.iter().all(|&p| {
+            groups.iter().all(|group| {
+                let carried = group
+                    .iter()
+                    .filter(|&&e| table.rows[e][p].is_some())
+                    .count();
+                pure(pct(carried, group.len()))
+            })
+        })
+}
+
+/// A presence share that is all or none, within 2% either way.
+fn pure(share: usize) -> bool {
+    share <= 2 || share >= 98
 }
 
 /// A path that can be evidence for, or an attribute of, a key: keyable, supported, varying.
@@ -232,8 +273,7 @@ fn explained(table: &Table, c: usize, optional: &[usize]) -> usize {
                     .iter()
                     .filter(|&&e| table.rows[e][p].is_some())
                     .count();
-                let share = pct(carried, events.len());
-                share <= 2 || share >= 98
+                pure(pct(carried, events.len()))
             })
         })
         .count()

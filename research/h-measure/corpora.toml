@@ -72,3 +72,20 @@ last_dt = "2026-09-29T05:15:00.000Z"
 events = 100000
 bytes = 154246825
 sha256 = "b420214c92c0ac8151b2b64279cbebd9c8250349b28712dc898974dc7a56f501"
+
+# reserved-2 (s2w#250): captured 2026-09-29 with the same command, window and 6 h spacing as
+# capture.sh, 6 h after `reserved`, and pinned here before any #250 profiler change. Only the
+# replay's summary line, the byte size and the sha256 were read. Kept for #250 PR 1's score, so
+# #244's `reserved` stays unopened.
+[corpus.reserved-2]
+# opened by s2w#250 PR 1, 2026-09-29, after ded59ae (rule) and 4ce6c5c (docs)
+role = "heldout"
+file = "reserved-2.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-29T11:15:00Z"
+until = "2026-09-29T14:15:00Z"
+first_dt = "2026-09-29T11:15:00.000Z"
+last_dt = "2026-09-29T14:15:00.000Z"
+events = 100000
+bytes = 156416076
+sha256 = "bc857dc278d835186afec68705fa2e1313b720bb8eafd99390738496afa27a5c"
