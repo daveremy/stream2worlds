@@ -1,0 +1,40 @@
+# Answer keys for `cargo xtask h-measure` (s2w#56), pinned before any score is run.
+# A key never changes after its first score: a change is a new file (dev-key-v1.json) and a new
+# row here, and the report lists every key version it scored, with the reason.
+# sha256 = `sha256sum <file>`. `score` (PR 2b) refuses a key whose hash is not listed here.
+
+[[key]]
+file = "dev-key-v0.json"
+variant = "base"
+sha256 = "bb117cb4718039c39f85329c17b721e8f85178ad78ee44bded479032a3cfa3da"
+reading = "the plain reading: #17 Q1/Q2b fold wiki into page and revision identity (settled 2026-09-27), Q2a one revision type for old and new, Q3 rcid unscored, Q4 one wiki type with server_name, server_url and meta.domain as alias mentions; user identity (wiki, user)"
+
+[[key]]
+file = "dev-key-v0.q1-no-wiki.json"
+variant = "q1-no-wiki"
+sha256 = "51a8cef868519ef78c7c7e36d2fecebecf9df0606555b108e2a574a5ccf7d8d6"
+reading = "#17 Q1 other reading: page identity (namespace, title), no wiki"
+
+[[key]]
+file = "dev-key-v0.q3-rcid-scored.json"
+variant = "q3-rcid-scored"
+sha256 = "3fb72a0aeff2b91062285199b6c20d45eec193e381f5289efca237ff89ebc87a"
+reading = "#17 Q3 other reading: rcid (`id`) scored as its own type, identity (wiki, id)"
+
+[[key]]
+file = "dev-key-v0.q4-separate.json"
+variant = "q4-separate"
+sha256 = "935aeb4683234964d5c47f7ff35cb57be9d3bbfdcf64088362a059bf148161ec"
+reading = "#17 Q4 other reading: wiki, server_name, server_url and meta.domain are four types, each its own identity"
+
+[[key]]
+file = "dev-key-v0.user-global.json"
+variant = "user-global"
+sha256 = "1eb93fba72f46c7cb1c60d458a1785717e6316651c62135163619feb500716a0"
+reading = "user identity (user) alone: SUL makes a user name global across wikis"
+
+[[key]]
+file = "dev-key-v0.canonical-mention.json"
+variant = "canonical-mention"
+sha256 = "30990677e66034db8ce6db38105e00853421efe3f84665e95ece01e3ba02a799"
+reading = "alias-only mention paths (server_name, server_url, meta.domain, title_url) unscored: what an arm scores when aliases are not asked of it (ruling 2026-09-29 item 3)"

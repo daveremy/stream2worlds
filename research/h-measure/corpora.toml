@@ -1,0 +1,69 @@
+# Corpora for `cargo xtask h-measure` (s2w#56). The files are not committed (~770 MB); this
+# manifest pins them. Every corpus is plain `mediawiki.recentchange`, all wikis, replayed from
+# EventStreams history (`?since=`, retention ~7 days) as verbatim SSE frames that
+# `s2w_sources::replay_frames` reads exactly as the live adapter reads the stream (checked
+# 2026-09-29: every file gives `events` frames, every `data:` is JSON).
+#
+# Produced by `research/h-measure/capture.sh 2026-09-28T00:00:00Z <dir>` on 2026-09-29, before
+# any H-lite threshold, key or score touched these events (hygiene, contract B3): the git log
+# is the order proof. `until` bounds each window; `first_dt`/`last_dt` are the min and max
+# `meta.dt` kept. A history replay delivers the codfw topic (a trickle: canaries plus a few
+# dozen real events) before the eqiad topic (the traffic), so file order is by topic, then
+# time, and `last_dt` is the max over both topics: with `--max-events` the eqiad data can end
+# well before it (dev: eqiad ends 01:22:49, `last_dt` is a codfw event at 02:44:42). Each
+# corpus starts 6 h of stream time after the previous `last_dt`.
+# The files were written by eventstreams_replay.py at commit 2322bd7; later revisions write the
+# same frame bytes but a different `:` header line, so a re-capture differs in the header too.
+#
+# Roles (plan, s2w#56 comment 5892219272):
+#   dev        development window: `freeze` discovers on it; the only corpus anyone looks at
+#              while building or tuning.
+#   heldout    held-out split scored by PR 3. Disjoint from dev, later in time.
+#   heldout-2  second held-out span, for the spread.
+#   reserved   for any later H-lite/H-min change (containment follow-up); PR 3 never opens it.
+# The split is held out from THIS measurement only: H-lite's thresholds (decision 0022,
+# PROFILER_VERSION 2) were tuned earlier on `page_change` fixtures by the same project.
+
+[corpus.dev]
+file = "dev.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-28T00:00:00Z"
+until = "2026-09-28T03:00:00Z"
+first_dt = "2026-09-28T00:00:00.058Z"
+last_dt = "2026-09-28T02:44:42.620Z"
+events = 200000
+bytes = 307306943
+sha256 = "53d35b1c8631cc506d762a855ea554d4ca833f5c02a6fe80c5ceeb52205ae4dd"
+
+[corpus.heldout]
+file = "heldout.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-28T08:44:42Z"
+until = "2026-09-28T11:44:42Z"
+first_dt = "2026-09-28T08:44:42.014Z"
+last_dt = "2026-09-28T11:15:00.000Z"
+events = 100000
+bytes = 150976997
+sha256 = "ad07885cf791b8de760a8f94aca5a45bd5d8d0476be8b0baf695807737809cf6"
+
+[corpus.heldout-2]
+file = "heldout-2.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-28T17:15:00Z"
+until = "2026-09-28T20:15:00Z"
+first_dt = "2026-09-28T17:15:00.000Z"
+last_dt = "2026-09-28T20:15:00.000Z"
+events = 100000
+bytes = 156121889
+sha256 = "4432c2a8533e0080a2a97344a2aa5ed1273aafc951faf673dcdb36b65800bc22"
+
+[corpus.reserved]
+file = "reserved.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-29T02:15:00Z"
+until = "2026-09-29T05:15:00Z"
+first_dt = "2026-09-29T02:15:00.000Z"
+last_dt = "2026-09-29T05:15:00.000Z"
+events = 100000
+bytes = 154246825
+sha256 = "b420214c92c0ac8151b2b64279cbebd9c8250349b28712dc898974dc7a56f501"
