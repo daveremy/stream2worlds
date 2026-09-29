@@ -75,6 +75,52 @@ pub struct SnapshotV1 {
     pub world: World,
 }
 
+impl SnapshotV1 {
+    /// This snapshot as a [`SnapshotRefV1`], which encodes to the same bytes.
+    #[must_use]
+    pub fn as_ref_v1(&self) -> SnapshotRefV1<'_> {
+        SnapshotRefV1 {
+            format: self.format,
+            fold_hash: self.fold_hash,
+            feed_hash: self.feed_hash,
+            hub_cap: self.hub_cap,
+            offset: self.offset,
+            position: self.position,
+            position_event_hash: self.position_event_hash,
+            cursors: &self.cursors,
+            time: self.time,
+            world: &self.world,
+        }
+    }
+}
+
+/// [`SnapshotV1`] borrowing its cursors and world, so `serve` can encode the live head world
+/// without cloning it (#179). Same fields in the same order: postcard writes a reference as the
+/// value and a slice as a `Vec`, so both encode to identical bytes (pinned by a unit test).
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct SnapshotRefV1<'a> {
+    /// See [`SnapshotV1::format`].
+    pub format: u32,
+    /// See [`SnapshotV1::fold_hash`].
+    pub fold_hash: u64,
+    /// See [`SnapshotV1::feed_hash`].
+    pub feed_hash: u64,
+    /// See [`SnapshotV1::hub_cap`].
+    pub hub_cap: u64,
+    /// See [`SnapshotV1::offset`].
+    pub offset: u64,
+    /// See [`SnapshotV1::position`].
+    pub position: u64,
+    /// See [`SnapshotV1::position_event_hash`].
+    pub position_event_hash: i64,
+    /// See [`SnapshotV1::cursors`].
+    pub cursors: &'a [(SourceId, Cursor)],
+    /// See [`SnapshotV1::time`].
+    pub time: BaseTime,
+    /// See [`SnapshotV1::world`].
+    pub world: &'a World,
+}
+
 /// A snapshot could not be written.
 #[derive(Debug, thiserror::Error)]
 pub enum SnapshotError {
