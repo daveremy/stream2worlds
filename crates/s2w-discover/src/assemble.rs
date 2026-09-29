@@ -78,7 +78,7 @@ fn attr(table: &Table, path: usize) -> AttrRule {
     }
 }
 
-/// Merges classes that determine each other (1:1, research 0002 §4: two encodings of one
+/// Merges classes that determine each other, transitively (1:1, research 0002 §4: two encodings of one
 /// entity). The key is chosen without names: most alias members, then most events, then most
 /// distinct values, then integer over string over bool. A tie keeps the classes apart.
 fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Vec<Type> {
@@ -177,15 +177,22 @@ fn attributes(table: &Table, k: usize, keys: &BTreeSet<usize>, cfg: &Config) -> 
         .collect()
 }
 
-/// One representative value per event for an alias class: its members hold equal values, so
-/// any present member will do.
+/// One representative value per event for an alias class: the value most of its present
+/// members hold. Aliases agree in at least `alias_pct` of events; where they do not, a tie
+/// yields no value rather than whichever member sorts first by name.
 fn class_values(table: &Table, class: &[usize]) -> Vec<Option<String>> {
     (0..table.events)
         .map(|e| {
-            class
-                .iter()
-                .find_map(|&p| table.text(e, p))
-                .map(str::to_owned)
+            let mut votes: BTreeMap<&str, usize> = BTreeMap::new();
+            for text in class.iter().filter_map(|&p| table.text(e, p)) {
+                *votes.entry(text).or_default() += 1;
+            }
+            let most = votes.values().copied().max()?;
+            let mut top = votes.into_iter().filter(|&(_, n)| n == most);
+            match (top.next(), top.next()) {
+                (Some((text, _)), None) => Some(text.to_owned()),
+                _ => None,
+            }
         })
         .collect()
 }

@@ -1,7 +1,8 @@
 //! Synthetic streams with neutral one-letter names. Each field is built to exercise one role:
 //! `e` names the event, `t` is a sequence, `a` (aliased at `x.a`) and `d.b` (inside a decoded
 //! string) are entities with attributes `an` and `d.bn`, `a` determines `d.b`, `c` and `cc`
-//! determine each other, `g` sits in the grey uniqueness band, `k` explains when `o` is present.
+//! determine each other, `g` and `h` sit in the grey uniqueness band (only `h` has a dependent,
+//! `hn`), `r` repeats with nothing depending on it, `k` explains when `o` is present.
 
 use std::collections::BTreeMap;
 
@@ -31,6 +32,8 @@ fn stream(n: u64) -> Vec<Value> {
             let b = a % 15;
             let c = rng.below(30);
             let g = if i % 14 == 13 { i - 10 } else { i };
+            let h = if i % 14 == 6 { i - 5 } else { i };
+            let r = rng.below(300);
             let k = ["p", "q", "r"][usize::try_from(i % 3).unwrap()];
             let inner = json!({"b": format!("b{b}"), "bn": format!("m{}", b / 2)});
             let mut event = json!({
@@ -43,6 +46,9 @@ fn stream(n: u64) -> Vec<Value> {
                 "c": c,
                 "cc": format!("c{}", c * 7 + 1),
                 "g": g,
+                "h": h,
+                "hn": h / 2,
+                "r": r,
                 "k": k,
             });
             if i % 3 == 0 {
@@ -96,6 +102,8 @@ fn roles_separate_event_ids_sequences_entities_and_the_grey_band() {
     assert_eq!(role(&profile, &["a"]), Role::Entity);
     assert_eq!(role(&profile, &["d", "b"]), Role::Entity);
     assert_eq!(role(&profile, &["g"]), Role::GreyUniqueness);
+    assert_eq!(role(&profile, &["h"]), Role::Entity);
+    assert_eq!(role(&profile, &["r"]), Role::NoDependents);
     assert_eq!(role(&profile, &["k"]), Role::FewGroups);
 }
 

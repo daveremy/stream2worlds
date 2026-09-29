@@ -146,7 +146,8 @@ pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
 }
 
 /// A rule id or attribute name for `path`: its segments joined by `.`, with `\` and `.` inside
-/// a segment escaped by `\`, so distinct paths never share an id.
+/// a segment escaped by `\`, so distinct key paths never share an id (the profiler emits
+/// no index segments: arrays are skipped).
 #[must_use]
 pub fn rule_id(path: &FieldPath) -> String {
     path.0

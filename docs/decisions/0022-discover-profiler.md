@@ -31,7 +31,7 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    the ≥20 events carrying it becomes a decode step (the executor abstains on a whole event
    whose decode fails, so a partial decode would silently drop events). Objects flatten by key; arrays are skipped
    (a v0 key path cannot address them). Strings, `i64`s and bools are keyable; floats and
-   nulls are not. Payloads that are not JSON objects are counted and skipped.
+   nulls are not, and a path that is ever null or a float is never a key or an attribute. Payloads that are not JSON objects are counted and skipped.
 2. **Per-path statistics.** Count, distinct values, and recurrence: the share of repeats whose
    previous occurrence was not the immediately preceding carrier.
 3. **Event-type field** (reported only): the always-present path with 2 to 32 values whose
@@ -49,7 +49,7 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    test too, since uniqueness falls as the window grows; it abstains as `GreyUniqueness` unless
    it passes.
 5. **Aliases.** Two entity paths equal in ≥99% of the ≥20 events carrying both are one class.
-6. **1:1 merge.** Classes that determine each other (both directions functional, same 95% / 5
+6. **1:1 merge.** Classes that determine each other, transitively (both directions functional, same 95% / 5
    group rule over the events carrying both, ≥20 of them) are two encodings of one entity (research 0002 §4) and merge.
    The key is chosen without names: most alias members, then most events, then most distinct
    values, then integer over string over bool. A tie keeps them apart. The losers' paths become
@@ -62,7 +62,8 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    No entity type: abstain. Fewer than 1,000 events: abstain (at 200 events, measured page ids
    sit at 97.5% uniqueness and read as event ids; at 1,615 they sit at 89%).
 
-**Ids and labels.** A rule id or attribute name is the path's segments joined by `.`, with `\`
+**Ids and labels.** A rule id or attribute name is the path's segments joined by `.`, decode
+prefix included (the path must address the decoded value), with `\`
 and `.` escaped by `\`, so distinct paths never share an id. A type label is the sorted,
 distinct `parent/leaf` tails of the class's paths joined by `+` (with `\`, `/` and `+`
 escaped); when two classes would share a label, both use their full paths. `rule_id` and
@@ -90,12 +91,16 @@ read through a neutral-named symlink so the vocabulary scan stays clean.
 
 `crates/s2w-sources/testdata/wikipedia-page-change.raw.sse` (1,615 events, recorded
 2026-09-27), parsed to the stored `{"data":…,"id":…}` envelope: decode `data`; event-type field
-`data.page_change_kind`; **12 types and 143 relationship rules** (74 `n:1`, 69 `n:m`). The first
+`data.page_change_kind`; **12 types and 143 relationship rules** (78 `n:1`, 65 `n:m`). The first
 run, before plan review's fixes to the dependency denominator, the grey band, the 1:1 merge and
 relationship endpoints, gave 17 types and 318 relationship rules. The types include the page
 (`page_id`, aliased across the event key), editor and performer ids (aliased), the wiki, the
 Wikidata item, and revision and content hashes (repeated when one revision appears in several
-events). Composite keys would split per-wiki ids; they are out of scope below.
+events). Composite keys would split per-wiki ids; they are out of scope below. Two measured
+limits: the Wikidata item id and its concept URI determine each other but tie on every rank
+field, so they stay two types with no relationship between them (a tie is never broken by
+name); and `Sequence` does not fire on the fixture, because datacenter partitions interleave
+timestamps, so `dt` fields fall to `NoDependents` through the dependency test instead.
 
 **Claim volume.** 143 relationship rules is a lot of claims per window. PR 4 measures what
 applying the mapping costs and decides whether to prune (for example, relationships between
