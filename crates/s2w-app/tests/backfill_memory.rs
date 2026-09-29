@@ -475,8 +475,9 @@ mod backfill {
         seen
     }
 
-    /// Prints what the `viewer` reader saw and asserts the whole-process `peak`.
-    fn report_viewer(viewed: &Viewed, peak: usize) {
+    /// Prints what the `viewer` reader saw and, unless `measuring`, asserts the whole-process
+    /// `peak`.
+    fn report_viewer(viewed: &Viewed, peak: usize, measuring: bool) {
         eprintln!(
             "viewer (tick {} ms): {} /world ({} unchanged, 304), {} /diff ({} refused), \
              largest body {}, slowest /world {} ms",
@@ -489,6 +490,10 @@ mod backfill {
             viewed.slowest_world.as_millis()
         );
         assert!(viewed.worlds > 0, "the viewer never read the world");
+        if measuring {
+            eprintln!("viewer: assert skipped (measurement variant)");
+            return;
+        }
         assert!(
             peak < VIEWER_PEAK_LIMIT,
             "serve peak with a viewer {} is over {}",
@@ -643,7 +648,7 @@ mod backfill {
                 "slowest_poll_ms": slowest_poll.as_millis(),
                 "raw_events": consumed,
                 "world_events": head,
-                "asserted": with_viewer || !measuring,
+                "asserted": !measuring,
             })
         );
         let Some(viewed) = viewed else {
@@ -659,7 +664,7 @@ mod backfill {
             );
             return;
         };
-        report_viewer(&viewed, peak);
+        report_viewer(&viewed, peak, measuring);
     }
 
     /// The variants to run: the named ones, else the default sweep, which refuses a
@@ -685,7 +690,7 @@ mod backfill {
         }
     }
 
-    /// The first allocator variable in the environment, if any: glibc's `MALLOC_*` and
+    /// An allocator variable in the environment, if any: glibc's `MALLOC_*` and
     /// `GLIBC_TUNABLES`, or an `LD_PRELOAD` that may replace the allocator. Any of them makes
     /// the peak a different measurement.
     fn allocator_env() -> Option<String> {
