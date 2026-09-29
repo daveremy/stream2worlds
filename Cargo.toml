@@ -41,3 +41,7 @@ too_many_arguments = "deny"
 # cold build is ~9% faster than the default full debuginfo (lifeos#1113, s2w#41).
 [profile.dev]
 debug = 1
+
+# Line tables in benchmark builds so Callgrind attributes instructions by function (s2w#32).
+[profile.bench]
+debug = 1

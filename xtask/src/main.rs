@@ -44,6 +44,11 @@
 //!     same mapping for a recorded raw stream when every object key and string value in it
 //!     (including inside decoded JSON strings) is renamed and hashed first, up to that renaming
 //!     (decision 0022).
+//! 13. **Scale memory** (`scale_mem_check.rs`, baseline and judges in `scale.rs`): runs
+//!     `s2w-app`'s ignored `scale_mem` test as a nested `cargo test` and gates heap bytes per
+//!     entity against `xtask/scale-baseline.toml` (+tolerance and a hard budget), plus that
+//!     file's baseline-growth trailer rule. `cargo xtask scale` (`scale_run.rs`) gates fold
+//!     instructions per event under Valgrind (decision 0004).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -62,15 +67,21 @@ mod golden;
 mod module_size;
 mod obfuscation;
 mod obfuscation_raw;
+mod scale;
+mod scale_mem_check;
+mod scale_run;
 mod vocabulary;
 
 const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["scale"] {
+        return scale_run::run(&workspace_root());
+    }
     let tighten = args == ["check", "--tighten-baseline"];
     if args != ["check"] && !tighten {
-        eprintln!("usage: cargo xtask check [--tighten-baseline]");
+        eprintln!("usage: cargo xtask check [--tighten-baseline] | cargo xtask scale");
         return ExitCode::from(2);
     }
     match check(&workspace_root(), tighten) {
@@ -151,9 +162,13 @@ struct LintsTable {
     workspace: Option<bool>,
 }
 
+/// The `cargo` that is running xtask (`$CARGO`), or `cargo` from PATH.
+fn cargo() -> Command {
+    Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+}
+
 fn metadata(root: &Path) -> Result<Metadata, Vec<String>> {
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
-    let out = Command::new(cargo)
+    let out = cargo()
         .args([
             "metadata",
             "--format-version",
@@ -232,6 +247,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(obfuscation_raw::check(root));
     problems.extend(discover_replay::check(root));
     problems.extend(clippy_config::check(root, &meta));
+    problems.extend(scale_mem_check::check(root, tighten));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -266,7 +282,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))

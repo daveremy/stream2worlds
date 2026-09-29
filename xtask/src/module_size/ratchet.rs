@@ -1,10 +1,11 @@
 //! Exemption-growth ratchet against `origin/main`; blocks regardless of `enforce`.
+//! `git` and `trailer` are shared with the scale baseline's growth check (`scale.rs`).
 use std::path::Path;
 use std::process::Command;
 
 use super::Config;
 
-pub(super) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .args(args)
         .current_dir(root)
@@ -15,7 +16,7 @@ pub(super) fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
-pub(super) fn trailer(messages: &str) -> bool {
+pub(crate) fn trailer(messages: &str) -> bool {
     messages.lines().any(|line| {
         line.strip_prefix("Baseline-growth: s2w#")
             .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))

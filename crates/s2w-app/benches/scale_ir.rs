@@ -1,0 +1,51 @@
+//! Instructions per event for the fold (s2w#32): one gungraun library benchmark, run under
+//! Valgrind's Callgrind by `cargo xtask scale` (or `cargo bench -p s2w-app --bench scale_ir --
+//! --save-summary=json` by hand, which needs `gungraun-runner` at the crate's pinned version).
+//!
+//! Building the events is the setup and is not counted. The benchmark function folds them into
+//! an empty world and returns both the world and the events to the teardown, which is not
+//! counted either: it checks the world holds every generated entity (so a fold or generator that
+//! silently drops work cannot pass with a cheaper count) and drops both. Total instructions
+//! divided by [`scale_generator::IR_EVENTS`] is the gated number.
+#![expect(
+    missing_docs,
+    reason = "gungraun's macros generate undocumented modules, constants and functions"
+)]
+
+#[path = "../tests/support/scale_generator.rs"]
+#[expect(
+    dead_code,
+    reason = "the shared generator has items only the memory test and wall bench use"
+)]
+mod scale_generator;
+
+use std::hint::black_box;
+
+use gungraun::{library_benchmark, library_benchmark_group, main};
+use s2w_core::{World, fold};
+use s2w_model::WorldEvent;
+
+use scale_generator::{IR_EVENTS, SEED, mixed_events};
+
+/// Entities in [`mixed_events`]`(IR_EVENTS, _)`: its 80% entity-observed share.
+const IR_ENTITIES: usize = IR_EVENTS - IR_EVENTS / 5;
+
+/// The teardown, outside the measured region: the fold kept every generated entity.
+fn check_entities((world, events): (World, Vec<WorldEvent>)) {
+    assert_eq!(
+        world.entities().len(),
+        IR_ENTITIES,
+        "the fold of {} events did not hold the generator's entities",
+        events.len()
+    );
+}
+
+#[library_benchmark]
+#[bench::events(args = (mixed_events(IR_EVENTS, SEED)), teardown = check_entities)]
+fn fold_ir_per_event(events: Vec<WorldEvent>) -> (World, Vec<WorldEvent>) {
+    let world = fold(World::default(), black_box(&events));
+    (black_box(world), events)
+}
+
+library_benchmark_group!(name = scale; benchmarks = fold_ir_per_event);
+main!(library_benchmark_groups = scale);

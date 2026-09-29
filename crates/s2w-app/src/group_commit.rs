@@ -16,6 +16,7 @@ use tokio::time::{Instant, MissedTickBehavior};
 use tokio_stream::{Stream, StreamExt};
 
 use crate::AppError;
+use crate::status::Progress;
 
 /// The most events one flush writes.
 pub(crate) const MAX_BATCH: usize = 100;
@@ -269,13 +270,13 @@ where
 pub(crate) async fn pump_events<L: EventLog>(
     log: &mut L,
     stream: EventStream,
-    name: &str,
+    progress: Progress<'_>,
     report: &mut dyn Reporter,
 ) -> Result<(), AppError> {
     pump_events_gated(
         |events, _| log.append_batch(events),
         stream,
-        name,
+        progress,
         report,
         &[],
         |_| Ok((true, 0)),
@@ -293,7 +294,7 @@ pub(crate) async fn pump_events<L: EventLog>(
 pub(crate) async fn pump_events_gated(
     write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     stream: EventStream,
-    name: &str,
+    progress: Progress<'_>,
     report: &mut dyn Reporter,
     sources: &[SourceId],
     membership: impl FnMut(&SourceId) -> Result<(bool, i64), AppError>,
@@ -321,7 +322,7 @@ pub(crate) async fn pump_events_gated(
             result = pump(write, stream, convert, on_error, report, sources, membership) => result,
             // report_progress never returns, so `never` can never be constructed; this is the
             // exhaustive match for an empty type, not a fallback branch.
-            never = report_progress(name, &total, &last_event_at) => match never {},
+            never = report_progress(progress, &total, &last_event_at) => match never {},
         }
     } else {
         pump(
@@ -331,19 +332,22 @@ pub(crate) async fn pump_events_gated(
     }
 }
 
-/// Prints `name`'s throughput, running total and time since the last event roughly every
+/// Prints the source's throughput, running total and time since the last event roughly every
 /// [`PROGRESS_INTERVAL`], forever — the caller races it against the pump and drops it once the
-/// pump finishes. Human mode only; see [`Reporter::wants_ticker`].
+/// pump finishes. With a log directory it appends the storage figures (s2w#32). Human mode
+/// only; see [`Reporter::wants_ticker`].
 async fn report_progress(
-    name: &str,
+    mut progress: Progress<'_>,
     total: &Cell<u64>,
     last_event_at: &Cell<Option<Instant>>,
 ) -> ! {
+    let name = progress.name();
     let mut ticker = tokio::time::interval(PROGRESS_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
     ticker.tick().await; // the first tick fires immediately; nothing to report yet
     let mut previous = total.get();
     let mut previous_tick_at = Instant::now();
+    progress.start(previous_tick_at);
     loop {
         ticker.tick().await;
         let now = Instant::now();
@@ -355,12 +359,15 @@ async fn report_progress(
         let current = total.get();
         let rate = current.saturating_sub(previous) as f64 / elapsed;
         previous = current;
+        let storage_segment = progress.storage_segment(now);
         match last_event_at.get() {
             Some(at) => eprintln!(
-                "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago",
+                "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago{storage_segment}",
                 at.elapsed()
             ),
-            None => eprintln!("s2w: {name}: {rate:.1} events/s, {current} total, no events yet"),
+            None => eprintln!(
+                "s2w: {name}: {rate:.1} events/s, {current} total, no events yet{storage_segment}"
+            ),
         }
     }
 }

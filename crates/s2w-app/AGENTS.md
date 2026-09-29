@@ -10,6 +10,9 @@ Runtime wiring: composes sources, the log, the core and the engines; read-only M
 - dev: `proptest` for the snapshot golden-equivalence test
 - `memory-serve` at runtime and build time for the committed web bundle (decision 0016);
   Node is a frontend development/CI tool only, never part of a Rust build or runtime
+- `rustix` (feature `fs`) for `statfs` in `status` (s2w#32): filesystem kind and free space
+- dev only: `gungraun` (the `scale_ir` instruction-count benchmark, pinned exactly because
+  `gungraun-runner` must match it) and `dhat` (the `scale_mem` heap test), s2w#32
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -50,6 +53,27 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no
   I/O; the HTTP half only parses parameters and calls it. One SSE message per offset; stable error codes.
 - No domain knowledge in this crate; see decision 0018.
+- `status` (s2w#32) owns the storage figures on `watch`'s human progress line: the store's
+  size (every `*.sqlite3*` file in the log directory, labelled `store`), and days until its
+  disk is full. A figure measured on tmpfs or ramfs says
+  `NOT A DISK NUMBER` and never prints days; a `statfs` failure, a non-Linux host and an
+  overlay are all `Unknown`, never `Disk`. The `--json` reporter's output does not change.
+
+## Scale measurements (s2w#32)
+
+- `tests/support/scale_generator.rs` is the one seeded synthetic event generator, included by
+  `#[path]` from each user below. Change its constants or distributions and every baseline
+  moves; say so in the PR.
+- `benches/scale_ir.rs`: gungraun library benchmark `fold_ir_per_event` (total instructions for
+  folding `IR_EVENTS` events; setup not counted). Needs Valgrind and `gungraun-runner` at the
+  same version as the `gungraun` pin. The summary lands in
+  `target/gungraun/s2w-app/scale_ir/scale/fold_ir_per_event.events/summary.json`.
+- `tests/scale_mem.rs`: `#[ignore]`d; owns a dhat global allocator; prints one JSON line with
+  bytes per entity (gated) and bytes per relationship (reported).
+- `benches/scale_wall.rs`: appends, one event per transaction, to a log under
+  `$CARGO_TARGET_TMPDIR/scale/`; prints one JSON line naming the filesystem, plus a `warning`
+  field (`status::TMPFS_WARNING`) on tmpfs, which `cargo xtask scale` prints as is. Must run;
+  its value is reported, never gated.
 
 ## Web bundle
 

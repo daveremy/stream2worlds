@@ -35,6 +35,29 @@ jobs:
         with:
           rust-version: "1.98"
           command: check licenses advisories bans
+  scale:
+    # Fold instructions per event under Valgrind (s2w#32, decision 0004). The [ir] baseline in
+    # xtask/scale-baseline.toml belongs to this image; bumping it re-sets that baseline.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98"
+      - uses: Swatinem/rust-cache@v2
+      - name: valgrind
+        run: sudo apt-get update && sudo apt-get install --yes valgrind
+      - name: gungraun-runner (must equal the gungraun pin in crates/s2w-app/Cargo.toml)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: gungraun-runner@0.20.0
+      - name: scale fitness function
+        run: cargo run --quiet --package xtask -- scale
+      - name: drop benchmark output from the cache
+        if: always()
+        run: rm -rf target/tmp/scale target/gungraun  # scale_wall writes under CARGO_TARGET_TMPDIR
   bundle:
     runs-on: ubuntu-latest
     defaults:

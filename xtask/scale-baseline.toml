@@ -1,0 +1,36 @@
+# Scale baseline (s2w#32; decision 0004; research 0006 §12). Human-owned, like the golden files.
+#
+# Read by `cargo xtask check` ([memory], via s2w-app's ignored `scale_mem` test) and by
+# `cargo xtask scale` ([ir], fold instructions under Valgrind; CI job 'scale'). Every key is
+# required. A measurement more than `tolerance_percent` above its baseline fails. Raising
+# fold_ir_per_event, bytes_per_entity, target_bytes_per_entity, budget_bytes_per_entity or
+# tolerance_percent against origin/main needs a `Baseline-growth: s2w#<N>` trailer on a commit
+# in the PR and a reason in the PR body. `cargo xtask check --tighten-baseline` lowers [memory] values; it never raises
+# them and never touches [ir].
+
+tolerance_percent = 5
+set_by = "s2w#32 (2026-09-28)"
+
+# Instructions per event are owned by the CI image below: Valgrind counts are stable on one
+# image and compiler, not across machines, so a local run is not the baseline. Set from the
+# first CI run of job `scale`.
+[ir]
+fold_ir_per_event = 9093 # measured by CI run 36527045232 (job scale), 2026-09-28
+ci_image = "ubuntu-24.04"
+events = 100000 # IR_EVENTS in crates/s2w-app/tests/support/scale_generator.rs; checked
+rustc = "rustc 1.98.1 (48a229cea 2026-09-01)"
+profile = "bench"
+
+# Heap bytes per entity after folding entity-observed events, counted by dhat (test profile).
+[memory]
+# Measured 830 B on 2026-09-28 (hub, rustc 1.98.1). Baseline; > +tolerance fails.
+bytes_per_entity = 830
+# Decision 0004's planning target; printed with the measured ratio, not a ceiling. Raising it
+# is growth.
+target_bytes_per_entity = 300
+# Interim hard ceiling, pending a human decision-0004 amendment: the measured 830 B is 2.77x the
+# 300 B target, beyond that record's 2x amendment line. Above this always fails.
+budget_bytes_per_entity = 900
+# Informational: heap bytes per relationship-observed event after the entities.
+bytes_per_relationship_reported = 234
+entities = 100000 # MEM_ENTITIES in the generator; the test's JSON line must agree
