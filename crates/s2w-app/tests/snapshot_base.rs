@@ -181,13 +181,14 @@ mod base {
             let events = events();
             let mut full = Timeline::new(CAP);
             append(&mut full, &events, 0);
-            let mut capped = Timeline::new(CAP).with_history_cap(8);
+            let history_cap = 8;
+            let mut capped = Timeline::new(CAP).with_history_cap(history_cap);
             append(&mut capped, &events, 0);
             let (from, head) = (capped.replay_base(), capped.head());
             assert!(from > 0, "the cap dropped events");
             let n = usize::try_from(head - from).unwrap();
             assert!(
-                (4..=8).contains(&n),
+                (history_cap / 2..=history_cap).contains(&n),
                 "the window holds between cap/2 and cap events: {n}"
             );
             let capped_app = router(QueryState::new(capped));

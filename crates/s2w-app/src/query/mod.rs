@@ -59,12 +59,12 @@ pub enum QueryError {
         /// The earliest servable offset.
         base: u64,
     },
-    /// The requested time is before the snapshot base's last event, so its offset lies inside
-    /// the snapshot, whose per-event times are not kept (decision 0024). Shares the
-    /// `offset_before_base` code.
+    /// The requested time maps to an offset world queries cannot serve: inside a snapshot, whose
+    /// per-event times are not kept (decision 0024), or, once the window has dropped events,
+    /// before the newest event (decision 0026). Shares the `offset_before_base` code.
     #[error(
-        "ts {ts} is before the snapshot base (offset {base}); per-event times below it are gone \
-         from this process, try a ts of at least time.last_ts at the base"
+        "ts {ts} is before the earliest time this process serves (offset {base}); try a ts of \
+         at least time.last_ts"
     )]
     TimeBeforeBase {
         /// The requested timestamp in milliseconds.

@@ -378,15 +378,17 @@ impl Timeline {
         let mut world = self.empty_world();
         let mut out = Vec::new();
         for timed in prefix {
-            let (next, delta) = fold_with_delta(world, &timed.event);
-            let touches = delta
+            // The stored delta is the one this fold would compute; reuse it.
+            let next = s2w_core::fold_one(world, &timed.event);
+            let touches = timed
+                .delta
                 .entities()
                 .into_iter()
                 .any(|e| e.get() == id || next.resolve(e).get() == id);
             if touches {
                 out.push(HistoryEntry {
                     offset: next.offset(),
-                    delta,
+                    delta: timed.delta.clone(),
                 });
             }
             world = next;
