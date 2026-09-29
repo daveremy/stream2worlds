@@ -807,8 +807,8 @@ s2w-testkit    golden logs, generators (dev-only)      xtask   fitness checks</p
   Text scanning of Rust source stays out of <code>xtask</code>; a later amendment allows <code>syn</code>
   AST parsing for structural checks. The "first three fitness functions" in the slice are now the
   dependency allowlist, replay determinism and the forbidden lints.</p></div>
-  <div class="prose"><p><strong>Fitness table note, 2026-09-28:</strong> the table above now matches
-  what <code>cargo xtask check</code> enforces. The escape-hatch ratchet row is removed (dropped by
+  <div class="prose"><p><strong>Fitness table note, 2026-09-28:</strong> the table above no longer lists
+  the retired ratchet and now includes the module-size and function-size checks. The escape-hatch ratchet row is removed (dropped by
   <a href="../decisions/0001-workspace-layers.md">decision 0001</a>, see the enforcement note above).
   Two rows are added: module size (<a href="https://github.com/daveremy/stream2worlds/issues/44">#44</a>, PR #72)
   and clippy function size (<a href="https://github.com/daveremy/stream2worlds/issues/65">#65</a>, PR #157).</p></div>
