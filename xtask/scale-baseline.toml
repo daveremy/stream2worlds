@@ -15,7 +15,7 @@ set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29)"
 # image and compiler, not across machines, so a local run is not the baseline. Set from the
 # first CI run of job `scale`.
 [ir]
-fold_ir_per_event = 9093 # measured by CI run 36527045232 (job scale), 2026-09-28
+fold_ir_per_event = 5764 # measured by CI run 36563251251 (job scale), 2026-09-29
 ci_image = "ubuntu-24.04"
 events = 100000 # IR_EVENTS in crates/s2w-app/tests/support/scale_generator.rs; checked
 rustc = "rustc 1.98.1 (48a229cea 2026-09-01)"
