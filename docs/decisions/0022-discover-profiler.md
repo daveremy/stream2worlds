@@ -49,7 +49,10 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    test too, since uniqueness falls as the window grows; it abstains as `GreyUniqueness` unless
    it passes. *2026-09-29 (s2w#208): a path that passes at or above `type_uniqueness_pct` (90,
    equal to the grey band's floor) is `NearUnique` instead of `Entity`: it keys no type, so a
-   grey-band path never does. See the amendment below.*
+   grey-band path never does. See the amendment below.* *2026-09-29 (s2w#250): a path that
+   passes below that line, has at most `category_max` values, and whose repeated values each decide
+   which optional paths their events carry is `Category` instead of `Entity`: it keys no type. See
+   the second amendment below.*
 5. **Aliases.** Two entity paths equal in ≥99% of the ≥20 events carrying both are one class.
 6. **1:1 merge.** Classes that determine each other, transitively (both directions functional, same 95% / 5
    group rule over the events carrying both, ≥20 of them) are two encodings of one entity (research 0002 §4) and merge.
@@ -155,6 +158,71 @@ bounds, so the measurement does not clear it. Window stability: the identities a
 rules). Profiling 10,000 events takes 4.4 s. Both findings go to a follow-up issue: a
 name-free prune and a window rule.
 
+## Amendment 2026-09-29: a key whose values decide an event's shape names no type (s2w#250, `PROFILER_VERSION` 3)
+
+Research [0009](../../research/0009-h-min-plain-wikipedia.md) found H-lite (`PROFILER_VERSION` 2)
+keying `log_action`, the action name of a log event (18 values in the 10^4-event `dev` window),
+as an entity type. It passes the dependency test honestly: `log_type` is constant under each of
+its 15 repeat groups and takes 10 values across them, so it is an informative dependent. The
+dependency is a taxonomy (action -> action family), not an entity's attribute.
+
+What sets it apart on `dev`, measured with a throwaway probe (not committed) over the first 10^4
+and the whole 2x10^5 events: among the events carrying the key, count the optional paths
+(carried by at least 20 of them and by more than 2% and fewer than 98% of them), then count how
+many of those every repeat group carries in at most 2% or at least 98% of its events.
+
+| path | 10^4 events: explained / optional | 2x10^5 events | role at `PROFILER_VERSION` 3, 10^4 |
+|---|---|---|---|
+| `log_action` | 8 / 8 | 12 / 12 | `Category` (was `Entity`) |
+| `log_type` | 8 / 8 | 11 / 12 | `NoDependents` (unchanged; never passed the dependency test) |
+| `type` | 10 / 13 | 10 / 13 | `FewGroups` (unchanged) |
+| `notify_url` | 1 / 6 | 1 / 6 | unchanged |
+| `comment`, `parsedcomment` | 0 / 13 | 4 / 13 | unchanged |
+| `meta.uri` | 0 / 13 | 1 / 13 | unchanged |
+| `title`, `title_url`, `server_name`, `server_url`, `meta.domain`, `wiki`, `user`, `namespace` | 0 / 13 | 0 / 13 | unchanged |
+| `log_params.img_timestamp` | 0 / 0 | 0 / 0 | unchanged (no optional path) |
+
+The full v3 role table for the window is committed as
+[`h-lite-v3.dev-10000.profile.md`](../../research/h-measure/results/h-lite-v3.dev-10000.profile.md),
+printed by `cargo xtask h-measure profile --corpus dev --window 10000`; the explained/optional
+counts above are the probe's, not that verb's.
+
+**The rule.** In stage 4, a path that passes the dependency test below `type_uniqueness_pct` is
+`Role::Category` instead of `Entity` when it has at most `Config::category_max` (32, stage 3's
+bound) distinct values, at least one path is optional among the events carrying it (the
+definition above), and every repeat group of the path carries every such optional path in at
+most 2% or at least 98% of its events. `Category` is reported in `Profile`, keys no type, and
+stays eligible as another type's attribute, like `NearUnique`. Only repeat groups count, since a
+value seen once trivially explains every path. `pct` rounds down, so a group of 49 events with
+one stray reads 2% and counts as pure, as in stage 3.
+
+The statistic is stage 3's own presence test, applied to a candidate key over its own carriers:
+presence and value equality only, integer percentages, no name and no string's text, so check 12
+holds unchanged. Research 0002 §3's argument extends once more: a value that says what kind of
+event this is classifies the event; it does not name a thing that recurs.
+
+**Accepted false demotion.** A key with at most 32 values in the window, each of which fixes
+which optional fields its events carry (for example up to 32 devices, each emitting one fixed
+payload shape), reads as a category and keys no type; it stays an attribute. Without names it is
+structurally the same as `log_action` -> `log_type`. The bound exists so that a many-valued key
+of that kind (hundreds of devices, one shape each) keeps its type. A plain `distinct <= 32` rule
+was rejected: a small fleet of sensors whose payloads do not depend on the sensor keeps its type.
+
+**Not caught.** A closed vocabulary that does not change the event's shape (a status field with
+no optional paths). None is an `Entity` on `dev`, so no rule for it is justified.
+
+**Window dependence.** In the whole 2x10^5-event `dev` corpus `log_action` has 36 values, more
+than 32, so the rule does not fire there and `log_action` stays an entity at that window.
+`log_action_comment` (free text) is also an entity there; it is not in #250's list and is
+recorded as a finding only. The window `serve` profiles and the frozen H-lite window is 10^4.
+
+On the 1,615-event fixture the mapping is unchanged: 5 types, 12 entity rules, 46 relationship
+rules (32 `n:1`), no `Category` path (re-measured 2026-09-29 on this change; the page-change
+stream carries no log events).
+
+Research 0009 implication 1 named H-min proper "`PROFILER_VERSION` 3"; that number is taken
+here, so #244's H-min change takes `PROFILER_VERSION` 4.
+
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a
@@ -162,6 +230,9 @@ learned scorer and the evaluation corpus (#56's H-min and H-full). *2026-09-29: 
 exists and H-lite at `PROFILER_VERSION` 2 is measured on it (research
 [0009](../../research/0009-h-min-plain-wikipedia.md)): on plain `recentchange` it proposes no
 `user` or revision type, keys a small action-name field (`log_action`) as an entity, and keys
-pages and wikis at alias paths. Inclusion dependencies are #244.* Wiring into `serve` and
+pages and wikis at alias paths. Inclusion dependencies are #244.* *2026-09-29 (s2w#250): `log_action` is a `Category` at
+`PROFILER_VERSION` 3 (amendment above). A `user` type needs a new entity criterion (#250 PR 2);
+a revision recurs only across two paths, an inclusion dependency (#244); choosing among alias
+encodings of one entity needs a format that joins different values (#245).* Wiring into `serve` and
 auto-apply (#163 PR 4; *2026-09-29: done, [decision 0025](0025-learned-mapping-auto-apply.md)*) and the mapping state surfaces [0017](0017-view-and-agents-first-class.md) requires (#163
 PR 5).

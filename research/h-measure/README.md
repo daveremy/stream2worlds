@@ -15,6 +15,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `dev-key-v1.<variant>.json` | Each v0 sensitivity variant in format 1, with the same `no_identity` on `log_id`, pinned before any score. |
 | `frozen/h-lite-v2.dev-N.json` | H-lite (`PROFILER_VERSION` 2) frozen on `dev` at N = 10^4 and 2×10^5 (commit 5e74d8f, built at eeeced7), before any held-out corpus was scored. Score them with a build whose profiler and `Config` match, or `score` refuses. |
 | `results/h-lite-v2.dev-N.<corpus>.md` | The pre-registered held-out reports, one per frozen file and held-out corpus, read in research [0009](../0009-h-min-plain-wikipedia.md). |
+| `frozen/h-lite-v3.dev-N.json`, `results/h-lite-v3.*` | H-lite `PROFILER_VERSION` 3 (s2w#250 PR 1): frozen on `dev` at the same windows, its `dev` profile table, and its `reserved-2` reports next to v2's on the same span. |
 
 ## Rules
 
@@ -39,6 +40,16 @@ never overwritten), a corpus whose frame count is not its pinned `events`, and a
 outside 1 to that count (the mapping is discovered on the first `--window` events). The file
 records the corpus sha256, the window, the profiler version and config, every key and corpus
 pin (a corpus pin includes its role, file and event count), and the profile's abstained paths, so a score can prove what it was frozen against.
+
+## Profiling the development corpus
+
+```
+cargo xtask h-measure profile --corpus dev --window 10000 [--dir DIR]
+```
+
+Prints the profiler's per-path table (path, count, distinct values, role), the decode steps and
+the event-type field for the first `--window` events, as markdown. It checks the corpus pin and
+refuses any corpus whose `role` is not `development`, as `freeze` does.
 
 ## Scoring a frozen mapping
 
