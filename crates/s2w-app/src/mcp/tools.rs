@@ -12,7 +12,7 @@ use rmcp::tool_router;
 
 use crate::query::{
     Branch, HistoryEntry, ProposalsView, QueryError, SourceInfo, TimeResult, ViewParams, WorldDiff,
-    WorldView, check_branch, check_world, parse_lod, world_view,
+    WorldView, check_branch, check_world, parse, parse_lod,
 };
 
 use super::WorldMcp;
@@ -48,6 +48,10 @@ pub struct WorldViewArgs {
     pub focus: Option<u64>,
     /// The neighbourhood's radius in hops; 1 by default, 5 at most.
     pub hops: Option<u32>,
+    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
+    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
+    /// when absent.
+    pub epoch: Option<String>,
 }
 
 /// `world_diff`'s parameters: the `/worlds/{world}/diff` route's path and query parameters.
@@ -61,6 +65,10 @@ pub struct WorldDiffArgs {
     pub from: Option<u64>,
     /// The later fold offset; the head when absent.
     pub to: Option<u64>,
+    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
+    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
+    /// when absent.
+    pub epoch: Option<String>,
 }
 
 /// `entity_history`'s parameters: the `/worlds/{world}/entity/{id}/history` route's path and
@@ -75,6 +83,10 @@ pub struct EntityHistoryArgs {
     pub id: u64,
     /// Fold offset to stop at; the head when absent.
     pub to: Option<u64>,
+    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
+    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
+    /// when absent.
+    pub epoch: Option<String>,
 }
 
 /// `branches`'s parameters: the `/worlds/{world}/branches` route's path parameter.
@@ -91,8 +103,12 @@ pub struct TimeArgs {
     pub world: String,
     /// The world branch; only `actual` exists today.
     pub branch: Option<String>,
-    /// A timestamp in milliseconds since the epoch.
+    /// A timestamp in milliseconds since the Unix epoch.
     pub ts: Option<i64>,
+    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
+    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
+    /// when absent.
+    pub epoch: Option<String>,
 }
 
 /// `sources`'s parameters: the `/worlds/{world}/sources` route's path and query parameters.
@@ -102,6 +118,10 @@ pub struct SourcesArgs {
     pub world: String,
     /// The fold offset whose membership to list; the head when absent.
     pub at: Option<u64>,
+    /// The history the offsets belong to (16 hex digits, the `epoch` of an earlier
+    /// `world_view` or `time` result); a different history is a `stale_epoch` error. Unchecked
+    /// when absent.
+    pub epoch: Option<String>,
 }
 
 /// `proposals_list`'s parameters: the `/worlds/{world}/proposals` route's path parameter.
@@ -131,7 +151,8 @@ impl WorldMcp {
             focus: args.focus,
             hops: args.hops.unwrap_or(1),
         };
-        world_view(&self.state.world_at(args.at)?, &params)
+        self.state
+            .view_at(args.at, parse("epoch", args.epoch.as_deref())?, &params)
     }
 
     /// What changed between two fold offsets: entity-level nodes, links and merges added,
@@ -146,7 +167,11 @@ impl WorldMcp {
     fn diff(&self, args: WorldDiffArgs) -> Result<WorldDiff, QueryError> {
         check_world(&self.state, &args.world)?;
         check_branch(args.branch.as_deref())?;
-        self.state.diff(args.from.unwrap_or(0), args.to)
+        self.state.diff(
+            args.from.unwrap_or(0),
+            args.to,
+            parse("epoch", args.epoch.as_deref())?,
+        )
     }
 
     /// Every delta naming an entity id up to a fold offset, including ids that were merged
@@ -168,7 +193,8 @@ impl WorldMcp {
     fn history(&self, args: EntityHistoryArgs) -> Result<Vec<HistoryEntry>, QueryError> {
         check_world(&self.state, &args.world)?;
         check_branch(args.branch.as_deref())?;
-        self.state.history(args.id, args.to)
+        self.state
+            .history(args.id, args.to, parse("epoch", args.epoch.as_deref())?)
     }
 
     /// The world branches that exist. Requires `world` and mirrors
@@ -198,7 +224,8 @@ impl WorldMcp {
     fn time_of(&self, args: TimeArgs) -> Result<TimeResult, QueryError> {
         check_world(&self.state, &args.world)?;
         check_branch(args.branch.as_deref())?;
-        self.state.time(args.ts)
+        self.state
+            .time(args.ts, parse("epoch", args.epoch.as_deref())?)
     }
 
     /// Each member source with how many of its events the bridge consumed, how many no engine
@@ -212,7 +239,8 @@ impl WorldMcp {
     /// `/worlds/{world}/sources`'s logic.
     fn sources_of(&self, args: SourcesArgs) -> Result<Vec<SourceInfo>, QueryError> {
         check_world(&self.state, &args.world)?;
-        self.state.sources(args.at)
+        self.state
+            .sources(args.at, parse("epoch", args.epoch.as_deref())?)
     }
 
     /// Stored proposals (without payloads), decisions and their grades, read fresh from the
@@ -243,18 +271,24 @@ const WORLD_VIEW: &str = "Requires the world string parameter. The world as a d3
     focused on one entity's neighbourhood (at most 5 hops). Mirrors GET \
     /worlds/{world}/world: entities past the in-degree cap come back as one aggregate hub node, \
     and errors are {\"error\", \"message\"} objects (offset_beyond_head, offset_before_base, \
-    unknown_entity, hops_too_large, lod_not_yet, branch_not_yet, unknown_world). Call `time` \
-    first to find the offsets that exist: from time.base to time.head.";
+    unknown_entity, hops_too_large, lod_not_yet, branch_not_yet, unknown_world, stale_epoch). \
+    Call `time` first to find the offsets that exist: from time.base to time.head. The result's \
+    epoch names the history its offset belongs to; pass it back as epoch with that offset, and \
+    a stale_epoch error means the world was rebuilt: read it again.";
 const WORLD_DIFF: &str = "Requires the world string parameter. What changed between two fold \
     offsets: entity-level nodes, links and merges added, removed and changed. Mirrors GET \
     /worlds/{world}/diff: from defaults to 0 and to to the head; an offset past the head is an \
     offset_beyond_head error, and one below time.base (a server restored from a snapshot) is an \
-    offset_before_base error, so pass from=time.base.";
+    offset_before_base error, so pass from=time.base. Pass back the epoch of the world_view or time result an \
+    offset came from; a different epoch (the world was rebuilt under other routes) is a \
+    stale_epoch error.";
 const ENTITY_HISTORY: &str = "Requires the world string parameter. Every delta naming one entity \
     id up to a fold offset, including ids that were merged into it at that moment. Mirrors GET \
     /worlds/{world}/entity/{id}/history: to defaults to the head, and an unknown id is an \
     unknown_entity error. Entries cover only offsets after time.base (see time.base); a to below \
-    it is an offset_before_base error. Use world_view to find entity ids first.";
+    it is an offset_before_base error. Use world_view to find entity ids first. Pass back the epoch of the world_view or time result an \
+    offset came from; a different epoch (the world was rebuilt under other routes) is a \
+    stale_epoch error.";
 const BRANCHES: &str = "Requires the world string parameter. The world branches that exist. \
     Mirrors GET /worlds/{world}/branches: today exactly one, 'actual', with its head offset, \
     fold version and hub in-degree cap.";
@@ -264,11 +298,14 @@ const TIME: &str = "Requires the world string parameter. The world's time index.
     out-of-order timestamps were clamped, plus base, the earliest servable offset (0, or the \
     snapshot offset this server restored from). A ts before the base's last event is an \
     offset_before_base error. Mirrors GET /worlds/{world}/time. Fold offsets from base to head \
-    are what world_view, world_diff and entity_history accept.";
+    are what world_view, world_diff and entity_history accept. Both shapes carry epoch, the \
+    history the offsets belong to (16 hex digits); pass it back with those offsets.";
 const SOURCES: &str = "Requires the world string parameter. The world's member sources at a \
     fold offset (the head by default), each with consumed and unrouted event counts and \
     recent_unrouted, the most recent events no engine is routed for, most recent first. Mirrors \
-    GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet.";
+    GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet. Pass back the epoch of the world_view or time result an \
+    offset came from; a different epoch (the world was rebuilt under other routes) is a \
+    stale_epoch error.";
 const PROPOSALS_LIST: &str = "Requires the world string parameter. The stored proposals \
     (without payloads; payload_hash is the stored value, not re-verified), every decision \
     including corrections, and grades per class and actor. Mirrors GET \

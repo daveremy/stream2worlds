@@ -6,6 +6,7 @@ use s2w_core::{AttrMap, EntityId, World};
 use serde::Serialize;
 
 use super::QueryError;
+use super::timeline::Epoch;
 
 /// The most hops a focused view may request.
 pub const MAX_HOPS: u32 = 5;
@@ -136,6 +137,9 @@ pub struct Link {
 pub struct WorldView {
     /// The fold offset this view is at.
     pub offset: u64,
+    /// The history `offset` belongs to (see [`Epoch`]): pass it back as `epoch` with any offset
+    /// read from this view.
+    pub epoch: Epoch,
     /// The world branch; only `actual` exists.
     pub branch: &'static str,
     /// The fold version that produced the world.
@@ -337,7 +341,8 @@ impl<'w> Graph<'w> {
     }
 }
 
-/// Projects `world` at `params`. Pure: the HTTP handler, `--json` and MCP all call this.
+/// Projects `world` at `params`, labelled with the history `epoch` it was read from. Pure: the
+/// HTTP handler, `--json` and MCP all call this.
 ///
 /// # Errors
 /// [`QueryError::UnknownEntity`] for an unknown focus, [`QueryError::HopsTooLarge`] past
@@ -346,7 +351,11 @@ impl<'w> Graph<'w> {
     clippy::too_many_lines,
     reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
 )]
-pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
+pub fn world_view(
+    world: &World,
+    params: &ViewParams,
+    epoch: Epoch,
+) -> Result<WorldView, QueryError> {
     let graph = Graph::new(world);
     let subset = match params.focus {
         None => None,
@@ -427,6 +436,7 @@ pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, Query
     }
     Ok(WorldView {
         offset: world.offset(),
+        epoch,
         branch: ACTUAL_BRANCH,
         fold_version: world.fold_version(),
         hub_in_degree_cap: world.hub_in_degree_cap(),

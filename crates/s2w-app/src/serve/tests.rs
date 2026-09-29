@@ -911,8 +911,8 @@ fn web_live_sse_observes_an_append_after_opening() {
             .expect("chunk")
             .expect("bytes");
         let text = String::from_utf8(chunk.to_vec()).expect("text");
-        assert!(text.contains("id: 2\n"), "{text}");
-        assert!(!text.contains("id: 1\n"), "exclusive resume: {text}");
+        assert!(text.contains("id: 0000000000000000:2\n"), "{text}");
+        assert!(!text.contains(":1\n"), "exclusive resume: {text}");
     });
 }
 

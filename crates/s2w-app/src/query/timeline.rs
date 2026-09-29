@@ -44,6 +44,45 @@ pub struct TimeRange {
     /// How many appends arrived with a timestamp earlier than the previous event's and were
     /// clamped to it.
     pub clamped: u64,
+    /// The history this range belongs to ([`Epoch`]).
+    pub epoch: Epoch,
+}
+
+/// Which history an offset belongs to: the serving registry's feed fingerprint (decision 0023,
+/// amended by PR 2b-i of s2w#184). Two timelines with the same epoch are the same deterministic
+/// fold of the same log, so `(epoch, offset)` names one world; the same offset under a different
+/// epoch may name a different world and answers `stale_epoch` (410).
+///
+/// Serialized as 16 lowercase hex digits (a string: 64-bit values do not survive JS numbers).
+/// `0` is reserved for "no serving registry" (a fresh [`Timeline::new`], the standalone
+/// `s2w mcp` replay).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Epoch(pub u64);
+
+impl std::fmt::Display for Epoch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+impl std::str::FromStr for Epoch {
+    type Err = String;
+
+    /// Exactly 16 hex digits, either case.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() != 16 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("expected 16 hex digits".to_owned());
+        }
+        u64::from_str_radix(s, 16)
+            .map(Self)
+            .map_err(|e| e.to_string())
+    }
+}
+
+impl Serialize for Epoch {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
 }
 
 /// The time index of the events folded into a base world, carried by a snapshot so a restored
@@ -77,6 +116,7 @@ pub struct Timeline {
     head: Arc<World>,
     events: Vec<TimedEvent>,
     clamped: u64,
+    epoch: Epoch,
 }
 
 impl Timeline {
@@ -98,6 +138,38 @@ impl Timeline {
             base_time: time,
             events: Vec::new(),
             clamped: time.clamped,
+            epoch: Epoch::default(),
+        }
+    }
+
+    /// This timeline, serving history `epoch`. [`Timeline::new`] and [`Timeline::from_snapshot`]
+    /// start at epoch 0; `serve` sets the registry's feed fingerprint before anything is served.
+    #[must_use]
+    pub fn with_epoch(mut self, epoch: Epoch) -> Self {
+        self.epoch = epoch;
+        self
+    }
+
+    /// The history this timeline serves.
+    #[must_use]
+    pub fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+
+    /// `Ok` when `supplied` is absent (the caller opted out) or equals this timeline's epoch;
+    /// otherwise [`QueryError::StaleEpoch`]. Every read that resolves a client offset calls this
+    /// first, before any bounds check, so a stale client gets 410 rather than a bounds error
+    /// about another history's offsets.
+    ///
+    /// # Errors
+    /// [`QueryError::StaleEpoch`] when the epochs differ.
+    pub fn check_epoch(&self, supplied: Option<Epoch>) -> Result<(), QueryError> {
+        match supplied {
+            Some(supplied) if supplied != self.epoch => Err(QueryError::StaleEpoch {
+                supplied,
+                current: self.epoch,
+            }),
+            _ => Ok(()),
         }
     }
 
@@ -231,6 +303,7 @@ impl Timeline {
                 .map(|e| e.at.as_millis())
                 .or(self.base_time.last_ts),
             clamped: self.clamped,
+            epoch: self.epoch,
         }
     }
 
