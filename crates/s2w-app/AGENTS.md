@@ -52,8 +52,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   every answer is unchanged. Base and head share one world (`Arc`) until the first append after a
   restore copies it (#179); never hand out the `Arc` itself, or the next append copies the whole
   world and the old one stays alive.
-  `QueryState::replace_timeline` is the one way to install a timeline, and only `serve`'s
-  startup (`snapshots::prepare`) calls it, before the bridge exists. A timeline carries its
+  `QueryState::replace_timeline` is the one way to install a timeline. `serve`'s startup
+  (`snapshots::prepare`) calls it before the bridge exists, and a live rebuild
+  (`serve/rebuild.rs`, decision 0023 "Rebuild") calls it between two polls, before
+  `Bridge::restart`; nothing else does. A timeline carries its
   `Epoch` (decision 0023): `prepare` installs the registry's feed fingerprint on the empty
   timeline first, and a restored one chains `.with_epoch`. Every read that resolves a client
   offset calls `Timeline::check_epoch` under the same lock, before any bounds check.
@@ -61,13 +63,18 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   every validity rule holds, and an invalid file is reported and skipped, never deleted. Its
   bytes carry no path or host detail. The codec and validity rules are pure; only `store` does
   I/O, writes atomically (temp file, fsync, rename, dir fsync), and touches only files matching
-  `snapshot-<20 digits>.s2w`.
+  `snapshot-<16 hex>-<20 digits>.s2w` (feed fingerprint, offset) of the serving fingerprint.
 - `serve/snapshots.rs` (decision 0024, part 1b) is the only snapshot writer: it captures the head
   right after a successful `poll_once` with no `.await` in between, so the bridge's `mark()` and
   the timeline head describe the same moment, refuses a head that moved past that checkpoint,
   encodes the borrowed head under the read lock without cloning it (#179), and writes and fsyncs
   the bytes on its own thread. The final snapshot runs only in the stop-signal
   branch, before the bridge is dropped, never after a fatal error.
+- `serve/rebuild.rs` (decision 0023 "Rebuild") is the only code that changes the registry
+  while serving. `RouteWatcher` reads the proposal store's watermark, then its rows (never the
+  other order) after a poll, at most every 250 ms; a changed feed fingerprint swaps the world with no
+  `.await`: retire the snapshot writer, `replace_timeline` under the new epoch, `prepare`,
+  `Bridge::restart`.
 - `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no
   I/O; the HTTP half only parses parameters and calls it. One SSE message per offset; stable error codes.
 - No domain knowledge in this crate; see decision 0018.

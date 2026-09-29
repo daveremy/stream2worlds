@@ -210,6 +210,29 @@ pub fn resolve(proposals: &[StoredProposal], decisions: &[StoredDecision]) -> Re
     }
 }
 
+/// The proposal store's watermark: `None` while no store exists, else the highest proposal and
+/// decision `seq`.
+pub type Watermark = Option<(Option<i64>, Option<i64>)>;
+
+/// The proposal store's watermark (s2w#184): `None` while no store exists, else the highest
+/// proposal and decision `seq`. `serve` compares it on every bridge poll and resolves again
+/// only when it moved. Read it before the rows ([`load`]): a row appended in between is then
+/// above the recorded watermark and seen on the next poll, never missed.
+///
+/// # Errors
+/// [`AppError::Proposals`] if the store exists but cannot be opened or read.
+pub fn watermark(log_dir: &Path) -> Result<Watermark, AppError> {
+    let exists = log_dir
+        .join(PROPOSAL_DATABASE_FILE)
+        .try_exists()
+        .map_err(|error| AppError::Proposals(s2w_log::LogError::Io(error.to_string())))?;
+    if !exists {
+        return Ok(None);
+    }
+    let store = ReadOnlySqliteProposalStore::open(log_dir).map_err(AppError::Proposals)?;
+    store.watermark().map(Some).map_err(AppError::Proposals)
+}
+
 /// Reads `log_dir`'s proposal store and resolves it. A missing store resolves to no routes
 /// (nothing has ever been proposed); a read never creates it.
 ///

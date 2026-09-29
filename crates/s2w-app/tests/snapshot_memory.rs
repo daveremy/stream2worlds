@@ -114,7 +114,7 @@ mod memory {
         let started = Instant::now();
         let bytes = encode(&world);
         let encode_ms = started.elapsed().as_millis();
-        let path = store::write_bytes(&dir, world.offset(), &bytes).unwrap();
+        let path = store::write_bytes(&dir, 0, world.offset(), &bytes).unwrap();
         let write_ms = started.elapsed().as_millis();
         drop(bytes);
         let write_peak = peak_since(before);

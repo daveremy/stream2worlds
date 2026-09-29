@@ -88,7 +88,9 @@ depends on nothing else new.
 
 `EngineRegistry::feed_fingerprint()` hashes every route and engine name, so a registry built
 under mapping B has a different fingerprint from A's. A snapshot written under A fails validity
-rule 4 ([0024 snapshots](0024-snapshots.md)) and is reported and ignored; `serve` replays from position 0 under B.
+rule 4 ([0024 snapshots](0024-snapshots.md)) and is ignored; `serve` replays from position 0 under B. Since
+PR 2b-ii the file name carries the fingerprint, so A's file is not even listed under B (see
+"Rebuild").
 No new snapshot field. This needs one ordering rule: **`serve` resolves routes and builds the
 registry before it restores a snapshot**, because restore needs the fingerprint.
 
@@ -124,6 +126,65 @@ errors byte-equal to HTTP), and `serve/tests.rs` (a restart under B serves B's f
 refuses A's; a restored timeline serves the registry's epoch; two mutants, both histories under
 epoch 0 and an id-only design that serves a bare reconnect, show what the epoch rules out).
 
+## Rebuild (PR 2b-ii)
+
+`serve` watches the proposal store while it runs. After a bridge poll, at most every 250 ms, it reads
+the store's watermark (the highest proposal and decision `seq`, one read transaction). When the
+watermark moved, it resolves the routes again; when the new registry's feed fingerprint differs
+from the served one, it rebuilds the world in-process with the start-up sequence:
+
+1. retire the snapshot writer: a write in flight lands under the old fingerprint, and no final
+   snapshot of the old world is taken;
+2. install an empty timeline under the new epoch; the old world is dropped here, so peak memory
+   is one world, never two;
+3. `snapshots::prepare` under the new registry: restore the new fingerprint's newest valid
+   snapshot, or none;
+4. `Bridge::restart` from position 0, or from the restored snapshot's position.
+
+The swap runs synchronously between two polls on the current-thread runtime, so no request sees
+a half-swapped state: a client pinned to the old epoch gets `stale_epoch` (410) and the viewer
+starts over from a fresh snapshot. Stored verdicts of the new engine names replay; the rest are
+evaluated and stored, so a revoke back to a mapping served before replays its verdicts
+(`evaluated == 0`).
+
+- **The change test is fingerprint inequality**, the value the epoch and snapshot rule 4 use,
+  so the three never disagree. Re-proposing the same mapping bytes, or a decision that leaves
+  the effective routes as they were, is noted (`routes: unchanged ... no rebuild`) and rebuilds
+  nothing.
+- **Watermark before rows.** Each check reads the watermark first, then the rows. A row written
+  between the two reads is applied now and, because the watermark moved again, read again (and
+  noted as unchanged) on the next check: re-read, never missed.
+- **Epoch correctness rests on deterministic engines.** A rebuild does not re-derive the old
+  world to compare; it trusts that the same routes over the same log fold the same world, as
+  the epoch already does across restarts.
+- **Failures.** A store that cannot be read is noted once, the current routes stay, and
+  recovery is noted. Routes that do not build a registry are noted once (`rebuild refused`).
+  A rebuild that cannot install its timeline, restore or restart the bridge is fatal, like the
+  same failure at start-up.
+- **Progress.** While the backfill runs, `/worlds/{world}/sources` and the MCP `sources` tool
+  carry `rebuilding` (`identity`, `since_position`) on each source whose mapping changed, and
+  the viewer says so. `rebuild complete` is noted with the counts on the first idle poll after
+  the backfill. When the backfill replayed the whole log and no engine produced a claim, each
+  new mapping is noted by name (`produced no claims`); per-engine counts are not kept. A
+  change during a backfill supersedes it (`rebuild: superseded`) and starts again; sources are
+  compared with the last world whose backfill completed.
+- **Snapshots are per fingerprint.** Files are named
+  `snapshot-<16 hex feed fingerprint>-<20 digit offset>.s2w`; listing, restore and pruning read
+  only the serving fingerprint's files, so a rebuild never prunes another mapping's snapshots
+  and a revoke can restore its own. The old `snapshot-<20 digits>.s2w` name is not read (a cold
+  fold rebuilds it). Neither those files nor other fingerprints' files are pruned; they stay on
+  disk until snapshot housekeeping (#33). Rule 4 stays as the header check behind the name.
+- **Snapshot validity rule 5b.** A snapshot is restored only if the verdict store holds a row at
+  the snapshot position for every registered engine name routed to that event's source. After
+  a rebuild the bridge cursor keeps the old routing's high-water mark, so rule 5's cursor check
+  alone cannot tell that this routing's engines judged the event; rule 5b can.
+
+Tests: `serve/tests/rebuild.rs` (accept while serving: the world equals the cold fold under B,
+and a restart serves the same; revoke: A's epoch back with its verdicts replayed; same-bytes
+re-proposal: no rebuild; a stop as soon as a rebuild starts restarts to the cold fold),
+`serve/rebuild/tests.rs` (the watermark race, a failing store noted once, which sources are
+listed as rebuilding), `snapshot/tests.rs` (per-fingerprint listing and pruning, rule 5b).
+
 ## The world manifest
 
 The manifest records `EngineRegistry::with_defaults().names()` at world creation and is
@@ -133,10 +194,8 @@ per-source mapping state is #163 PR 5's sources surface.
 
 ## What is not here
 
-- **Live rebuild** (#163 PR 2b): an accept while `serve` runs changes nothing until a restart.
-  PR 2b rebuilds from position 0 in-process, adds an epoch to `/time` and SSE, and adds snapshot
-  validity rule 5b (a stored verdict row exists at the snapshot position for each registered
-  name routed to that source). It also records the measured backfill throughput and memory.
+- **Backfill measurements**: the rebuild's throughput and peak memory on a large log are not
+  measured yet (s2w#184 follow-up).
 - **Producer** (#163 PR 4): nothing writes `stream-mapping` proposals yet, so no demo route
   exists until then. *2026-09-29: built, [decision 0025](0025-learned-mapping-auto-apply.md).*
 - **Surfaces** (#163 PR 5, [0017](0017-view-and-agents-first-class.md)): the view, MCP and the

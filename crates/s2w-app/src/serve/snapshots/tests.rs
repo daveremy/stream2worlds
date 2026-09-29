@@ -46,7 +46,7 @@ fn config(every: u64, shutdown_min: u64) -> SnapshotConfig {
 
 /// Offsets of the snapshot files written into `log_dir`, oldest first.
 fn written(log_dir: &Path) -> Vec<u64> {
-    store::list(&store::dir(log_dir))
+    store::list(&store::dir(log_dir), 7)
         .unwrap_or_default()
         .into_iter()
         .map(|(offset, _)| offset)
@@ -75,7 +75,7 @@ fn a_due_snapshot_is_written_at_the_checkpoint_offset() {
     snapshotter.after_poll(Some((position(2), 22)), 1, &state);
     snapshotter.finish(&state);
     assert_eq!(written(dir.path()), vec![head]);
-    let loaded = store::load_latest(&store::dir(dir.path()), |_| Ok(())).expect("load");
+    let loaded = store::load_latest(&store::dir(dir.path()), 7, |_| Ok(())).expect("load");
     let (_, snapshot) = loaded.snapshot.expect("snapshot");
     assert_eq!(
         (

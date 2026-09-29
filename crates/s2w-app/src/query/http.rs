@@ -40,6 +40,8 @@ pub struct QueryState {
     manifest: Option<Arc<WorldManifest>>,
     membership: Arc<Vec<MembershipRow>>,
     source_stats: Arc<watch::Sender<BTreeMap<SourceId, SourceStats>>>,
+    /// Sources whose world a live rebuild is refolding (s2w#184), published by `serve`.
+    rebuilding: Arc<watch::Sender<BTreeMap<SourceId, Rebuilding>>>,
     /// The event-log directory, so presentation can be read fresh per request rather than
     /// cached at startup — a live `s2w presentation set` is visible without a restart.
     log_dir: Option<Arc<PathBuf>>,
@@ -51,6 +53,7 @@ impl QueryState {
     pub fn new(timeline: Timeline) -> Self {
         let (head, _) = watch::channel(timeline.head());
         let (source_stats, _) = watch::channel(BTreeMap::new());
+        let (rebuilding, _) = watch::channel(BTreeMap::new());
         Self {
             timeline: Arc::new(RwLock::new(timeline)),
             head: Arc::new(head),
@@ -59,6 +62,7 @@ impl QueryState {
             manifest: None,
             membership: Arc::new(Vec::new()),
             source_stats: Arc::new(source_stats),
+            rebuilding: Arc::new(rebuilding),
             log_dir: None,
         }
     }
@@ -154,7 +158,8 @@ impl QueryState {
     /// [`Epoch`] are one value, so they are swapped under one write lock and every read sees a
     /// consistent pair; an SSE follower notices the new epoch on its next read and ends with
     /// `stale_epoch`. `serve` calls this at start-up (`snapshots::prepare`: the empty timeline
-    /// under the registry's epoch, then a restored one), before the bridge starts.
+    /// under the registry's epoch, then a restored one), before the bridge starts, and again on
+    /// a live rebuild (s2w#184) between two bridge polls.
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.
@@ -191,6 +196,12 @@ impl QueryState {
         self.source_stats.send_replace(stats);
     }
 
+    /// Replaces the sources `/worlds/{world}/sources` reports as rebuilding: set by `serve`
+    /// when a mapping change starts a live rebuild, cleared when its backfill completes.
+    pub(crate) fn publish_rebuilding(&self, rebuilding: BTreeMap<SourceId, Rebuilding>) {
+        self.rebuilding.send_replace(rebuilding);
+    }
+
     /// Events of `source` the bridge has consumed so far (zero before its first batch).
     #[cfg(test)]
     pub(crate) fn consumed(&self, source: &SourceId) -> u64 {
@@ -198,6 +209,14 @@ impl QueryState {
             .borrow()
             .get(source)
             .map_or(0, |stats| stats.consumed)
+    }
+
+    /// The served epoch and the sources reported as rebuilding, read with no await between
+    /// them, so a test on the current-thread runtime sees both from one side of a rebuild swap.
+    #[cfg(test)]
+    pub(crate) fn epoch_and_rebuilding(&self) -> (Epoch, usize) {
+        let epoch = self.timeline.read().expect("timeline lock").epoch();
+        (epoch, self.rebuilding.borrow().len())
     }
 
     /// The events between the served base and head, in order.
@@ -854,6 +873,19 @@ pub struct SourceInfo {
     pub unrouted: u64,
     /// The most recent unrouted events, most recent first, capped by the bridge.
     pub recent_unrouted: Vec<RawEventInfo>,
+    /// Present while a live rebuild refolds this source's world under a newly effective mapping
+    /// (s2w#184); absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rebuilding: Option<Rebuilding>,
+}
+
+/// A live rebuild in progress for one source (s2w#184).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Rebuilding {
+    /// The identity of the mapping the source's world is being rebuilt under.
+    pub identity: String,
+    /// The log position the previous world had reached when the rebuild began.
+    pub since_position: u64,
 }
 
 /// The payload bytes as JSON when they decode, or as a lossy string when they do not: the log
@@ -902,6 +934,7 @@ impl QueryState {
             // The join key is the SourceId itself: membership rows and the bridge's counters
             // both name sources by it, so a member the bridge has not read yet reports zeros.
             let stats = self.source_stats.borrow();
+            let rebuilding = self.rebuilding.borrow();
             Ok(members_at(&self.membership, at)
                 .into_iter()
                 .map(|source| {
@@ -921,6 +954,7 @@ impl QueryState {
                                 payload: payload_json(&stored.event.payload),
                             })
                             .collect(),
+                        rebuilding: rebuilding.get(&source).cloned(),
                     }
                 })
                 .collect())
@@ -1097,7 +1131,7 @@ mod membership_tests {
 
             let app = router(state.clone());
             let (status, http_body) = get(&app, "/worlds/default/sources").await;
-            let mcp = crate::mcp::WorldMcp::new(state);
+            let mcp = crate::mcp::WorldMcp::new(state.clone());
             let tool = mcp.sources(rmcp::handler::server::wrapper::Parameters(
                 serde_json::from_value(serde_json::json!({"world": "default"})).unwrap(),
             ));
@@ -1124,6 +1158,33 @@ mod membership_tests {
                     }])
                 )
             );
+
+            // A live rebuild in progress (s2w#184) is reported on the source it is for, by
+            // both surfaces; with none in progress the field is absent (above).
+            state_rebuilding(&state, &unrouted);
+            let (_, http_body) = get(&app, "/worlds/default/sources").await;
+            let tool = mcp.sources(rmcp::handler::server::wrapper::Parameters(
+                serde_json::from_value(serde_json::json!({"world": "default"})).unwrap(),
+            ));
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&tool.content[0].as_text().unwrap().text)
+                    .unwrap(),
+                http_body
+            );
+            assert_eq!(
+                http_body[0]["rebuilding"],
+                serde_json::json!({"identity": "m-1", "since_position": 42})
+            );
         });
+    }
+
+    fn state_rebuilding(state: &QueryState, source: &SourceId) {
+        state.publish_rebuilding(BTreeMap::from([(
+            source.clone(),
+            Rebuilding {
+                identity: "m-1".to_owned(),
+                since_position: 42,
+            },
+        )]));
     }
 }

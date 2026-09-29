@@ -18,7 +18,8 @@ use thiserror::Error;
 pub use delta::{Delta, fold_with_delta};
 pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
 pub use http::{
-    Branch, QueryState, RawEventInfo, SourceInfo, TimeAt, TimeResult, WorldSummary, router,
+    Branch, QueryState, RawEventInfo, Rebuilding, SourceInfo, TimeAt, TimeResult, WorldSummary,
+    router,
 };
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
