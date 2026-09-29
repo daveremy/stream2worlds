@@ -13,7 +13,7 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
-## A viewer no longer copies the world, and the gate-3 corpus is frozen — #216 PR 2a and 2b-i, #56 PR 2a (2026-09-29)
+## A viewer no longer copies the world, and the gate-3 corpus is pinned — #216 PR 2a and 2b-i, #56 PR 2a (2026-09-29)
 
 **Shipped:** `/world` and `/diff` at the head borrow the head world under the read lock
 instead of cloning it, `/diff` with `from == to` answers with no projection, and the web page
@@ -24,13 +24,14 @@ batch under one write lock, `QueryState::append_batch`, instead of one lock per 
 `mediawiki.recentchange` corpora across all 231 wikis are captured and pinned by sha256 before
 any key or score existed: a 200,000-event development corpus and three held-out sets
 ([#227](https://github.com/daveremy/stream2worlds/pull/227)). Key format 1 adds `no_identity`,
-so the 1,348 AbuseFilter events with `log_id` 0 no longer merge into one fake entity, and
+so the 1,348 AbuseFilter events with `log_id` 0 no longer merge into one fake log entity per wiki, and
 grading drops them from every prediction alike
 ([#231](https://github.com/daveremy/stream2worlds/pull/231)). The four identifier-domain
 answers from #17 are a dated amendment to the evaluation contract
 ([#226](https://github.com/daveremy/stream2worlds/pull/226)). CI runs on a self-hosted runner,
 with `S2W_RUNNER=down` as the escape hatch back to hosted runners
-([#232](https://github.com/daveremy/stream2worlds/pull/232)).
+([#232](https://github.com/daveremy/stream2worlds/pull/232)), and stray `.pyc` files are no longer
+tracked ([#230](https://github.com/daveremy/stream2worlds/pull/230)).
 
 **Learned:** a backfill with a viewer attached fell from 3,983 MiB to about 1,700 MiB with the
 clone gone, and to a 935.5 MiB peak with 2b-i plus the streamed `/world` of 2b-ii on top, under
@@ -45,8 +46,9 @@ hitting the lock contention the plan had flagged as conditional. It is split: 2b
 is measured at the page's real 5 s cadence before any redesign. PR 2b of #56 is split the same
 way, into `freeze` and `score`.
 
-**Next:** measure 2b-ii at a 5 s viewer cadence, review it, and redeploy the demo box for
-`demo: PASS`. Review #56 PR 2b (freeze and score), then the pre-registered held-out run.
+**Next:** measure 2b-ii at a 5 s viewer cadence. Within about 2× the no-viewer time, review it
+as built and redeploy the demo box for `demo: PASS`; over that, a plan compares a snapshot
+`Arc<World>` handoff with plan §2(b). Review #56 PR 2b (freeze and score), then the pre-registered held-out run.
 Measure where the bridge's ~170 MiB over the head world goes
 ([#220](https://github.com/daveremy/stream2worlds/issues/220)).
 
