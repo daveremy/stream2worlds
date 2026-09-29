@@ -222,7 +222,8 @@ fn two_accepts_before_the_next_check_rebuild_once_under_the_last() {
 /// `serve`'s bridge loop by hand, one event per poll: a change can land mid-backfill, which
 /// the served loop cannot be made to hold open (its backfill of the fixture is one batch).
 struct Driver {
-    bridge: Bridge<SqliteEventLog, SqliteVerdictStore>,
+    /// Always `Some` between polls; [`Rebuild::after_poll`] takes the bridge and hands it back.
+    bridge: Option<Bridge<SqliteEventLog, SqliteVerdictStore>>,
     rebuild: Rebuild,
     state: QueryState,
     notes: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
@@ -230,7 +231,8 @@ struct Driver {
 
 impl Driver {
     /// Resolves routes from `dir`'s proposal store and starts from the log's start, as a
-    /// `serve` with snapshots off does.
+    /// `serve` with snapshots off does. In-run discovery is off: every route here is accepted
+    /// by the test itself.
     fn open(dir: &std::path::Path) -> Self {
         let mut reporter = TestReporter::default();
         let (registry, watcher) =
@@ -263,45 +265,40 @@ impl Driver {
             reporter.note_sink(),
         );
         Self {
-            bridge,
+            bridge: Some(bridge),
             rebuild,
             state,
             notes: reporter.sunk,
         }
     }
 
+    fn bridge(&self) -> &Bridge<SqliteEventLog, SqliteVerdictStore> {
+        self.bridge.as_ref().expect("bridge")
+    }
+
     /// One poll, then the rebuild check `local_bridge` runs after it; the events consumed.
-    fn poll(self) -> (Self, u64) {
-        let Self {
-            mut bridge,
-            mut rebuild,
-            state,
-            notes,
-        } = self;
+    fn poll(&mut self) -> u64 {
+        let mut bridge = self.bridge.take().expect("bridge");
         let report = bridge.poll_once().expect("poll");
-        rebuild.check_on_next_poll();
-        let bridge = rebuild.after_poll(bridge, &report).expect("after poll");
-        let consumed = report.stats.consumed;
-        (
-            Self {
-                bridge,
-                rebuild,
-                state,
-                notes,
-            },
-            consumed,
-        )
+        self.rebuild.check_on_next_poll();
+        self.bridge = Some(
+            self.rebuild
+                .after_poll(bridge, &report)
+                .expect("after poll"),
+        );
+        report.stats.consumed
     }
 
     /// Polls until a poll consumes nothing: the backfill, if any, has completed.
     fn drain(mut self) -> Self {
-        loop {
-            let (next, consumed) = self.poll();
-            self = next;
-            if consumed == 0 {
-                return self;
-            }
-        }
+        while self.poll() != 0 {}
+        self
+    }
+
+    /// How many notes contain `needle`.
+    fn noted(&self, needle: &str) -> usize {
+        let notes = self.notes.lock().expect("notes");
+        notes.iter().filter(|note| note.contains(needle)).count()
     }
 
     /// The served epoch's feed fingerprint and how many sources are rebuilding.
@@ -310,79 +307,69 @@ impl Driver {
         (epoch.0, rebuilding)
     }
 
-    fn noted(&self, needle: &str) -> Vec<String> {
-        let notes = self.notes.lock().expect("notes");
-        notes
-            .iter()
-            .filter(|n| n.contains(needle))
-            .cloned()
-            .collect()
-    }
-
     async fn world(&self) -> serde_json::Value {
-        let app = router(self.state.clone()).layer(middleware::from_fn(host_allowlist));
-        let (status, _, bytes) = web_response(&app, "/worlds/default/world").await;
-        assert_eq!(status, StatusCode::OK);
-        serde_json::from_slice(&bytes).expect("world")
+        world_json(&served(&self.state), "/worlds/default/world").await
     }
 }
 
-/// A served log of raw events `0..10` under mapping A, its verdicts stored.
-async fn seeded_under_a(name: &str) -> Option<TestDirectory> {
+/// A served log of raw events `0..10` under mapping A, its verdicts stored; with `config`'s
+/// final snapshot at stop.
+async fn seeded_under_a(name: &str, config: SnapshotConfig) -> Option<TestDirectory> {
     let dir = TestDirectory::new(name);
     accept_mapping(dir.path(), "p-a", mapping_a());
     let mut feed = mapped(0..10, None);
     feed.until = Until::Consumed(10);
-    serve_until(&dir, NO_SNAPSHOT, feed).await?;
+    serve_until(&dir, config, feed).await?;
     Some(dir)
+}
+
+/// The notes from the first one containing `needle` on. Start-up notes come first, then every
+/// note sunk while serving in order, so this slice holds only what happened from that note on.
+fn notes_from<'a>(run: &'a ServedRun, needle: &str) -> &'a [String] {
+    let at = run
+        .notes
+        .iter()
+        .position(|note| note.contains(needle))
+        .unwrap_or_else(|| panic!("no note containing {needle:?}: {:?}", run.notes));
+    &run.notes[at..]
 }
 
 #[test]
 fn an_accept_during_a_running_backfill_supersedes_it_and_folds_under_the_last() {
     run(false, async {
-        let Some(dir) = seeded_under_a("serve-rebuild-supersede").await else {
+        let Some(dir) = seeded_under_a("serve-rebuild-supersede", NO_SNAPSHOT).await else {
             return;
         };
-        let (fp_b, fp_c) = (
+        let (fp_a, fp_b, fp_c) = (
+            fingerprint(mapping_a(), "p-a"),
             fingerprint(mapping_b(), "p-b"),
             fingerprint(mapping_c(), "p-c"),
         );
-        let driver = Driver::open(dir.path()).drain();
+        let mut driver = Driver::open(dir.path()).drain();
 
         accept_mapping(dir.path(), "p-b", mapping_b());
-        let (mut driver, _) = driver.poll();
-        assert_eq!(driver.noted("rebuild: feed ").len(), 1, "B swapped in");
-        for _ in 0..2 {
-            let (next, consumed) = driver.poll();
-            assert_eq!(consumed, 1, "B's backfill is running");
-            driver = next;
-        }
-
-        accept_mapping(dir.path(), "p-c", mapping_c());
-        let (driver, consumed) = driver.poll();
-        assert_eq!(consumed, 1, "the change lands on a poll that consumed");
-        let superseded = driver.noted("rebuild: superseded at position ");
-        let position: u64 = superseded
-            .first()
-            .and_then(|note| note.rsplit(' ').next())
-            .and_then(|p| p.parse().ok())
-            .unwrap_or_else(|| panic!("one supersede note: {superseded:?}"));
-        assert!((1..10).contains(&position), "mid-backfill: {position}");
-        assert!(
-            driver.noted("rebuild complete").is_empty(),
-            "B never completed"
-        );
+        assert_eq!(driver.poll(), 0, "caught up under A");
         assert_eq!(
-            driver
-                .noted(&format!("rebuild: feed {fp_b:016x} -> {fp_c:016x}"))
-                .len(),
+            driver.noted(&format!("rebuild: feed {fp_a:016x} -> {fp_b:016x}")),
+            1
+        );
+        assert_eq!(driver.poll(), 1, "B's backfill is running");
+        assert_eq!(driver.poll(), 1, "B's backfill is running");
+
+        // The check after the poll that folds B's third event sees C: B is 3 of 10 in.
+        accept_mapping(dir.path(), "p-c", mapping_c());
+        assert_eq!(driver.poll(), 1);
+        assert_eq!(driver.noted("rebuild: superseded at position 3"), 1);
+        assert_eq!(driver.noted("rebuild complete"), 0, "B never completed");
+        assert_eq!(
+            driver.noted(&format!("rebuild: feed {fp_b:016x} -> {fp_c:016x}")),
             1
         );
         assert_eq!(driver.epoch(), (fp_c, 1));
 
         let driver = driver.drain();
-        assert_eq!(driver.noted("rebuild complete: 10 events").len(), 1);
-        assert_eq!(driver.epoch().1, 0);
+        assert_eq!(driver.noted("rebuild complete: 10 events"), 1);
+        assert_eq!(driver.epoch(), (fp_c, 0));
         let expected = cold("serve-rebuild-supersede-cold", mapping_c(), "p-c", 0..10).await;
         assert_eq!(driver.world().await, expected, "world == cold fold under C");
     });
@@ -391,23 +378,27 @@ fn an_accept_during_a_running_backfill_supersedes_it_and_folds_under_the_last() 
 #[test]
 fn a_crash_mid_backfill_replays_the_stored_verdicts_and_converges() {
     run(false, async {
-        let Some(dir) = seeded_under_a("serve-rebuild-crash-mid").await else {
+        let Some(dir) = seeded_under_a("serve-rebuild-crash-mid", NO_SNAPSHOT).await else {
             return;
         };
         let fp_b = fingerprint(mapping_b(), "p-b");
-        let driver = Driver::open(dir.path()).drain();
+        let mut driver = Driver::open(dir.path()).drain();
         accept_mapping(dir.path(), "p-b", mapping_b());
-        let (mut driver, _) = driver.poll();
+        driver.poll();
         assert_eq!(driver.epoch(), (fp_b, 1));
         for _ in 0..3 {
-            driver = driver.poll().0;
+            driver.poll();
         }
-        assert_eq!(driver.bridge.stats().consumed, 3, "3 of 10 folded under B");
+        assert_eq!(
+            driver.bridge().stats().consumed,
+            3,
+            "3 of 10 folded under B"
+        );
         // A crash: no final snapshot, no completion; only what each poll stored survives.
         drop(driver);
 
         let restarted = Driver::open(dir.path()).drain();
-        let stats = restarted.bridge.stats();
+        let stats = restarted.bridge().stats();
         assert_eq!(
             (stats.consumed, stats.replayed, stats.evaluated),
             (10, 3, 7),
@@ -448,17 +439,13 @@ fn revoking_the_only_accepted_mapping_unroutes_the_source_and_empties_the_world(
         };
         assert_eq!(live.world["epoch"], format!("{fp_none:016x}"));
         assert_eq!(node_count(&live), 0, "no entities without a mapping");
-        let swap = live
-            .notes
-            .iter()
-            .position(|note| note.contains(&format!("rebuild: feed {fp_a:016x} -> {fp_none:016x}")))
-            .unwrap_or_else(|| panic!("{:?}", live.notes));
+        let revoke = notes_from(
+            &live,
+            &format!("rebuild: feed {fp_a:016x} -> {fp_none:016x}"),
+        );
         assert!(
-            !live.notes[swap..]
-                .iter()
-                .any(|note| note.starts_with("route: source ")),
-            "the source is unrouted: {:?}",
-            live.notes
+            !revoke.iter().any(|note| note.starts_with("route: source ")),
+            "the source is unrouted: {revoke:?}"
         );
     });
 }
@@ -502,19 +489,14 @@ fn a_restart_after_a_live_rebuild_restores_the_snapshot_taken_under_the_new_mapp
 #[test]
 fn revoking_a_live_mapping_restores_the_previous_mappings_snapshot() {
     run(false, async {
-        let dir = TestDirectory::new("serve-rebuild-snapshot-a");
-        accept_mapping(dir.path(), "p-a", mapping_a());
+        // A's era ends in a snapshot under A's fingerprint at the log's head.
+        let Some(dir) = seeded_under_a("serve-rebuild-snapshot-a", SNAPSHOT_ON_STOP).await else {
+            return;
+        };
         let (fp_a, fp_b) = (
             fingerprint(mapping_a(), "p-a"),
             fingerprint(mapping_b(), "p-b"),
         );
-        // A's era ends in a snapshot under A's fingerprint at the log's head.
-        let mut feed = mapped(0..10, None);
-        feed.until = Until::Consumed(10);
-        let Some(_first) = serve_until(&dir, SNAPSHOT_ON_STOP, feed).await else {
-            return;
-        };
-
         let mut restart = mapped(0..0, None);
         restart.until = Until::Epoch(fp_a);
         restart.then = vec![
@@ -536,21 +518,15 @@ fn revoking_a_live_mapping_restores_the_previous_mappings_snapshot() {
         let live = serve_until(&dir, SNAPSHOT_ON_STOP, restart)
             .await
             .expect("sockets allowed once");
-        let revoke = live
-            .notes
-            .iter()
-            .position(|note| note.contains(&format!("rebuild: feed {fp_b:016x} -> {fp_a:016x}")))
-            .unwrap_or_else(|| panic!("{:?}", live.notes));
-        // Start-up notes come first in `notes`, then everything sunk while serving in order, so
-        // the notes after the revoke's swap are the revoke's own: start-up's restore is not among them.
-        let after = &live.notes[revoke..];
+        // Start-up's own restore of A's snapshot precedes this slice.
+        let revoke = notes_from(&live, &format!("rebuild: feed {fp_b:016x} -> {fp_a:016x}"));
         assert!(
-            after.iter().any(|n| n.contains("restored from snapshot"))
-                && after
+            revoke.iter().any(|n| n.contains("restored from snapshot"))
+                && revoke
                     .iter()
-                    .any(|n| n.contains("rebuild: resuming after log position"))
-                && !after.iter().any(|n| n.contains("ignoring snapshot")),
-            "the revoke restores A's snapshot: {after:?}"
+                    .any(|n| n.contains("rebuild: resuming after log position 10"))
+                && !revoke.iter().any(|n| n.contains("ignoring snapshot")),
+            "the revoke restores A's snapshot: {revoke:?}"
         );
         let expected = cold("serve-rebuild-snapshot-a-cold", mapping_a(), "p-a", 0..10).await;
         assert_eq!(live.world, expected, "world == cold fold under A");

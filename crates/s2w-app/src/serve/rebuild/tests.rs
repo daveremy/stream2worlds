@@ -130,3 +130,11 @@ fn rebuilding_lists_changed_sources_only() {
     assert!(rebuilding(&b, &b, 7).is_empty(), "unchanged");
     assert!(rebuilding(&b, &none, 7).is_empty(), "revoked");
 }
+
+impl Rebuild {
+    /// Lets the next [`Rebuild::after_poll`] check the proposal store however recently the
+    /// last check ran, so a test driving polls by hand can land a change mid-backfill.
+    pub(in crate::serve) const fn check_on_next_poll(&mut self) {
+        self.checked = None;
+    }
+}
