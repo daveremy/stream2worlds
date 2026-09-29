@@ -102,7 +102,8 @@ impl LiveReadOnlyWorld {
         let membership = reader.membership_history()?;
         let state = QueryState::new(Timeline::new(hub_cap))
             .with_world(Arc::clone(&world))
-            .with_metadata(manifest, membership);
+            .with_metadata(manifest, membership)
+            .with_log_dir(log_dir);
         let mut last = None;
         if let Some(snapshot_end) = verdicts.cursor()? {
             catch_up(&state, &reader, &verdicts, &mut last, snapshot_end, None)?;

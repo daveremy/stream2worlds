@@ -14,7 +14,9 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 ## Invariants
 
 - The only crate that composes layers. Business rules live in the core, not here.
-- MCP is read-only; capabilities never expand from a good track record.
+- MCP is read-only; capabilities never expand from a good track record. The one exception is the
+  opt-in `decision_record` tool (`s2w mcp --allow-decisions`, decision 0020): it appends a decision
+  with the `agent` decider only, never edits a proposal, and is absent from the default tool list.
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.

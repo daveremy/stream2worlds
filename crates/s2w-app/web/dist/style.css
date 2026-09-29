@@ -40,3 +40,7 @@ footer { margin-top: 20px; font-size: 13px; } a { color: var(--s2w-accent, #70c9
 .world-card .tagline { font-style: italic; margin: 0 0 8px; }
 .world-card .description { margin: 0 0 8px; }
 .world-card .meta, #worlds .empty { color: var(--s2w-ink, #9cb1c7); margin: 0; }
+
+/* Proposals panel (#158): grade table plus the proposal/decision list. */
+#proposals h3 { margin: 12px 0 6px; font-size: 14px; }
+#proposals .empty { color: var(--s2w-ink, #9cb1c7); margin: 0; }

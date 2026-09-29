@@ -61,7 +61,7 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 ## Proposal store
 
 - `ProposalStore` is the seam; `SqliteProposalStore::open(dir)` keeps `proposals.sqlite3`
-  beside the event/verdict databases with its own `PROPOSALS_LOCK` and `user_version = 1`.
+  beside the event/verdict databases with its own `PROPOSALS_LOCK` and `user_version = 2` (0020).
   `InMemoryProposalStore` meets the same contract; `ReadOnlySqliteProposalStore` is the
   matching lockless reader, coexisting with active writers (decision 0019).
 - Proposals and decisions are append-only; triggers refuse updates and deletes. Every open
@@ -78,7 +78,12 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   Decision retries append harmless duplicates; corrections append, never edit.
 - Pure `grade` groups deterministically by (class, actor), including model version, using
   the latest sequence per (proposal, decider). Human and evidence tallies are independent;
-  never add their denominators. Policy accepts/rejects count routing, not accuracy.
+  never add their denominators. Policy accepts/rejects count routing, not accuracy. The `agent`
+  decider (an MCP client's opinion, decision 0020) has its own tally and never feeds `policy_*`,
+  `human`, `evidence`, `policy_applied` or `ungraded`.
+- `proposal_summaries()` reads proposals without payloads and does not recompute the payload
+  hash; only `proposals()` verifies. `grade` takes summaries. `map_constraint` is the one
+  constraint-violation mapping for the verdict and proposal stores.
 - `policy_applied` grades policy-accepted proposals: any latest human/evidence reject wins;
   otherwise any accept wins. Neither signal means `policy_applied_ungraded`. The cross-tab
   is not time-ordered. `ungraded` includes all proposals with neither grading signal.

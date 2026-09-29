@@ -115,7 +115,7 @@ fn json_prefixed_mcp_renders_usage_errors_without_touching_stdout() {
     assert!(looks_like_one_json_object(&stderr), "{stderr:?}");
     assert!(
         stderr.contains(
-            r#""error": "unexpected argument 'unexpected': expected --log-dir or --world""#
+            r#""error": "unexpected argument 'unexpected': expected --log-dir, --world or --allow-decisions""#
         )
     );
 }

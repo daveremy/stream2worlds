@@ -14,7 +14,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use s2w_core::{FOLD_VERSION, World, WorldEvent};
 use s2w_log::{
-    MembershipRow, ReadOnlySqliteEventLog, WorldManifest, WorldPresentation, members_at,
+    LogError, MembershipRow, ReadOnlySqliteEventLog, ReadOnlySqliteProposalStore, WorldManifest,
+    WorldPresentation, members_at,
 };
 use s2w_model::{SourceId, Timestamp};
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
 use super::diff::{WorldDiff, diff};
+use super::proposals::{ProposalsView, proposals_view};
 use super::timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
 use super::view::{ACTUAL_BRANCH, Lod, ViewParams, world_view};
 use crate::bridge::SourceStats;
@@ -113,6 +115,32 @@ impl QueryState {
             .world_presentation(&self.world)
             .map_err(|error| QueryError::Storage(error.to_string()))?
             .unwrap_or_default())
+    }
+
+    /// The configured log directory, if any.
+    pub(crate) fn log_dir(&self) -> Option<&std::path::Path> {
+        self.log_dir.as_deref().map(PathBuf::as_path)
+    }
+
+    /// The proposals view, read fresh from the log directory's proposal store on every call.
+    /// Empty when no log directory is configured or the proposal store file does not exist;
+    /// never creates it.
+    ///
+    /// # Errors
+    /// [`QueryError::Storage`] if the store exists but cannot be opened or read — never an
+    /// empty view.
+    pub fn proposals(&self) -> Result<ProposalsView, QueryError> {
+        let Some(log_dir) = self.log_dir() else {
+            return Ok(ProposalsView::default());
+        };
+        if !proposal_store_exists(log_dir) {
+            return Ok(ProposalsView::default());
+        }
+        let storage = |error: LogError| QueryError::Storage(error.to_string());
+        let reader = ReadOnlySqliteProposalStore::open(log_dir).map_err(storage)?;
+        let summaries = reader.proposal_summaries().map_err(storage)?;
+        let decisions = reader.decisions().map_err(storage)?;
+        Ok(proposals_view(&summaries, &decisions))
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
@@ -207,11 +235,13 @@ impl IntoResponse for QueryError {
         let status = match self {
             Self::OffsetBeyondHead { .. }
             | Self::UnknownEntity { .. }
-            | Self::UnknownWorld { .. } => StatusCode::NOT_FOUND,
+            | Self::UnknownWorld { .. }
+            | Self::UnknownProposal { .. } => StatusCode::NOT_FOUND,
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable | Self::StreamLimit => StatusCode::SERVICE_UNAVAILABLE,
             Self::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::StoreLocked => StatusCode::CONFLICT,
         };
         (status, Json(self.json_body())).into_response()
     }
@@ -229,6 +259,7 @@ pub fn router(state: QueryState) -> Router {
         .route("/worlds/{world}/time", get(time))
         .route("/worlds/{world}/sources", get(sources))
         .route("/worlds/{world}/presentation", get(world_presentation))
+        .route("/worlds/{world}/proposals", get(world_proposals))
         .with_state(state)
 }
 
@@ -259,6 +290,11 @@ where
         })
     })
     .transpose()
+}
+
+/// Whether `log_dir` holds a proposal store; checked before opening so reads never create one.
+pub(crate) fn proposal_store_exists(log_dir: &std::path::Path) -> bool {
+    log_dir.join(s2w_log::PROPOSAL_DATABASE_FILE).exists()
 }
 
 pub(crate) fn check_branch(branch: Option<&str>) -> Result<(), QueryError> {
@@ -364,6 +400,14 @@ async fn world_presentation(
     let run = || -> Result<_, QueryError> {
         check_world(&state, &world)?;
         state.presentation()
+    };
+    run().map(Json).into_response()
+}
+
+async fn world_proposals(State(state): State<QueryState>, Path(world): Path<String>) -> Response {
+    let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
+        state.proposals()
     };
     run().map(Json).into_response()
 }

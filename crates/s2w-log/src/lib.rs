@@ -26,8 +26,8 @@ pub use membership::{EffectiveFrom, MembershipRow, members_at};
 pub use presentation::{Palette, Typefaces, WorldPresentation, WorldPresentationInput};
 pub use proposals::{
     Actor, ActorClassGrade, Decider, InMemoryProposalStore, NewDecision, NewProposal, Outcome,
-    ProposalStore, ProposalSummary, ReadOnlySqliteProposalStore, SqliteProposalStore,
-    StoredDecision, StoredProposal, Tally, grade,
+    PROPOSAL_DATABASE_FILE, ProposalStore, ProposalSummary, ReadOnlySqliteProposalStore,
+    SqliteProposalStore, StoredDecision, StoredProposal, Tally, grade,
 };
 pub use reader::LogReader;
 pub use verdicts::{

@@ -1,9 +1,10 @@
 import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, snapshot,
-  sources as fetchSources, streamStatus } from './api';
+  sources as fetchSources, streamStatus, proposals as fetchProposals } from './api';
 import type { Message } from './api';
 import { ViewState, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
+import { renderProposals } from './proposals';
 import { activeNow, linkColor, typeColor } from './profile';
 import { applyPresentation } from './presentation';
 import { buildUrl, parseWorldFromPath, worldPathFor } from './url';
@@ -14,6 +15,7 @@ const form = document.querySelector<HTMLFormElement>('#controls')!;
 const position = document.querySelector<HTMLElement>('#position')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
 const active = document.querySelector<HTMLElement>('#active')!;
+const proposalsPanel = document.querySelector<HTMLElement>('#proposals')!;
 let dispose = () => {};
 let activeState: ViewState;
 const keys = ['world', 'at', 'branch', 'lod', 'focus', 'hops'];
@@ -48,7 +50,7 @@ async function start(): Promise<void> {
   let refresh: ReturnType<typeof setTimeout> | undefined;
   let delay = 1000, lastFetch = 0, fetching = false, dirty = false;
   dispose = () => { controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(refresh); renderer.destroy(); };
-  status.textContent = 'Connecting'; position.textContent = ''; table.replaceChildren();
+  status.textContent = 'Connecting'; position.textContent = ''; table.replaceChildren(); proposalsPanel.replaceChildren();
   for (const key of keys) (form.elements.namedItem(key) as HTMLInputElement).value =
     params.get(key) ?? ({ branch: 'actual', lod: 'entity', hops: '1' }[key] ?? '');
   function paint(): void {
@@ -57,6 +59,13 @@ async function start(): Promise<void> {
     renderActive(active, state);
     position.textContent = `${params.has('at') ? 'Pinned' : 'Live'} · graph at ${state.offset} · evidence through ${state.lastAppliedOffset}`;
   }
+  // Best-effort: a missing or failing proposals route must never block the graph.
+  async function loadProposals(): Promise<void> {
+    try {
+      const data = await fetchProposals(params, signal);
+      if (!signal.aborted) renderProposals(proposalsPanel, data);
+    } catch { /* non-essential */ }
+  }
   function scheduleRefresh(): void {
     dirty = true;
     if (refresh !== undefined || fetching || signal.aborted) return;
@@ -64,7 +73,7 @@ async function start(): Promise<void> {
       refresh = undefined; dirty = false; fetching = true; lastFetch = Date.now();
       try {
         const view = await snapshot(params, signal);
-        if (!signal.aborted) { state.snapshot(view); renderer.update(state); paint(); }
+        if (!signal.aborted) { state.snapshot(view); renderer.update(state); paint(); void loadProposals(); }
       } catch (error) {
         if (!signal.aborted) {
           status.textContent = describe(error);
@@ -134,7 +143,7 @@ async function start(): Promise<void> {
         try { state.sources = await fetchSources(params, signal); } catch { /* non-essential */ }
         if (signal.aborted) return;
       }
-      renderer.mount(graph, state); paint();
+      renderer.mount(graph, state); paint(); void loadProposals();
       status.textContent = view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
         (unroutedStatus(state.sources) ?? 'Waiting for events');
       if (!params.has('at')) open();

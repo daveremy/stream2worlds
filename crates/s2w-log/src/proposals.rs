@@ -10,7 +10,7 @@ mod grading;
 mod sqlite;
 
 pub use grading::{ActorClassGrade, Tally, grade};
-pub use sqlite::{ReadOnlySqliteProposalStore, SqliteProposalStore};
+pub use sqlite::{PROPOSAL_DATABASE_FILE, ReadOnlySqliteProposalStore, SqliteProposalStore};
 
 /// The author of a proposal; model versions have independent grading denominators.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

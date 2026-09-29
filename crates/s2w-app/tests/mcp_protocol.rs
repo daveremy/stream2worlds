@@ -60,6 +60,7 @@ mod tests {
                 [
                     "branches",
                     "entity_history",
+                    "proposals_list",
                     "sources",
                     "time",
                     "world_diff",
@@ -122,6 +123,60 @@ mod tests {
                     matches!(error, ServiceError::McpError(ref data) if data.code == ErrorCode::INVALID_PARAMS),
                     "{error:?}"
                 );
+            }
+            client.cancel().await.unwrap();
+            task.await.unwrap();
+        });
+    }
+
+    #[test]
+    fn allowing_decisions_adds_exactly_decision_record_as_the_one_write_tool() {
+        run(async {
+            let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP));
+            let server = WorldMcp::new(state).with_decisions();
+            let (server_io, client_io) = tokio::io::duplex(4096);
+            let task = tokio::spawn(async move {
+                server
+                    .serve(server_io)
+                    .await
+                    .unwrap()
+                    .waiting()
+                    .await
+                    .unwrap();
+            });
+            let client = ().serve(client_io).await.unwrap();
+            let tools = client.list_all_tools().await.unwrap();
+            let names: Vec<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+            assert_eq!(
+                names,
+                [
+                    "branches",
+                    "decision_record",
+                    "entity_history",
+                    "proposals_list",
+                    "sources",
+                    "time",
+                    "world_diff",
+                    "world_view"
+                ]
+            );
+            for tool in tools {
+                let requires_world = tool
+                    .input_schema
+                    .get("required")
+                    .and_then(serde_json::Value::as_array)
+                    .is_some_and(|required| required.iter().any(|name| name == "world"));
+                assert!(
+                    requires_world,
+                    "{} schema does not require world",
+                    tool.name
+                );
+                let annotations = tool.annotations.unwrap();
+                let writes = tool.name == "decision_record";
+                assert_eq!(annotations.read_only_hint, Some(!writes), "{}", tool.name);
+                if writes {
+                    assert_eq!(annotations.destructive_hint, Some(false));
+                }
             }
             client.cancel().await.unwrap();
             task.await.unwrap();

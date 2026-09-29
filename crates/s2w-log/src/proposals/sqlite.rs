@@ -16,7 +16,8 @@ use crate::{
     open_sqlite_store_read_only,
 };
 
-const DATABASE_FILE: &str = "proposals.sqlite3";
+/// The proposal database file name inside a log directory.
+pub const PROPOSAL_DATABASE_FILE: &str = "proposals.sqlite3";
 const LOCK_FILE: &str = "PROPOSALS_LOCK";
 /// Version 2 adds the `agent` decider. A version-1 store is unsupported (`Corrupt`), like any
 /// other mismatch: no producer ever wrote one, so there is no migration.
@@ -61,7 +62,7 @@ impl SqliteProposalStore {
     pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
         let (connection, lock) = open_sqlite_store(
             directory.as_ref(),
-            DATABASE_FILE,
+            PROPOSAL_DATABASE_FILE,
             LOCK_FILE,
             "PRAGMA synchronous = FULL;
              PRAGMA recursive_triggers = ON;
@@ -85,7 +86,7 @@ impl ReadOnlySqliteProposalStore {
     pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
         let connection = open_sqlite_store_read_only(
             directory.as_ref(),
-            DATABASE_FILE,
+            PROPOSAL_DATABASE_FILE,
             SCHEMA_VERSION,
             schema_mismatch,
         )?;
