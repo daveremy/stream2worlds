@@ -13,6 +13,23 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## World memory: 830 to 438 bytes per entity — #172 (2026-09-29)
+
+**Shipped:** each entity's attributes now live in a sorted `Vec` (`AttrMap`) instead of a
+`BTreeMap`. The fold's heap per entity fell from 830 B to 438 B on the scale generator, and the
+gate's ceiling dropped from an interim 900 B to 600 B, decision 0004's 2× line. Snapshots, the
+`world_hash` and every JSON surface are byte-for-byte what they were; a new test pins the golden
+world's hash.
+
+**Learned:** the bytes were container overhead, not data. A dhat breakdown showed one 544 B
+B-tree leaf per entity for about three attributes, 65% of the total. The next biggest costs are
+the same kind: B-tree nodes for the `entities` and `keys` maps.
+
+**Changed course:** none.
+
+**Next:** entities indexed by their dense id, and interned type and attribute names, which
+together should cross decision 0004's 300 B target.
+
 ## Scale fitness function: fold Ir and bytes per entity gated — #175 (2026-09-28)
 
 **Shipped:** the first scale numbers as fitness functions. `cargo xtask scale` (Linux, Valgrind,
