@@ -108,7 +108,8 @@ behind, loads the newest file that passes every validity rule (rule 5 reads the 
 `previous = position - 1`), installs it with `QueryState::replace_timeline`, and checks that
 the restored base and head both equal the snapshot's offset. The bridge then starts with
 `Bridge::resume(position)`, which refuses a timeline whose head is past its base. No valid
-file, or an unreadable directory, means a full replay from offset 0, reported once.
+file, or an unreadable directory, means a full replay from offset 0; every file skipped and an
+unreadable directory are reported, an absent directory is not.
 
 **Capture.** After every successful `poll_once`, with no `.await` in between, the snapshotter
 records a checkpoint: the bridge's `mark()` (last consumed position and its stored
@@ -132,7 +133,9 @@ replays in seconds, and a new snapshot would move the base to the head and cost 
 process its scrub history for no real saving. A failed write does not count as written, so
 the stop tries again. The final write blocks the current-thread runtime, so a second signal
 during it is not observed; the write is atomic, so `SIGKILL` mid-write leaves the previous
-snapshot intact. A fatal error never writes a final snapshot.
+snapshot intact. A fatal error never writes a final snapshot. The signal handlers are registered once the
+listener is bound, after the restore; a SIGTERM before then takes the default action, which
+loses nothing because no snapshot is owed yet.
 
 **Budget and memory (measured).** The demo unit (`s2w-wiki.service`) has `TimeoutStopSec=30`
 and `MemoryMax=1G`; the HTTP drain may take 5 s, leaving 25 s for the final write. The
