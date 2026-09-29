@@ -135,7 +135,7 @@ same directory with a different `--world` is an error. Existing schema-v2 event 
 atomically to v3, preserving events and cursors. `/worlds` uses the stored display name.
 
 Every offset-taking route serves offsets from `base` to `head`, both reported by
-`GET /worlds/{world}/time`. `serve` keeps only the most recent 20,000 world events
+`GET /worlds/{world}/time`. `serve` keeps only the most recent 50,000 world events
 ([decision 0026](docs/decisions/0026-bounded-timeline-history.md)): `base` is 0 while it still
 holds every event since offset 0, and the head after it drops older ones or restarts from a
 world snapshot ([decision 0024](docs/decisions/0024-snapshots.md)). `/events` replays from

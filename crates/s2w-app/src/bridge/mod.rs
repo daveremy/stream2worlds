@@ -44,7 +44,9 @@ impl Default for BridgeConfig {
         Self {
             poll: Duration::from_millis(250),
             max_backoff: Duration::from_secs(2),
-            batch: 1000,
+            // s2w#220: 250 peaked 58 MiB lower than 1000 on the recorded backfill, at the
+            // same wall time; smaller batches saved little more and cost time.
+            batch: 250,
         }
     }
 }
@@ -472,15 +474,21 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             report.error = Some(error);
             return Ok(self.finish(report));
         }
+        let through_hash = events
+            .iter()
+            .find(|event| event.position == through)
+            .map(|event| event.content_hash);
+        // The batch's events and verdict rows are durable now: free them before the fold grows
+        // the world. At batch 250 this measured no saving (s2w#220); it keeps the order right if
+        // the batch grows again.
+        drop(events);
+        drop(judged.new_rows);
         // One write lock per batch, not per claim (s2w#216): a reader holding the lock (a
         // `/world` projection) then delays the fold once per batch.
         self.state.append_batch(judged.claims)?;
         report.stats = judged.stats;
         self.last = Some(through);
-        self.last_hash = events
-            .iter()
-            .find(|event| event.position == through)
-            .map(|event| event.content_hash);
+        self.last_hash = through_hash;
         self.stats.add(&report.stats);
         self.absorb_source_stats(&judged.per_source);
         Ok(self.finish(report))
