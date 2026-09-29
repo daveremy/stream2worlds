@@ -84,6 +84,9 @@ fn an_empty_identity_or_path_is_rejected() {
     let mut value = example();
     value["unscored"] = json!([[]]);
     rejects(&value, "unscored path is empty");
+    let mut value = example();
+    value["decode"] = json!([[]]);
+    rejects(&value, "decode path is empty");
 }
 
 #[test]
@@ -163,6 +166,22 @@ fn aliases_with_equal_identity_values_join_one_cluster() {
     assert_eq!(got.len(), 3);
     assert_eq!(got[&(0, "name".to_owned())], got[&(0, "alias".to_owned())]);
     assert_ne!(got[&(0, "alias".to_owned())], got[&(1, "alias".to_owned())]);
+}
+
+#[test]
+fn a_non_scalar_mention_path_gives_no_mention_even_with_a_full_identity() {
+    let key = spec(&json!({
+        "version": 0,
+        "types": [{ "type": "T", "mentions": [
+            { "path": ["a"], "identity": [["id"]] }
+        ] }]
+    }));
+    let payloads = [
+        json!({ "a": { "nested": 1 }, "id": "x" }),
+        json!({ "a": "y", "id": "x" }),
+    ];
+    let got = key_mentions(&key, &payloads).expect("valid").cluster;
+    assert_eq!(got.keys().collect::<Vec<_>>(), [&(1, "a".to_owned())]);
 }
 
 #[test]
@@ -275,5 +294,8 @@ fn the_committed_sample_passes_the_selftest() {
         .parent()
         .expect("xtask sits in the workspace root");
     let report = super::selftest(root).expect("parity holds");
-    assert!(report.contains("20 records"), "{report}");
+    assert!(
+        report.contains("20 records, 60 mentions, 44 clusters"),
+        "{report}"
+    );
 }

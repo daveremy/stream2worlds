@@ -67,6 +67,7 @@ impl KeySpec {
             .map_err(|e| format!("the mapping is not valid: {e}"))?;
         let mut types: Vec<KeyType> = Vec::new();
         for rule in &mapping.entities {
+            // Unreachable after `validate` (an empty key is `EmptyKey`); kept fail-closed.
             let Some(last) = rule.key.last() else {
                 return Err(format!("entity rule {:?} has no key paths", rule.id));
             };
@@ -103,6 +104,9 @@ impl KeySpec {
         }
         if self.types.is_empty() {
             return Err("key spec has no types".to_owned());
+        }
+        if self.decode.iter().any(|p| p.0.is_empty()) {
+            return Err("a decode path is empty".to_owned());
         }
         let mut unscored = BTreeSet::new();
         for path in &self.unscored {

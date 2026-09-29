@@ -56,8 +56,10 @@ fn selftest(root: &Path) -> Result<String, String> {
     if executed != proposed {
         let missing = proposed.difference(&executed).count();
         let extra = executed.difference(&proposed).count();
+        let first_missing = proposed.difference(&executed).next();
+        let first_extra = executed.difference(&proposed).next();
         return Err(format!(
-            "executor parity: the mention executor and MappingEngine disagree on {SAMPLE} ({missing} engine entities without a mention, {extra} mentions the engine does not propose)"
+            "executor parity: the mention executor and MappingEngine disagree on {SAMPLE} ({missing} engine entities without a mention, first {first_missing:?}; {extra} mentions the engine does not propose, first {first_extra:?})"
         ));
     }
     if predicted.cluster.is_empty() {
@@ -68,8 +70,19 @@ fn selftest(root: &Path) -> Result<String, String> {
     let own_key = key::KeySpec::from_mapping(&mapping)?;
     let graded = mentions::key_mentions(&own_key, &payloads)?;
     if graded != predicted {
+        let first = graded
+            .cluster
+            .iter()
+            .find(|(mention, cluster)| predicted.cluster.get(*mention) != Some(*cluster))
+            .map(|(mention, _)| mention)
+            .or_else(|| {
+                predicted
+                    .cluster
+                    .keys()
+                    .find(|mention| !graded.cluster.contains_key(*mention))
+            });
         return Err(format!(
-            "executor parity: {SAMPLE_MAPPING} read as a key spec does not reproduce its own mentions ({} key mentions, {} mapping mentions)",
+            "executor parity: {SAMPLE_MAPPING} read as a key spec does not reproduce its own mentions ({} key mentions, {} mapping mentions; first difference at {first:?})",
             graded.cluster.len(),
             predicted.cluster.len()
         ));
