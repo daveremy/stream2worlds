@@ -646,3 +646,61 @@ their abstracts, Fireworks TTFT.
 7. Spike order of §10, Blink first. → deferred: one spike issue, not yet filed as of 2026-09-27.
 8. Watch list, not work: Julia-1's API pricing ($0.025/MTok planned), GoldenMatch's Rust kernels,
    Rune v3 GGUF, `wm-conformal`. → deferred: re-check at the gate-4 spike, not before.
+
+## Refresh 2026-09-28
+
+Baseline: the note itself (Date 2026-09-27; no earlier Refresh section). One day elapsed. Conventions unchanged: **UNVERIFIED** = snippet or third-party write-up only; judgments labelled.
+
+### Latency, shortlist members and new entrants
+
+| Engine | CPU p50 | CPU p99 | Throughput / core | Fits 1,000 ev/s on 4 cores? | Source · status |
+|---|---|---|---|---|---|
+| Blink-tiny (#1) | 54 µs reused state / 406 µs fresh (M5 Pro core); **W8A8 backend: 33 µs / 221 µs**; x86-64 GitHub runner: 90 µs / 760 µs | unknown (not published) | 18,211 fresh dec/s (C99), 29,481 (W8A8), 31,290 (Accelerate) | **yes** | [README](https://github.com/sqliteai/blink), [CHANGELOG 0.1.0, 2026-09-22](https://github.com/sqliteai/blink/blob/main/CHANGELOG.md). Not a change since the note; the W8A8 and x86 rows were unreported there. Licence now confirmed **Apache-2.0** (was UNVERIFIED). |
+| Julia-1 (#2) | 89.83–107.83 ms classification, 294.81 ms typed decision (i5-1235U); M4: 33.15 ms median, **44.23 ms p95** | unknown | ~3–11/s per core (CPU) | no (sampled) | [supersoniclabs](https://supersoniclabs.ia.br/julia-1/) — unchanged; p95 figure added |
+| Laya (#2) | 193–464 ms | unknown | ~2–5/s per core | no (sampled) | [repo](https://github.com/NandhaKishorM/laya) v0.3.21, 712 commits; no dated change since 09-27 |
+| Jev 1.13.0 (#3) | hosted; 70–500 ms e2e (vendor) | unknown | n/a; 1,200 req/min | no (async) | [docs/models](https://docs.typesafe.ai/models.md) unchanged: $0.042/MTok, 250k tok/s, 1,200 rpm, 64k ctx; `jev-preview` alias now documented as pointing at `jev-1.13.0` |
+| Kev-4B (#4) | not viable on CPU; 3rd party: Apple M5 779 ms for 5 questions (**UNVERIFIED**, [runtimewire](https://runtimewire.com/article/jared-palmer-kev-qwen35-decision-models)) | unknown | GPU only | no | [HF card](https://huggingface.co/jaredpalmer/kev-4b/blob/main/README.md) — **card changed**: "round 10, skills delta"; shipped temperature now **T=2.14** (note: 2.41); OOD Brier 0.224 (note: 0.243); hard-v1 80.3%, dev-tooling 75.6% |
+| Splink (#5) | per-pair unknown | unknown | unknown | n/a | not re-fetched today |
+| **JEV-27B** (AutoTrust, new) | none; GPU only | unknown | B200: 137 ms median single, 4.2 ms/decision at batch 128, ~130 dec/s sustained (vendor) | **no** | [HF](https://huggingface.co/autotrust/JEV-27B) |
+| **Lumma-Fev-0.1b** (FrontiersMind, new to note) | p50 35.576 ms, hardware **not named** on the card | unknown | unknown | unknown | [HF](https://huggingface.co/FrontiersMind/Lumma-fev-0.1b) |
+| **OOMU-SystemOne-0.6B-GGUF** (new to note) | 10–18 ms per forward pass on Apple Silicon Metal via llama.cpp (vendor; GPU path, not CPU) | unknown | unknown | unknown | [HF](https://huggingface.co/oomu/OOMU-SystemOne-0.6B-GGUF) |
+| **system-one-qwen3.5-4b-scorer-ONNX** (new to note) | 112.3 ms/question at 4 options, 559.7 ms at 77 options, hardware **not named** | unknown | unknown | no | [HF](https://huggingface.co/developerjeremylive/system-one-qwen3.5-4b-scorer-ONNX-etheroi) |
+| **stuntd** (Laya-head proxy, new to note) | CPU 60–62 ms per local head answer; CUDA p50 22 ms; daemon over TCP 28 ms (RTX 5060 laptop, Windows) | unknown | ~16/s per… core count not stated | no (sampled) | [repo](https://github.com/bladedevoff/stuntd) |
+| **NanoJev** 0.6B (new to note) | unknown | unknown | unknown | unknown | [repo](https://github.com/TianyuCodings/NanoJev) — no latency published despite "control loop" framing |
+
+**Judgment:** nothing new reaches the per-event bar. Blink-tiny remains the only engine under 1 ms on a CPU core, and its W8A8 build widens that lead (33 µs on a reused state). Every new entrant is a sampled or GPU rung.
+
+### New entrants since the note Date line (2026-09-27)
+
+Listed regardless of the latency bar, as briefed. "New to note" = shipped before 09-27 but absent from the note; "new" = dated on/after 09-27.
+
+1. **JEV-27B** — AutoTrust AI; HF card dated 2026-09-27, press release 2026-09-29 (Manila time; [Manila Times/PR Newswire](https://www.manilatimes.net/2026/09/29/tmt-newswire/pr-newswire/autotrust-ai-releases-jev-27b-an-open-decision-model-for-self-hosted-ai-agents/2434457)). Qwen3.8-27B base (25.6B backbone), a 108.9M-parameter "System 1 block" (0.4%), ~53.8 GB safetensors, Apache-2.0, 9.2 B200-hours to train. Claims: mean KL to Jev 1.13 ≈ 0.017 nats on held-out questions, ECE 0.0009, choice top-1 90.3%, rating MAE 0.098, HumanEval unchanged from base (78.0%). Wire format: its own JSON decision protocol, not `/v1/systemone`; vLLM `/v1/completions` for the System 2 half. Vendor says "not meant for high-stakes decisions", gate on confidence. **Judgment:** the training target is *agreement with Jev*, not labels — a distillation; the 0.0009 ECE is against Jev's distribution, so it inherits Jev's calibration errors (§2b: 0.063–0.281 by dataset). One B200, GPU-only: System 2 role at most. Adapter would need a second wire format or a shim.
+2. **Lumma-Fev family** (0.1b / 0.6b / 4b / 9b) — FrontiersMind, 0.1b released 2026-09-25 (**UNVERIFIED** date via [huggingbay](https://huggingbay.xyz/artifact/hf-model-frontiersmind-lumma-fev-0-1b); card itself gives no date), 4b/9b "scheduled September 26". 0.1b = 154M on their own Nandi-Mini-150M base, Apache-2.0, 1,024 state tokens, noul/choice ≤255/score ≤255. Averages 0.63 (0.1b), 0.82 (0.6b), 0.90 (4b) over typed-decisions, AG News, DAIR Emotion, Banking77 (own eval). Decision Index test docs cite "Lumma-Fev-0.1B (1.78)" ([decision-index README](https://github.com/apolinario/decision-index)). Card: probabilities are "the model's own estimates", validate before automating. **Judgment:** same tier as Julia-1/Verdict (144–154M encoder); the 35.6 ms p50 with no hardware named is unusable as a figure. Candidate for the §10 #2 basket only if an ONNX export appears.
+3. **OOMU-SystemOne-0.6B-GGUF** — Hanno Labs "Bosun v3.1" Qwen-0.6B base with 256 learned decision tokens, Apache-2.0, Q8_0 639 MB, aimed at desktop-context / intent / data-security policy evaluation on macOS. No calibration data. New to note.
+4. **system-one-qwen3.5-4b-scorer-ONNX** (developerjeremylive, updated ~09-27; and `onnx-community/system-one-qwen3.5-4b-scorer-ONNX`) — Qwen3.5-4B-Base + LoRA + scalar head, T=1.75, 384-token ctx, **CC-BY-NC-4.0** (non-commercial, inherited from training data). New to note. Not usable commercially.
+5. **stuntd** v0.1 — local proxy that records an app's typed LLM decisions and trains Laya heads to answer them; speaks the Jev protocol and OpenAI chat. Apache-2.0. New to note. **Judgment:** this is the "own training set → weekend model" pattern of §6 packaged; relevant as prior art for the adapter, not as an engine.
+6. **NanoJev** — TianyuCodings, 2026-09-20, MIT, Qwen3-0.6B, trained on 18,760 game-control decisions (ViZDoom, maze, Snake). New to note; no latency published.
+7. **Jev on OpenRouter** — `typesafe/jev-1.13` (also `~typesafe/jev-latest`, and a dated `typesafe/jev-1.13-20260917` id surfaced in search, **UNVERIFIED**), $0.042/MTok input, output free, 32k ctx, "released Sep 18, 2026"; OpenRouter docs: *"There's no waitlist or separate TypeSafe account"* ([docs](https://openrouter.ai/docs/guides/community/jev); the [model page](https://openrouter.ai/typesafe/jev-1.13) returned 404 to fetch — figures from the docs page and search snippet, partly **UNVERIFIED**). Also **`typesafe/jev-router`**: a chat-completions router that "picks the best model and reasoning effort for each request", running on Jev ([page](https://openrouter.ai/typesafe/jev-router) — pricing/latency not on the fetched page). The note listed TypeSafe direct (early access), Cloudflare, Vercel and LangSmith as hosts; OpenRouter is a fifth, with no waitlist. Fact for §5a; a friction change for spike #3, not a shortlist change.
+8. **Kev-4B on OpenRouter**, verified: $0.042/MTok input, $0 output, 8k ctx, released 2026-09-25 ([openrouter](https://openrouter.ai/jaredpalmer/kev-4b) via search snippet — page not fetched, **UNVERIFIED** as primary). Clears the note's "listing UNVERIFIED, page 404" caveat only to snippet level.
+9. **Seen, not resolved:** an HN item (1 point, ~19:00 MST) "Classify 6700 pages for $1 with a Jev-compatible VLM API" (twitter.com/spillai). No page found; **UNVERIFIED**, listed for completeness. Third-party round-ups published 09-28 ([Kai Waehner](https://www.kai-waehner.de/blog/2026/09/28/how-system-one-models-like-jev-change-enterprise-ai-architecture/)) add no engine.
+10. **Already in the note's "not examined" row, now with primary pages found:** Eikos (MIT, 4B/27B on Qwen3.8-27B, 2026-09-18, [jevals issue](https://github.com/Jevals/jevals-data/issues/2)); OpenSysOne ([HF andyshu/opensysone](https://huggingface.co/andyshu/opensysone), 2026-09-17); mateolafalce/system-one-model (ModernBERT, "for 8 GB GPUs", [repo](https://github.com/mateolafalce/system-one-model)); OpenThai-SystemOne 0.8B (7.98k downloads, MLX/ONNX ports). No latency figures fetched for any.
+
+HF search `systemone` sorted by created shows 37 repos, none created on/after 09-27 other than the scorer-ONNX update ([HF](https://huggingface.co/models?search=systemone&sort=created)). `[no-record: new decision-model repos created 2026-09-27..28 searched=HF models search "systemone", HN newest "decision model", awesome-decision-models, awesome-jev-alternatives, systemonemodels.org, web search]` — instrument caveat: the HF search is a single term; repos named "decision" or "jev" without "systemone" are not covered by it (JEV-27B was found via web search, not this query).
+
+### Pricing and licensing
+
+- Jev: unchanged ($0.042/MTok, output free; 1,200 rpm / 250k tok/s, "adjusting dynamically"). New: OpenRouter access without waitlist (above). No `jev-1.14`, no deprecation notice found.
+- Kev-4B: OpenRouter $0.042/MTok input (snippet). Card's shipped temperature moved 2.41 → 2.14 with a new training round — a **pinned-revision matter** for §7a rule 4: the HF revision the spike pins must be recorded, since the card changed within three days.
+- Blink: licence resolved to Apache-2.0 (README + CHANGELOG). Closes a §9 unknown.
+- JEV-27B Apache-2.0; Lumma-Fev Apache-2.0; OOMU Apache-2.0; stuntd Apache-2.0; NanoJev MIT; system-one-qwen3.5-4b-scorer-ONNX **CC-BY-NC-4.0**.
+- Julia-1 API: still "open access soon", $0.025/MTok planned — unchanged.
+
+### Deprecations and withdrawals
+
+None found. Rune v3: still "no GGUF builds of v3 yet" ([HF](https://huggingface.co/surogate/rune-26b-a4b-GGUF)); card adds a MoE routing fix (surogate 1.5.3, PR #217) and thinking support (PR #240); ~751 ms mean per request on the mixed Decision Index workload (RTX PRO 6000). Decision Index README now states an admission rule: engines with median latency > 1,000 ms per request on one RTX PRO 6000 are not added to the board; "67 entrants on the live 0.2.1 board" (board page itself still not fetched). awesome-jev-alternatives marks nothing deprecated.
+
+### Open items carried
+
+Kev's OpenRouter page and Jev's OpenRouter model page (404 to fetch); JEV-27B latency is vendor-claimed on a B200; Lumma-Fev hardware unnamed; spillai VLM API unresolved.
+
+Ranked shortlist: unchanged
