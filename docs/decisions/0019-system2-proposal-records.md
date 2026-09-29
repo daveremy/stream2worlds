@@ -42,13 +42,14 @@ history. A proposal's sequence and a decision's sequence belong to independent t
 `verdicts.sqlite3`, with its own writer lock (`PROPOSALS_LOCK`) and `user_version = 1`.
 Independent writer/process ownership is the same reason for a sibling database as 0012.
 `ProposalStore` has `append_proposal`, `append_decision`, `proposals`, and `decisions`;
-`InMemoryProposalStore` meets the same append, retry and grading contract as `SqliteProposalStore::open(dir)`; the corruption checks (hash recompute, unknown enum strings) are SQLite-only because memory cannot be edited behind the store's back.
+`InMemoryProposalStore` meets the same append and retry contract as `SqliteProposalStore::open(dir)`; `grade` is a free function over either store's rows. The hash recompute runs in both stores; the unknown-enum-string check is SQLite-only because memory cannot be edited behind the store's back.
 `ReadOnlySqliteProposalStore::open(dir)` provides matching reads without taking the writer
 lock or creating/migrating a schema, and can coexist with the active writer.
 
 Every writer open configures WAL, `synchronous=FULL`, `recursive_triggers=ON` and
 `foreign_keys=ON`, using the shared connection helpers. Each append is one atomic SQLite
-statement/transaction. The schema is initialized transactionally; an unsupported version is
+statement; the proposal retry check runs before the insert and relies on the writer lock, so a second
+writer outside the lock would surface as `Corrupt`, not as an idempotent retry. The schema is initialized transactionally; an unsupported version is
 `Corrupt`. Reads return rows in ascending sequence order.
 
 **Schema.** `proposals` has an AUTOINCREMENT integer primary key `seq`, unique non-null text
@@ -77,7 +78,9 @@ Empty payloads are legal. No domain meaning is inferred from any string.
 payload hash **and payload bytes** returns the original stored row. A conflicting identity
 is `Corrupt`; comparing bytes prevents a hash collision from silently dropping a different
 proposal. A retry ignores `proposed_at_ms`, retaining the original timestamp. Decision retries
-append rows; identical duplicates are harmless because grading selects the latest sequence.
+append rows; grading selects the latest sequence per (proposal, decider). A duplicate is harmless only
+if no later decision on that proposal and decider was appended in between; a delayed retry after a
+correction would override it. The human tally is the latest human decision, not one vote per reviewer.
 A crash can leave a proposal with no decision, which is explicitly represented in the grade.
 No cross-store or proposal-plus-decision transaction is promised.
 

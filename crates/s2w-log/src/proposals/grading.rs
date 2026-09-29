@@ -104,7 +104,7 @@ impl ActorClassGrade {
 /// Grades persisted rows, ordered by (class, actor). The largest decision `seq` wins per
 /// (proposal, decider), regardless of input order or caller timestamps. Policy counts route;
 /// human/evidence tallies independently grade. Decisions for absent proposals are ignored.
-/// Inputs are expected to be store rows with unique proposal ids and decision sequences.
+/// Inputs are expected to be store rows with unique proposal ids and decision sequences; duplicate proposal rows double-count.
 /// No threshold or auto-apply logic runs here.
 #[must_use]
 pub fn grade(proposals: &[StoredProposal], decisions: &[StoredDecision]) -> Vec<ActorClassGrade> {
