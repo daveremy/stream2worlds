@@ -60,12 +60,18 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
 
 ## What is not here
 
-- **In-run trigger** (#197 PR 4b): a source that reaches the window while `serve` runs is
-  profiled only at the next start.
-- **Claim-volume measurement** (#197 PR 4b): world size and memory under the discovered mapping
-  at 10^5 events, and whether 10,000 events gives the same identity as 20,000. The deploy gate
-  stays at ~350 MiB resident for the world (issue #197 ruling).
-- **End-to-end obfuscation invariance through `serve`** (#197 PR 4b).
+- *2026-09-29, #197 PR 4b:* **in-run trigger**. A source unrouted at start and below the
+  window is profiled once, after the bridge poll in which its logged count reaches the window;
+  the rows land at once and the routes change at the next start (or live, once #184 2b-ii's
+  watcher sees the store move). A held lock keeps it pending until the next poll. Profiling is
+  synchronous on the bridge loop, one stall of a few seconds per source.
+- *2026-09-29, #197 PR 4b:* **a decided window is not profiled again**. Before profiling, the
+  producer skips a window this actor (same `PROFILER_VERSION`) already filed for the source,
+  matched by the window's last position, when any decision names that proposal. The
+  identity-bound lookup of rule 2 still applies to everything else.
+- *2026-09-29, #197 PR 4b:* claim volume measured (0022, "Claim volume"): 110 to 1,010 MiB at
+  10^5 events, bracketing the ~350 MiB line. End-to-end obfuscation invariance through
+  `serve` is a test.
 - **Grading** the policy's accuracy is #33/#56. No automatic revoke exists yet.
 - **Surfaces** ([0017](0017-view-and-agents-first-class.md)): which mapping a source runs is
   shown only in start-up notes, `s2w proposals list` and the proposals panel; the per-source

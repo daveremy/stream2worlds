@@ -88,19 +88,16 @@ async fn run_serve_async(
         .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
     let verdicts = SqliteVerdictStore::open(&args.log_dir)
         .map_err(|error| open_error(error, &args.log_dir, "verdict store"))?;
-    let now = now_millis()?;
     let manifest = WorldManifest::create_if_absent(
         &mut log,
         &args.world,
         &args.world,
-        Timestamp::from_millis(now),
+        Timestamp::from_millis(now_millis()?),
         // Historical: the defaults at world creation, not the live registry (decision 0023).
         &EngineRegistry::with_defaults().names(),
         &[],
     )?;
-    // Routes resolve before the source starts: a corrupt proposal store fails before it
-    // connects. Between the two resolutions the learned-mapping producer (decision 0025) may
-    // file and accept a mapping for an unrouted source; its failures are notes, never an error.
+    // Routes resolve before the source starts: a corrupt proposal store fails before it connects.
     let (registry, watcher, discover) =
         routed_registry(&log, &args.log_dir, &args.discover, reporter)?;
     let name = source.name();

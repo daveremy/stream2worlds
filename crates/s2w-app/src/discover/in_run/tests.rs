@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use s2w_log::{ProposalStore, ReadOnlySqliteProposalStore, SqliteEventLog, SqliteProposalStore};
+use s2w_log::{ReadOnlySqliteProposalStore, SqliteEventLog, SqliteProposalStore};
 use s2w_model::SourceId;
 
 use super::Seed;

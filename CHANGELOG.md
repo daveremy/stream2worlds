@@ -13,6 +13,20 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Learned mappings mid-run, and what they cost — #197 PR 4b (2026-09-29)
+
+**Shipped:** a source that reaches the 10,000-event window while `serve` runs is profiled after
+that poll; the proposal and its `policy` accept land at once and route at the next start. A
+window this profiler already filed and someone decided is not profiled again, so a human
+reject costs nothing per start. Tests now prove a held proposal writer leaves `serve` up and
+unrouted, and that `serve` builds the same world shape from an obfuscated copy of a stream.
+
+**Learned:** the discovered mapping applies at 116 claims per event on the recorded stream. At
+10^5 events the world is 110 MiB if entities keep repeating and 1,010 MiB if none repeat; the
+~350 MiB deploy line sits between, and the 10k-window mapping differs from the full fixture's.
+
+**Next:** a name-free prune of relationship rules and a window rule, then deploy.
+
 ## Learned mappings fill a world at start — #197 PR 4a (2026-09-29)
 
 **Shipped:** `serve` profiles the first 10,000 logged events of each unrouted source with

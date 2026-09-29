@@ -109,6 +109,18 @@ applying the mapping costs and decides whether to prune (for example, relationsh
 aliases of one pair of types) before auto-apply. *2026-09-29: auto-apply shipped first (#197 PR 4a); the
 measurement is #197 PR 4b.*
 
+*2026-09-29, measured (#197 PR 4b, `crates/s2w-app/tests/discover_volume.rs`, release build, hub).*
+On the recorded fixture (11,667 events) with the production `Config`, the first 10,000 events
+give 20 entity rules and 142 relationship rules, and the mapping applies at **115.9 claims per
+event** (0 abstained). Folding 10^5 events: replaying the fixture as-is (later cycles re-observe
+the same entities, a lower bound) gives 56,840 entities, 375,760 relationships and **110 MiB**
+resident; making every cycle's strings new (an upper bound) gives 287,582 entities, 2,763,239
+relationships and **1,010 MiB**. The ~350 MiB deploy line (#197 ruling) lies between the
+bounds, so the measurement does not clear it. Window stability: the identities at 1k, 5k and
+10k events each differ from the whole fixture's (23/215, 22/173 and 20/142 against 22/168
+rules). Profiling 10,000 events takes 4.4 s. Both findings go to a follow-up issue: a
+name-free prune and a window rule.
+
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a

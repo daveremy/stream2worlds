@@ -327,13 +327,12 @@ fn produce(
             return Produced::Nothing;
         }
     };
-    let effect = match trigger {
-        Trigger::Start => "",
-        Trigger::InRun => "; takes effect at the next restart",
-    };
-    let retry = match trigger {
-        Trigger::Start => "retried at the next start",
-        Trigger::InRun => "retried at the next poll",
+    let (effect, retry) = match trigger {
+        Trigger::Start => ("", "retried at the next start"),
+        Trigger::InRun => (
+            "; takes effect at the next restart",
+            "retried at the next poll",
+        ),
     };
     let (note, produced) = match file(producer, window, &mapping, log_dir) {
         Ok(Filed::Written { id, identity }) => (

@@ -43,9 +43,10 @@
   as a proposal and accepted by `policy`, on the record and revocable with `s2w proposals
   decide --outcome reject`. The profiler reads statistics, never names, and `cargo xtask check`
   proves it on an obfuscated copy of a recorded stream. [Decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)
-- **In progress:** profiling a source that reaches the window while `serve` runs, and measuring
-  the world a learned mapping builds at scale ([#197](https://github.com/daveremy/stream2worlds/issues/197)
-  PR 4b). Also in progress: the epoch contract and live rebuild, so a running `serve` picks up a
+- **A source that reaches the window while `serve` runs is profiled then**, its mapping filed
+  and accepted on the spot and routed at the next start. [Decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)
+- **In progress:** the world a learned mapping builds is 110 to 1,010 MiB at 10^5 events, so a
+  name-free prune is next ([decision 0022](docs/decisions/0022-discover-profiler.md)). Also in progress: the epoch contract and live rebuild, so a running `serve` picks up a
   decision without a restart ([#184](https://github.com/daveremy/stream2worlds/issues/184)).
 
 ## Demos
