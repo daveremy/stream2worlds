@@ -67,8 +67,9 @@ from offset 0 exactly as before this decision.
 **The timeline gets a base.** `Timeline` holds a base world (empty, or the restored snapshot's
 world at offset `b`), a live head world folded once per append, and only the events after `b`.
 The world at the head is a clone, not a refold, which removes the per-request refold at head
-that decision 0006 left to this issue. A world at `o >= b` folds from the base. Offsets below
-`b` no longer exist in the process:
+that decision 0006 left to this issue. (2026-09-29, #216: the head is now borrowed under the
+read lock, not cloned.) A world at `o >= b` folds from the base. Offsets below `b` no longer
+exist in the process:
 
 - every route that takes an offset (`/world?at=`, `/diff?from=`/`to=`, `/events?from=` and
   `Last-Event-ID`, `/entity/{id}/history?to=`) answers **410 `offset_before_base`**;
