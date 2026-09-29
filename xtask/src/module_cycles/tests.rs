@@ -161,3 +161,28 @@ fn leading_colons_extern_globs_and_exported_macros_resolve() {
     ]);
     assert!(f.is_empty(), "{f:?}");
 }
+
+#[test]
+fn a_deeper_cycle_does_not_hide_a_wider_shallow_one() {
+    // `a::x <-> b::y` at depth 3 and `a <-> c` at depth 2; at depth 2 `a`, `b`, `c` form one
+    // component, which must be reported, not dropped as covered by the deeper cycle.
+    let f = findings(&[
+        (
+            "lib.rs",
+            "mod a { pub mod x; pub struct A; fn g(_: crate::c::C) {} }\nmod b { pub mod y; }\nmod c;\n",
+        ),
+        ("a/x.rs", "pub struct X;\nfn f(_: crate::b::y::Y) {}\n"),
+        ("b/y.rs", "pub struct Y;\nfn f(_: crate::a::x::X) {}\n"),
+        ("c.rs", "pub struct C;\nfn f(_: crate::a::A) {}\n"),
+    ]);
+    assert!(
+        f.iter()
+            .any(|l| l.contains("module cycle in demo::a, demo::b, demo::c:")),
+        "{f:?}"
+    );
+    assert!(
+        f.iter()
+            .any(|l| l.contains("module cycle in demo::a::x, demo::b::y:")),
+        "{f:?}"
+    );
+}

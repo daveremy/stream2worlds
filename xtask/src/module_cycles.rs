@@ -6,7 +6,10 @@
 //! containment and is dropped; siblings under a shared ancestor are real edges. Tarjan's SCCs
 //! with more than one module are violations. Test-only code is skipped, like the size walker.
 //! Gap, accepted: paths that exist only after macro expansion, and macro bodies that do not
-//! parse as comma-separated expressions, are invisible to this check.
+//! parse as comma-separated expressions, are invisible to this check. Single-segment names are
+//! resolved without local scopes, so a local variable named like an imported module's item
+//! adds that edge.
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 mod resolve;
@@ -30,11 +33,7 @@ pub(super) fn check(meta: &super::Metadata) -> Vec<String> {
             .collect();
         outside.extend(pkg.targets.iter().map(|t| t.name.replace('-', "_")));
         for target in &pkg.targets {
-            if target
-                .kind
-                .iter()
-                .any(|k| matches!(k.as_str(), "test" | "bench" | "example" | "custom-build"))
-            {
+            if !target.walked() {
                 continue;
             }
             let key = target.name.replace('-', "_");
@@ -65,6 +64,7 @@ pub(super) fn target_findings(
     let resolver = Resolver {
         modules: &modules,
         outside,
+        active: RefCell::default(),
     };
     let mut findings = Vec::new();
     let mut edges = Edges::new();
@@ -127,7 +127,7 @@ fn cycles(edges: &Edges) -> Vec<String> {
             let covered = reported.iter().any(|r| {
                 let mut seen: Vec<Mod> = r.iter().map(cut).collect();
                 seen.dedup();
-                seen.len() > 1 && seen.iter().all(|m| scc.contains(m))
+                seen == scc
             });
             if !covered {
                 let names: Vec<String> = scc.iter().map(|m| m.join("::")).collect();

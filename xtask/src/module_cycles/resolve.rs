@@ -217,6 +217,8 @@ impl Collector<'_> {
 pub(super) struct Resolver<'a> {
     pub(super) modules: &'a BTreeMap<Mod, Module>,
     pub(super) outside: &'a BTreeSet<String>,
+    /// Lookups in progress, so glob and re-export loops end at once, not at `DEPTH`.
+    pub(super) active: std::cell::RefCell<BTreeSet<(Mod, String)>>,
 }
 
 const DEPTH: usize = 32;
@@ -271,9 +273,15 @@ impl Resolver<'_> {
     /// The target `name` has in module `m`: local items, then `use` bindings (followed to their
     /// origin), then glob imports. `None` when the module does not name it.
     fn lookup(&self, m: &Mod, name: &str, depth: usize) -> Option<Res> {
-        if depth > DEPTH {
+        let key = (m.clone(), name.to_owned());
+        if depth > DEPTH || !self.active.borrow_mut().insert(key.clone()) {
             return None;
         }
+        let found = self.find(m, name, depth);
+        self.active.borrow_mut().remove(&key);
+        found
+    }
+    fn find(&self, m: &Mod, name: &str, depth: usize) -> Option<Res> {
         let module = self.modules.get(m)?;
         if let Some(r) = module.defs.get(name) {
             return Some(r.clone());

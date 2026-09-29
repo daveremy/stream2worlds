@@ -8,8 +8,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize)]
 pub(super) struct Target {
     pub(crate) name: String,
-    pub(crate) kind: Vec<String>,
+    kind: Vec<String>,
     pub(crate) src_path: PathBuf,
+}
+impl Target {
+    /// Skip only the kinds the doctrine exempts, so lib crate-types such as cdylib or rlib
+    /// (reported as their own kind) are walked rather than silently dropped.
+    pub(crate) fn walked(&self) -> bool {
+        !self
+            .kind
+            .iter()
+            .any(|k| matches!(k.as_str(), "test" | "bench" | "example" | "custom-build"))
+    }
 }
 #[derive(Deserialize, Serialize)]
 struct Config {
@@ -77,13 +87,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
     }
     for pkg in &meta.packages {
         for target in &pkg.targets {
-            // Skip only the kinds the doctrine exempts, so lib crate-types such as cdylib or
-            // rlib (reported as their own kind) are walked rather than silently dropped.
-            if target
-                .kind
-                .iter()
-                .any(|k| matches!(k.as_str(), "test" | "bench" | "example" | "custom-build"))
-            {
+            if !target.walked() {
                 continue;
             }
             let mut target_scan = Scan::default();
