@@ -3,9 +3,10 @@
 //!
 //! The capture is synchronous with the poll: [`Snapshotter::after_poll`] runs right after
 //! `poll_once` returns, with no `.await` in between, so the bridge's last consumed position
-//! and the timeline's head describe the same moment. The expensive part (encoding, `fsync`)
-//! runs on one dedicated thread; the bridge only clones the head world, once per
-//! [`SnapshotConfig::every`] raw events.
+//! and the timeline's head describe the same moment. Once per [`SnapshotConfig::every`] raw
+//! events the bridge encodes the head world in place, under the timeline's read lock, without
+//! cloning it (#179: encoding is faster than the clone it replaced and needs only the file's
+//! bytes); writing and `fsync` run on one dedicated thread.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -19,7 +20,7 @@ use s2w_log::{LogPosition, LogReader, VerdictStore};
 use crate::bridge::EngineRegistry;
 use crate::query::{QueryState, Timeline};
 use crate::snapshot::{
-    Expected, SNAPSHOT_FORMAT, SnapshotV1, check_fold, check_log, fold_hash, store,
+    Expected, SNAPSHOT_FORMAT, SnapshotRefV1, check_fold, check_log, codec, fold_hash, store,
 };
 use crate::{AppError, NoteSink, Reporter};
 
@@ -175,7 +176,10 @@ struct Checkpoint {
 }
 
 struct Job {
-    snapshot: SnapshotV1,
+    /// The snapshot's fold offset, which names the file.
+    offset: u64,
+    /// The encoded snapshot file.
+    bytes: Vec<u8>,
     /// Raw events consumed when the world was captured.
     consumed: u64,
 }
@@ -279,8 +283,8 @@ impl Snapshotter {
         }
         // Due now; whatever happens below, the next attempt waits another `every` events.
         self.next_attempt = self.consumed.saturating_add(self.config.every.max(1));
-        let snapshot = match self.capture(state) {
-            Ok(snapshot) => snapshot,
+        let (offset, bytes) = match self.capture(state) {
+            Ok(captured) => captured,
             Err(reason) => {
                 (self.notes)(&format!("snapshot skipped: {reason}"));
                 return;
@@ -289,7 +293,8 @@ impl Snapshotter {
         let Some(jobs) = &self.jobs else { return };
         self.shared.busy.store(true, Ordering::Release);
         let job = Job {
-            snapshot,
+            offset,
+            bytes,
             consumed: self.consumed,
         };
         if jobs.try_send(job).is_err() {
@@ -298,34 +303,41 @@ impl Snapshotter {
         }
     }
 
-    /// The head world as a snapshot at the checkpoint, refusing a head that has moved past it.
-    fn capture(&self, state: &QueryState) -> Result<SnapshotV1, String> {
+    /// The head world encoded as a snapshot file at the checkpoint, with its offset, refusing a
+    /// head that has moved past the checkpoint. Encodes from the borrowed head under the read
+    /// lock, so the world is never cloned (#179).
+    fn capture(&self, state: &QueryState) -> Result<(u64, Vec<u8>), String> {
         let checkpoint = self.checkpoint.ok_or("nothing consumed yet")?;
-        let (world, time) = state.head_capture().map_err(|e| e.to_string())?;
-        // Only the bridge appends, and this runs in the same synchronous step as the poll, so
-        // this is an invariant check (decision 0021), not an expected outcome.
-        if world.offset() != checkpoint.offset {
-            return Err(format!(
-                "the head is at offset {}, but the checkpoint is at {}",
-                world.offset(),
-                checkpoint.offset
-            ));
-        }
-        let hub_cap = world.hub_in_degree_cap();
-        Ok(SnapshotV1 {
-            format: SNAPSHOT_FORMAT,
-            fold_hash: fold_hash(hub_cap),
-            feed_hash: self.feed_hash,
-            hub_cap,
-            offset: checkpoint.offset,
-            position: checkpoint.position.as_u64(),
-            position_event_hash: checkpoint.event_hash,
-            // Recorded for portability, never consulted at load (decision 0021); serve does
-            // not enumerate source cursors yet.
-            cursors: Vec::new(),
-            time,
-            world,
-        })
+        state
+            .with_head(|world, time| {
+                // Only the bridge appends, and this runs in the same synchronous step as the
+                // poll, so this is an invariant check (decision 0021), not an expected outcome.
+                if world.offset() != checkpoint.offset {
+                    return Err(format!(
+                        "the head is at offset {}, but the checkpoint is at {}",
+                        world.offset(),
+                        checkpoint.offset
+                    ));
+                }
+                let hub_cap = world.hub_in_degree_cap();
+                codec::encode_ref(&SnapshotRefV1 {
+                    format: SNAPSHOT_FORMAT,
+                    fold_hash: fold_hash(hub_cap),
+                    feed_hash: self.feed_hash,
+                    hub_cap,
+                    offset: checkpoint.offset,
+                    position: checkpoint.position.as_u64(),
+                    position_event_hash: checkpoint.event_hash,
+                    // Recorded for portability, never consulted at load (decision 0021); serve
+                    // does not enumerate source cursors yet.
+                    cursors: &[],
+                    time,
+                    world,
+                })
+                .map(|bytes| (checkpoint.offset, bytes))
+                .map_err(|e| e.to_string())
+            })
+            .map_err(|e| e.to_string())?
     }
 
     /// Runs once a stop signal arrives, before the bridge is dropped: waits for any in-flight
@@ -348,10 +360,11 @@ impl Snapshotter {
             return;
         }
         match self.capture(state) {
-            Ok(snapshot) => write_one(
+            Ok((offset, bytes)) => write_one(
                 &self.dir,
                 Job {
-                    snapshot,
+                    offset,
+                    bytes,
                     consumed: self.consumed,
                 },
                 &self.shared,
@@ -405,8 +418,8 @@ impl Drop for Idle<'_> {
 
 fn write_one(dir: &Path, job: Job, shared: &Shared, notes: &(dyn Fn(&str) + Send + Sync)) {
     let started = Instant::now();
-    let offset = job.snapshot.offset;
-    match store::write(dir, &job.snapshot) {
+    let offset = job.offset;
+    match store::write_bytes(dir, offset, &job.bytes) {
         Ok(path) => {
             shared.written_at.fetch_max(job.consumed, Ordering::AcqRel);
             let bytes = std::fs::metadata(&path).map_or(0, |m| m.len());

@@ -5,7 +5,7 @@
 
 use s2w_model::fnv1a64;
 
-use super::{Invalid, SNAPSHOT_FORMAT, SnapshotError, SnapshotV1};
+use super::{Invalid, SNAPSHOT_FORMAT, SnapshotError, SnapshotRefV1, SnapshotV1};
 
 /// The first eight bytes of every snapshot file.
 pub const MAGIC: [u8; 8] = *b"S2WSNAP1";
@@ -18,16 +18,30 @@ const TRAILER: usize = 8;
 /// # Errors
 /// [`SnapshotError::Encode`] if the payload does not serialize or exceeds `u32::MAX` bytes.
 pub fn encode(snapshot: &SnapshotV1) -> Result<Vec<u8>, SnapshotError> {
-    let payload =
-        postcard::to_stdvec(snapshot).map_err(|e| SnapshotError::Encode(e.to_string()))?;
-    let len = u32::try_from(payload.len()).map_err(|_| {
-        SnapshotError::Encode(format!("payload of {} bytes exceeds u32", payload.len()))
-    })?;
-    let mut out = Vec::with_capacity(HEADER + payload.len() + TRAILER);
+    encode_ref(&snapshot.as_ref_v1())
+}
+
+/// The file bytes for a borrowed snapshot, identical to [`encode`] of the owned one. The payload
+/// is serialized straight into the output buffer, so the only large allocation is the file
+/// itself (#179).
+///
+/// # Errors
+/// [`SnapshotError::Encode`] if the payload does not serialize or exceeds `u32::MAX` bytes.
+pub fn encode_ref(snapshot: &SnapshotRefV1<'_>) -> Result<Vec<u8>, SnapshotError> {
+    let mut out = Vec::with_capacity(HEADER + TRAILER);
     out.extend_from_slice(&MAGIC);
-    out.extend_from_slice(&len.to_le_bytes());
-    out.extend_from_slice(&payload);
-    out.extend_from_slice(&fnv1a64(&payload).to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    let mut out =
+        postcard::to_extend(snapshot, out).map_err(|e| SnapshotError::Encode(e.to_string()))?;
+    let payload_len = out.len().saturating_sub(HEADER);
+    let len = u32::try_from(payload_len).map_err(|_| {
+        SnapshotError::Encode(format!("payload of {payload_len} bytes exceeds u32"))
+    })?;
+    if let Some(slot) = out.get_mut(MAGIC.len()..HEADER) {
+        slot.copy_from_slice(&len.to_le_bytes());
+    }
+    let checksum = fnv1a64(out.get(HEADER..).unwrap_or_default());
+    out.extend_from_slice(&checksum.to_le_bytes());
     Ok(out)
 }
 

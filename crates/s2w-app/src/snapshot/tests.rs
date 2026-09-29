@@ -345,3 +345,21 @@ fn clean_tmp_removes_only_crashed_writes() -> TestResult {
     }
     Ok(())
 }
+
+/// The borrowed snapshot encodes to exactly the owned one's bytes, and the single-buffer encode
+/// lays them out as `MAGIC | len | payload | FNV` (#179). Pins field order and the slice/`Vec`
+/// and `&World`/`World` equivalence the writer relies on.
+#[test]
+fn a_borrowed_snapshot_encodes_to_the_owned_snapshots_bytes()
+-> Result<(), Box<dyn std::error::Error>> {
+    let snapshot = snapshot_at(12)?;
+    let payload = postcard::to_stdvec(&snapshot)?;
+    assert_eq!(postcard::to_stdvec(&snapshot.as_ref_v1())?, payload);
+    let mut expected = MAGIC.to_vec();
+    expected.extend_from_slice(&u32::try_from(payload.len())?.to_le_bytes());
+    expected.extend_from_slice(&payload);
+    expected.extend_from_slice(&super::fnv1a64(&payload).to_le_bytes());
+    assert_eq!(codec::encode_ref(&snapshot.as_ref_v1())?, expected);
+    assert_eq!(codec::encode(&snapshot)?, expected);
+    Ok(())
+}

@@ -1,6 +1,8 @@
 //! The served world log: timestamped [`WorldEvent`]s the query API folds on demand, on top of a
 //! base world (empty, or restored from a snapshot, decision 0021).
 
+use std::sync::Arc;
+
 use s2w_core::{World, WorldEvent};
 use s2w_model::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -64,11 +66,15 @@ pub struct BaseTime {
 /// ([`Timeline::from_snapshot`]); offsets below it are gone ([`QueryError::OffsetBeforeBase`]).
 /// The head world is folded once per [`Timeline::append`], so the world at the head is a clone,
 /// never a refold.
+///
+/// Base and head share one world until the first append (#179): a restored timeline holds one
+/// copy of the snapshot's world, and the first [`Timeline::append`] copies it into a separate
+/// head (`Arc::make_mut`). From then on the timeline holds two worlds, base and head.
 #[derive(Clone, Debug)]
 pub struct Timeline {
-    base: World,
+    base: Arc<World>,
     base_time: BaseTime,
-    head: World,
+    head: Arc<World>,
     events: Vec<TimedEvent>,
     clamped: u64,
 }
@@ -81,11 +87,13 @@ impl Timeline {
     }
 
     /// A timeline whose base is `world`, restored from a snapshot, with the base's time index
-    /// `time`. Appends continue from `world.offset()`.
+    /// `time`. Appends continue from `world.offset()`. The head shares the base's world until
+    /// the first append, so restoring holds one copy of it, not two.
     #[must_use]
     pub fn from_snapshot(world: World, time: BaseTime) -> Self {
+        let world = Arc::new(world);
         Self {
-            head: world.clone(),
+            head: Arc::clone(&world),
             base: world,
             base_time: time,
             events: Vec::new(),
@@ -95,25 +103,25 @@ impl Timeline {
 
     /// The in-degree cap every world on this timeline is folded under.
     #[must_use]
-    pub const fn hub_cap(&self) -> u64 {
+    pub fn hub_cap(&self) -> u64 {
         self.base.hub_in_degree_cap()
     }
 
     /// The earliest servable offset: 0, or the snapshot's offset.
     #[must_use]
-    pub const fn base(&self) -> u64 {
+    pub fn base(&self) -> u64 {
         self.base.offset()
     }
 
     /// The latest offset.
     #[must_use]
-    pub const fn head(&self) -> u64 {
+    pub fn head(&self) -> u64 {
         self.head.offset()
     }
 
     /// The world at the head, without folding.
     #[must_use]
-    pub const fn head_world(&self) -> &World {
+    pub fn head_world(&self) -> &World {
         &self.head
     }
 
@@ -144,7 +152,10 @@ impl Timeline {
             }
             _ => at,
         };
-        self.head = s2w_core::fold_one(std::mem::take(&mut self.head), &event);
+        // Copies the world only while the head still shares it with the base: the first append
+        // after a restore (or on a new timeline, whose world is empty).
+        let head = Arc::make_mut(&mut self.head);
+        *head = s2w_core::fold_one(std::mem::take(head), &event);
         self.events.push(TimedEvent { at, event });
         self.head()
     }
@@ -176,10 +187,10 @@ impl Timeline {
     pub fn world_at(&self, offset: u64) -> Result<World, QueryError> {
         let prefix = self.prefix(offset)?;
         if offset == self.head() {
-            return Ok(self.head.clone());
+            return Ok(World::clone(&self.head));
         }
         Ok(s2w_core::fold(
-            self.base.clone(),
+            World::clone(&self.base),
             prefix.iter().map(|e| &e.event),
         ))
     }
@@ -243,7 +254,7 @@ impl Timeline {
     /// the head.
     pub fn history(&self, id: u64, to: u64) -> Result<Vec<HistoryEntry>, QueryError> {
         let prefix = self.prefix(to)?;
-        let mut world = self.base.clone();
+        let mut world = World::clone(&self.base);
         let mut out = Vec::new();
         for timed in prefix {
             let (next, delta) = fold_with_delta(world, &timed.event);
@@ -264,5 +275,45 @@ impl Timeline {
         } else {
             Err(QueryError::UnknownEntity { id })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use s2w_core::{NaturalKey, World, WorldEvent};
+    use s2w_model::Timestamp;
+
+    use super::{BaseTime, Timeline};
+
+    fn observed(key: &str) -> WorldEvent {
+        WorldEvent::EntityObserved {
+            key: NaturalKey::new(key.to_owned()),
+            entity_type: "thing".to_owned(),
+            attrs: BTreeMap::new(),
+        }
+    }
+
+    /// #179: a restored timeline holds one world until its first append, which copies it into
+    /// a separate head and leaves the base as restored.
+    #[test]
+    fn base_and_head_share_one_world_until_the_first_append() -> Result<(), super::QueryError> {
+        let restored = s2w_core::fold(World::with_hub_cap(8), &[observed("a")]);
+        let mut timeline = Timeline::from_snapshot(restored.clone(), BaseTime::default());
+        assert!(Arc::ptr_eq(&timeline.base, &timeline.head));
+
+        timeline.append(Timestamp::from_millis(1), observed("b"));
+        assert!(!Arc::ptr_eq(&timeline.base, &timeline.head));
+        assert_eq!(*timeline.base, restored);
+        assert_eq!(timeline.world_at(timeline.base())?, restored);
+        assert_eq!((timeline.base(), timeline.head()), (1, 2));
+
+        // Later appends fold the head in place: nothing else holds it.
+        timeline.append(Timestamp::from_millis(2), observed("c"));
+        assert_eq!(Arc::strong_count(&timeline.head), 1);
+        assert_eq!(timeline.head(), 3);
+        Ok(())
     }
 }

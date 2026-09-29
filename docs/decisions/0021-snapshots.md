@@ -114,10 +114,12 @@ unreadable directory are reported, an absent directory is not.
 **Capture.** After every successful `poll_once`, with no `.await` in between, the snapshotter
 records a checkpoint: the bridge's `mark()` (last consumed position and its stored
 `content_hash`) and the timeline head. When `every` raw events have been consumed since the
-last attempt and the writer is idle, it clones the head world and queues it; a busy writer
-leaves the snapshot due for the next poll. The capture refuses a head that has moved past the
-checkpoint. Only the clone runs on the bridge's thread; encoding and `fsync` run on the
-`s2w-snapshot` thread.
+last attempt and the writer is idle, it encodes the head world in place, under the timeline's
+read lock, and queues the bytes; a busy writer leaves the snapshot due for the next poll. The
+capture refuses a head that has moved past the checkpoint. Only the encode runs on the bridge's
+thread; writing and `fsync` run on the `s2w-snapshot` thread. (Until #179 the bridge cloned the
+head and the writer thread encoded the clone; encoding from the borrowed head is about three
+times faster than that clone and needs only the file's bytes, see Budget and memory.)
 
 *Deviation from plan amendment A3.* The plan captured only after a poll whose report carried
 no error. The implementation captures after every `Ok` poll, because a poll that reports an
@@ -141,19 +143,36 @@ loses nothing because no snapshot is owed yet.
 and `MemoryMax=1G`; the HTTP drain may take 5 s, leaving 25 s for the final write. The
 ignored test `tests/snapshot_memory.rs` measures a synthetic wiki-shaped world (per raw event:
 one page observation with two attributes and one `edited` relationship; pages repeat every
-n/2 events, users every n/20) on hub, release build:
+n/2 events, users every n/20) on hub, release build. Since #179 (2026-09-28):
 
-| raw events | world resident | write: peak extra, time (incl. `fsync`), file | restore (fresh process): peak, time |
+| raw events | world resident | write: peak extra, encode (bridge thread, read lock held), total incl. `fsync`, file | restore (fresh process): peak, retained, time |
 |---|---|---|---|
-| 10^5 | 92 MiB | +83 MiB, 0.18 s, 4.8 MiB | +163 MiB, 0.34 s |
-| 10^6 | 665 MiB | +919 MiB, 2.4 s, 50 MiB | +1,624 MiB, 5.0 s |
+| 10^5 | 92 MiB | +0.1 MiB, 33 ms, 36 ms, 4.8 MiB | +86 MiB, +81 MiB, 0.12 s |
+| 10^6 | 697 MiB | +49 MiB, 327 ms, 346 ms, 50 MiB | +862 MiB, +812 MiB, 1.3 s |
 
-The final write fits the stop budget by a factor of ten at 10^6 events. Memory does not: a
-restored timeline holds two worlds (base and head), and a write briefly holds a second copy
-of the head, so near 10^6 events of this shape `serve` would exceed 1 GiB. Without snapshots
-the same process holds the head world plus the event list since offset 0, which is larger
-still, so the demo box cannot reach that size either way. Sharing the base with the head until
-the first append after a restore would halve restore memory; that is #179.
+Before #179 (part 1b as first merged: the bridge cloned the head, the writer encoded the clone,
+and a restored timeline held base and head as two worlds):
+
+| raw events | world resident | write: peak extra, time (clone + encode + `fsync`) | restore: peak, time |
+|---|---|---|---|
+| 10^5 | 92 MiB | +83 MiB, 0.13 s | +162 MiB, 0.21 s |
+| 10^6 | 665 MiB | +919 MiB, 1.5 s | +1,624 MiB, 2.2 s |
+
+The bridge thread used to spend the clone per capture (119 ms at 10^5, 1,078 ms at 10^6); it
+now spends the encode, which is about a third of that. HTTP runs on the same current-thread
+runtime, so this is also the longest a periodic capture delays a reader. The write's extra
+memory is the file's bytes (at 10^5 the allocator reuses freed pages, so it barely registers).
+Restore now holds one world plus the file's bytes while decoding.
+
+The base and head share that world until the first append after a restore, which copies it
+into a separate head (`Arc::make_mut`) inside `append`, under the timeline's write lock: one
+clone (about 0.1 s at 10^5, 1.1 s at 10^6) that blocks readers once, where it used to run in
+the restore before the listener bound. From then on the timeline holds two worlds, base and
+head, as before; that steady state is not changed by #179. Without snapshots the same process
+holds the head world plus the event list since offset 0, which is larger still. The final
+write fits the stop budget with room to spare at 10^6 events. Near 10^6 events of this shape a
+restarted `serve` still passes 1 GiB once it appends (two worlds), so the demo box cannot hold
+that size either way.
 
 ## What validity does not catch
 

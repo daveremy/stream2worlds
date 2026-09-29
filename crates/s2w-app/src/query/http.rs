@@ -177,13 +177,14 @@ impl QueryState {
         self.read(|t| Ok((t.base(), t.head(), t.hub_cap())))
     }
 
-    /// A clone of the head world with its time bounds, read under one lock: what a snapshot
-    /// records (decision 0021). O(world), no refold.
+    /// Runs `f` on the head world and its time bounds under one read lock: what a snapshot
+    /// records (decision 0021). `serve` encodes the snapshot inside `f`, so the head is never
+    /// cloned (#179); the bridge, the only writer, waits for `f`.
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.
-    pub fn head_capture(&self) -> Result<(World, BaseTime), QueryError> {
-        self.read(|t| Ok((t.head_world().clone(), t.head_time())))
+    pub fn with_head<T>(&self, f: impl FnOnce(&World, BaseTime) -> T) -> Result<T, QueryError> {
+        self.read(|t| Ok(f(t.head_world(), t.head_time())))
     }
 
     /// Replaces the per-source bridge statistics `/worlds/{world}/sources` serves. The live

@@ -44,14 +44,22 @@ fn offset_of(name: &str) -> Option<u64> {
 /// # Errors
 /// [`SnapshotError`] if encoding or any filesystem step fails.
 pub fn write(dir: &Path, snapshot: &SnapshotV1) -> Result<PathBuf, SnapshotError> {
-    let bytes = codec::encode(snapshot)?;
+    write_bytes(dir, snapshot.offset, &codec::encode(snapshot)?)
+}
+
+/// Writes already-encoded snapshot file `bytes` for `offset`, atomically as [`write`] does.
+/// `serve` encodes on the bridge thread and hands the bytes to its writer thread (#179).
+///
+/// # Errors
+/// [`SnapshotError`] if any filesystem step fails.
+pub fn write_bytes(dir: &Path, offset: u64, bytes: &[u8]) -> Result<PathBuf, SnapshotError> {
     fs::create_dir_all(dir)?;
-    let name = file_name(snapshot.offset);
+    let name = file_name(offset);
     let tmp = dir.join(format!(".{name}.tmp"));
     let path = dir.join(name);
     {
         let mut file = fs::File::create(&tmp)?;
-        file.write_all(&bytes)?;
+        file.write_all(bytes)?;
         file.sync_all()?;
     }
     fs::rename(&tmp, &path)?;

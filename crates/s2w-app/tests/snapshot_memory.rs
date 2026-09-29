@@ -1,4 +1,4 @@
-//! Memory and time of `serve`'s snapshot paths at 10^5 and 10^6 events (#33 PR 1b), measured
+//! Memory and time of `serve`'s snapshot paths at 10^5 and 10^6 events (#33 PR 1b, #179), measured
 //! as resident memory from `/proc/self/status` (Linux only). Ignored: it folds a million events. Run with
 //! `cargo test --release -p s2w-app --test snapshot_memory -- --ignored --nocapture`.
 //!
@@ -13,7 +13,7 @@ mod memory {
     use std::time::Instant;
 
     use s2w_app::query::{BaseTime, Timeline};
-    use s2w_app::snapshot::{SNAPSHOT_FORMAT, SnapshotV1, codec, fold_hash, store};
+    use s2w_app::snapshot::{SNAPSHOT_FORMAT, SnapshotRefV1, codec, fold_hash, store};
     use s2w_core::{AttrValue, NaturalKey, World, WorldEvent, fold};
 
     const CAP: u64 = s2w_app::DEFAULT_HUB_IN_DEGREE_CAP;
@@ -78,19 +78,9 @@ mod memory {
         world
     }
 
-    const RESTORE_FILE: &str = "S2W_SNAPSHOT_MEMORY_RESTORE";
-
-    fn measure(n: usize) {
-        let start = reset_peak();
-        let world = world(n);
-        let world_bytes = status("VmRSS:").saturating_sub(start);
-
-        // Periodic / final write: clone the head world, encode, fsync, rename.
-        let dir =
-            std::env::temp_dir().join(format!("s2w-snapshot-memory-{n}-{}", std::process::id()));
-        let before = reset_peak();
-        let started = Instant::now();
-        let snapshot = SnapshotV1 {
+    /// The snapshot file for `world`, encoded from the borrowed world as `serve` does (#179).
+    fn encode(world: &World) -> Vec<u8> {
+        codec::encode_ref(&SnapshotRefV1 {
             format: SNAPSHOT_FORMAT,
             fold_hash: fold_hash(CAP),
             feed_hash: 0,
@@ -98,19 +88,44 @@ mod memory {
             offset: world.offset(),
             position: 1,
             position_event_hash: 0,
-            cursors: Vec::new(),
+            cursors: &[],
             time: BaseTime {
                 first_ts: Some(0),
                 last_ts: Some(1),
                 clamped: 0,
             },
-            world: world.clone(),
-        };
-        let path = store::write(&dir, &snapshot).unwrap();
+            world,
+        })
+        .unwrap()
+    }
+
+    const RESTORE_FILE: &str = "S2W_SNAPSHOT_MEMORY_RESTORE";
+
+    fn measure(n: usize) {
+        let start = reset_peak();
+        let world = world(n);
+        let world_bytes = status("VmRSS:").saturating_sub(start);
+
+        // Periodic / final write as serve does it (#179): encode from the borrowed head world on
+        // the bridge thread, then write, fsync and rename the bytes.
+        let dir =
+            std::env::temp_dir().join(format!("s2w-snapshot-memory-{n}-{}", std::process::id()));
+        let before = reset_peak();
+        let started = Instant::now();
+        let bytes = encode(&world);
+        let encode_ms = started.elapsed().as_millis();
+        let path = store::write_bytes(&dir, world.offset(), &bytes).unwrap();
         let write_ms = started.elapsed().as_millis();
-        drop(snapshot);
+        drop(bytes);
         let write_peak = peak_since(before);
         let file_bytes = usize::try_from(std::fs::metadata(&path).unwrap().len()).unwrap();
+
+        // What the bridge thread spent per capture before #179: a clone of the head world.
+        // Measured after the write so its freed pages cannot hide the write's peak.
+        let started = Instant::now();
+        let copy = world.clone();
+        let clone_ms = started.elapsed().as_millis();
+        drop(copy);
         drop(world);
 
         // Restore in a fresh process, as a restarted serve would: nothing freed to reuse.
@@ -133,7 +148,8 @@ mod memory {
 
         println!(
             "n={n} raw events ({} world events): world {} resident; \
-             write: peak +{} ({write_ms} ms incl. fsync, file {}); {restore}",
+             write: peak +{} (encode {encode_ms} ms on the bridge thread, {write_ms} ms incl. \
+             fsync, file {}; a head clone takes {clone_ms} ms); {restore}",
             2 * n,
             mib(world_bytes),
             mib(write_peak),
@@ -158,7 +174,7 @@ mod memory {
         let retained = status("VmRSS:").saturating_sub(before);
         assert_eq!(timeline.head(), timeline.base());
         println!(
-            "restore: peak +{}, retained +{} (base + head world) ({restore_ms} ms)",
+            "restore: peak +{}, retained +{} (base and head share one world) ({restore_ms} ms)",
             mib(peak_since(before)),
             mib(retained)
         );
