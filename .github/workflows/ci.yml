@@ -1,12 +1,25 @@
 name: ci
+# Runner selection (daveremy/lifeos#1234): self-hosted `s2w` runner on hub by default.
+# Escape hatch: `gh variable set S2W_RUNNER --body down -R daveremy/stream2worlds` sends every
+# job to GitHub-hosted ubuntu (billed minutes); `gh variable delete S2W_RUNNER` restores
+# self-hosted. A missing runner makes jobs QUEUE, not fail.
+# Self-hosted rules: never write under bare /tmp (16 GB shared tmpfs) -- TMPDIR and
+# CARGO_TARGET_DIR are set by the "self-hosted paths" step below; the runner user cannot read /home/dave.
 on:
   push:
     branches: [main]
   pull_request:
 jobs:
   gates:
-    runs-on: ubuntu-latest
+    runs-on: &s2w-runner ${{ vars.S2W_RUNNER == 'down' && 'ubuntu-latest' || fromJSON('["self-hosted","s2w"]') }}
     steps:
+      - name: self-hosted paths (no bare /tmp; per-job cargo target under the runner user's cache)
+        if: vars.S2W_RUNNER != 'down'
+        run: |
+          mkdir -p "$HOME/.cache/cargo-target/s2w-gates" "$RUNNER_TEMP/tmp"
+          echo "CARGO_TARGET_DIR=$HOME/.cache/cargo-target/s2w-gates" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -15,6 +28,7 @@ jobs:
           toolchain: "1.98"
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        if: vars.S2W_RUNNER == 'down'  # self-hosted keeps a persistent target dir instead
       - name: fmt
         run: cargo fmt --all --check
       - name: clippy
@@ -30,16 +44,23 @@ jobs:
           [ "${#scripts[@]}" -gt 0 ]
           for script in "${scripts[@]}"; do bash -n "$script"; done
           shellcheck --severity=error "${scripts[@]}"
-      - name: licenses and advisories
-        uses: EmbarkStudios/cargo-deny-action@v2
+      - name: licenses and advisories (cargo-deny binary, not the docker action, which the runner user cannot run)
+        uses: taiki-e/install-action@v2
         with:
-          rust-version: "1.98"
-          command: check licenses advisories bans
+          tool: cargo-deny
+      - run: cargo deny check licenses advisories bans
   scale:
     # Fold instructions per event under Valgrind (s2w#32, decision 0004). The [ir] baseline in
     # xtask/scale-baseline.toml belongs to this image; bumping it re-sets that baseline.
-    runs-on: ubuntu-24.04
+    runs-on: *s2w-runner
     steps:
+      - name: self-hosted paths (no bare /tmp; per-job cargo target under the runner user's cache)
+        if: vars.S2W_RUNNER != 'down'
+        run: |
+          mkdir -p "$HOME/.cache/cargo-target/s2w-scale" "$RUNNER_TEMP/tmp"
+          echo "CARGO_TARGET_DIR=$HOME/.cache/cargo-target/s2w-scale" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -47,8 +68,14 @@ jobs:
         with:
           toolchain: "1.98"
       - uses: Swatinem/rust-cache@v2
-      - name: valgrind
-        run: sudo apt-get update && sudo apt-get install --yes valgrind
+        if: vars.S2W_RUNNER == 'down'
+      - name: valgrind (hosted uses apt, self-hosted needs it preinstalled because the runner user has no sudo)
+        run: |
+          if [ "${{ vars.S2W_RUNNER }}" = down ]; then
+            sudo apt-get update && sudo apt-get install --yes valgrind
+          else
+            command -v valgrind
+          fi
       - name: gungraun-runner (must equal the gungraun pin in crates/s2w-app/Cargo.toml)
         uses: taiki-e/install-action@v2
         with:
@@ -57,9 +84,9 @@ jobs:
         run: cargo run --quiet --package xtask -- scale
       - name: drop benchmark output from the cache
         if: always()
-        run: rm -rf target/tmp/scale target/gungraun  # scale_wall writes under CARGO_TARGET_TMPDIR
+        run: rm -rf "${CARGO_TARGET_DIR:-target}/tmp/scale" "${CARGO_TARGET_DIR:-target}/gungraun"  # scale_wall writes under CARGO_TARGET_TMPDIR
   bundle:
-    runs-on: ubuntu-latest
+    runs-on: *s2w-runner
     defaults:
       run:
         working-directory: crates/s2w-app/web
