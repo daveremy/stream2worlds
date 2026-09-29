@@ -12,7 +12,7 @@ history across restarts and keeping each model version's denominator separate.
 Human accept/reject is a **grading signal**, not a universal approval gate. This amends
 "Proposals are inert until accepted; nothing auto-accepts": proposals never act on the stream
 from inside `s2w-system2`; auto-apply is a policy decision recorded as a decision row. Outward
-effects (exports, subscriber alerts) always need approval through the export manifest. Model
+effects (exports, subscriber alerts) always need approval through the export manifest (a rule for the export path, not enforced by this store). Model
 workers still hold no action credentials, and System 2 validates its constrained proposal
 format. This store neither applies proposals nor grants authority.
 
@@ -42,7 +42,7 @@ history. A proposal's sequence and a decision's sequence belong to independent t
 `verdicts.sqlite3`, with its own writer lock (`PROPOSALS_LOCK`) and `user_version = 1`.
 Independent writer/process ownership is the same reason for a sibling database as 0012.
 `ProposalStore` has `append_proposal`, `append_decision`, `proposals`, and `decisions`;
-`InMemoryProposalStore` meets the same contract as `SqliteProposalStore::open(dir)`.
+`InMemoryProposalStore` meets the same append, retry and grading contract as `SqliteProposalStore::open(dir)`; the corruption checks (hash recompute, unknown enum strings) are SQLite-only because memory cannot be edited behind the store's back.
 `ReadOnlySqliteProposalStore::open(dir)` provides matching reads without taking the writer
 lock or creating/migrating a schema, and can coexist with the active writer.
 

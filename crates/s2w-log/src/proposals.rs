@@ -187,7 +187,6 @@ fn retry_proposal(stored: StoredProposal, new: &NewProposal) -> Result<StoredPro
     if stored.class != new.class
         || stored.actor != new.actor
         || stored.snapshot_offset != new.snapshot_offset
-        || stored.payload_hash != content_hash(&new.payload)
         || stored.payload != new.payload
     {
         return Err(LogError::Corrupt(format!(
