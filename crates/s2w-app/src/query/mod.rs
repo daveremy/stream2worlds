@@ -12,6 +12,7 @@ mod epoch;
 mod http;
 mod proposal_store;
 mod proposals;
+mod read_timings;
 mod stream;
 mod timeline;
 mod view;
@@ -29,6 +30,7 @@ pub use proposal_store::read_view;
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
+pub use read_timings::{PhaseTiming, ReadTimingsSnapshot};
 pub use timeline::{BaseTime, DEFAULT_HISTORY_CAP, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HeadView, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,

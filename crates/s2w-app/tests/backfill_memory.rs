@@ -20,7 +20,12 @@
 //!   JSON serialization alone; then the streamed `/world` through the real router (#216 PR 2b,
 //!   no owned view and no whole body), and one `/diff` from the head to itself. Before #216
 //!   PR 2a each read also copied the head world, the size `world` reports. (Not measured here:
-//!   a freed copy's pages stay resident and pad whichever window comes next.)
+//!   a freed copy's pages stay resident and pad whichever window comes next.) The streamed read
+//!   also prints the server's split of its read-guard hold (below). Last, `World::clone` of the
+//!   head and each of its collections alone (entities, keys, merges, relationships, hub
+//!   counters), timed, each copy kept so none reuses another's pages (s2w#243). Resident
+//!   deltas can still read low; `S2W_BACKFILL_MEMORY_VARIANTS=queries` on the
+//!   `backfill_memory_heap` target adds each copy's exact heap bytes.
 //! - `viewer`: the `bridge` backfill with a reader thread attached before the first poll,
 //!   issuing one `/world` and one `/diff?from=<head>&to=<head>` through the real router every
 //!   tick and draining each body, as a page does. The `/world` carries the last `ETag` in
@@ -29,10 +34,17 @@
 //!   `WORLD_REFRESH_MS`), 1000 for the page's old rate, a worst case. It asserts the whole-process peak stays under [`VIEWER_PEAK_LIMIT`], and
 //!   reports the slowest `/world` (an upper bound on how long one read held the fold's lock:
 //!   the guard is held until the last chunk is queued, and the reader drains as it goes) and
-//!   the slowest `poll_once`, which is where the fold waits for that lock.
+//!   the slowest `poll_once`, which is where the fold waits for that lock. The server side
+//!   splits each `/world` body's hold (`QueryState::with_read_timings`, s2w#243): `wait` for
+//!   the guard, `build` under it (`HeadView::new`: `Graph::new` and the sorts), `write` with it
+//!   still held (serialization, which still reads each node out of the world). `build share`
+//!   is `build / (build + write)`: the part of the hold a handoff that releases the guard after
+//!   the projection keeps.
 //!
 //! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants;
-//! `S2W_BACKFILL_MEMORY_VIEWER_TICK_MS=1000` sets the `viewer` tick.
+//! `S2W_BACKFILL_MEMORY_VIEWER_TICK_MS=1000` sets the `viewer` tick;
+//! `S2W_BACKFILL_MEMORY_VIEWERS=4` runs four readers, reader `i` starting `i * tick / 4` after
+//! the first, each with its own `ETag`. More than one reader reports and does not assert.
 //!
 //! Measurement variants (s2w#220, where the bridge's ~170 MiB over the head world goes). They
 //! run only when named in `S2W_BACKFILL_MEMORY_VARIANTS`, and never assert the 600 MiB limit:
@@ -44,9 +56,9 @@
 //!   `arena2` only means something under `bridge-run` (the main-thread child has one arena).
 //! - `S2W_BACKFILL_MEMORY_HISTORY_CAP=<n>` and `S2W_BACKFILL_MEMORY_BATCH=<n>`, read by the
 //!   bridge child: the timeline's history cap and `BridgeConfig::batch`.
-//! - The default sweep (no `VARIANTS`) refuses to run with either knob or any allocator
-//!   variable set (any `MALLOC_*`, `GLIBC_TUNABLES`, `LD_PRELOAD`), so a green default run
-//!   always asserted. A named `bridge` or `viewer` child under an allocator variable reports
+//! - The default sweep (no `VARIANTS`) refuses to run with any knob (`VIEWERS` too) or any
+//!   allocator variable set (any `MALLOC_*`, `GLIBC_TUNABLES`, `LD_PRELOAD`), so a green
+//!   default run always asserted. A named `bridge` or `viewer` child under an allocator variable reports
 //!   and does not assert.
 //! - The `backfill_memory_heap` target includes this file with dhat as the global allocator
 //!   and runs `bridge` only, printing dhat's `max_bytes` (Rust heap peak) beside `VmHWM`.
@@ -77,6 +89,7 @@ mod backfill {
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread::JoinHandle;
     use std::time::{Duration, Instant};
 
     use axum::body::Body;
@@ -87,7 +100,9 @@ mod backfill {
 
     use s2w_app::bridge::{Bridge, BridgeConfig, EngineRegistry, Route};
     use s2w_app::discover::DISCOVER_WINDOW;
-    use s2w_app::query::{DEFAULT_HISTORY_CAP, QueryState, Timeline, ViewParams, router};
+    use s2w_app::query::{
+        DEFAULT_HISTORY_CAP, QueryState, ReadTimingsSnapshot, Timeline, ViewParams, router,
+    };
     use s2w_core::{World, fold};
     use s2w_discover::{Config, Discovery, discover};
     use s2w_log::{EventLog, SqliteEventLog, SqliteVerdictStore};
@@ -127,6 +142,8 @@ mod backfill {
     const HISTORY_CAP: &str = "S2W_BACKFILL_MEMORY_HISTORY_CAP";
     /// The bridge child's `BridgeConfig::batch`, when set (s2w#220).
     const BATCH: &str = "S2W_BACKFILL_MEMORY_BATCH";
+    /// How many `viewer` readers the `viewer` child runs, when set (s2w#243); unset, one.
+    const VIEWERS: &str = "S2W_BACKFILL_MEMORY_VIEWERS";
     /// The glibc tunings a `<base>+<allocator>` variant sets on its child (s2w#220).
     const ALLOCATORS: [(&str, &[(&str, &str)]); 4] = [
         ("arena2", &[("MALLOC_ARENA_MAX", "2")]),
@@ -309,7 +326,10 @@ mod backfill {
     fn timeline(events: &[RawEvent], engine: &MappingEngine, queries: bool) {
         let before = reset_peak();
         let started = Instant::now();
-        let state = QueryState::new(Timeline::new(CAP));
+        let mut state = QueryState::new(Timeline::new(CAP));
+        if queries {
+            state = state.with_read_timings();
+        }
         claims(events, engine, |at, claims| {
             for claim in claims {
                 state.append(at, claim).unwrap();
@@ -353,13 +373,66 @@ mod backfill {
                 started,
                 &format!(", body {}", mib(len)),
             );
+            report_timings(&state.read_timings().unwrap());
             let before = reset_peak();
             let started = Instant::now();
             // Past the history cap, `/diff` serves the head only (decision 0026).
             let diff = state.diff(head, Some(head), None).unwrap();
             drop(diff);
             report("query /diff head..head", before, started, "");
+            state.with_head(|world, _| clone_breakdown(world)).unwrap();
         }
+    }
+
+    /// Times `World::clone` of the head, then each of its collections alone (s2w#243: what a
+    /// snapshot that copies the maps would cost). Every copy is kept until the end, so no window
+    /// reuses another's freed pages; pages freed by the windows before this one can still be
+    /// reused, so a resident delta can read low. The heap target's `heap` figure (dhat's live
+    /// bytes) is the exact size.
+    fn clone_breakdown(world: &World) {
+        let heap = || heap_target().then(|| dhat::HeapStats::get().curr_bytes);
+        let mut rows = Vec::new();
+        let mut kept: Vec<Box<dyn std::any::Any>> = Vec::new();
+        let mut measure = |part: &str, clone: &dyn Fn() -> Box<dyn std::any::Any>| {
+            let (before, heap_before) = (reset_peak(), heap());
+            let started = Instant::now();
+            kept.push(clone());
+            let seconds = started.elapsed().as_secs_f64();
+            let resident = status("VmRSS:").saturating_sub(before);
+            let heap_bytes = heap().zip(heap_before).map(|(after, b)| after - b);
+            eprintln!(
+                "clone {part}: {:.0} ms, resident {}{}",
+                seconds * 1000.0,
+                mib(resident),
+                heap_bytes.map_or_else(String::new, |b| format!(", heap {}", mib(b)))
+            );
+            rows.push(serde_json::json!({
+                "part": part,
+                "ms": seconds * 1000.0,
+                "resident_bytes": resident,
+                "heap_bytes": heap_bytes,
+            }));
+        };
+        measure("world", &|| Box::new(world.clone()));
+        measure("entities", &|| {
+            Box::new(world.entities().map(|(_, s)| s.clone()).collect::<Vec<_>>())
+        });
+        measure("keys", &|| Box::new(world.keys().clone()));
+        measure("merges", &|| Box::new(world.merges().clone()));
+        measure("relationships", &|| Box::new(world.relationships().clone()));
+        measure("hub_counters", &|| Box::new(world.hub_counters().clone()));
+        eprintln!(
+            "result {}",
+            serde_json::json!({
+                "target": env!("CARGO_CRATE_NAME"),
+                "variant": "queries",
+                "entities": world.entity_count(),
+                "relationships": world.relationships().len(),
+                "keys": world.keys().len(),
+                "clone": rows,
+            })
+        );
+        drop(kept);
     }
 
     /// One `/world` through the real router, its body drained chunk by chunk and counted, never
@@ -406,9 +479,12 @@ mod backfill {
         log.append_batch(batch).unwrap();
     }
 
-    /// What the `viewer` reader saw.
+    /// What one `viewer` reader saw.
     #[derive(Default)]
     struct Viewed {
+        /// Which reader, from 0, of how many.
+        reader: usize,
+        readers: usize,
         worlds: usize,
         /// `/world` reads answered 304: the head had not moved since the last one.
         unchanged: usize,
@@ -418,6 +494,78 @@ mod backfill {
         slowest_world: Duration,
         /// The tick the reader ran at.
         tick: Duration,
+    }
+
+    impl Viewed {
+        fn json(&self) -> serde_json::Value {
+            serde_json::json!({
+                "worlds": self.worlds,
+                "unchanged": self.unchanged,
+                "diffs": self.diffs,
+                "refused": self.refused,
+                "largest_body_bytes": self.largest_body,
+                "slowest_world_ms": self.slowest_world.as_millis(),
+            })
+        }
+    }
+
+    /// `count` [`viewer`] readers on their own threads, reader `i` starting `i * tick / count`
+    /// after the first so their reads interleave the way independent pages would.
+    fn spawn_viewers(
+        state: &QueryState,
+        stop: &Arc<AtomicBool>,
+        count: usize,
+        tick: Duration,
+    ) -> Vec<JoinHandle<Viewed>> {
+        (0..count)
+            .map(|reader| {
+                let (state, stop) = (state.clone(), Arc::clone(stop));
+                let offset = tick.mul_f64(reader as f64 / count as f64);
+                std::thread::spawn(move || {
+                    let started = Instant::now();
+                    while started.elapsed() < offset && !stop.load(Ordering::Relaxed) {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    let mut seen = viewer(&state, &stop, tick);
+                    (seen.reader, seen.readers) = (reader, count);
+                    seen
+                })
+            })
+            .collect()
+    }
+
+    /// The server-side `/world` hold split as a `result` field, in milliseconds.
+    fn timings_json(timings: &ReadTimingsSnapshot) -> serde_json::Value {
+        serde_json::json!({
+            "bodies": timings.bodies,
+            "wait_ms_sum": timings.wait.total.as_millis(),
+            "wait_ms_max": timings.wait.max.as_millis(),
+            "build_ms_sum": timings.build.total.as_millis(),
+            "build_ms_max": timings.build.max.as_millis(),
+            "write_ms_sum": timings.write.total.as_millis(),
+            "write_ms_max": timings.write.max.as_millis(),
+            "build_share": timings.build_share(),
+            "build_share_of_max": timings.build_share_of_max(),
+        })
+    }
+
+    /// Prints the server-side split of the `/world` hold (s2w#243): `build` is what a handoff
+    /// that releases the guard after the projection would keep under it.
+    fn report_timings(timings: &ReadTimingsSnapshot) {
+        let share = |s: Option<f64>| s.map_or_else(|| "-".to_owned(), |s| format!("{s:.2}"));
+        eprintln!(
+            "/world hold over {} bodies: wait total {} ms (max {}), build total {} ms (max {}), \
+             write total {} ms (max {}); build share {} (of maxima {})",
+            timings.bodies,
+            timings.wait.total.as_millis(),
+            timings.wait.max.as_millis(),
+            timings.build.total.as_millis(),
+            timings.build.max.as_millis(),
+            timings.write.total.as_millis(),
+            timings.write.max.as_millis(),
+            share(timings.build_share()),
+            share(timings.build_share_of_max()),
+        );
     }
 
     /// A page's reads until `stop`: every `tick`, one `/world` (with the last `ETag` in
@@ -475,21 +623,31 @@ mod backfill {
         seen
     }
 
-    /// Prints what the `viewer` reader saw and, unless `measuring`, asserts the whole-process
-    /// `peak`.
-    fn report_viewer(viewed: &Viewed, peak: usize, measuring: bool) {
-        eprintln!(
-            "viewer (tick {} ms): {} /world ({} unchanged, 304), {} /diff ({} refused), \
-             largest body {}, slowest /world {} ms",
-            viewed.tick.as_millis(),
-            viewed.worlds,
-            viewed.unchanged,
-            viewed.diffs,
-            viewed.refused,
-            mib(viewed.largest_body),
-            viewed.slowest_world.as_millis()
-        );
-        assert!(viewed.worlds > 0, "the viewer never read the world");
+    /// Prints what each `viewer` reader saw and the server's `/world` hold split and, unless
+    /// `measuring`, asserts the whole-process `peak`.
+    fn report_viewer(
+        viewed: &[Viewed],
+        timings: Option<&ReadTimingsSnapshot>,
+        peak: usize,
+        measuring: bool,
+    ) {
+        for viewed in viewed {
+            eprintln!(
+                "viewer {}/{} (tick {} ms): {} /world ({} unchanged, 304), \
+                 {} /diff ({} refused), largest body {}, slowest /world {} ms",
+                viewed.reader + 1,
+                viewed.readers,
+                viewed.tick.as_millis(),
+                viewed.worlds,
+                viewed.unchanged,
+                viewed.diffs,
+                viewed.refused,
+                mib(viewed.largest_body),
+                viewed.slowest_world.as_millis()
+            );
+            assert!(viewed.worlds > 0, "a viewer never read the world");
+        }
+        report_timings(timings.expect("the viewer child records the /world hold"));
         if measuring {
             eprintln!("viewer: assert skipped (measurement variant)");
             return;
@@ -576,11 +734,18 @@ mod backfill {
         let blocking = base == "bridge-run";
         let history_cap = knob(HISTORY_CAP);
         let batch_knob = knob(BATCH);
+        let viewers = knob(VIEWERS);
+        assert!(
+            viewers != Some(0),
+            "{VIEWERS}=0: the viewer child needs a reader"
+        );
         // Only the default configuration asserts: a knob, an allocator tuning (named or
-        // inherited), another thread topology or dhat measures something else.
+        // inherited), another thread topology, more than one reader or dhat measures
+        // something else.
         let measuring = (variant != "bridge" && variant != "viewer")
             || history_cap.is_some()
             || batch_knob.is_some()
+            || viewers.is_some_and(|n| n != 1)
             || allocator_env().is_some()
             || heap_target();
         let (log, verdicts, registry) = bridge_inputs(directory);
@@ -588,7 +753,10 @@ mod backfill {
         if let Some(cap) = history_cap {
             timeline = timeline.with_history_cap(cap);
         }
-        let state = QueryState::new(timeline);
+        let mut state = QueryState::new(timeline);
+        if with_viewer {
+            state = state.with_read_timings();
+        }
         let config = BridgeConfig {
             batch: batch_knob.unwrap_or(BridgeConfig::default().batch),
             ..BridgeConfig::default()
@@ -606,16 +774,18 @@ mod backfill {
         let started = Instant::now();
         let mut bridge = Bridge::new(log, verdicts, registry, state.clone(), config).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
-        let reader = with_viewer.then(|| {
-            let (state, stop) = (state.clone(), Arc::clone(&stop));
-            std::thread::spawn(move || viewer(&state, &stop, viewer_tick()))
-        });
+        let readers = if with_viewer {
+            spawn_viewers(&state, &stop, viewers.unwrap_or(1), viewer_tick())
+        } else {
+            Vec::new()
+        };
         let (consumed, slowest_poll) = match &runtime {
             Some(runtime) => poll_to_end_blocking(runtime, bridge),
             None => poll_to_end(&mut bridge),
         };
         stop.store(true, Ordering::Relaxed);
-        let viewed = reader.map(|r| r.join().unwrap());
+        let viewed: Vec<Viewed> = readers.into_iter().map(|r| r.join().unwrap()).collect();
+        let timings = state.read_timings();
         let (_, head, _) = state.bounds().unwrap();
         let name = if with_viewer { "viewer" } else { variant };
         let seconds = started.elapsed().as_secs_f64();
@@ -649,9 +819,12 @@ mod backfill {
                 "raw_events": consumed,
                 "world_events": head,
                 "asserted": !measuring,
+                "viewer_tick_ms": with_viewer.then(|| viewer_tick().as_millis()),
+                "readers": viewed.iter().map(Viewed::json).collect::<Vec<_>>(),
+                "read_timings": timings.as_ref().map(timings_json),
             })
         );
-        let Some(viewed) = viewed else {
+        if !with_viewer {
             if measuring {
                 eprintln!("{name}: assert skipped (measurement variant)");
                 return;
@@ -663,8 +836,8 @@ mod backfill {
                 mib(SERVE_PEAK_LIMIT)
             );
             return;
-        };
-        report_viewer(&viewed, peak, measuring);
+        }
+        report_viewer(&viewed, timings.as_ref(), peak, measuring);
     }
 
     /// The variants to run: the named ones, else the default sweep, which refuses a
@@ -676,7 +849,7 @@ mod backfill {
             None => {
                 // The knobs and any allocator variable: the children inherit the caller's
                 // environment.
-                let knobs = [HISTORY_CAP, BATCH]
+                let knobs = [HISTORY_CAP, BATCH, VIEWERS]
                     .into_iter()
                     .find(|name| std::env::var_os(name).is_some())
                     .map(str::to_owned);

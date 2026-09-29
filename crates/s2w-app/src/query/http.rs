@@ -28,6 +28,7 @@ use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
 use super::epoch::Epoch;
 use super::proposals::ProposalsView;
+use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
 use super::stream;
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{ACTUAL_BRANCH, HeadView, Lod, ViewParams, WorldView, world_view};
@@ -81,6 +82,9 @@ pub struct QueryState {
     /// The event-log directory, so presentation can be read fresh per request rather than
     /// cached at startup — a live `s2w presentation set` is visible without a restart.
     log_dir: Option<Arc<PathBuf>>,
+    /// Where each `/world` body's read-guard hold went (s2w#243); `None` unless a measurement
+    /// opts in with [`Self::with_read_timings`].
+    read_timings: Option<Arc<ReadTimings>>,
 }
 
 impl QueryState {
@@ -102,6 +106,7 @@ impl QueryState {
             source_stats: Arc::new(source_stats),
             rebuilding: Arc::new(rebuilding),
             log_dir: None,
+            read_timings: None,
         }
     }
 
@@ -131,6 +136,21 @@ impl QueryState {
     pub fn with_log_dir(mut self, log_dir: impl Into<PathBuf>) -> Self {
         self.log_dir = Some(Arc::new(log_dir.into()));
         self
+    }
+
+    /// Records where each `/world` body's read-guard hold goes: the wait for the guard, the
+    /// view build, and the write with the guard held (s2w#243). A measurement hook: serve
+    /// never calls it, and it changes no response byte.
+    #[must_use]
+    pub fn with_read_timings(mut self) -> Self {
+        self.read_timings = Some(Arc::default());
+        self
+    }
+
+    /// The `/world` hold timings so far, or `None` unless [`Self::with_read_timings`] was set.
+    #[must_use]
+    pub fn read_timings(&self) -> Option<ReadTimingsSnapshot> {
+        self.read_timings.as_deref().map(ReadTimings::snapshot)
     }
 
     /// The string identifier of the world this process serves.
@@ -404,6 +424,7 @@ impl QueryState {
         answer: oneshot::Sender<Result<WorldAnswer, QueryError>>,
         writer: stream::ChunkWriter,
     ) {
+        let started = Instant::now();
         let t = match self.read_for_body() {
             Ok(t) => t,
             Err(error) => {
@@ -411,6 +432,7 @@ impl QueryState {
                 return;
             }
         };
+        let guarded = Instant::now();
         let result = match resolve_world(&t, request) {
             Err(error) => Err(error),
             Ok(Resolved::NotModified(tag)) => Ok(WorldAnswer::NotModified(tag)),
@@ -418,8 +440,13 @@ impl QueryState {
                 match HeadView::new(&world, &request.params, t.epoch()) {
                     Err(error) => Err(error),
                     Ok(view) => {
+                        let built = Instant::now();
                         if answer.send(Ok(WorldAnswer::Body(tag))).is_ok() {
                             write_view(&view, writer);
+                            // Recorded only when a measurement opted in (s2w#243).
+                            if let Some(timings) = &self.read_timings {
+                                timings.record(guarded - started, built - guarded, built.elapsed());
+                            }
                         }
                         return;
                     }
