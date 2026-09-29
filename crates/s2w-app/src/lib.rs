@@ -12,7 +12,7 @@ pub mod snapshot;
 /// which this crate cannot depend on — see `crates/s2w/AGENTS.md`'s dependency direction);
 /// this is the trait it implements, plus the default human one `watch`/`run_watch` need a
 /// caller to supply explicitly (s2w#79).
-pub use group_commit::{HumanReporter, Reporter};
+pub use group_commit::{HumanReporter, NoteSink, Reporter};
 /// The hub in-degree cap a served timeline starts under, re-exported so the CLI can build the
 /// MCP server's empty world without depending on the core itself.
 pub use s2w_core::DEFAULT_HUB_IN_DEGREE_CAP;

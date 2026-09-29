@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use s2w_app::query::{QueryState, Timeline};
-use s2w_app::serve::ServeArgs;
+use s2w_app::serve::{DEFAULT_EVERY, ServeArgs, SnapshotConfig};
 use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, HumanReporter};
 
 use crate::output::Format;
@@ -56,9 +56,18 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
     let mut port = None;
     let mut world = None;
     let mut filters = Vec::new();
+    let mut every = None;
+    let mut no_snapshot = false;
     let mut index = 1;
     while index < args.len() {
         let flag = args[index].as_str();
+        if flag == "--no-snapshot" {
+            if std::mem::replace(&mut no_snapshot, true) {
+                return Err("--no-snapshot was given more than once".to_owned());
+            }
+            index += 1;
+            continue;
+        }
         if flag == "--filter" {
             let value = args
                 .get(index + 1)
@@ -72,9 +81,10 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
             "--log-dir" => &mut log_dir,
             "--port" => &mut port,
             "--world" => &mut world,
+            "--snapshot-every" => &mut every,
             other => {
                 return Err(format!(
-                    "unexpected argument '{other}': expected --log-dir, --port, --world or --filter"
+                    "unexpected argument '{other}': expected --log-dir, --port, --world, --filter, --snapshot-every or --no-snapshot"
                 ));
             }
         };
@@ -88,19 +98,53 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
         *slot = Some(value.clone());
         index += 2;
     }
+    Ok(ServeArgs {
+        uri,
+        world: world_name(world)?,
+        log_dir: log_dir.map_or_else(|| PathBuf::from(DEFAULT_LOG_DIR), PathBuf::from),
+        port: port_number(port)?,
+        filters,
+        snapshots: snapshot_config(every, no_snapshot)?,
+    })
+}
+
+fn port_number(port: Option<String>) -> Result<u16, String> {
+    port.map_or(Ok(4310), |p| {
+        p.parse::<u16>()
+            .map_err(|_| "--port needs an integer from 0 to 65535".to_owned())
+    })
+}
+
+fn world_name(world: Option<String>) -> Result<String, String> {
     let world = world.unwrap_or_else(|| "default".to_owned());
     if !valid_world_name(&world) {
         return Err("--world must contain only ASCII letters, digits, '.', '_' or '-'".to_owned());
     }
-    Ok(ServeArgs {
-        uri,
-        world,
-        log_dir: log_dir.map_or_else(|| PathBuf::from(DEFAULT_LOG_DIR), PathBuf::from),
-        port: port.map_or(Ok(4310), |p| {
-            p.parse::<u16>()
-                .map_err(|_| "--port needs an integer from 0 to 65535".to_owned())
-        })?,
-        filters,
+    Ok(world)
+}
+
+fn snapshot_config(every: Option<String>, no_snapshot: bool) -> Result<SnapshotConfig, String> {
+    if no_snapshot && every.is_some() {
+        return Err(
+            "--snapshot-every has no effect with --no-snapshot; pass one of them".to_owned(),
+        );
+    }
+    let every = match every {
+        None => DEFAULT_EVERY,
+        Some(value) => match value.parse::<u64>() {
+            Ok(n) if n > 0 => n,
+            _ => {
+                return Err(
+                    "--snapshot-every needs a positive whole number of events, e.g. 1000000"
+                        .to_owned(),
+                );
+            }
+        },
+    };
+    Ok(SnapshotConfig {
+        enabled: !no_snapshot,
+        every,
+        ..SnapshotConfig::default()
     })
 }
 
@@ -119,6 +163,7 @@ mod tests {
                 log_dir: PathBuf::from("./s2w-data"),
                 port: 4310,
                 filters: Vec::new(),
+                snapshots: SnapshotConfig::default(),
             })
         );
         assert_eq!(
@@ -137,8 +182,30 @@ mod tests {
                 log_dir: PathBuf::from("data"),
                 port: 0,
                 filters: Vec::new(),
+                snapshots: SnapshotConfig::default(),
             })
         );
+    }
+
+    #[test]
+    fn snapshot_flags() {
+        let every = parse(&args(&["-", "--snapshot-every", "250"])).map(|a| a.snapshots);
+        assert_eq!(
+            every,
+            Ok(SnapshotConfig {
+                every: 250,
+                ..SnapshotConfig::default()
+            })
+        );
+        let off = parse(&args(&["-", "--no-snapshot"])).map(|a| a.snapshots);
+        assert_eq!(
+            off,
+            Ok(SnapshotConfig {
+                enabled: false,
+                ..SnapshotConfig::default()
+            })
+        );
+        assert_eq!(SnapshotConfig::default().every, DEFAULT_EVERY);
     }
 
     #[test]
@@ -163,6 +230,13 @@ mod tests {
             vec!["-", "--json"],
             vec!["-", "extra"],
             vec!["-", "--wiki", "enwiki"],
+            vec!["-", "--snapshot-every"],
+            vec!["-", "--snapshot-every", "0"],
+            vec!["-", "--snapshot-every", "-5"],
+            vec!["-", "--snapshot-every", "many"],
+            vec!["-", "--snapshot-every", "1", "--snapshot-every", "2"],
+            vec!["-", "--no-snapshot", "--no-snapshot"],
+            vec!["-", "--no-snapshot", "--snapshot-every", "10"],
         ] {
             assert!(parse(&args(&tail)).is_err(), "accepted {tail:?}");
         }
@@ -195,7 +269,7 @@ mod tests {
         assert_eq!(
             parse(&args(&["-", "--json"])),
             Err(
-                "unexpected argument '--json': expected --log-dir, --port, --world or --filter"
+                "unexpected argument '--json': expected --log-dir, --port, --world, --filter, --snapshot-every or --no-snapshot"
                     .to_owned()
             )
         );

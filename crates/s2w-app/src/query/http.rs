@@ -26,7 +26,7 @@ use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
 use super::diff::{WorldDiff, diff};
 use super::proposals::{ProposalsView, proposals_view};
-use super::timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
+use super::timeline::{BaseTime, HistoryEntry, TimeRange, TimedEvent, Timeline};
 use super::view::{ACTUAL_BRANCH, Lod, ViewParams, world_view};
 use crate::bridge::SourceStats;
 
@@ -154,6 +154,36 @@ impl QueryState {
             .append(at, event);
         self.head.send_replace(head);
         Ok(head)
+    }
+
+    /// Installs a restored timeline (decision 0021) and wakes subscribers with its head. `serve`
+    /// calls this once, before the bridge starts and before the listener binds, so no reader
+    /// or SSE follower can observe the swap.
+    ///
+    /// # Errors
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn replace_timeline(&self, timeline: Timeline) -> Result<(), QueryError> {
+        let head = timeline.head();
+        *self.timeline.write().map_err(|_| QueryError::Unavailable)? = timeline;
+        self.head.send_replace(head);
+        Ok(())
+    }
+
+    /// The timeline's base offset, head offset and hub cap, read under one lock.
+    ///
+    /// # Errors
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn bounds(&self) -> Result<(u64, u64, u64), QueryError> {
+        self.read(|t| Ok((t.base(), t.head(), t.hub_cap())))
+    }
+
+    /// A clone of the head world with its time bounds, read under one lock: what a snapshot
+    /// records (decision 0021). O(world), no refold.
+    ///
+    /// # Errors
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn head_capture(&self) -> Result<(World, BaseTime), QueryError> {
+        self.read(|t| Ok((t.head_world().clone(), t.head_time())))
     }
 
     /// Replaces the per-source bridge statistics `/worlds/{world}/sources` serves. The live
@@ -539,6 +569,14 @@ fn sse_event(offset: u64, delta: &Delta) -> Event {
     }
 }
 
+/// The one SSE event a stream ends with when it cannot continue: `event: error`, data the
+/// same `{"error": code, "message": …}` body an HTTP error carries.
+fn sse_error(error: &QueryError) -> Event {
+    Event::default()
+        .event("error")
+        .data(error.json_body().to_string())
+}
+
 /// SSE: replays strictly after `from` (or `Last-Event-ID`) through `at` and closes, or
 /// through the head when `at` is absent, then
 /// follows appends. Each message's `id:` is the offset after its event.
@@ -628,7 +666,12 @@ async fn follow(
             Ok(after.get(..take).unwrap_or_default().to_vec())
         }) {
             Ok(batch) => batch,
-            Err(_) => return,
+            Err(error) => {
+                // Say why the stream ends: one `error` event with the stable code, never a
+                // silent close (the base can move under a follower once snapshots rebase).
+                let _ignored = tx.send(Ok(sse_error(&error))).await;
+                return;
+            }
         };
         for timed in batch {
             let (next, delta) = fold_with_delta(world, &timed.event);

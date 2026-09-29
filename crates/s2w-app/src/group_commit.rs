@@ -6,6 +6,7 @@
 //! cannot replay it.
 
 use std::cell::Cell;
+use std::sync::Arc;
 use std::time::Duration;
 
 use s2w_log::{AppendOutcome, EventLog, LogError, LogPosition};
@@ -59,7 +60,17 @@ pub trait Reporter: Send {
     fn wants_ticker(&self) -> bool {
         true
     }
+
+    /// A [`Self::note`] that can be called from another thread, for work that outlives the
+    /// `&mut` borrow the pump holds (the snapshot writer thread, decision 0021). Renders the
+    /// same way `note` does; the default is [`HumanReporter`]'s line.
+    fn note_sink(&self) -> NoteSink {
+        Arc::new(|message: &str| eprintln!("s2w: {message}"))
+    }
 }
+
+/// A thread-safe benign-note callback; see [`Reporter::note_sink`].
+pub type NoteSink = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Prints the human-readable lines `watch` has always printed.
 #[derive(Default)]

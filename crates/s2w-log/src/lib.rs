@@ -172,12 +172,24 @@ pub struct LogPosition(u64);
 impl LogPosition {
     /// The numeric, log-local position.
     ///
-    /// There is no public constructor: a [`LogPosition`] is only ever produced by a
-    /// log implementation itself (via `append`/`replay`), so it is an opaque replay
-    /// token rather than a value callers assemble by hand.
+    /// A [`LogPosition`] is normally only produced by a log implementation itself (via
+    /// `append`/`replay`), an opaque replay token rather than a value callers assemble by hand.
+    /// The one exception is [`LogPosition::from_u64`], for snapshot restore.
     #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
+    }
+
+    /// Rebuilds a position recorded by [`LogPosition::as_u64`], for snapshot restore only
+    /// (decision 0021). Positions start at 1, so 0 is `None`. The value is not checked against
+    /// any log: the caller must validate it (the snapshot's rule 5 reads the event there).
+    #[must_use]
+    pub const fn from_u64(position: u64) -> Option<Self> {
+        if position == 0 {
+            None
+        } else {
+            Some(Self(position))
+        }
     }
 
     /// Converts to the `i64` SQLite stores a position as. Every SQLite-backed store in this

@@ -139,3 +139,32 @@ pub fn prune(dir: &Path, keep: usize) -> std::io::Result<Vec<PathBuf>> {
     }
     Ok(removed)
 }
+
+/// Removes temporary files a crashed [`write`] left behind (`.snapshot-<20 digits>.s2w.tmp`)
+/// and returns their paths. Only one writer runs per log directory (the process holding the
+/// log's writer lock), so call this before it starts, never while a write may be in flight.
+///
+/// # Errors
+/// Any I/O error other than the directory not existing.
+pub fn clean_tmp(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut removed = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let is_tmp = entry.file_name().to_str().is_some_and(|name| {
+            name.strip_prefix('.')
+                .and_then(|rest| rest.strip_suffix(".tmp"))
+                .and_then(offset_of)
+                .is_some()
+        });
+        if is_tmp {
+            fs::remove_file(entry.path())?;
+            removed.push(entry.path());
+        }
+    }
+    Ok(removed)
+}

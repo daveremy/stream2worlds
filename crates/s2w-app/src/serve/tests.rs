@@ -105,6 +105,7 @@ fn both_writer_locks_map_to_usage_and_release() {
         log_dir: dir.path().to_owned(),
         port: 0,
         filters: Vec::new(),
+        snapshots: SnapshotConfig::default(),
     };
     let log = SqliteEventLog::open(dir.path()).expect("first event log opens");
     let error = run_serve(state(), args.clone(), &mut TestReporter::default())
@@ -331,7 +332,12 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
         let mut reporter = TestReporter::default();
         let server = serve_live(
             state(),
-            ServeStorage { log, verdicts },
+            ServeStorage {
+                log,
+                verdicts,
+                resume: None,
+                snapshots: None,
+            },
             started,
             "stdin",
             listener,
