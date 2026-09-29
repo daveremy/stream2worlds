@@ -841,3 +841,18 @@ fn agent_latest_sequence_wins_on_correction() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn read_only_watermark_moves_with_each_append() -> TestResult {
+    let directory = TestDirectory::new("proposal-watermark")?;
+    let mut store = SqliteProposalStore::open(directory.path())?;
+    let reader = ReadOnlySqliteProposalStore::open(directory.path())?;
+    assert_eq!(reader.watermark()?, (None, None));
+    let first = store.append_proposal(&proposal("p1"))?;
+    assert_eq!(reader.watermark()?, (Some(first.seq), None));
+    let decided = store.append_decision(&decision("p1", Decider::Human, Outcome::Accept))?;
+    assert_eq!(reader.watermark()?, (Some(first.seq), Some(decided.seq)));
+    let second = store.append_proposal(&proposal("p2"))?;
+    assert_eq!(reader.watermark()?, (Some(second.seq), Some(decided.seq)));
+    Ok(())
+}

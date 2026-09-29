@@ -4,12 +4,14 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use s2w_core::{AttrValue, NaturalKey, World, WorldEvent, fold};
-use s2w_log::{AppendOutcome, EventLog, InMemoryEventLog, LogPosition};
+use s2w_log::{AppendOutcome, EventLog, InMemoryEventLog, LogPosition, StoredVerdict};
 use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
 
 use super::codec::{self, MAGIC};
 use super::store;
-use super::{Expected, Invalid, SNAPSHOT_FORMAT, SnapshotV1, check_fold, check_log, fold_hash};
+use super::{
+    Expected, Invalid, SNAPSHOT_FORMAT, SnapshotV1, check_fold, check_log, check_rows, fold_hash,
+};
 use crate::query::BaseTime;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -257,7 +259,7 @@ fn write_is_atomic_and_load_picks_the_newest_valid() -> TestResult {
     let dir = TempDir::new("load");
     let snapshots = store::dir(&dir.0);
     assert!(
-        store::load_latest(&snapshots, |_| Ok(()))?
+        store::load_latest(&snapshots, FEED, |_| Ok(()))?
             .snapshot
             .is_none()
     );
@@ -270,19 +272,19 @@ fn write_is_atomic_and_load_picks_the_newest_valid() -> TestResult {
     assert_eq!(names.len(), 3, "no temporary file is left: {names:?}");
     // A crash mid-write leaves only a temporary name, which is never loaded.
     std::fs::write(
-        snapshots.join(".snapshot-00000000000000000099.s2w.tmp"),
+        snapshots.join(format!(".{}.tmp", store::file_name(FEED, 99))),
         b"partial",
     )?;
     // A corrupt newest file is skipped, not deleted.
-    let corrupt = snapshots.join(store::file_name(50));
+    let corrupt = snapshots.join(store::file_name(FEED, 50));
     std::fs::write(&corrupt, b"S2WSNAP1 garbage")?;
-    let loaded = store::load_latest(&snapshots, |s| check_fold(s, EXPECTED))?;
+    let loaded = store::load_latest(&snapshots, FEED, |s| check_fold(s, EXPECTED))?;
     let (_, snapshot) = loaded.snapshot.ok_or("a valid snapshot")?;
     assert_eq!(snapshot.offset, 9);
     assert_eq!(loaded.skipped.len(), 1);
     assert!(corrupt.exists());
     // A rule the caller enforces skips down to an older file.
-    let loaded = store::load_latest(&snapshots, |s| {
+    let loaded = store::load_latest(&snapshots, FEED, |s| {
         if s.offset > 5 {
             Err(Invalid::Log("test".to_owned()))
         } else {
@@ -299,8 +301,8 @@ fn a_file_name_that_disagrees_with_its_payload_is_skipped() -> TestResult {
     let dir = TempDir::new("rename");
     let snapshots = store::dir(&dir.0);
     let path = store::write(&snapshots, &snapshot_at(4)?)?;
-    std::fs::rename(&path, snapshots.join(store::file_name(8)))?;
-    let loaded = store::load_latest(&snapshots, |_| Ok(()))?;
+    std::fs::rename(&path, snapshots.join(store::file_name(FEED, 8)))?;
+    let loaded = store::load_latest(&snapshots, FEED, |_| Ok(()))?;
     assert!(loaded.snapshot.is_none());
     assert!(matches!(
         loaded.skipped.as_slice(),
@@ -317,14 +319,59 @@ fn prune_keeps_the_newest_three() -> TestResult {
         store::write(&snapshots, &snapshot_at(n)?)?;
     }
     std::fs::write(snapshots.join("unrelated.txt"), b"keep me")?;
-    let removed = store::prune(&snapshots, store::KEEP)?;
+    let removed = store::prune(&snapshots, FEED, store::KEEP)?;
     assert_eq!(removed.len(), 2);
-    let kept: Vec<u64> = store::list(&snapshots)?
+    let kept: Vec<u64> = store::list(&snapshots, FEED)?
         .into_iter()
         .map(|(o, _)| o)
         .collect();
     assert_eq!(kept, [5, 4, 3]);
     assert!(snapshots.join("unrelated.txt").exists());
+    Ok(())
+}
+
+/// s2w#184: a rebuild restarts offsets near zero, so pruning across fingerprints by offset
+/// would delete the new routing's snapshots and keep the old one's. List, load and prune see
+/// only the caller's fingerprint.
+#[test]
+fn list_load_and_prune_are_per_feed_fingerprint() -> TestResult {
+    let dir = TempDir::new("prune-feed");
+    let snapshots = store::dir(&dir.0);
+    let other = FEED ^ 0xffff;
+    for n in [6, 7, 8, 9] {
+        let mut old = snapshot_at(n)?;
+        old.feed_hash = other;
+        store::write(&snapshots, &old)?;
+    }
+    for n in [1, 2, 3, 4] {
+        store::write(&snapshots, &snapshot_at(n)?)?;
+    }
+    let offsets = |feed| -> Result<Vec<u64>, std::io::Error> {
+        Ok(store::list(&snapshots, feed)?
+            .into_iter()
+            .map(|(o, _)| o)
+            .collect())
+    };
+    assert_eq!(offsets(FEED)?, [4, 3, 2, 1]);
+    let loaded = store::load_latest(&snapshots, FEED, |_| Ok(()))?;
+    assert_eq!(loaded.snapshot.map(|(_, s)| s.offset), Some(4));
+    assert!(
+        loaded.skipped.is_empty(),
+        "the other fingerprint's newer files are not read"
+    );
+    assert_eq!(store::prune(&snapshots, FEED, store::KEEP)?.len(), 1);
+    assert_eq!(offsets(FEED)?, [4, 3, 2]);
+    assert_eq!(
+        offsets(other)?,
+        [9, 8, 7, 6],
+        "another fingerprint's files are untouched"
+    );
+    // The pre-#184 name is not a snapshot file any more.
+    std::fs::write(
+        snapshots.join("snapshot-00000000000000000005.s2w"),
+        b"old name",
+    )?;
+    assert_eq!(offsets(FEED)?, [4, 3, 2]);
     Ok(())
 }
 
@@ -337,14 +384,14 @@ fn clean_tmp_removes_only_crashed_writes() -> TestResult {
         "a missing dir has none"
     );
     store::write(&snapshots, &snapshot_at(2)?)?;
-    let stale = snapshots.join(format!(".{}.tmp", store::file_name(3)));
+    let stale = snapshots.join(format!(".{}.tmp", store::file_name(FEED, 3)));
     std::fs::write(&stale, b"half a snapshot")?;
     for other in [".snapshot-3.s2w.tmp", "snapshot-x.tmp", "notes.tmp"] {
         std::fs::write(snapshots.join(other), b"not ours")?;
     }
     assert_eq!(store::clean_tmp(&snapshots)?, std::slice::from_ref(&stale));
     assert!(!stale.exists());
-    assert!(snapshots.join(store::file_name(2)).exists());
+    assert!(snapshots.join(store::file_name(FEED, 2)).exists());
     for other in [".snapshot-3.s2w.tmp", "snapshot-x.tmp", "notes.tmp"] {
         assert!(
             snapshots.join(other).exists(),
@@ -499,5 +546,40 @@ fn sparse_entity_ids_do_not_decode() -> TestResult {
         corrupt(&mut old)?;
         assert!(postcard::from_bytes::<World>(&postcard::to_stdvec(&old)?).is_err());
     }
+    Ok(())
+}
+
+fn row(position: u64, engine: &str) -> Result<StoredVerdict, Box<dyn std::error::Error>> {
+    Ok(StoredVerdict {
+        position: LogPosition::from_u64(position).ok_or("position 0")?,
+        event_hash: 0,
+        engine: engine.to_owned(),
+        version: 1,
+        verdict: Vec::new(),
+        provenance: None,
+    })
+}
+
+/// Rule 5b (s2w#184): after a rebuild the bridge cursor keeps the old routing's high-water
+/// mark, so only a stored row per routed engine at the snapshot's position shows that this
+/// routing judged the event.
+#[test]
+fn rule_5b_needs_a_row_per_routed_engine_at_the_position() -> TestResult {
+    let snapshot = snapshot_at(4)?; // position 2
+    let routed = ["mapping-b".to_owned()];
+    let only_a = [row(2, "mapping-a")?];
+    assert!(matches!(
+        check_rows(&snapshot, &only_a, &routed),
+        Err(Invalid::Log(_))
+    ));
+    let b_elsewhere = [row(1, "mapping-b")?];
+    assert!(matches!(
+        check_rows(&snapshot, &b_elsewhere, &routed),
+        Err(Invalid::Log(_))
+    ));
+    let with_b = [row(2, "mapping-a")?, row(2, "mapping-b")?];
+    check_rows(&snapshot, &with_b, &routed)?;
+    // An unrouted source passes vacuously.
+    check_rows(&snapshot, &[], &[])?;
     Ok(())
 }

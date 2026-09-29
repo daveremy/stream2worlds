@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::future::{Future, IntoFuture};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::rc::Rc;
 use std::time::Duration;
@@ -24,11 +24,11 @@ use tokio::sync::{oneshot, watch};
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
 use crate::discover::{self, DiscoverConfig};
 use crate::query::{QueryState, router};
-use crate::{
-    AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters, routes,
-};
+use crate::{AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters};
 
+mod rebuild;
 mod snapshots;
+use rebuild::{Rebuild, RouteWatcher};
 use snapshots::Snapshotter;
 pub use snapshots::{DEFAULT_EVERY, SHUTDOWN_MIN, SnapshotConfig};
 
@@ -71,6 +71,10 @@ pub fn run_serve(
     result
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "start-up in order; one line over since the route watcher (s2w#184); splitting it is s2w#156"
+)]
 async fn run_serve_async(
     state: QueryState,
     args: ServeArgs,
@@ -93,9 +97,13 @@ async fn run_serve_async(
         &EngineRegistry::with_defaults().names(),
         &[],
     )?;
-    // Routes resolve before the source starts, so a corrupt proposal store fails before any
-    // source connects.
-    let registry = routed_registry(&log, &args.log_dir, &args.discover, reporter)?;
+    // Routes resolve before the source starts: a corrupt proposal store fails before it
+    // connects. Between the two resolutions the learned-mapping producer (decision 0025) may
+    // file and accept a mapping for an unrouted source; its failures are notes, never an error.
+    let (registry, watcher) =
+        RouteWatcher::start(args.log_dir.clone(), reporter, |resolution, reporter| {
+            discover::run(&log, &args.log_dir, resolution, &args.discover, reporter)
+        })?;
     let name = source.name();
     // Start before sharing: no RefCell borrow survives an await, even during cursor lookup.
     let started = source
@@ -110,7 +118,7 @@ async fn run_serve_async(
         &state,
         (&log, &verdicts),
         &args.log_dir,
-        (args.snapshots, registry.feed_fingerprint()),
+        (args.snapshots, &registry),
         reporter,
     )?;
     let listener = TcpListener::bind(("127.0.0.1", args.port))
@@ -130,6 +138,7 @@ async fn run_serve_async(
             registry,
             resume,
             snapshots,
+            watch: Some((watcher, args.snapshots)),
         },
         started,
         name,
@@ -138,30 +147,6 @@ async fn run_serve_async(
         reporter,
     )
     .await
-}
-
-/// The default routes plus one per source with an accepted stream-mapping proposal in
-/// `log_dir` (decision 0023), each reported on `reporter`. Resolved before any snapshot is
-/// restored: the routes decide the feed fingerprint a snapshot must match. Between the two
-/// resolutions the learned-mapping producer (decision 0025) may file and accept a mapping for
-/// an unrouted source; its failures are notes, never an error.
-///
-/// # Errors
-/// As [`routes::load`] and [`routes::registry`].
-fn routed_registry(
-    log: &SqliteEventLog,
-    log_dir: &Path,
-    discover: &DiscoverConfig,
-    reporter: &mut dyn Reporter,
-) -> Result<EngineRegistry, AppError> {
-    let mut resolution = routes::load(log_dir)?;
-    if discover::run(log, log_dir, &resolution, discover, reporter) {
-        resolution = routes::load(log_dir)?;
-    }
-    for line in routes::report_lines(&resolution) {
-        reporter.note(&line);
-    }
-    routes::registry(&resolution)
 }
 
 fn now_millis() -> Result<i64, AppError> {
@@ -231,6 +216,9 @@ struct ServeStorage {
     resume: Option<LogPosition>,
     /// Absent under `--no-snapshot`.
     snapshots: Option<Snapshotter>,
+    /// The proposal-store watcher that drives a live rebuild (s2w#184) and the snapshot
+    /// configuration a rebuild restarts with. Absent in tests that pin a registry.
+    watch: Option<(RouteWatcher, snapshots::SnapshotConfig)>,
 }
 
 impl LogReader for SharedLogReader {
@@ -271,12 +259,14 @@ impl EventLog for SharedLogWriter {
 
 // Bridge::run requires Send and moves each poll to the blocking pool. This local driver uses
 // the same poll/backoff policy, yielding even after full batches so ingestion/HTTP can run.
-// Snapshot capture runs right after each poll with no await in between (decision 0024).
+// Snapshot capture runs right after each poll with no await in between (decision 0024), then
+// the proposal-store check that may swap in a live rebuild, also with no await (s2w#184).
 async fn local_bridge(
     mut bridge: Bridge<SharedLogReader, SqliteVerdictStore>,
     config: BridgeConfig,
     ready: oneshot::Sender<()>,
     snapshots: Option<(Rc<RefCell<Snapshotter>>, QueryState)>,
+    mut rebuild: Option<Rebuild>,
 ) -> Result<(), BridgeError> {
     let mut ready = Some(ready);
     let mut delay = config.poll;
@@ -287,6 +277,9 @@ async fn local_bridge(
             snapshotter
                 .borrow_mut()
                 .after_poll(bridge.mark(), report.stats.consumed, state);
+        }
+        if let Some(rebuild) = &mut rebuild {
+            bridge = rebuild.after_poll(bridge, &report)?;
         }
         if let Some(ready) = ready.take() {
             let _ignored = ready.send(());
@@ -362,6 +355,15 @@ async fn serve_live(
             Ok(())
         }
     };
+    let rebuild = storage.watch.map(|(watcher, snapshot_config)| {
+        Rebuild::new(
+            watcher,
+            state.clone(),
+            snapshot_config,
+            snapshots.clone(),
+            reporter.note_sink(),
+        )
+    });
     let bridge_snapshots = snapshots.map(|s| (s, state.clone()));
     let writer = SharedLogWriter(shared.clone());
     let (ready_tx, ready_rx) = oneshot::channel();
@@ -404,7 +406,7 @@ async fn serve_live(
                 }
             })
         },
-        local_bridge(bridge, config, ready_tx, bridge_snapshots),
+        local_bridge(bridge, config, ready_tx, bridge_snapshots, rebuild),
         server,
         stop,
         shutdown_tx,

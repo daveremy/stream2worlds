@@ -1,5 +1,6 @@
 use super::*;
 use crate::query::Timeline;
+use crate::routes;
 use crate::tests::{TestDirectory, run};
 use axum::{Router, body::Body, routing::get};
 use s2w_model::{StreamMapping, Timestamp};
@@ -14,6 +15,9 @@ enum Report {
 #[derive(Default)]
 struct TestReporter {
     reports: Vec<Report>,
+    /// Notes from the snapshot writer and the live-rebuild driver, which report through
+    /// [`Reporter::note_sink`].
+    sunk: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl Reporter for TestReporter {
@@ -39,6 +43,13 @@ impl Reporter for TestReporter {
 
     fn wants_ticker(&self) -> bool {
         false
+    }
+
+    fn note_sink(&self) -> crate::NoteSink {
+        let sunk = self.sunk.clone();
+        std::sync::Arc::new(move |message: &str| {
+            sunk.lock().expect("notes").push(message.to_owned());
+        })
     }
 }
 
@@ -339,6 +350,7 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
                 registry: EngineRegistry::with_defaults(),
                 resume: None,
                 snapshots: None,
+                watch: None,
             },
             started,
             "stdin",
@@ -1025,16 +1037,25 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
     let verdicts = SqliteVerdictStore::open(dir.path()).expect("verdicts open");
     let state = state();
     let mut reporter = TestReporter::default();
-    let registry = match feed.registry {
-        Some(registry) => registry,
-        None => routed_registry(&log, dir.path(), &feed.discover, &mut reporter)
-            .expect("routes resolve"),
+    let (registry, watch) = match feed.registry {
+        Some(registry) => (registry, None),
+        None => {
+            let (registry, watcher) = RouteWatcher::start(
+                dir.path().to_path_buf(),
+                &mut reporter,
+                |resolution, reporter| {
+                    crate::discover::run(&log, dir.path(), resolution, &feed.discover, reporter)
+                },
+            )
+            .expect("routes resolve");
+            (registry, Some((watcher, config)))
+        }
     };
     let (resume, snapshots) = snapshots::prepare(
         &state,
         (&log, &verdicts),
         dir.path(),
-        (config, registry.feed_fingerprint()),
+        (config, &registry),
         &mut reporter,
     )
     .expect("prepare");
@@ -1054,6 +1075,7 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
             registry,
             resume,
             snapshots,
+            watch,
         },
         started,
         "stdin",
@@ -1106,6 +1128,7 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
     };
     let (result, (_sender, world, bounds)) = tokio::join!(server, client);
     result.expect("server shuts down");
+    let sunk = std::mem::take(&mut *reporter.sunk.lock().expect("notes"));
     let notes = reporter
         .reports
         .into_iter()
@@ -1113,6 +1136,7 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
             Report::Note(note) => Some(note),
             Report::SourceError(..) => None,
         })
+        .chain(sunk)
         .collect();
     Some(ServedRun {
         notes,
@@ -1208,12 +1232,18 @@ fn assert_serves_the_registry_epoch(runs: &[&ServedRun]) {
     }
 }
 
+/// Offsets of every snapshot file in `dir`, under any feed fingerprint, newest first.
 fn store_offsets(dir: &TestDirectory) -> Vec<u64> {
-    crate::snapshot::store::list(&crate::snapshot::store::dir(dir.path()))
+    let mut offsets: Vec<u64> = std::fs::read_dir(crate::snapshot::store::dir(dir.path()))
         .expect("snapshot dir")
-        .into_iter()
-        .map(|(offset, _)| offset)
-        .collect()
+        .filter_map(|entry| {
+            let name = entry.ok()?.file_name().into_string().ok()?;
+            let rest = name.strip_prefix("snapshot-")?.strip_suffix(".s2w")?;
+            rest.rsplit_once('-')?.1.parse().ok()
+        })
+        .collect();
+    offsets.sort_unstable_by(|a, b| b.cmp(a));
+    offsets
 }
 
 // Routes from stored stream mappings (decision 0023).
@@ -1382,12 +1412,19 @@ fn a_snapshot_taken_under_another_mapping_is_ignored_and_the_restart_folds_cold(
         let second = serve_until(&dir, SNAPSHOT_ON_STOP, tail)
             .await
             .expect("sockets allowed once");
+        // A's file is not even read under B: snapshots are listed per feed fingerprint
+        // (s2w#184), and rule 4 remains the header check behind the name.
         assert!(
-            noted(&second, "ignoring snapshot") && noted(&second, "different engine routing"),
+            !noted(&second, "restored from snapshot"),
             "{:?}",
             second.notes
         );
         assert_eq!(second.bounds.0, 0, "no snapshot base");
+        assert_eq!(
+            store_offsets(&dir).len(),
+            2,
+            "A's snapshot is neither restored nor pruned; B wrote its own"
+        );
 
         let cold = TestDirectory::new("serve-routes-cold-b");
         let registry = routed_to(engine(mapping_b(), "p-b"));

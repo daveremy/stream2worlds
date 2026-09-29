@@ -40,6 +40,8 @@ pub struct QueryState {
     manifest: Option<Arc<WorldManifest>>,
     membership: Arc<Vec<MembershipRow>>,
     source_stats: Arc<watch::Sender<BTreeMap<SourceId, SourceStats>>>,
+    /// Sources whose world a live rebuild is refolding (s2w#184), published by `serve`.
+    rebuilding: Arc<watch::Sender<BTreeMap<SourceId, Rebuilding>>>,
     /// The event-log directory, so presentation can be read fresh per request rather than
     /// cached at startup — a live `s2w presentation set` is visible without a restart.
     log_dir: Option<Arc<PathBuf>>,
@@ -51,6 +53,7 @@ impl QueryState {
     pub fn new(timeline: Timeline) -> Self {
         let (head, _) = watch::channel(timeline.head());
         let (source_stats, _) = watch::channel(BTreeMap::new());
+        let (rebuilding, _) = watch::channel(BTreeMap::new());
         Self {
             timeline: Arc::new(RwLock::new(timeline)),
             head: Arc::new(head),
@@ -59,6 +62,7 @@ impl QueryState {
             manifest: None,
             membership: Arc::new(Vec::new()),
             source_stats: Arc::new(source_stats),
+            rebuilding: Arc::new(rebuilding),
             log_dir: None,
         }
     }
@@ -154,7 +158,8 @@ impl QueryState {
     /// [`Epoch`] are one value, so they are swapped under one write lock and every read sees a
     /// consistent pair; an SSE follower notices the new epoch on its next read and ends with
     /// `stale_epoch`. `serve` calls this at start-up (`snapshots::prepare`: the empty timeline
-    /// under the registry's epoch, then a restored one), before the bridge starts.
+    /// under the registry's epoch, then a restored one), before the bridge starts, and again on
+    /// a live rebuild (s2w#184) between two bridge polls.
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.
@@ -189,6 +194,12 @@ impl QueryState {
     /// path) never does, so every source there reports zeros.
     pub(crate) fn publish_source_stats(&self, stats: BTreeMap<SourceId, SourceStats>) {
         self.source_stats.send_replace(stats);
+    }
+
+    /// Replaces the sources `/worlds/{world}/sources` reports as rebuilding: set by `serve`
+    /// when a mapping change starts a live rebuild, cleared when its backfill completes.
+    pub(crate) fn publish_rebuilding(&self, rebuilding: BTreeMap<SourceId, Rebuilding>) {
+        self.rebuilding.send_replace(rebuilding);
     }
 
     /// Events of `source` the bridge has consumed so far (zero before its first batch).
@@ -854,6 +865,19 @@ pub struct SourceInfo {
     pub unrouted: u64,
     /// The most recent unrouted events, most recent first, capped by the bridge.
     pub recent_unrouted: Vec<RawEventInfo>,
+    /// Present while a live rebuild refolds this source's world under a newly effective mapping
+    /// (s2w#184); absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rebuilding: Option<Rebuilding>,
+}
+
+/// A live rebuild in progress for one source (s2w#184).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Rebuilding {
+    /// The identity of the mapping the source's world is being rebuilt under.
+    pub identity: String,
+    /// The log position the previous world had reached when the rebuild began.
+    pub since_position: u64,
 }
 
 /// The payload bytes as JSON when they decode, or as a lossy string when they do not: the log
@@ -902,6 +926,7 @@ impl QueryState {
             // The join key is the SourceId itself: membership rows and the bridge's counters
             // both name sources by it, so a member the bridge has not read yet reports zeros.
             let stats = self.source_stats.borrow();
+            let rebuilding = self.rebuilding.borrow();
             Ok(members_at(&self.membership, at)
                 .into_iter()
                 .map(|source| {
@@ -921,6 +946,7 @@ impl QueryState {
                                 payload: payload_json(&stored.event.payload),
                             })
                             .collect(),
+                        rebuilding: rebuilding.get(&source).cloned(),
                     }
                 })
                 .collect())

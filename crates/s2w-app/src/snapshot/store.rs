@@ -1,6 +1,10 @@
 //! The snapshot directory, `<log_dir>/snapshots/`: one file per snapshot, named
-//! `snapshot-<offset, 20 digits>.s2w`, written atomically, loaded newest first, pruned to the
-//! newest [`KEEP`]. Only files matching that name are ever read or removed.
+//! `snapshot-<feed fingerprint, 16 hex>-<offset, 20 digits>.s2w`, written atomically, loaded
+//! newest first and pruned to the newest [`KEEP`], both per feed fingerprint (s2w#184): a
+//! rebuild restarts offsets near zero, and ordering every fingerprint's files together would
+//! prune the new routing's snapshots and keep the old one's. Only files matching that name are
+//! ever read or removed, and only the caller's fingerprint's. The pre-#184 name
+//! (`snapshot-<20 digits>.s2w`) is not read (decision 0023).
 
 use std::fs;
 use std::io::Write;
@@ -20,17 +24,20 @@ pub fn dir(log_dir: &Path) -> PathBuf {
     log_dir.join("snapshots")
 }
 
-/// The file name for a snapshot at `offset`. Zero-padded, so names sort by offset.
+/// The file name for a snapshot at `offset` written under the feed fingerprint `feed`.
+/// Zero-padded, so one fingerprint's names sort by offset.
 #[must_use]
-pub fn file_name(offset: u64) -> String {
-    format!("{PREFIX}{offset:020}{SUFFIX}")
+pub fn file_name(feed: u64, offset: u64) -> String {
+    format!("{PREFIX}{feed:016x}-{offset:020}{SUFFIX}")
 }
 
-/// The offset a snapshot file name encodes, or `None` for any other file.
-fn offset_of(name: &str) -> Option<u64> {
-    let digits = name.strip_prefix(PREFIX)?.strip_suffix(SUFFIX)?;
-    if digits.len() == 20 && digits.bytes().all(|b| b.is_ascii_digit()) {
-        digits.parse().ok()
+/// The feed fingerprint and offset a snapshot file name encodes, or `None` for any other file.
+fn parse_name(name: &str) -> Option<(u64, u64)> {
+    let rest = name.strip_prefix(PREFIX)?.strip_suffix(SUFFIX)?;
+    let (hex, digits) = rest.split_once('-')?;
+    let is_hex = hex.len() == 16 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    if is_hex && digits.len() == 20 && digits.bytes().all(|b| b.is_ascii_digit()) {
+        Some((u64::from_str_radix(hex, 16).ok()?, digits.parse().ok()?))
     } else {
         None
     }
@@ -44,17 +51,28 @@ fn offset_of(name: &str) -> Option<u64> {
 /// # Errors
 /// [`SnapshotError`] if encoding or any filesystem step fails.
 pub fn write(dir: &Path, snapshot: &SnapshotV1) -> Result<PathBuf, SnapshotError> {
-    write_bytes(dir, snapshot.offset, &codec::encode(snapshot)?)
+    write_bytes(
+        dir,
+        snapshot.feed_hash,
+        snapshot.offset,
+        &codec::encode(snapshot)?,
+    )
 }
 
-/// Writes already-encoded snapshot file `bytes` for `offset`, atomically as [`write`] does.
-/// `serve` encodes on the bridge thread and hands the bytes to its writer thread (#179).
+/// Writes already-encoded snapshot file `bytes` for `offset` under the feed fingerprint `feed`,
+/// atomically as [`write`] does. `serve` encodes on the bridge thread and hands the bytes to its
+/// writer thread (#179).
 ///
 /// # Errors
 /// [`SnapshotError`] if any filesystem step fails.
-pub fn write_bytes(dir: &Path, offset: u64, bytes: &[u8]) -> Result<PathBuf, SnapshotError> {
+pub fn write_bytes(
+    dir: &Path,
+    feed: u64,
+    offset: u64,
+    bytes: &[u8],
+) -> Result<PathBuf, SnapshotError> {
     fs::create_dir_all(dir)?;
-    let name = file_name(offset);
+    let name = file_name(feed, offset);
     let tmp = dir.join(format!(".{name}.tmp"));
     let path = dir.join(name);
     {
@@ -67,11 +85,12 @@ pub fn write_bytes(dir: &Path, offset: u64, bytes: &[u8]) -> Result<PathBuf, Sna
     Ok(path)
 }
 
-/// Every snapshot file in `dir` with its offset, newest first. A missing directory has none.
+/// Every snapshot file in `dir` written under the feed fingerprint `feed`, with its offset,
+/// newest first. A missing directory has none; another fingerprint's files are not listed.
 ///
 /// # Errors
 /// Any I/O error other than the directory not existing.
-pub fn list(dir: &Path) -> std::io::Result<Vec<(u64, PathBuf)>> {
+pub fn list(dir: &Path, feed: u64) -> std::io::Result<Vec<(u64, PathBuf)>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -80,7 +99,9 @@ pub fn list(dir: &Path) -> std::io::Result<Vec<(u64, PathBuf)>> {
     let mut found = Vec::new();
     for entry in entries {
         let entry = entry?;
-        if let Some(offset) = entry.file_name().to_str().and_then(offset_of) {
+        if let Some((file_feed, offset)) = entry.file_name().to_str().and_then(parse_name)
+            && file_feed == feed
+        {
             found.push((offset, entry.path()));
         }
     }
@@ -97,18 +118,20 @@ pub struct Loaded {
     pub skipped: Vec<(PathBuf, Invalid)>,
 }
 
-/// The newest snapshot in `dir` that decodes and passes `accept` (the caller's rules 2 to 5),
-/// skipping, never deleting, every newer file that does not. `accept` sees only snapshots whose
-/// payload offset matches their file name.
+/// The newest snapshot in `dir` written under the feed fingerprint `feed` that decodes and
+/// passes `accept` (the caller's rules 2 to 5), skipping, never deleting, every newer file that
+/// does not. `accept` sees only snapshots whose payload offset matches their file name. Another
+/// fingerprint's files are never read.
 ///
 /// # Errors
 /// An I/O error listing the directory. Unreadable files are skipped, not errors.
 pub fn load_latest(
     dir: &Path,
+    feed: u64,
     mut accept: impl FnMut(&SnapshotV1) -> Result<(), Invalid>,
 ) -> std::io::Result<Loaded> {
     let mut loaded = Loaded::default();
-    for (offset, path) in list(dir)? {
+    for (offset, path) in list(dir, feed)? {
         let checked = fs::read(&path)
             .map_err(|e| Invalid::Io(e.to_string()))
             .and_then(|bytes| codec::decode(&bytes))
@@ -134,22 +157,23 @@ pub fn load_latest(
     Ok(loaded)
 }
 
-/// Removes all but the newest `keep` snapshot files in `dir` and returns the removed paths.
-/// Only files matching the snapshot name pattern are touched.
+/// Removes all but the newest `keep` snapshot files in `dir` written under the feed fingerprint
+/// `feed` and returns the removed paths. Only that fingerprint's files matching the snapshot
+/// name pattern are touched; another fingerprint's snapshots stay (#33 part 2 owns retention).
 ///
 /// # Errors
 /// An I/O error listing the directory or removing a file.
-pub fn prune(dir: &Path, keep: usize) -> std::io::Result<Vec<PathBuf>> {
+pub fn prune(dir: &Path, feed: u64, keep: usize) -> std::io::Result<Vec<PathBuf>> {
     let mut removed = Vec::new();
-    for (_, path) in list(dir)?.into_iter().skip(keep) {
+    for (_, path) in list(dir, feed)?.into_iter().skip(keep) {
         fs::remove_file(&path)?;
         removed.push(path);
     }
     Ok(removed)
 }
 
-/// Removes temporary files a crashed [`write`] left behind (`.snapshot-<20 digits>.s2w.tmp`)
-/// and returns their paths. Only one writer runs per log directory (the process holding the
+/// Removes temporary files a crashed [`write`] left behind (`.snapshot-<16 hex>-<20
+/// digits>.s2w.tmp`, any fingerprint) and returns their paths. Only one writer runs per log directory (the process holding the
 /// log's writer lock), so call this before it starts, never while a write may be in flight.
 ///
 /// # Errors
@@ -166,7 +190,7 @@ pub fn clean_tmp(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
         let is_tmp = entry.file_name().to_str().is_some_and(|name| {
             name.strip_prefix('.')
                 .and_then(|rest| rest.strip_suffix(".tmp"))
-                .and_then(offset_of)
+                .and_then(parse_name)
                 .is_some()
         });
         if is_tmp {

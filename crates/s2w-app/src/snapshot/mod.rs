@@ -13,7 +13,7 @@ pub mod codec;
 pub mod store;
 
 use s2w_core::{FOLD_FIXTURE_HASH, FOLD_VERSION, World};
-use s2w_log::{LogPosition, LogReader};
+use s2w_log::{LogPosition, LogReader, StoredVerdict};
 use s2w_model::{Cursor, SourceId};
 use serde::{Deserialize, Serialize};
 
@@ -230,7 +230,8 @@ pub fn check_fold(snapshot: &SnapshotV1, expected: Expected) -> Result<(), Inval
 ///
 /// `previous` is the position just before `snapshot.position` (`None` when it is the first):
 /// the event is read with [`LogReader::read_after`]`(previous)`, whose first result must be
-/// exactly `snapshot.position` with the recorded content hash. Reads one event.
+/// exactly `snapshot.position` with the recorded content hash. Reads one event and returns its
+/// source, for rule 5b ([`check_rows`]).
 ///
 /// # Errors
 /// [`Invalid::Log`] on any mismatch or read failure.
@@ -239,7 +240,7 @@ pub fn check_log<R: LogReader + ?Sized>(
     reader: &R,
     previous: Option<LogPosition>,
     bridge_cursor: Option<LogPosition>,
-) -> Result<(), Invalid> {
+) -> Result<SourceId, Invalid> {
     let position = snapshot.position;
     if bridge_cursor.is_none_or(|cursor| cursor.as_u64() < position) {
         return Err(Invalid::Log(format!(
@@ -269,8 +270,36 @@ pub fn check_log<R: LogReader + ?Sized>(
         Some(Ok(event)) if event.content_hash != snapshot.position_event_hash => Err(Invalid::Log(
             format!("the event at position {position} is not the one the snapshot folded"),
         )),
-        Some(Ok(_)) => Ok(()),
+        Some(Ok(event)) => Ok(event.event.source),
     }
+}
+
+/// Validity rule 5b (decision 0023, s2w#184): the verdict store holds a row at
+/// `snapshot.position` for every engine name in `routed`, the running registry's engines for
+/// the source of the snapshot's event. `rows` are the stored rows at that position (the caller
+/// reads them with `read_range_of`). After a rebuild the bridge cursor keeps the old routing's
+/// high-water mark, so rule 5's cursor check alone cannot tell that this routing's engines
+/// judged the event; this can. An unrouted source (`routed` empty) passes vacuously. Pure.
+///
+/// # Errors
+/// [`Invalid::Log`] naming the first routed engine with no row.
+pub fn check_rows(
+    snapshot: &SnapshotV1,
+    rows: &[StoredVerdict],
+    routed: &[String],
+) -> Result<(), Invalid> {
+    let position = snapshot.position;
+    for name in routed {
+        let found = rows
+            .iter()
+            .any(|row| row.position.as_u64() == position && &row.engine == name);
+        if !found {
+            return Err(Invalid::Log(format!(
+                "no stored verdict of engine '{name}' at position {position}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

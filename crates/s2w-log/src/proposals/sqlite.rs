@@ -93,6 +93,32 @@ impl ReadOnlySqliteProposalStore {
         Ok(Self { connection })
     }
 
+    /// The store's watermark: the highest proposal `seq` and the highest decision `seq`, `None`
+    /// for an empty table. Both tables are append-only, so a moved watermark is the only sign
+    /// that anything was written. Two integer reads, no payload decode, one read transaction,
+    /// so the pair is one consistent snapshot of the store. `serve` reads it on every bridge
+    /// poll (s2w#184) before it reads any row: a row appended between the two reads is then
+    /// above the recorded watermark and re-resolved on the next poll, never lost.
+    ///
+    /// # Errors
+    /// Returns storage errors.
+    pub fn watermark(&self) -> Result<(Option<i64>, Option<i64>), LogError> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(map_sqlite)?;
+        let max = |table: &str| -> Result<Option<i64>, LogError> {
+            transaction
+                .query_row(&format!("SELECT max(seq) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .map_err(map_sqlite)
+        };
+        let watermark = (max("proposals")?, max("decisions")?);
+        transaction.commit().map_err(map_sqlite)?;
+        Ok(watermark)
+    }
+
     /// Reads proposals in sequence order, checking payload integrity.
     ///
     /// # Errors

@@ -334,6 +334,43 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         Ok(bridge)
     }
 
+    /// The same bridge under a new `registry`, for a live rebuild (s2w#184): keeps the log
+    /// reader and the verdict store (and with it the store's writer lock), re-reads the store's
+    /// cursor, and starts over from the log's first event, or after `resume` when the caller
+    /// restored a snapshot folded under `registry` into `state`. Every counter and the unrouted
+    /// warnings reset, and the empty per-source counters are published at once, so `/sources`
+    /// never shows the old routing's counts under the new one. The caller has already replaced
+    /// the timeline; like [`Self::new`] and [`Self::resume`] this refuses one holding events
+    /// past its base.
+    ///
+    /// # Errors
+    /// As [`Self::new`] (without `resume`) or [`Self::resume`] (with it).
+    pub fn restart(
+        self,
+        registry: EngineRegistry,
+        resume: Option<LogPosition>,
+    ) -> Result<Self, BridgeError> {
+        let Self {
+            reader,
+            verdicts,
+            state,
+            config,
+            ..
+        } = self;
+        let bridge = match resume {
+            Some(position) => Self::resume(reader, verdicts, registry, state, config, position)?,
+            None => Self::new(reader, verdicts, registry, state, config)?,
+        };
+        bridge.state.publish_source_stats(BTreeMap::new());
+        Ok(bridge)
+    }
+
+    /// The log reader, e.g. for a rebuild's snapshot restore to validate against.
+    #[must_use]
+    pub const fn reader(&self) -> &R {
+        &self.reader
+    }
+
     fn build(
         reader: R,
         verdicts: V,

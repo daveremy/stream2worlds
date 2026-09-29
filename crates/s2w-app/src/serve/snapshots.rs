@@ -17,9 +17,11 @@ use std::time::Instant;
 
 use s2w_log::{LogPosition, LogReader, VerdictStore};
 
+use crate::bridge::EngineRegistry;
 use crate::query::{Epoch, QueryState, Timeline};
 use crate::snapshot::{
-    Expected, SNAPSHOT_FORMAT, SnapshotRefV1, check_fold, check_log, codec, fold_hash, store,
+    Expected, Invalid, SNAPSHOT_FORMAT, SnapshotRefV1, check_fold, check_log, check_rows, codec,
+    fold_hash, store,
 };
 use crate::{AppError, NoteSink, Reporter};
 
@@ -65,14 +67,15 @@ pub(super) fn prepare<L: LogReader + ?Sized>(
     state: &QueryState,
     (log, verdicts): (&L, &dyn VerdictStore),
     log_dir: &Path,
-    (config, feed_hash): (SnapshotConfig, u64),
+    (config, registry): (SnapshotConfig, &EngineRegistry),
     reporter: &mut dyn Reporter,
 ) -> Result<(Option<LogPosition>, Option<Snapshotter>), AppError> {
+    let feed_hash = registry.feed_fingerprint();
     install_epoch(state, Epoch(feed_hash))?;
     if !config.enabled {
         return Ok((None, None));
     }
-    let resume = restore(state, log, verdicts, (log_dir, feed_hash), reporter)?;
+    let resume = restore(state, log, verdicts, (log_dir, registry), reporter)?;
     let snapshotter = Snapshotter::start(log_dir, config, feed_hash, reporter.note_sink())?;
     Ok((resume, Some(snapshotter)))
 }
@@ -96,8 +99,8 @@ fn install_epoch(state: &QueryState, epoch: Epoch) -> Result<(), AppError> {
         .map_err(stopped)
 }
 
-/// Loads the newest valid snapshot in `log_dir` into `state` and returns the log position the
-/// bridge resumes after, or `None` for a full replay from the start. Every file that fails a
+/// Loads the newest valid snapshot in `log_dir` written under `registry`'s feed fingerprint
+/// into `state` and returns the log position the bridge resumes after, or `None` for a full replay from the start. Every file that fails a
 /// validity rule is reported and skipped, never deleted. Temporary files a crashed write left
 /// behind are removed first.
 ///
@@ -108,21 +111,23 @@ pub(super) fn restore<L: LogReader + ?Sized>(
     state: &QueryState,
     log: &L,
     verdicts: &dyn VerdictStore,
-    (log_dir, feed_hash): (&Path, u64),
+    (log_dir, registry): (&Path, &EngineRegistry),
     reporter: &mut dyn Reporter,
 ) -> Result<Option<LogPosition>, AppError> {
+    let feed_hash = registry.feed_fingerprint();
     let dir = store::dir(log_dir);
     clean_stale(&dir, reporter);
     let (_, _, hub_cap) = state.bounds().map_err(stopped)?;
     let bridge_cursor = verdicts.cursor()?;
     let expected = Expected { hub_cap, feed_hash };
-    let loaded = match store::load_latest(&dir, |snapshot| {
+    let loaded = match store::load_latest(&dir, feed_hash, |snapshot| {
         check_fold(snapshot, expected)?;
         let previous = snapshot
             .position
             .checked_sub(1)
             .and_then(LogPosition::from_u64);
-        check_log(snapshot, log, previous, bridge_cursor)
+        let source = check_log(snapshot, log, previous, bridge_cursor)?;
+        check_routed(snapshot, verdicts, registry, &source, previous)
     }) {
         Ok(loaded) => loaded,
         Err(error) => {
@@ -164,6 +169,28 @@ pub(super) fn restore<L: LogReader + ?Sized>(
         path.display()
     ));
     Ok(Some(resume))
+}
+
+/// Rule 5b (s2w#184): `registry`'s engines for `source`, the snapshot event's source, each
+/// stored a verdict at the snapshot's position. Reads that one position's rows.
+fn check_routed(
+    snapshot: &crate::snapshot::SnapshotV1,
+    verdicts: &dyn VerdictStore,
+    registry: &EngineRegistry,
+    source: &s2w_model::SourceId,
+    previous: Option<LogPosition>,
+) -> Result<(), Invalid> {
+    let routed: Vec<String> = registry
+        .engines_for(source)
+        .iter()
+        .map(|engine| engine.name().to_owned())
+        .collect();
+    let through = LogPosition::from_u64(snapshot.position)
+        .ok_or_else(|| Invalid::Log("the snapshot records log position 0".to_owned()))?;
+    let rows = verdicts
+        .read_range_of(previous, through, &routed)
+        .map_err(|e| Invalid::Log(e.to_string()))?;
+    check_rows(snapshot, &rows, &routed)
 }
 
 /// Removes temporary files a crashed write left behind, reporting each.
@@ -252,7 +279,7 @@ impl Snapshotter {
             .name("s2w-snapshot".to_owned())
             .spawn({
                 let (dir, shared, notes) = (dir.clone(), shared.clone(), notes.clone());
-                move || writer(&dir, &queue, &shared, &*notes)
+                move || writer(&dir, feed_hash, &queue, &shared, &*notes)
             })
             .map_err(AppError::Serve)?;
         Ok(Self {
@@ -384,6 +411,7 @@ impl Snapshotter {
         match self.capture(state) {
             Ok((offset, bytes)) => write_one(
                 &self.dir,
+                self.feed_hash,
                 Job {
                     offset,
                     bytes,
@@ -394,6 +422,13 @@ impl Snapshotter {
             ),
             Err(reason) => (self.notes)(&format!("final snapshot skipped: {reason}")),
         }
+    }
+
+    /// Retires this snapshotter before a live rebuild (s2w#184): waits for any in-flight write,
+    /// which lands under this routing's fingerprint and is harmless, and takes no final
+    /// snapshot. The rebuild then starts a new one through `prepare`.
+    pub(super) fn retire(&mut self) {
+        self.stop_writer();
     }
 
     fn stop_writer(&mut self) {
@@ -417,6 +452,7 @@ impl Drop for Snapshotter {
 
 fn writer(
     dir: &Path,
+    feed: u64,
     queue: &Receiver<Job>,
     shared: &Shared,
     notes: &(dyn Fn(&str) + Send + Sync),
@@ -425,7 +461,7 @@ fn writer(
         // Cleared on unwind too: a panicking write must not leave every later snapshot
         // skipped as "busy".
         let _idle = Idle(&shared.busy);
-        write_one(dir, job, shared, notes);
+        write_one(dir, feed, job, shared, notes);
     }
 }
 
@@ -438,11 +474,17 @@ impl Drop for Idle<'_> {
     }
 }
 
-fn write_one(dir: &Path, job: Job, shared: &Shared, notes: &(dyn Fn(&str) + Send + Sync)) {
+fn write_one(
+    dir: &Path,
+    feed: u64,
+    job: Job,
+    shared: &Shared,
+    notes: &(dyn Fn(&str) + Send + Sync),
+) {
     let started = Instant::now();
     let offset = job.offset;
     let bytes = job.bytes.len();
-    match store::write_bytes(dir, offset, &job.bytes) {
+    match store::write_bytes(dir, feed, offset, &job.bytes) {
         Ok(path) => {
             shared.written_at.fetch_max(job.consumed, Ordering::AcqRel);
             notes(&format!(
@@ -450,7 +492,7 @@ fn write_one(dir: &Path, job: Job, shared: &Shared, notes: &(dyn Fn(&str) + Send
                 path.display(),
                 started.elapsed().as_millis()
             ));
-            if let Err(error) = store::prune(dir, store::KEEP) {
+            if let Err(error) = store::prune(dir, feed, store::KEEP) {
                 notes(&format!("pruning old snapshots failed: {error}"));
             }
         }
