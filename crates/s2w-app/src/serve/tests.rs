@@ -127,6 +127,10 @@ fn both_writer_locks_map_to_usage_and_release() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+)]
 fn host_middleware_accepts_only_literal_loopback_hosts() {
     run(false, async {
         let app = Router::new()
@@ -297,6 +301,10 @@ fn an_open_sse_cannot_block_shutdown_past_the_deadline() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+)]
 fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     run(false, async {
@@ -378,6 +386,10 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+)]
 fn shared_log_ingestion_and_bridge_feed_the_http_router_without_sockets() {
     run(false, async {
         let dir = TestDirectory::new("serve-router");

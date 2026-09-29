@@ -2,6 +2,9 @@
 # This is a denylist of common APIs, not proof of purity; the dependency allowlist (no async
 # runtime, no I/O crates) and review cover the rest. Per-crate clippy.toml replaces the workspace
 # one, so the test allowances are repeated here.
+too-many-lines-threshold = 60
+cognitive-complexity-threshold = 15
+too-many-arguments-threshold = 5
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 disallowed-methods = [

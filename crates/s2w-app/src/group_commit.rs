@@ -111,6 +111,14 @@ impl Reporter for HumanReporter {
 /// # Errors
 ///
 /// Returns the first error from the log, `convert` or `on_error`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+)]
 pub(crate) async fn pump<S, T, E>(
     mut write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     mut source: S,
@@ -267,6 +275,10 @@ pub(crate) async fn pump_events<L: EventLog>(
 
 /// Returns `Ok(true)` if `pump` stopped early on a membership change rather than a natural end
 /// of stream — see [`pump`]'s doc comment.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor"
+)]
 pub(crate) async fn pump_events_gated(
     write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     stream: EventStream,
@@ -344,6 +356,10 @@ async fn report_progress(
 
 /// Flushes the buffer, if there's anything in it, and reports the batch's duplicates and the
 /// running totals so far.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor"
+)]
 fn flush_and_report(
     log: &mut impl FnMut(Vec<RawEvent>) -> Result<Vec<AppendOutcome>, AppError>,
     buffer: &mut Vec<RawEvent>,

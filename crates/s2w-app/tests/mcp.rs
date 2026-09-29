@@ -204,6 +204,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn domain_errors_match_http_bytes() {
         run(async {
             let state = golden();

@@ -30,6 +30,10 @@ fn row(at: u64, engine: &str, version: u32) -> StoredVerdict {
 }
 
 /// The contract every [`VerdictStore`] meets; run over both implementations.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "one contract suite run over both VerdictStore impls; assertions are straight-line"
+)]
 fn run_verdict_suite<S: VerdictStore>(mut store: S) -> TestResult {
     assert_eq!(store.cursor()?, None);
     assert!(store.read_range(None, position(100))?.is_empty());

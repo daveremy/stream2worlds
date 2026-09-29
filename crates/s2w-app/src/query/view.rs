@@ -179,6 +179,10 @@ struct Graph<'w> {
 }
 
 impl<'w> Graph<'w> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+    )]
     fn new(world: &'w World) -> Self {
         let mut members: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
         for &id in world.entities().keys() {
@@ -338,6 +342,10 @@ impl<'w> Graph<'w> {
 /// # Errors
 /// [`QueryError::UnknownEntity`] for an unknown focus, [`QueryError::HopsTooLarge`] past
 /// [`MAX_HOPS`].
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor"
+)]
 pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
     let graph = Graph::new(world);
     let subset = match params.focus {

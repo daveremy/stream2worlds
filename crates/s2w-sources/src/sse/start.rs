@@ -11,6 +11,10 @@ pub(super) struct StartPlan {
     pub(super) initial_cursor: Option<String>,
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "resolves a start position from the source config, cursor and dialect; each input is distinct"
+)]
 pub(super) fn choose(
     name: &'static str,
     dialect: &dyn SseDialect,

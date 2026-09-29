@@ -52,6 +52,14 @@ fn exemptions(config: &Config, scan: &Scan) -> Vec<String> {
     }
     findings
 }
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "sequential config, walk and report stages"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "sequential config, walk and report stages"
+)]
 pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<String> {
     let config_path = root.join("xtask/module-size.toml");
     let mut config: Config = match super::read_toml(&config_path) {

@@ -718,6 +718,10 @@ mod membership_tests {
         (status, serde_json::from_slice(&bytes).unwrap())
     }
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn sources_at_boundary_tests() {
         crate::tests::run(false, async {
             let dir = crate::tests::TestDirectory::new("sources-http");
@@ -818,6 +822,10 @@ mod membership_tests {
     /// per-source counters and the most recent raw events, most recent first, with payloads
     /// decoded as JSON when they parse and kept as text when they do not.
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn sources_serve_per_source_bridge_consumption() {
         crate::tests::run(false, async {
             let dir = crate::tests::TestDirectory::new("sources-bridge");

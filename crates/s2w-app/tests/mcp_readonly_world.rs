@@ -151,6 +151,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn mcp_queries_a_snapshot_while_another_process_keeps_writing() -> TestResult {
         if env::var_os(CHILD_DIRECTORY).is_some() {
             return Ok(());
@@ -233,6 +237,10 @@ mod tests {
     /// `s2w mcp --log-dir` refresh thread polls — until the second commit shows up, then
     /// confirms the MCP `world_view` tool serves the advanced snapshot.
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn mcp_serves_advancing_results_while_another_process_keeps_writing() -> TestResult {
         if env::var_os(CHILD_DIRECTORY).is_some() {
             return Ok(());

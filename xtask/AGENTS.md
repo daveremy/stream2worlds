@@ -20,6 +20,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 - `main.rs`: CLI, metadata, dependency and workspace checks.
 - `golden.rs`: deterministic golden replay.
+- `clippy_config.rs`: check 8, every crate's effective clippy config carries the root size thresholds.
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.

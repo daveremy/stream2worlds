@@ -32,6 +32,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
     fn stdio_round_trip_advertises_read_only_tools_and_splits_errors() {
         run(async {
             let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP));

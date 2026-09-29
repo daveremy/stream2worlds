@@ -223,6 +223,10 @@ fn offset_provenance_matches_transaction_head() -> TestResult {
     Ok(())
 }
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "migration fixture setup and assertions read as one scenario"
+)]
 fn migrates_v2_fixture_preserving_cursor_and_events() -> TestResult {
     let dir = TestDirectory::new("v2-migration")?;
     let conn = Connection::open(dir.path().join(crate::DATABASE_FILE))?;

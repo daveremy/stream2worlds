@@ -171,6 +171,10 @@ fn mcp_with_a_missing_log_dir_fatally_names_the_path_in_both_formats() {
 // rendering end-to-end for the listener note + a non-fatal source error + the clean-shutdown
 // note, all through the real binary.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+)]
 fn stdin_serve_json_reports_a_nonfatal_source_error_then_shuts_down_cleanly() {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

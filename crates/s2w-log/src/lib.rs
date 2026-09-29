@@ -47,6 +47,10 @@ const FNV_PRIME: u64 = 0x100_0000_01b3;
 /// # Errors
 /// [`LogError::Locked`] when another handle owns `lock_file`; a storage or corruption error
 /// when the directory or database cannot be initialized safely.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one argument per storage-format knob of the two SQLite stores sharing this opener; a parameter struct would only rename them"
+)]
 fn open_sqlite_store(
     directory: &Path,
     database_file: &str,
@@ -993,6 +997,10 @@ mod tests {
     }
 
     /// Dedupe on event identity, shared by both impls (s2w#25).
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "one linear contract suite over both EventLog impls; splitting it would hide the shared sequence"
+    )]
     fn run_dedupe_suite<L: EventLog>(mut log: L) -> TestResult {
         let source_a = source("source-a")?;
         let source_b = source("source-b")?;
@@ -1500,6 +1508,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "crash-recovery test: spawn child, SIGKILL, reopen and assert form one scenario"
+    )]
     fn sqlite_recovers_exact_atomic_prefix_after_sigkill() -> TestResult {
         if env::var_os(CRASH_CHILD_ENV).is_some() {
             return Ok(());

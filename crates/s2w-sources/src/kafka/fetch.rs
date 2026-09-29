@@ -229,6 +229,10 @@ async fn resolve_start(
 /// Fetches one partition forever from `offset`, never skipping an offset.
 ///
 /// Stops when the consumer is dropped or after sending a fatal error.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the fetch loop is one state machine over offset, retry and shutdown; splitting it scatters its invariants"
+)]
 async fn fetch_loop(
     client: PartitionClient,
     mut offset: i64,
@@ -370,6 +374,10 @@ mod tests {
     /// the after-the-last-record case, resume-after, and a compressed batch.
     #[test]
     #[ignore = "needs a local broker: S2W_KAFKA_BROKER=localhost:19092"]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "broker test walks five scenarios against one fixture topic"
+    )]
     fn reads_by_assignment_against_a_real_broker() -> Result<(), Box<dyn std::error::Error>> {
         use rskafka::client::ClientBuilder;
         use rskafka::client::partition::{Compression, UnknownTopicHandling};
