@@ -21,10 +21,12 @@
 //! test below) also means a fused compound needs its own denylist entry to be caught. This
 //! check trades recall for precision on that one shape; it is not a vocabulary-scan bypass an
 //! attacker gains anything from, since the obfuscation replay (`obfuscation.rs`) covers this
-//! case for `s2w-core`'s fold and, since s2w#131, `s2w-system1`'s engines
-//! (`JsonClaimsEngine`): it fails there on any fold or engine that keys on a specific string,
-//! spelled however. That coverage does not extend to the bridge registry or `s2w-app` — a
-//! fused compound there needs its own denylist entry to be caught.
+//! case for `s2w-core`'s fold and, since s2w#131, `s2w-system1`'s claim-reading engines
+//! (`JsonClaimsEngine`), and the raw obfuscation replay (`obfuscation_raw.rs`, check 11)
+//! covers the mapping engine (`MappingEngine`) over a recorded raw stream: they fail on any
+//! fold or engine that keys on a specific string, spelled however. That coverage does not
+//! extend to the bridge registry or `s2w-app` — a fused compound there needs its own denylist
+//! entry to be caught.
 
 use std::collections::BTreeSet;
 use std::fs;

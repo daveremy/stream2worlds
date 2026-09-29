@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "decode": [["data"]],
+  "entities": [
+    {
+      "id": "editor",
+      "type_label": "user",
+      "key": [["data", "performer", "user_text"]],
+      "attrs": [
+        { "name": "bot", "path": ["data", "performer", "is_bot"] },
+        { "name": "edits", "path": ["data", "performer", "edit_count"] }
+      ]
+    },
+    {
+      "id": "object",
+      "type_label": "page",
+      "key": [["data", "wiki_id"], ["data", "page", "page_id"]],
+      "attrs": [
+        { "name": "title", "path": ["data", "page", "page_title"] },
+        { "name": "namespace", "path": ["data", "page", "namespace_id"] },
+        { "name": "redirect", "path": ["data", "page", "is_redirect"] }
+      ]
+    },
+    {
+      "id": "site",
+      "type_label": "site",
+      "key": [["data", "wiki_id"]],
+      "attrs": []
+    }
+  ],
+  "relationships": [
+    { "from": "editor", "to": "object", "kind": "edited" },
+    { "from": "object", "to": "site", "kind": "hosted_on" }
+  ]
+}

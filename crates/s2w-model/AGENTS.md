@@ -17,4 +17,7 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - An entity id is assigned once and never reused. A merge aliases ids under the survivor;
   revoking a repair splits them back apart; neither operation changes an id. (`EntityId` lives
   in `s2w-core` until a second crate needs it; decision 0005.)
+- `StreamMapping` (decision 0021) is persisted data with a `version` field; only version 1 is
+  read. A format change bumps it with a decision record. The mapping's paths and labels are
+  data; this crate never names what they mean.
 - No domain knowledge in this crate; see decision 0018.

@@ -16,12 +16,14 @@
 //! event log (`{"key": "site-a", ...}`) but a key in the folded world (`"keys": {"site-a": 0}`),
 //! which is exactly the role a naive by-JSON-position transform would get wrong.
 //!
-//! Scope: replays `s2w-core`'s fold and, via [`engine_replay`], `s2w-system1`'s engines
-//! (`JsonClaimsEngine` today — the vec is iterated, so a future engine is covered
-//! automatically). It does not yet run through the bridge registry (`s2w-app::Bridge`/
-//! `EngineRegistry`) — tracked as [stream2worlds#135](https://github.com/daveremy/stream2worlds/issues/135).
+//! Scope: replays `s2w-core`'s fold and, via [`engine_replay`], `s2w-system1`'s engines that
+//! read a claim's own shape (`JsonClaimsEngine`). An engine that needs a mapping to run
+//! (`MappingEngine`) reads raw payloads, not claims, so it is replayed by check 11
+//! (`obfuscation_raw.rs`) over a recorded raw fixture instead; a new engine is covered only
+//! once one of these checks runs it. Neither check runs through the bridge registry
+//! (`s2w-app::Bridge`/`EngineRegistry`) — tracked as [stream2worlds#135](https://github.com/daveremy/stream2worlds/issues/135).
 //! `Route::Exact("stdin")` is the only default route today, so the registry carries
-//! materially less domain-keying risk than the engine layer this check now covers.
+//! materially less domain-keying risk than the engine layer these checks cover.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -63,8 +65,8 @@ pub(crate) fn replay(log_text: &str) -> Vec<String> {
 /// The same replay, through the `s2w-system1` engine layer instead of the bare `s2w-core`
 /// fold: each golden event is wrapped in a hand-built [`RawEvent`] and run through every
 /// [`Engine`] in [`engines`], and the proposed claims are folded exactly as [`replay`] folds
-/// the golden events directly. The engine vec is iterated, so a future engine added to
-/// `s2w-system1` is covered automatically without touching this function.
+/// the golden events directly. The engine vec is iterated; an engine joins it only if it runs
+/// without a mapping (a mapping engine is check 11's, `obfuscation_raw.rs`).
 pub(crate) fn engine_replay(log_text: &str) -> Vec<String> {
     let events_json: Value = match serde_json::from_str(log_text) {
         Ok(v) => v,
@@ -311,12 +313,17 @@ fn transform(
 /// only genuinely order-carrying JSON (an array) needs normalizing first; [`normalize`] handles
 /// the one array in this shape whose order depends on a value the transform changes.
 fn compare(a: &Value, b: &Value) -> Vec<String> {
+    compare_named(LOG, a, b)
+}
+
+/// [`compare`] for any fixture: `fixture` names it in the problem.
+pub(crate) fn compare_named(fixture: &str, a: &Value, b: &Value) -> Vec<String> {
     let (a, b) = (normalize(a.clone()), normalize(b.clone()));
     if a == b {
         Vec::new()
     } else {
         vec![format!(
-            "obfuscation replay: {LOG} folds to a different world once its claim data is renamed and hashed. The fold (or something it calls) is reading a specific name or value, not just shape. transformed pass A: {a}\npass B: {b}"
+            "obfuscation replay: {fixture} folds to a different world once its claim data is renamed and hashed. The fold (or something it calls) is reading a specific name or value, not just shape. transformed pass A: {a}\npass B: {b}"
         )]
     }
 }
@@ -341,7 +348,7 @@ fn normalize(mut v: Value) -> Value {
 // enforces exactly that kind of edge on every other crate); this is the same algorithm as
 // `s2w_sources::hash::fnv1a64_hex`, kept in sync by inspection, not by sharing code.
 
-fn fnv1a64_hex(bytes: &[u8]) -> String {
+pub(crate) fn fnv1a64_hex(bytes: &[u8]) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for &byte in bytes {
         hash ^= u64::from(byte);

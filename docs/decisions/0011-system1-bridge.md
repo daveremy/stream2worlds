@@ -28,6 +28,10 @@ deterministic function of the log and the registry. A source with no engine is c
 logged once per bridge, never an error. Defaults: `wikipedia.*` → `wikimedia.page_change`,
 `stdin` → `json_claims`.
 
+> **2026-09-28 ([0021](0021-stream-mapping-v0.md)):** a data-driven `MappingEngine` now exists but
+> is registered nowhere. In #163 PR 2, routes move from code to data: `serve` builds a route per
+> source from the accepted stored mapping.
+
 ## The bridge
 
 `Bridge<R: LogReader>` in `s2w-app/src/bridge/`. `LogReader` is a new read-only seam in

@@ -3,7 +3,7 @@
 mod engines;
 mod verdict;
 
-pub use engines::JsonClaimsEngine;
+pub use engines::{JsonClaimsEngine, MappingEngine, MappingEngineError};
 pub use verdict::{AbstainReason, Confidence, ConfidenceError, Verdict};
 
 use s2w_model::RawEvent;
@@ -13,7 +13,9 @@ use s2w_model::RawEvent;
 pub trait Engine: Send + Sync {
     /// Stable identifier persisted with each verdict in the verdict log (decision 0012).
     fn name(&self) -> &'static str;
-    /// Mapping version; bump whenever the payload-to-verdict mapping changes.
+    /// Code version; bump whenever this engine's payload-to-verdict code changes. An engine
+    /// that runs a data mapping (`MappingEngine`) names that mapping in [`Self::provenance`],
+    /// not here (decision 0021).
     fn version(&self) -> u32;
     /// Total: unsupported or malformed inputs abstain, never panic or error.
     fn evaluate(&self, event: &RawEvent) -> Verdict;
