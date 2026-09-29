@@ -111,7 +111,25 @@ fn score_refuses_a_changed_freeze_corpus_pin() {
     .unwrap();
     refused(
         score(&root, &dir, &out, "held", &[KEY]),
-        "corpus dev: its row in keys.toml or corpora.toml changed since",
+        "corpus dev: its row in keys.toml or corpora.toml changed or was removed since",
+    );
+}
+
+#[test]
+fn score_refuses_a_changed_scored_corpus_pin_the_freeze_recorded() {
+    let (root, dir, out) = frozen("held-pin");
+    let path = root.join(DATA).join("corpora.toml");
+    let text = fs::read_to_string(&path).unwrap();
+    let held = "[corpus.held]\nrole = \"heldout\"\nfile = \"c.sse\"\nevents = 3";
+    assert!(text.contains(held));
+    fs::write(
+        &path,
+        text.replace(held, &held.replace("events = 3", "events = 4")),
+    )
+    .unwrap();
+    refused(
+        score(&root, &dir, &out, "held", &[KEY]),
+        "corpus held: its row in keys.toml or corpora.toml changed or was removed since",
     );
 }
 
@@ -127,7 +145,7 @@ fn score_refuses_a_scored_key_repinned_since_the_freeze() {
     fs::write(data.join("keys.toml"), keys.replace(&old, &sha256(&bytes))).unwrap();
     refused(
         score(&root, &dir, &out, "dev", &[KEY]),
-        &format!("key {KEY}: its row in keys.toml or corpora.toml changed since"),
+        &format!("key {KEY}: its row in keys.toml or corpora.toml changed or was removed since"),
     );
 }
 
@@ -236,7 +254,10 @@ fn score_refuses_a_corpus_relabelled_since_the_freeze() {
         text.replace("role = \"reserved\"", "role = \"heldout\""),
     )
     .unwrap();
-    refused(score(&root, &dir, &out, "res", &[KEY]), "changed since");
+    refused(
+        score(&root, &dir, &out, "res", &[KEY]),
+        "changed or was removed since",
+    );
 }
 
 #[test]

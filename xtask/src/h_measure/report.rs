@@ -150,7 +150,7 @@ fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), 
             }
             (Some(then), now) if Some(then) != now => {
                 return Err(format!(
-                    "{name}: its row in keys.toml or corpora.toml changed since {file} was frozen; freeze again under the current pins"
+                    "{name}: its row in keys.toml or corpora.toml changed or was removed since {file} was frozen; freeze again under the current pins"
                 ));
             }
             _ => {}
