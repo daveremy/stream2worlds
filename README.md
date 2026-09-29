@@ -262,6 +262,8 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 
 **The first question, with its numbers.** Gate 4 asks, for each human edit to an English Wikipedia article: will it be reverted within 30 minutes? A 30-minute pilot on 2026-09-27 ([research 0004](research/0004-revert-pilot.md)) measured 1,854 eligible edits, a 3.8% base rate, and ROC AUC 0.888 for Wikimedia's own revert-risk model on that question. One Sunday-morning window, so these are orders of magnitude, not the test. Wikimedia's model is reported beside `s2w`'s score, not required to be beaten: the gate asks for skill over the base rate and over a simple-features model, and calibration ([contract A9](docs/evaluation-contract.md#a9-gate-4-pass-thresholds-dave-2026-09-27-report-b2-dont-require-it)).
 
+**The heuristics arm, measured.** Gate 3 compares System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover`, no containment yet), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. The mapping format itself caps every arm here (it cannot join different values that name one entity), so the note reads H-lite against that ceiling (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
+
 ## Roadmap
 
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.

@@ -13,6 +13,8 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `dev-key-v0.<variant>.json` | Sensitivity variants. Each differs from the base only as `keys.toml` says; `diff` the files to see the variant. |
 | `dev-key-v1.json` | dev-key v1: the v0 base key in key-spec format 1, with `"no_identity": [0]` on the `log_id` mention (#225). The v0 files stay as they are. |
 | `dev-key-v1.<variant>.json` | Each v0 sensitivity variant in format 1, with the same `no_identity` on `log_id`, pinned before any score. |
+| `frozen/h-lite-v2.dev-N.json` | H-lite (`PROFILER_VERSION` 2) frozen on `dev` at N = 10^4 and 2×10^5 (commit 5e74d8f, built at eeeced7), before any held-out corpus was scored. Score them with a build whose profiler and `Config` match, or `score` refuses. |
+| `results/h-lite-v2.dev-10000.<corpus>.md` | The pre-registered held-out reports, read in research [0009](../0009-h-min-plain-wikipedia.md). |
 
 ## Rules
 
