@@ -16,9 +16,9 @@
 //!   process's peak resident stays under [`SERVE_PEAK_LIMIT`] (600 MiB): the fitness function
 //!   for decision 0026's history cap, with no viewer connected.
 //! - `queries`: after the `timeline` fold, a `/world` read at the head split into its parts,
-//!   each its own peak window: a copy of the head world (what `/world` paid before #216 PR 2a,
-//!   kept as the reference), the projection alone (`view_at`, which now borrows the head), and
-//!   the JSON serialization alone; then one `/diff` from the head to itself.
+//!   each its own peak window: the projection alone (`view_at`, which borrows the head) and the
+//!   JSON serialization alone; then one `/diff` from the head to itself; last, a copy of the
+//!   head world, what `/world` paid before #216 PR 2a, kept as the reference.
 //! - `viewer`: the `bridge` backfill with a reader thread attached before the first poll,
 //!   issuing one `/world` and one `/diff?from=<head>&to=<head>` through the real router every
 //!   [`VIEWER_TICK`] and draining each body, as a page does (at 1 s, the page's old rate, a
@@ -236,17 +236,6 @@ mod backfill {
             &format!(", {head} world events"),
         );
         if queries {
-            // The reference: what copying the head cost every `/world` before #216 PR 2a.
-            let before = reset_peak();
-            let started = Instant::now();
-            let copy = state.world_at(Some(head)).unwrap();
-            drop(copy);
-            report(
-                "query /world part: head copy (old path)",
-                before,
-                started,
-                "",
-            );
             let before = reset_peak();
             let started = Instant::now();
             let view = state
@@ -274,6 +263,18 @@ mod backfill {
             let diff = state.diff(head, Some(head), None).unwrap();
             drop(diff);
             report("query /diff head..head", before, started, "");
+            // The reference, last so its freed pages cannot pad the windows above: what copying
+            // the head cost every `/world` before #216 PR 2a.
+            let before = reset_peak();
+            let started = Instant::now();
+            let copy = state.world_at(Some(head)).unwrap();
+            drop(copy);
+            report(
+                "query /world part: head copy (old path)",
+                before,
+                started,
+                "",
+            );
         }
     }
 
