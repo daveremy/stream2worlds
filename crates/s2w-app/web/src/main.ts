@@ -190,9 +190,6 @@ async function start(): Promise<void> {
       status.textContent = 'Loading world…';
       const loaded = await loadWorld(params, served => snapshot(served, signal)); lastFetch = Date.now();
       const { view } = loaded; request = loaded.request; note = loaded.note;
-      // The detail control shows the level actually served, so "Apply view" without a focus
-      // does not ask for the entity view again.
-      (form.elements.namedItem('lod') as HTMLSelectElement).value = view.lod;
       const seed = await evidence(params, view.offset, view.epoch, signal);
       if (signal.aborted) return;
       state.epoch = view.epoch;

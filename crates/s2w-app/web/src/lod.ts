@@ -35,7 +35,9 @@ export async function loadWorld(params: URLSearchParams,
   const lod = params.get('lod') ?? 'entity';
   // A focus bounds the request; a level the page does not know (`cluster`) goes as asked, and
   // the server answers it with its own error.
-  if (params.has('focus') || (lod !== 'entity' && lod !== 'type')) return { view: await fetchView(params), request: params };
+  if (params.has('focus') || (lod !== 'entity' && lod !== 'type')) {
+    return { view: await fetchView(params), request: params };
+  }
   const probe = new URLSearchParams(params); probe.set('lod', 'type');
   const view = await fetchView(probe);
   if (lod === 'type') return { view, request: probe };
