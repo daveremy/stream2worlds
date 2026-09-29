@@ -3,7 +3,7 @@
 mod engines;
 mod verdict;
 
-pub use engines::JsonClaimsEngine;
+pub use engines::{JsonClaimsEngine, MappingEngine, MappingEngineError};
 pub use verdict::{AbstainReason, Confidence, ConfidenceError, Verdict};
 
 use s2w_model::RawEvent;
