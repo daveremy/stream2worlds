@@ -13,6 +13,62 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Sprint 77 — routes become data, the world gets lighter (2026-09-29, 03:00–05:00)
+
+The sprint's aim was the path from a raw stream to a populated world with no domain code:
+profile the stream, propose a mapping, accept it, and have `serve` run it. The back half of
+that path landed: a human can accept or reject a mapping from the command line, and `serve`
+runs the accepted one at its next start. The demo world is still empty: no mapping has been
+proposed and accepted for it yet. Alongside, the scale gates went live and the first memory cuts came in under them.
+
+**Shipped**
+- **Routes from stored mappings** ([#187](https://github.com/daveremy/stream2worlds/pull/187),
+  [decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)). `serve` reads the
+  proposal store and routes each source to the mapping its accepted `stream-mapping` proposal
+  names. The engine is named `mapping-<identity>`, a hash of the mapping's canonical JSON, so
+  replacing a mapping can never replay the old one's verdicts or restore its snapshots.
+- **Human review from the command line** ([#195](https://github.com/daveremy/stream2worlds/pull/195),
+  issue [#185](https://github.com/daveremy/stream2worlds/issues/185)). `s2w proposals
+  list|grade|decide` shows the proposal store and which mapping each source runs, and records a
+  human accept or reject; a reject revokes the mapping. Details in the #185 entry below.
+- **Profiler obfuscation replay, check 12** ([#182](https://github.com/daveremy/stream2worlds/pull/182)).
+  `s2w-discover` profiles a recorded stream plain and fully renamed and hashed; both runs must
+  propose the same mapping (12 types, 19 entity rules, 143 relationship rules on the fixture).
+- **Scale fitness gates** ([#175](https://github.com/daveremy/stream2worlds/pull/175)): bytes
+  per entity in `cargo xtask check`, fold instructions per event in CI job `scale`, and storage
+  figures on `watch`'s status line. Details in the #175 entry below.
+- **Memory cuts under the new gates.** Snapshot restore shares one world instead of holding two
+  ([#186](https://github.com/daveremy/stream2worlds/pull/186)): at 10^6 entities the restore
+  peak fell from 1,624 MiB to 861 MiB and the snapshot write peak from 919 MiB to 50 MiB.
+  Attributes stored as a sorted `Vec` ([#194](https://github.com/daveremy/stream2worlds/pull/194))
+  took the fold from 830 to 438 bytes per entity; the gate's ceiling followed it down to 600 B.
+- **Decision-number hygiene.** The snapshots record, which had collided with the stream-mapping
+  record at 0021, became [0024](docs/decisions/0024-snapshots.md)
+  ([#188](https://github.com/daveremy/stream2worlds/pull/188)), and check 14 now fails any
+  decision number held by two files ([#193](https://github.com/daveremy/stream2worlds/pull/193)).
+  `--tighten-baseline` no longer exits 1 over report-only module-size findings after a
+  successful memory tighten ([#196](https://github.com/daveremy/stream2worlds/pull/196)).
+
+**Learned**
+- **The bytes were containers, not data.** One 544 B B-tree leaf per entity held about three
+  attributes. The next costs are the same kind, the `entities` and `keys` maps, which is why
+  dense entity ids are next.
+- **Nothing checked decision numbers.** The stream-mapping and snapshots records both took
+  0021, and only a filed issue ([#181](https://github.com/daveremy/stream2worlds/issues/181))
+  caught it. Check 14 makes the next collision a build failure.
+- **The attribute change also cut instructions.** Fold Ir per event
+  measured 8,686 on #194's CI run against the 9,093 baseline (−4.5%); the baseline is
+  human-owned and was not lowered.
+
+**Changed course:** none.
+
+**Next**
+- Fill the demo world ([#163](https://github.com/daveremy/stream2worlds/issues/163) PR 4).
+- The epoch contract and live rebuild, so a running `serve` picks up a decision without a restart ([#184](https://github.com/daveremy/stream2worlds/issues/184)).
+- Entities indexed by dense id ([#190](https://github.com/daveremy/stream2worlds/issues/190)).
+
+---
+
 ## Human review from the command line: `s2w proposals` — #185 (2026-09-29)
 
 **Shipped:** `s2w proposals list|grade|decide`, part of #163 (PR 2c). `list` prints the proposal
