@@ -128,7 +128,8 @@ pub fn basis(
 }
 
 /// Profiles every unrouted member source with a full window and files what the profiler
-/// proposes. Returns whether any row was written, so the caller knows to resolve again.
+/// proposes. Returns whether the caller should resolve routes again: rows were written, or a
+/// decision recorded since the caller's resolution routes a source.
 /// Never fails: every problem is a `discover:` note and the source keeps its current routes.
 pub(crate) fn run(
     log: &SqliteEventLog,
@@ -187,7 +188,11 @@ fn windows(
     if window == 0 || (!history.is_empty() && members.is_empty()) {
         return Ok(BTreeMap::new());
     }
-    let mut found: BTreeMap<SourceId, Vec<(LogPosition, Vec<u8>)>> = BTreeMap::new();
+    // Every member starts with an entry, so one with no logged events still gets its note.
+    let mut found: BTreeMap<SourceId, Vec<(LogPosition, Vec<u8>)>> = members
+        .iter()
+        .map(|source| (source.clone(), Vec::new()))
+        .collect();
     for stored in log.read_after(None)? {
         let stored = stored?;
         let source = &stored.event.source;
@@ -334,12 +339,18 @@ fn file(
         basis: basis(window.first, window.last, window.payloads.len(), mapping),
         decided_at_ms: now_ms()?,
     };
-    if producer.lookup
-        && let Some(existing) = proposed(&proposals, &window.source, &identity)
-    {
-        if existing != id || decisions.iter().any(|d| d.proposal_id == existing) {
+    let existing = proposed(&proposals, &window.source, &identity);
+    if producer.lookup && !existing.is_empty() {
+        // Complete only this producer's own proposal, and only while it is the sole row for the
+        // identity and undecided: any other actor's row, or any decision, means someone has
+        // already spoken for this mapping.
+        let own_undecided = existing
+            .iter()
+            .all(|p| *p == id && !decisions.iter().any(|d| d.proposal_id == *p));
+        if !own_undecided {
+            let shown = existing.iter().find(|p| **p != id).unwrap_or(&existing[0]);
             return Ok(Filed::Exists {
-                id: existing,
+                id: shown.clone(),
                 identity,
             });
         }
@@ -365,16 +376,18 @@ fn file(
     Ok(Filed::Written { id, identity })
 }
 
-/// The id of the first `stream-mapping` proposal for (`source`, `identity`) from any actor.
-fn proposed(proposals: &[StoredProposal], source: &SourceId, identity: &str) -> Option<String> {
+/// The ids of every `stream-mapping` proposal for (`source`, `identity`), from any actor, in
+/// store order.
+fn proposed(proposals: &[StoredProposal], source: &SourceId, identity: &str) -> Vec<String> {
     proposals
         .iter()
         .filter(|proposal| proposal.class == STREAM_MAPPING_CLASS)
-        .find(|proposal| {
+        .filter(|proposal| {
             routes::decode_envelope(&proposal.payload)
                 .is_ok_and(|(s, _, id)| &s == source && id == identity)
         })
         .map(|proposal| proposal.id.clone())
+        .collect()
 }
 
 fn now_ms() -> Result<i64, Unfiled> {

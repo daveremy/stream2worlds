@@ -195,8 +195,8 @@ decider in the same start, so the source is routed, backfilled and live at once;
 notes say `discover: <source>: proposed mapping <identity> (proposal <id>), accepted by
 policy learned-mapping-auto-apply/1`. A source with fewer events, or one the profiler abstains
 on, is noted and stays unrouted. A restart writes nothing new, and neither does a start after a
-human reject: `s2w proposals decide --proposal <id> --outcome reject` revokes the mapping for
-good ([decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)).
+human reject: `s2w proposals decide --proposal <id> --outcome reject` (with `--basis` and
+`--reviewer`, below) revokes the mapping for good ([decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)).
 
 Humans review proposals from the command line. `s2w proposals list [--log-dir DIR] [--json]`
 prints every stored proposal with its decisions, then which stream mapping each source runs and

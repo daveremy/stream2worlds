@@ -381,27 +381,7 @@ fn discovered() -> StreamMapping {
 #[test]
 fn a_proposal_left_without_its_accept_is_accepted_at_the_next_start() {
     let dir = TestDirectory::new("discover-partial");
-    append(dir.path(), SOURCE, stream(300));
-    let mapping = discovered();
-    let identity = mapping.identity().expect("identity");
-    let id = proposal_id(&actor(), &source(), position(1), position(300), &identity);
-    let envelope = MappingEnvelope {
-        format: ENVELOPE_FORMAT,
-        source: SOURCE.to_owned(),
-        mapping,
-    };
-    let mut store = SqliteProposalStore::open(dir.path()).expect("writer");
-    store
-        .append_proposal(&NewProposal {
-            id: id.clone(),
-            class: STREAM_MAPPING_CLASS.to_owned(),
-            actor: actor(),
-            snapshot_offset: position(300),
-            payload: serde_json::to_vec(&envelope).expect("envelope"),
-            proposed_at_ms: 0,
-        })
-        .expect("proposal");
-    drop(store);
+    let id = own_undecided_proposal(dir.path());
     let (wrote, notes) = start(REAL, dir.path(), &small());
     assert!(wrote, "{:?}", notes.0);
     assert!(
@@ -413,6 +393,76 @@ fn a_proposal_left_without_its_accept_is_accepted_at_the_next_start() {
     assert_eq!((proposals.len(), decisions.len()), (1, 1));
     let resolution = routes::load(dir.path()).expect("routes");
     assert_eq!(resolution.routes[&source()].proposal_id, id);
+}
+
+#[test]
+fn an_own_undecided_proposal_is_left_alone_once_a_human_rejected_its_identity() {
+    let dir = TestDirectory::new("discover-partial-rejected");
+    own_undecided_proposal(dir.path());
+    let envelope = MappingEnvelope {
+        format: ENVELOPE_FORMAT,
+        source: SOURCE.to_owned(),
+        mapping: discovered(),
+    };
+    let mut store = SqliteProposalStore::open(dir.path()).expect("writer");
+    store
+        .append_proposal(&NewProposal {
+            id: "by-hand".to_owned(),
+            class: STREAM_MAPPING_CLASS.to_owned(),
+            actor: Actor::Human { id: "h".to_owned() },
+            snapshot_offset: position(1),
+            payload: serde_json::to_vec(&envelope).expect("envelope"),
+            proposed_at_ms: 0,
+        })
+        .expect("proposal");
+    store
+        .append_decision(&NewDecision {
+            proposal_id: "by-hand".to_owned(),
+            decider: Decider::Human,
+            outcome: Outcome::Reject,
+            basis: "reviewer=h; wrong".to_owned(),
+            decided_at_ms: 0,
+        })
+        .expect("reject");
+    drop(store);
+    let (wrote, notes) = start(REAL, dir.path(), &small());
+    assert!(!wrote);
+    assert!(
+        notes.has("is already proposed (proposal by-hand)"),
+        "{:?}",
+        notes.0
+    );
+    assert_eq!(
+        rows(dir.path()).1.len(),
+        1,
+        "no policy accept after the reject"
+    );
+}
+
+/// Logs `stream(300)` and files this producer's own proposal for it with no decision (a stop
+/// between the two appends). Returns the proposal id.
+fn own_undecided_proposal(dir: &Path) -> String {
+    append(dir, SOURCE, stream(300));
+    let mapping = discovered();
+    let identity = mapping.identity().expect("identity");
+    let id = proposal_id(&actor(), &source(), position(1), position(300), &identity);
+    let envelope = MappingEnvelope {
+        format: ENVELOPE_FORMAT,
+        source: SOURCE.to_owned(),
+        mapping,
+    };
+    let mut store = SqliteProposalStore::open(dir).expect("writer");
+    store
+        .append_proposal(&NewProposal {
+            id: id.clone(),
+            class: STREAM_MAPPING_CLASS.to_owned(),
+            actor: actor(),
+            snapshot_offset: position(300),
+            payload: serde_json::to_vec(&envelope).expect("envelope"),
+            proposed_at_ms: 0,
+        })
+        .expect("proposal");
+    id
 }
 
 #[test]
@@ -476,12 +526,19 @@ fn a_removed_member_is_not_profiled() {
     log.bootstrap_source(&source()).expect("bootstrap");
     log.bootstrap_source(&SourceId::new("test.kept").expect("source"))
         .expect("bootstrap");
+    log.bootstrap_source(&SourceId::new("test.empty").expect("source"))
+        .expect("bootstrap");
     log.record_source_removed(&source()).expect("remove");
     drop(log);
     let (wrote, notes) = start(REAL, dir.path(), &small());
     assert!(wrote);
     assert!(
         notes.has("discover: test.kept: proposed mapping"),
+        "{:?}",
+        notes.0
+    );
+    assert!(
+        notes.has("test.empty: 0 events, below the window of 300"),
         "{:?}",
         notes.0
     );

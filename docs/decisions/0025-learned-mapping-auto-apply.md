@@ -36,7 +36,8 @@ so grading by (actor, version) never pools two profilers.
    `stream-mapping` proposal for the same (source, identity) exists from any actor, nothing is
    written, so a restart, a human-rejected identity and a same-bytes proposal filed through
    `s2w proposals` are all left alone. The one exception: this producer's own proposal with
-   the same id and no decision at all (a stop between the two appends) gets its policy accept.
+   the same id, no decision at all and no other proposal for that identity (a stop between the
+   two appends) gets its policy accept.
 3. The proposal id is `fnv1a64_hex` over the actor, source, first and last window position, and
    identity, each length-prefixed. The same log gives the same id; a moved window (after
    retention truncates the first positions, #33) gives a new one.
@@ -48,7 +49,7 @@ so grading by (actor, version) never pools two profilers.
 6. A producer failure (log read, store I/O) is a `discover:` note, never fatal. A corrupt
    proposal store still stops `serve` at the resolution, as 0023 chose.
 
-**Revoking.** `s2w proposals decide <id> --outcome reject` (#185). 0023 binds a human decision
+**Revoking.** `s2w proposals decide --log-dir DIR --proposal <id> --outcome reject --basis <text> --reviewer <id>` (#185). 0023 binds a human decision
 to the (source, identity), so rule 2 never re-files it and a later `policy` accept on the same
 identity would not route either.
 
