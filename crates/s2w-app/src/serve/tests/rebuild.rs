@@ -394,7 +394,10 @@ fn a_crash_mid_backfill_replays_the_stored_verdicts_and_converges() {
             3,
             "3 of 10 folded under B"
         );
+        assert_eq!(driver.noted("rebuild complete"), 0, "still mid-backfill");
         // A crash: no final snapshot, no completion; only what each poll stored survives.
+        // Dropping the unit-level driver stands in for dropping the server future: neither
+        // writes a snapshot or a completion, and only the per-poll verdict commits persist.
         drop(driver);
 
         let restarted = Driver::open(dir.path()).drain();
@@ -439,14 +442,29 @@ fn revoking_the_only_accepted_mapping_unroutes_the_source_and_empties_the_world(
         };
         assert_eq!(live.world["epoch"], format!("{fp_none:016x}"));
         assert_eq!(node_count(&live), 0, "no entities without a mapping");
-        let revoke = notes_from(
-            &live,
-            &format!("rebuild: feed {fp_a:016x} -> {fp_none:016x}"),
-        );
+        // The watcher sinks its route lines after "proposal store changed" and before the
+        // swap notes "rebuild: feed", so the unrouting shows between those two notes.
+        let routed = |notes: &[String]| notes.iter().any(|note| note.starts_with("route: source "));
+        let changed = live
+            .notes
+            .iter()
+            .rposition(|note| note.starts_with("routes: proposal store changed"))
+            .expect("the reject is seen");
+        let swapped = live
+            .notes
+            .iter()
+            .position(|note| {
+                note.starts_with(&format!("rebuild: feed {fp_a:016x} -> {fp_none:016x}"))
+            })
+            .expect("the revoke rebuild starts");
+        assert!(changed < swapped, "{:?}", live.notes);
         assert!(
-            !revoke.iter().any(|note| note.starts_with("route: source ")),
-            "the source is unrouted: {revoke:?}"
+            routed(&live.notes[..changed]),
+            "routed under A first: {:?}",
+            live.notes
         );
+        let revoke = &live.notes[changed..swapped];
+        assert!(!routed(revoke), "the source is unrouted: {revoke:?}");
     });
 }
 
@@ -469,8 +487,9 @@ fn a_restart_after_a_live_rebuild_restores_the_snapshot_taken_under_the_new_mapp
             return;
         };
 
-        // Routes resolve to B again; B's snapshot passes rule 5b (`check_routed`) only because
-        // the live rebuild stored B's verdict at the snapshot's position.
+        // Routes resolve to B again, so the restart restores the snapshot taken under B. This
+        // is the positive path of rule 5b (`check_routed`); the refusal is
+        // `a_snapshot_taken_under_another_mapping_is_ignored_and_the_restart_folds_cold`.
         let mut restart = mapped(10..20, None);
         restart.until = Until::Consumed(10);
         let restarted = serve_until(&dir, SNAPSHOT_ON_STOP, restart)
