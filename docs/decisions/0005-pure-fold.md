@@ -51,7 +51,8 @@ same bytes again.
   they need no wire-format migration (research 0003 §4, worlds as a column).
 - `offset` counts `WorldEvent`s folded, no-ops included. It is **not** a log position: the core
   cannot see `s2w-log`, and once System 1 exists one raw event may yield several `WorldEvent`s.
-  Mapping it to a log position belongs with snapshots (#33).
+  Mapping it to a log position belongs with snapshots (#33). *(2026-09-28: resolved by decision 0021; a world
+  snapshot records its fold offset and the log position it was folded through.)*
 - `fold_version` is stamped from `FOLD_VERSION` (1) and `hub_in_degree_cap` defaults to 10,000.
   Both are serialized fields, so a reader of a serialized world knows which fold, under which
   cap, produced it. A replay under another cap is a different world.
@@ -101,7 +102,8 @@ aggregate at every `lod` is query work (#10, #36).
   reference model after every step, which is the state-machine shape without the extra
   dependency. Revisit if the model grows preconditions that plain generation wastes cases on.
 - **No snapshot I/O.** The world is serializable and versioned; writing and loading snapshots,
-  and a fold-version hash, are #33.
+  and a fold-version hash, are #33. *(2026-09-28: resolved by decision 0021: a postcard snapshot file, and
+  a fold hash over `FOLD_VERSION`, the hub cap, the format and `FOLD_FIXTURE_HASH`.)*
 
 ## Research 0003 open items
 

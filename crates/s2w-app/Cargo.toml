@@ -24,6 +24,9 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 # schemars and uuid; `transport-io` the stdio transport (rmcp enables tokio's `io-std` on its
 # own dependency, so s2w-app's tokio feature list is unchanged).
 rmcp = { version = "=3.4.1", default-features = false, features = ["server", "macros", "transport-io"] }
+# The snapshot payload codec (decision 0021): compact, deterministic for BTree-only worlds, no
+# `deserialize_any`. `use-std` for `to_stdvec`; no default features (no heapless, no embedded-io).
+postcard = { version = "1.1", default-features = false, features = ["use-std"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -34,6 +37,8 @@ tokio = { version = "1", features = ["macros", "net", "rt", "signal", "sync", "t
 tokio-stream = "0.1"
 
 [dev-dependencies]
+# The snapshot golden-equivalence test generates event streams (decision 0021).
+proptest = "1"
 # `client` turns rmcp into an in-process MCP client for the stdio round-trip test.
 rmcp = { version = "=3.4.1", default-features = false, features = ["client"] }
 # Produces records for the ignored real-broker test; pinned like s2w-sources (decision 0007).

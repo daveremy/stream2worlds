@@ -23,7 +23,7 @@ pub use http::{
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
-pub use timeline::{HistoryEntry, TimeRange, TimedEvent, Timeline};
+pub use timeline::{BaseTime, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };
@@ -42,6 +42,31 @@ pub enum QueryError {
         at: u64,
         /// The latest offset.
         head: u64,
+    },
+    /// The requested offset is below the timeline's base: this process was restored from a
+    /// snapshot at `base` and no longer holds the events before it (decision 0021).
+    #[error(
+        "offset {at} is before the snapshot base ({base}); history below it is gone from this \
+         process, try an offset of at least {base} (see time.base)"
+    )]
+    OffsetBeforeBase {
+        /// The requested offset.
+        at: u64,
+        /// The earliest servable offset.
+        base: u64,
+    },
+    /// The requested time is before the snapshot base's last event, so its offset lies inside
+    /// the snapshot, whose per-event times are not kept (decision 0021). Shares the
+    /// `offset_before_base` code.
+    #[error(
+        "ts {ts} is before the snapshot base (offset {base}); per-event times below it are gone \
+         from this process, try a ts of at least time.last_ts at the base"
+    )]
+    TimeBeforeBase {
+        /// The requested timestamp in milliseconds.
+        ts: i64,
+        /// The earliest servable offset.
+        base: u64,
     },
     /// Only the actual world exists; branches are a later gate.
     #[error(
@@ -120,6 +145,7 @@ impl QueryError {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::OffsetBeyondHead { .. } => "offset_beyond_head",
+            Self::OffsetBeforeBase { .. } | Self::TimeBeforeBase { .. } => "offset_before_base",
             Self::BranchNotYet { .. } => "branch_not_yet",
             Self::LodNotYet { .. } => "lod_not_yet",
             Self::BadParameter { .. } => "bad_parameter",

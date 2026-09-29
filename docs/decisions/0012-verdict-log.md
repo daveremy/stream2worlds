@@ -64,7 +64,9 @@ consumed), written in the batch transaction as `max(cursor, through)`; a trigger
 lowering it. It is not "every engine evaluated through here": a newly registered engine stores
 rows below it. Today it serves the start-up sanity check; #33's resume needs it once a world
 snapshot records its bridge position. A start still folds from position 0 into an empty
-timeline, through stored verdicts.
+timeline, through stored verdicts. *(2026-09-28: resolved by decision 0021. A world snapshot records its bridge
+position, and validity rule 5 requires `bridge_cursor` at or past it; resuming from the snapshot
+lands in part 1b of #33.)*
 
 **Registry.** `EngineRegistry::register` returns `Result` and refuses an engine whose name is
 already registered at a different version (the store key assumes one version per name).

@@ -13,6 +13,38 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## World snapshots, part 1a: the format and the timeline base — #33 (2026-09-28)
+
+**Shipped:** the pieces a restart-from-snapshot needs, without yet wiring them into `serve`
+([decision 0021](docs/decisions/0021-snapshots.md)). A world snapshot is now a defined,
+portable file (magic, length, a `postcard` payload, FNV-1a checksum) with pure validity rules:
+it loads only when its format, fold (`FOLD_VERSION`, hub cap and a hash of the golden
+fixtures), engine routing and log position all still match, and is otherwise ignored, never
+deleted. The served timeline gained a base world and a live head world, so the world at the
+head is a clone instead of a refold. **User-visible:** a new stable error,
+`offset_before_base` (HTTP 410), answers any offset below a restored snapshot's base on
+`/world`, `/diff`, `/events` (including `Last-Event-ID` resume), entity history, and `/time?ts=`
+before the base; `/time` reports the new `base` field, which stays 0 until `serve` restores
+from a snapshot. The MCP tool descriptions name both.
+
+**Learned:** the SSE follower indexed the event list by absolute offset; once a timeline starts
+at a base, that silently streams the wrong deltas instead of failing. Replacing
+`Timeline::events()` with a base-relative `events_after(offset)` made every index site go
+through one checked door, and a test that restores at offset 10 and compares the SSE bytes with
+the full history's catches the old indexing.
+
+**Changed course:** the engine-routing fingerprint hashes routes in registration order, not as
+a sorted set, because the bridge runs matching engines in that order and reordering can reorder
+claims. The golden-fixture hash is a pinned constant checked by a test rather than an
+`include_bytes!`, which the module-size walker cannot see through.
+
+**Next:** part 1b: the snapshot writer thread and its every-1,000,000-events trigger, `serve`
+loading the newest valid snapshot and resuming the bridge from its log position, a final
+snapshot on SIGINT/SIGTERM, and `--snapshot-every` / `--no-snapshot`. Then the view's scrubber
+floor at `/time.base`.
+
+---
+
 ## Generic field filter, replacing `--wiki` — #131 (2026-09-28)
 
 **Shipped:** a generic, data-driven `--filter <json-path><op><value>` flag (repeatable) on

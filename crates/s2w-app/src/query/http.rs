@@ -215,13 +215,14 @@ impl QueryState {
     /// The time index at `ts`, or its whole range when `ts` is absent.
     ///
     /// # Errors
+    /// [`QueryError::TimeBeforeBase`] for a `ts` inside a restored snapshot;
     /// [`QueryError::Unavailable`] if the lock was poisoned.
     pub fn time(&self, ts: Option<i64>) -> Result<TimeResult, QueryError> {
         self.read(|t| {
             Ok(match ts {
                 Some(ts) => TimeResult::At(TimeAt {
                     ts,
-                    offset: t.offset_at(Timestamp::from_millis(ts)),
+                    offset: t.offset_at(Timestamp::from_millis(ts))?,
                 }),
                 None => TimeResult::Range(t.time_range()),
             })
@@ -236,6 +237,7 @@ impl IntoResponse for QueryError {
             | Self::UnknownEntity { .. }
             | Self::UnknownWorld { .. }
             | Self::UnknownProposal { .. } => StatusCode::NOT_FOUND,
+            Self::OffsetBeforeBase { .. } | Self::TimeBeforeBase { .. } => StatusCode::GONE,
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable | Self::StreamLimit => StatusCode::SERVICE_UNAVAILABLE,
@@ -616,15 +618,14 @@ async fn follow(
     let mut pos = from;
     loop {
         head.borrow_and_update();
+        // Base-relative through `events_after`: after a snapshot restore, index 0 is the
+        // base's offset, never offset 0 (decision 0021).
         let batch: Vec<TimedEvent> = match state.read(|t| {
-            Ok(usize::try_from(pos)
-                .ok()
-                .and_then(|p| {
-                    t.events()
-                        .get(p..usize::try_from(at.unwrap_or_else(|| t.head())).ok()?)
-                })
-                .map(<[TimedEvent]>::to_vec)
-                .unwrap_or_default())
+            let after = t.events_after(pos)?;
+            let take = at.map_or(after.len(), |at| {
+                usize::try_from(at.saturating_sub(pos)).map_or(after.len(), |n| n.min(after.len()))
+            });
+            Ok(after.get(..take).unwrap_or_default().to_vec())
         }) {
             Ok(batch) => batch,
             Err(_) => return,

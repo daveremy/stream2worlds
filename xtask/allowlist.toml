@@ -23,8 +23,8 @@ normal = ["s2w-model", "serde", "serde_json", "thiserror"]
 normal = ["s2w-model"]
 
 [crates.s2w-app]
-normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2", "memory-serve", "axum", "rmcp", "serde", "serde_json", "thiserror", "tokio", "tokio-stream"]
-dev = ["rmcp", "rskafka", "tokio", "tower"]
+normal = ["s2w-model", "s2w-core", "s2w-log", "s2w-sources", "s2w-system1", "s2w-system2", "memory-serve", "axum", "postcard", "rmcp", "serde", "serde_json", "thiserror", "tokio", "tokio-stream"]
+dev = ["proptest", "rmcp", "rskafka", "tokio", "tower"]
 build = ["memory-serve"]
 
 [crates.s2w]
@@ -69,6 +69,9 @@ readme_row = "World query API"
 
 [external.rusqlite]
 readme_row = "Event log"
+
+[external.postcard]
+readme_row = "World snapshots"
 
 [external.toml]
 readme_row = "Fitness functions"

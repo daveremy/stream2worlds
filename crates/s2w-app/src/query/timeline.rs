@@ -1,8 +1,9 @@
-//! The served world log: timestamped [`WorldEvent`]s the query API folds on demand.
+//! The served world log: timestamped [`WorldEvent`]s the query API folds on demand, on top of a
+//! base world (empty, or restored from a snapshot, decision 0021).
 
 use s2w_core::{World, WorldEvent};
 use s2w_model::Timestamp;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
@@ -31,6 +32,9 @@ pub struct HistoryEntry {
 pub struct TimeRange {
     /// The latest offset.
     pub head: u64,
+    /// The earliest offset this process can serve: 0, or the offset of the snapshot it was
+    /// restored from (decision 0021). Offsets below it answer `offset_before_base`.
+    pub base: u64,
     /// The first event's timestamp in milliseconds, if any.
     pub first_ts: Option<i64>,
     /// The last event's timestamp in milliseconds, if any.
@@ -40,14 +44,31 @@ pub struct TimeRange {
     pub clamped: u64,
 }
 
-/// The world log the query API serves, folded from an empty world with a fixed hub cap.
+/// The time index of the events folded into a base world, carried by a snapshot so a restored
+/// timeline answers `/time` exactly as the full history would.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BaseTime {
+    /// The first event's timestamp in milliseconds, if any.
+    pub first_ts: Option<i64>,
+    /// The last event's timestamp in milliseconds, if any.
+    pub last_ts: Option<i64>,
+    /// How many appends were clamped.
+    pub clamped: u64,
+}
+
+/// The world log the query API serves: a base world, the live head world, and the events
+/// between them.
 ///
 /// Offsets are fold offsets ([`World::offset`]): offset `n` is the world after the first `n`
-/// events. This is a stand-in for the event log until snapshots map fold offsets to log
-/// positions (#33, decision 0006).
+/// events. The base is the empty world unless the timeline was restored from a snapshot
+/// ([`Timeline::from_snapshot`]); offsets below it are gone ([`QueryError::OffsetBeforeBase`]).
+/// The head world is folded once per [`Timeline::append`], so the world at the head is a clone,
+/// never a refold.
 #[derive(Clone, Debug)]
 pub struct Timeline {
-    hub_cap: u64,
+    base: World,
+    base_time: BaseTime,
+    head: World,
     events: Vec<TimedEvent>,
     clamped: u64,
 }
@@ -55,73 +76,132 @@ pub struct Timeline {
 impl Timeline {
     /// An empty timeline whose worlds use `hub_cap` as the in-degree cap.
     #[must_use]
-    pub const fn new(hub_cap: u64) -> Self {
+    pub fn new(hub_cap: u64) -> Self {
+        Self::from_snapshot(World::with_hub_cap(hub_cap), BaseTime::default())
+    }
+
+    /// A timeline whose base is `world`, restored from a snapshot, with the base's time index
+    /// `time`. Appends continue from `world.offset()`.
+    #[must_use]
+    pub fn from_snapshot(world: World, time: BaseTime) -> Self {
         Self {
-            hub_cap,
+            head: world.clone(),
+            base: world,
+            base_time: time,
             events: Vec::new(),
-            clamped: 0,
+            clamped: time.clamped,
         }
     }
 
     /// The in-degree cap every world on this timeline is folded under.
     #[must_use]
     pub const fn hub_cap(&self) -> u64 {
-        self.hub_cap
+        self.base.hub_in_degree_cap()
     }
 
-    /// The latest offset: the number of events.
+    /// The earliest servable offset: 0, or the snapshot's offset.
     #[must_use]
-    pub fn head(&self) -> u64 {
-        u64::try_from(self.events.len()).unwrap_or(u64::MAX)
+    pub const fn base(&self) -> u64 {
+        self.base.offset()
     }
 
-    /// The events, oldest first.
+    /// The latest offset.
     #[must_use]
-    pub fn events(&self) -> &[TimedEvent] {
-        &self.events
+    pub const fn head(&self) -> u64 {
+        self.head.offset()
     }
 
-    /// Appends an event and returns the new head. Never refuses an event: a timestamp earlier
-    /// than the previous event's is clamped to it (and counted), so the time index stays
+    /// The world at the head, without folding.
+    #[must_use]
+    pub const fn head_world(&self) -> &World {
+        &self.head
+    }
+
+    /// The events strictly after `offset`, oldest first.
+    ///
+    /// # Errors
+    /// [`QueryError::OffsetBeforeBase`] below the base; [`QueryError::OffsetBeyondHead`] past
+    /// the head.
+    pub fn events_after(&self, offset: u64) -> Result<&[TimedEvent], QueryError> {
+        let start = self.index(offset)?;
+        Ok(self.events.get(start..).unwrap_or_default())
+    }
+
+    /// Appends an event, folds it into the head world, and returns the new head. Never refuses
+    /// an event: a timestamp earlier than the previous event's (or than the base's last, for
+    /// the first event after a snapshot) is clamped to it and counted, so the time index stays
     /// sorted without dropping a world event.
     pub fn append(&mut self, at: Timestamp, event: WorldEvent) -> u64 {
-        let at = match self.events.last() {
-            Some(last) if at < last.at => {
+        let previous = self
+            .events
+            .last()
+            .map(|last| last.at)
+            .or_else(|| self.base_time.last_ts.map(Timestamp::from_millis));
+        let at = match previous {
+            Some(previous) if at < previous => {
                 self.clamped = self.clamped.saturating_add(1);
-                last.at
+                previous
             }
             _ => at,
         };
+        self.head = s2w_core::fold_one(std::mem::take(&mut self.head), &event);
         self.events.push(TimedEvent { at, event });
         self.head()
     }
 
-    /// The events before `offset`, or an error if `offset` is past the head.
+    /// The index into `events` for `offset`: `offset - base`, checked against both ends.
+    fn index(&self, offset: u64) -> Result<usize, QueryError> {
+        let (base, head) = (self.base(), self.head());
+        if offset < base {
+            return Err(QueryError::OffsetBeforeBase { at: offset, base });
+        }
+        if offset > head {
+            return Err(QueryError::OffsetBeyondHead { at: offset, head });
+        }
+        usize::try_from(offset - base)
+            .map_err(|_| QueryError::OffsetBeyondHead { at: offset, head })
+    }
+
+    /// The events from the base up to `offset`.
     fn prefix(&self, offset: u64) -> Result<&[TimedEvent], QueryError> {
-        let head = self.head();
-        usize::try_from(offset)
-            .ok()
-            .and_then(|n| self.events.get(..n))
-            .ok_or(QueryError::OffsetBeyondHead { at: offset, head })
+        let end = self.index(offset)?;
+        Ok(self.events.get(..end).unwrap_or_default())
     }
 
     /// The world at `offset`.
     ///
     /// # Errors
-    /// [`QueryError::OffsetBeyondHead`] if `offset` is past the head.
+    /// [`QueryError::OffsetBeforeBase`] below the base; [`QueryError::OffsetBeyondHead`] past
+    /// the head.
     pub fn world_at(&self, offset: u64) -> Result<World, QueryError> {
         let prefix = self.prefix(offset)?;
+        if offset == self.head() {
+            return Ok(self.head.clone());
+        }
         Ok(s2w_core::fold(
-            World::with_hub_cap(self.hub_cap),
+            self.base.clone(),
             prefix.iter().map(|e| &e.event),
         ))
     }
 
     /// The largest offset whose events were all received at or before `ts`; 0 if none was.
-    #[must_use]
-    pub fn offset_at(&self, ts: Timestamp) -> u64 {
+    ///
+    /// # Errors
+    /// [`QueryError::TimeBeforeBase`] when `ts` is before the base's last event: the answer
+    /// lies inside the snapshot, whose per-event times are not kept.
+    pub fn offset_at(&self, ts: Timestamp) -> Result<u64, QueryError> {
+        if let Some(last) = self.base_time.last_ts
+            && ts.as_millis() < last
+        {
+            return Err(QueryError::TimeBeforeBase {
+                ts: ts.as_millis(),
+                base: self.base(),
+            });
+        }
         let n = self.events.partition_point(|e| e.at <= ts);
-        u64::try_from(n).unwrap_or(u64::MAX)
+        Ok(self
+            .base()
+            .saturating_add(u64::try_from(n).unwrap_or(u64::MAX)))
     }
 
     /// The time index's range.
@@ -129,20 +209,41 @@ impl Timeline {
     pub fn time_range(&self) -> TimeRange {
         TimeRange {
             head: self.head(),
-            first_ts: self.events.first().map(|e| e.at.as_millis()),
-            last_ts: self.events.last().map(|e| e.at.as_millis()),
+            base: self.base(),
+            first_ts: self
+                .base_time
+                .first_ts
+                .or_else(|| self.events.first().map(|e| e.at.as_millis())),
+            last_ts: self
+                .events
+                .last()
+                .map(|e| e.at.as_millis())
+                .or(self.base_time.last_ts),
             clamped: self.clamped,
         }
     }
 
-    /// Every delta up to `to` that names entity `id`, or names an id that resolved to it at
-    /// that moment (so events on a merged-away alias appear on the survivor while merged).
+    /// The time index of everything folded so far: what a snapshot of the head records.
+    #[must_use]
+    pub fn head_time(&self) -> BaseTime {
+        let range = self.time_range();
+        BaseTime {
+            first_ts: range.first_ts,
+            last_ts: range.last_ts,
+            clamped: range.clamped,
+        }
+    }
+
+    /// Every delta after the base and up to `to` that names entity `id`, or names an id that
+    /// resolved to it at that moment (so events on a merged-away alias appear on the survivor
+    /// while merged).
     ///
     /// # Errors
-    /// [`QueryError::OffsetBeyondHead`] if `to` is past the head.
+    /// [`QueryError::OffsetBeforeBase`] below the base; [`QueryError::OffsetBeyondHead`] past
+    /// the head.
     pub fn history(&self, id: u64, to: u64) -> Result<Vec<HistoryEntry>, QueryError> {
         let prefix = self.prefix(to)?;
-        let mut world = World::with_hub_cap(self.hub_cap);
+        let mut world = self.base.clone();
         let mut out = Vec::new();
         for timed in prefix {
             let (next, delta) = fold_with_delta(world, &timed.event);
