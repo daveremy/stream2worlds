@@ -1,7 +1,7 @@
 //! `cargo xtask h-measure freeze`: runs `s2w-discover` on the first `window` events of the
 //! development corpus and writes what it proposed, with every pin it was frozen under. It first
-//! checks every pinned key and the corpus against their sha256 pins, so a frozen mapping names
-//! the exact keys and corpora a later `score` must find unchanged.
+//! checks every pinned key and the corpus against their sha256 pins. A later `score` finds the
+//! pins it uses unchanged and re-runs [`derive`] to prove the file is this command's output.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -15,7 +15,7 @@ use serde_json::Value;
 use super::pins::{Pins, Role, sha256};
 
 /// A frozen mapping: exactly one of `mapping` and `abstain` is set.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Frozen {
     /// The corpus it was discovered on (a `corpora.toml` name).
@@ -36,8 +36,53 @@ pub(crate) struct Frozen {
     pub abstain: Option<String>,
 }
 
+/// What `freeze` writes for `window` events of `corpus` under `pins`, after checking the corpus
+/// is a development corpus matching its pin. `score` calls it again on a frozen file's recorded
+/// inputs and refuses a file that differs, so only a real freeze's output scores (s2w#238).
+pub(super) fn derive(
+    pins: &Pins,
+    dir: &Path,
+    corpus: &str,
+    window: usize,
+) -> Result<Frozen, String> {
+    let pin = pins.corpus(corpus)?;
+    if pin.role != Role::Development {
+        return Err(format!(
+            "{corpus} is a {:?} corpus; a mapping is frozen only on the development corpus",
+            pin.role
+        ));
+    }
+    let payloads = pins.payloads(dir, corpus)?;
+    let window_events = payloads
+        .get(..window)
+        .filter(|events| !events.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "--window {window}: must be 1 to {n}, the {corpus} corpus has {n} events",
+                n = payloads.len()
+            )
+        })?;
+    let config = Config::default();
+    let (profile, discovery) = profiled(window_events, &config)?;
+    let (mapping, abstain) = match discovery {
+        Discovery::Mapping(m) => (Some(m), None),
+        Discovery::Abstain(reason) => (None, Some(reason)),
+    };
+    Ok(Frozen {
+        corpus: corpus.to_owned(),
+        corpus_sha256: pin.sha256.clone(),
+        window,
+        profiler_version: PROFILER_VERSION.to_owned(),
+        config: format!("{config:?}"),
+        pins: pins.all(),
+        profile: summary(&profile),
+        mapping,
+        abstain,
+    })
+}
+
 /// What the profiler measured, reduced to what the report prints.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Summary {
     pub events: usize,
@@ -116,40 +161,7 @@ pub(crate) fn freeze(
     }
     let pins = Pins::load(root)?;
     pins.verify_keys(root)?;
-    let pin = pins.corpus(corpus)?;
-    if pin.role != Role::Development {
-        return Err(format!(
-            "{corpus} is a {:?} corpus; a mapping is frozen only on the development corpus",
-            pin.role
-        ));
-    }
-    let payloads = pins.payloads(dir, corpus)?;
-    let window_events = payloads
-        .get(..window)
-        .filter(|events| !events.is_empty())
-        .ok_or_else(|| {
-            format!(
-                "--window {window}: must be 1 to {n}, the {corpus} corpus has {n} events",
-                n = payloads.len()
-            )
-        })?;
-    let config = Config::default();
-    let (profile, discovery) = profiled(window_events, &config)?;
-    let (mapping, abstain) = match discovery {
-        Discovery::Mapping(m) => (Some(m), None),
-        Discovery::Abstain(reason) => (None, Some(reason)),
-    };
-    let frozen = Frozen {
-        corpus: corpus.to_owned(),
-        corpus_sha256: pin.sha256.clone(),
-        window,
-        profiler_version: PROFILER_VERSION.to_owned(),
-        config: format!("{config:?}"),
-        pins: pins.all(),
-        profile: summary(&profile),
-        mapping,
-        abstain,
-    };
+    let frozen = derive(&pins, dir, corpus, window)?;
     let text = serde_json::to_string_pretty(&frozen).map_err(|e| e.to_string())? + "\n";
     write_new(out, &text)?;
     let outcome = frozen.abstain.as_ref().map_or_else(
