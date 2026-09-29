@@ -21,34 +21,32 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **`serve` runs the stream mapping you accepted, and names the engine after it.** Routes are
+  data: each source runs the mapping its accepted `stream-mapping` proposal names, and the
+  engine is named by the mapping's identity, so a changed mapping never serves the old one's
+  verdicts or snapshots. [Decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)
 - **Humans can grade proposals.** `s2w proposals list|grade|decide` shows the proposal store
   and records a human accept or reject, the decision that grades a producer and can revoke the
-  stream mapping a source runs. MCP agents record their opinions through the same service.
+  stream mapping a source runs. `serve` picks up a decision at its next start.
   [#185](https://github.com/daveremy/stream2worlds/issues/185)
-- **Scale is measured, in part.** Heap bytes per entity is gated against a committed baseline
-  in `cargo xtask check`. Fold instructions per event (Valgrind, CI job `scale`) has a gate
-  whose baseline is set from that job's first run. Measured on the synthetic generator, the
-  fold holds 438 bytes per entity (830 before #172 stored attributes as a sorted `Vec`), 1.46×
-  decision 0004's 300 B planning figure, under a 600 B ceiling (the record's 2× line). Parse
+- **Restarting from a snapshot takes about half the memory.** A restored world is shared
+  instead of copied, and writing a snapshot no longer clones the world: folding 10^6 events the
+  restore peak fell from 1,624 MiB to 861 MiB and the write peak from 919 MiB to 50 MiB.
+  [#179](https://github.com/daveremy/stream2worlds/issues/179)
+- **The world holds 438 bytes per entity, down from 830, and scale is gated.** Heap bytes per
+  entity is checked in `cargo xtask check` against a 600 B ceiling (decision 0004's 2× line;
+  the planning figure is 300 B); fold instructions per event are gated in CI job `scale`. Parse
   cost, fork cost and per-partition lag are not measured yet.
-  [#32](https://github.com/daveremy/stream2worlds/issues/32)
-- **No crate may contain domain code.** Entity types, labels and links are discovered data,
-  not compiled types — enforced by a vocabulary scan and an obfuscation replay that requires
-  the same graph shape when every field is renamed and every id hashed. [Decision 0018](docs/decisions/0018-no-compiled-domain-code.md)
-- **The web view reads readable from world data alone, with no domain code behind it.** A
-  derived per-entity-type label, deterministic colors, degree-based sizing, and "Active
-  now"/"Hubs" panels — and the label pick now has a test proving it survives an attribute
-  rename. [#114](https://github.com/daveremy/stream2worlds/issues/114) · [#123](https://github.com/daveremy/stream2worlds/issues/123)
-- **Visualization and agent use are first-class, not an afterthought.** Every gate now plans
-  three surfaces (a view spec authored by System 2, a lifetime baseline, and surprise scoring
-  against it) instead of adding them after the fact. [Decision 0017](docs/decisions/0017-view-and-agents-first-class.md)
-- **`serve`/`mcp --json` stream the same structured progress `watch --json` already had.** One
-  NDJSON object per flush on stdout, errors on stderr. [#110](https://github.com/daveremy/stream2worlds/issues/110)
-- **`s2w watch --json` streams machine-readable progress.** One NDJSON object per flush on
-  stdout (`appended`, `duplicates`, `reconnects`, `cursor`, `at`), errors on stderr — the flag
-  the AGENTS.md exception had deferred to this issue. [#79](https://github.com/daveremy/stream2worlds/issues/79)
-- **In progress:** the H heuristics (research 0002 §6's seven domain-free stages) that type a
-  new stream without any domain code; read-only MCP over a real world ([#115](https://github.com/daveremy/stream2worlds/issues/115)).
+  [#32](https://github.com/daveremy/stream2worlds/issues/32) · [#172](https://github.com/daveremy/stream2worlds/issues/172)
+- **The stream profiler is checked for domain-freedom.** `cargo xtask check` profiles a
+  recorded stream with `s2w-discover` twice, plain and with every field renamed and every string
+  value hashed, and fails unless both runs propose the same mapping. The profiler is not wired
+  into `serve` yet. [#163](https://github.com/daveremy/stream2worlds/issues/163)
+- **In progress:** the demo world is still empty: no mapping is accepted for Wikipedia yet, so
+  `serve` folds a world with no entities. Filling it is [#163](https://github.com/daveremy/stream2worlds/issues/163)
+  PR 4. Also in progress: the epoch contract and live rebuild, so a running `serve` picks up a
+  decision without a restart ([#184](https://github.com/daveremy/stream2worlds/issues/184)), and entities indexed
+  by dense id ([#190](https://github.com/daveremy/stream2worlds/issues/190)).
 
 ## Demos
 
@@ -308,7 +306,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Language and delivery | Rust, one static binary | building (gate 2) | Small enough to drop into someone else's network; predictable memory, no GC pauses in the stream, good async I/O for many sources. |
 | Workspace | `s2w-model` ← `s2w-core`, `s2w-log`, `s2w-sources`, `s2w-system1`, `s2w-system2` ← `s2w-app` ← `s2w`; `s2w-testkit` for tests; `s2w-discover` → `s2w-model`, not yet wired in | building (gate 2) | The workspace is the architecture: core, model and discover do no I/O, adapters depend only on the model, the app composes them. |
 | Serialization and errors | `serde`, `serde_json`, `thiserror` | building (gate 2) | The model's dependencies, plus `serde` in the core so a world serializes; typed errors in libraries. |
-| Fitness functions | `cargo xtask check` (`toml`, `serde_json`, `syn`, `proc-macro2`) | building (gate 2) | Dependency allowlist by identity, this table by exact name, AGENTS.md in every crate, workspace lint inheritance, clippy function-size thresholds (60 lines, complexity 15, 5 arguments) kept equal in every crate's clippy config, report-only module sizes with a blocking exemption-growth ratchet, and golden replay: the golden log folds to the same bytes twice, from any serialized prefix, and matches the human-owned snapshot. |
+| Fitness functions | `cargo xtask check` (`toml`, `serde_json`, `syn`, `proc-macro2`) | building (gate 2) | Dependency allowlist by identity, this table by exact name, AGENTS.md in every crate, workspace lint inheritance, clippy function-size thresholds (60 lines, complexity 15, 5 arguments) kept equal in every crate's clippy config, report-only module sizes with a blocking exemption-growth ratchet, and golden replay: the golden log folds to the same bytes twice, from any serialized prefix, and matches the human-owned snapshot; an obfuscation replay of the `s2w-discover` profiler; and no decision-record number used twice. |
 | Property & snapshot testing | `proptest`, `insta` | building (gate 2) | Property tests check the fold's entity identity against an independent reference model and resume from any serialized prefix; `insta` pins the fold's output shape for human review. Test-only dependencies of `s2w-core`; `s2w-app` also uses `proptest` to check that a world restored from a snapshot plus its tail equals the full fold. |
 | Licence and advisory gate | `cargo deny check licenses advisories bans` | built (gate 2) | Dependencies must stay permissive: MIT, Apache-2.0, ISC, BSD-3-Clause or Unicode-3.0, plus two scoped exceptions (`foldhash` Zlib, never compiled for our targets; `webpki-root-certs` CDLA-Permissive-2.0, the Mozilla CA bundle), per [research 0003 §8d](research/0003-rust-substrate.md#8d-licences). RustSec advisories must not silently ship. |
 | Sources | A `Source` registry resolved by URI scheme ([decision 0008](docs/decisions/0008-generic-sse-adapter.md)): Kafka by partition assignment via `rskafka` (never a consumer group, never commits; [decision 0007](docs/decisions/0007-kafka-client.md)), a generic SSE adapter via `reqwest`/`tokio`/`tokio-stream` with named presets (e.g. `wikipedia`) as URL+settings data over it ([decision 0003](docs/decisions/0003-wikipedia-sse-client.md)), and stdin NDJSON | built (gate 2) | Three real transports plus a preset, so the source seam is not designed from one case. |
