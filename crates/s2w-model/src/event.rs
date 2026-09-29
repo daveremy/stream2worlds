@@ -4,24 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-/// A source-defined identity (a page title, a user name) that the fold maps to a fold-assigned entity id.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct NaturalKey(String);
-
-impl NaturalKey {
-    /// Wraps a source-defined key.
-    #[must_use]
-    pub fn new(key: impl Into<String>) -> Self {
-        Self(key.into())
-    }
-
-    /// The key text.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+use crate::NaturalKey;
 
 /// An attribute value. No floats: float equality would break byte-identical replay.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
