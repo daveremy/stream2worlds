@@ -28,7 +28,10 @@ pub(crate) mod mentions;
 pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
     let result = match args {
         [one] if one == "selftest" => selftest(root),
-        _ => Err("usage: cargo xtask h-measure selftest".to_owned()),
+        _ => {
+            eprintln!("usage: cargo xtask h-measure selftest");
+            return ExitCode::from(2);
+        }
     };
     match result {
         Ok(report) => {
@@ -53,18 +56,20 @@ fn selftest(root: &Path) -> Result<String, String> {
         .iter()
         .map(|((record, _), cluster)| (*record, cluster.clone()))
         .collect();
-    if executed != proposed {
-        let missing = proposed.difference(&executed).count();
-        let extra = executed.difference(&proposed).count();
-        let first_missing = proposed.difference(&executed).next();
-        let first_extra = executed.difference(&proposed).next();
-        return Err(format!(
-            "executor parity: the mention executor and MappingEngine disagree on {SAMPLE} ({missing} engine entities without a mention, first {first_missing:?}; {extra} mentions the engine does not propose, first {first_extra:?})"
-        ));
-    }
     if predicted.cluster.is_empty() {
         return Err(format!(
             "executor parity: {SAMPLE} gave no mentions, so the check is vacuous"
+        ));
+    }
+    if executed != proposed {
+        let missing: Vec<_> = proposed.difference(&executed).collect();
+        let extra: Vec<_> = executed.difference(&proposed).collect();
+        return Err(format!(
+            "executor parity: the mention executor and MappingEngine disagree on {SAMPLE} ({} engine entities without a mention, first {:?}; {} mentions the engine does not propose, first {:?})",
+            missing.len(),
+            missing.first(),
+            extra.len(),
+            extra.first()
         ));
     }
     let own_key = key::KeySpec::from_mapping(&mapping)?;

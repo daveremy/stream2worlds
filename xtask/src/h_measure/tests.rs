@@ -87,6 +87,12 @@ fn an_empty_identity_or_path_is_rejected() {
     let mut value = example();
     value["decode"] = json!([[]]);
     rejects(&value, "decode path is empty");
+    let mut value = example();
+    value["types"][0]["mentions"][0]["identity"] = json!([["data", ""]]);
+    rejects(&value, "empty or U+001F key");
+    let mut value = example();
+    value["unscored"] = json!([["data", "z\u{1f}"]]);
+    rejects(&value, "empty or U+001F key");
 }
 
 #[test]

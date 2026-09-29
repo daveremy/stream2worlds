@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 
 use s2w_discover::rule_id;
-use s2w_model::{FieldPath, KEY_SEPARATOR, StreamMapping};
+use s2w_model::{FieldPath, KEY_SEPARATOR, Segment, StreamMapping};
 use serde::Deserialize;
 
 /// The one key-spec version this harness reads.
@@ -105,13 +105,13 @@ impl KeySpec {
         if self.types.is_empty() {
             return Err("key spec has no types".to_owned());
         }
-        if self.decode.iter().any(|p| p.0.is_empty()) {
-            return Err("a decode path is empty".to_owned());
+        if !self.decode.iter().all(well_formed) {
+            return Err("a decode path is empty or has an empty or U+001F key".to_owned());
         }
         let mut unscored = BTreeSet::new();
         for path in &self.unscored {
-            if path.0.is_empty() {
-                return Err("an unscored path is empty".to_owned());
+            if !well_formed(path) {
+                return Err("an unscored path is empty or has an empty or U+001F key".to_owned());
             }
             // Compared as the executors' mention id, so `["a", 1]` and `["a", "1"]` are one path.
             if !unscored.insert(rule_id(path)) {
@@ -134,12 +134,12 @@ impl KeySpec {
                 return Err(format!("type {:?} has no mention rules", kind.label));
             }
             for rule in &kind.mentions {
-                if rule.path.0.is_empty()
+                if !well_formed(&rule.path)
                     || rule.identity.is_empty()
-                    || rule.identity.iter().any(|p| p.0.is_empty())
+                    || !rule.identity.iter().all(well_formed)
                 {
                     return Err(format!(
-                        "type {:?}: a mention rule has an empty path or identity",
+                        "type {:?}: a mention rule has an empty path or identity, or an empty or U+001F key",
                         kind.label
                     ));
                 }
@@ -157,4 +157,14 @@ impl KeySpec {
         }
         Ok(())
     }
+}
+
+/// A path the mapping format would accept too: not empty, and no key segment empty or holding
+/// U+001F (as `StreamMapping::validate`).
+fn well_formed(path: &FieldPath) -> bool {
+    !path.0.is_empty()
+        && path.0.iter().all(|segment| match segment {
+            Segment::Key(key) => !key.is_empty() && !key.contains(KEY_SEPARATOR),
+            Segment::Index(_) => true,
+        })
 }
