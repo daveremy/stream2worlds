@@ -44,3 +44,33 @@ file = "dev-key-v1.json"
 variant = "base"
 sha256 = "006c50d4a8067c620a157534cb17f5cdfcf64f58ff275184aafaaefc55a48595"
 reading = "dev-key-v0 (base) in key format 1, plus no_identity [0] on the log_id mention: an AbuseFilter hit carries log_id 0 and writes no log row, so it mentions no log entity (1,348 of the dev corpus's 19,684 log mentions; v0 merged them into one log per wiki). #225, ruling 2026-09-29 item 3"
+
+[[key]]
+file = "dev-key-v1.q1-no-wiki.json"
+variant = "q1-no-wiki"
+sha256 = "5cb8a5658054920c10f220a38dc7338ccf44c2f5a466d0993bb0ee5215542514"
+reading = "dev-key-v0.q1-no-wiki.json in key format 1, plus no_identity [0] on the log_id mention, as dev-key-v1.json: the sensitivity variants read against the primary key with the same log_id exclusion (s2w#56 PR 2b)"
+
+[[key]]
+file = "dev-key-v1.q3-rcid-scored.json"
+variant = "q3-rcid-scored"
+sha256 = "bd1ae190f4dc115d88f8755587dbacae85466ff998d3e4712c9bdf13bdd344c2"
+reading = "dev-key-v0.q3-rcid-scored.json in key format 1, plus no_identity [0] on the log_id mention, as dev-key-v1.json: the sensitivity variants read against the primary key with the same log_id exclusion (s2w#56 PR 2b)"
+
+[[key]]
+file = "dev-key-v1.q4-separate.json"
+variant = "q4-separate"
+sha256 = "9f0be88923f7eebf95a9f76f1158120b64657c5e36490353da7794edec68d236"
+reading = "dev-key-v0.q4-separate.json in key format 1, plus no_identity [0] on the log_id mention, as dev-key-v1.json: the sensitivity variants read against the primary key with the same log_id exclusion (s2w#56 PR 2b)"
+
+[[key]]
+file = "dev-key-v1.user-global.json"
+variant = "user-global"
+sha256 = "8454ec7e6ec60d21e8b714fcc8c74cfc6253e2d63d9efd541a1dcda8ebc473df"
+reading = "dev-key-v0.user-global.json in key format 1, plus no_identity [0] on the log_id mention, as dev-key-v1.json: the sensitivity variants read against the primary key with the same log_id exclusion (s2w#56 PR 2b)"
+
+[[key]]
+file = "dev-key-v1.canonical-mention.json"
+variant = "canonical-mention"
+sha256 = "82fa6b0118fb35d3c6f8f446fe78776d84d87a8e8bfe960b0bc9fb6aca1ff4b4"
+reading = "dev-key-v0.canonical-mention.json in key format 1, plus no_identity [0] on the log_id mention, as dev-key-v1.json: the sensitivity variants read against the primary key with the same log_id exclusion (s2w#56 PR 2b)"

@@ -6,12 +6,13 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The four corpora (dev, heldout, heldout-2, reserved): window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The four corpora (dev, heldout, heldout-2, reserved): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `keys.toml` | Every answer key's sha256, pinned before any score is run, and the reading of #17 it encodes. |
 | `dev-key-v0.json` | dev-key v0: the base key (key-spec format v0, `xtask/src/h_measure/key.rs`). |
 | `dev-key-v0.<variant>.json` | Sensitivity variants. Each differs from the base only as `keys.toml` says; `diff` the files to see the variant. |
 | `dev-key-v1.json` | dev-key v1: the v0 base key in key-spec format 1, with `"no_identity": [0]` on the `log_id` mention (#225). The v0 files stay as they are. |
+| `dev-key-v1.<variant>.json` | Each v0 sensitivity variant in format 1, with the same `no_identity` on `log_id`, pinned before any score. |
 
 ## Rules
 
@@ -22,6 +23,20 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 - Rebuild the corpora with `capture.sh 2026-09-28T00:00:00Z <dir>` only while EventStreams still
   retains that window (~7 days). The files carry a capture-time header, so a re-capture has new
   hashes; check them against `corpora.toml` and record any change as a new manifest entry.
+
+## Freezing a mapping
+
+```
+cargo xtask h-measure freeze --corpus dev --window 10000 --out FILE [--dir DIR]
+```
+
+`--dir` defaults to `~/.local/share/stream2worlds/h-measure`. `freeze` checks every key pin
+and the corpus pin, and refuses: a corpus whose `role` is not `development` (a mapping
+is never discovered on held-out or reserved data), an `--out` that exists (a frozen mapping is
+never overwritten), a corpus whose frame count is not its pinned `events`, and a `--window`
+outside 1 to that count (the mapping is discovered on the first `--window` events). The file
+records the corpus sha256, the window, the profiler version and config, every key and corpus
+pin (a corpus pin includes its role, file and event count), and the profile's abstained paths, so a score can prove what it was frozen against.
 
 ## How the base key was written
 

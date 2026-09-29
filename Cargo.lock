@@ -3171,6 +3171,7 @@ dependencies = [
  "s2w-system1",
  "serde",
  "serde_json",
+ "sha2",
  "syn 2.0.119",
  "toml",
 ]

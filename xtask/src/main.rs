@@ -91,7 +91,7 @@ fn main() -> ExitCode {
     let tighten = args == ["check", "--tighten-baseline"];
     if args != ["check"] && !tighten {
         eprintln!(
-            "usage: cargo xtask check [--tighten-baseline] | cargo xtask scale | cargo xtask h-measure selftest"
+            "usage: cargo xtask check [--tighten-baseline] | cargo xtask scale | cargo xtask h-measure selftest|freeze"
         );
         return ExitCode::from(2);
     }
