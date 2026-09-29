@@ -56,7 +56,11 @@ mapping must be a new name: it has no stored rows, the bridge evaluates every po
 and the old mapping's rows stay in the file unserved (0012: rows of an engine no longer
 registered are not served). No verdict-schema change and no migration. `Engine::name` now
 returns `&str` borrowed from the engine, and `Route` holds owned strings. `provenance()` also
-names the proposal id.
+names the proposal id. Its `mapping_hash` (0021: FNV-1a 64 of the canonical JSON alone) is a
+different digest from the identity, which also covers `KEY_FORMAT` and `MAPPING_VERSION`. It
+stays unchanged so provenance written before this decision still compares with provenance
+written after it; the identity is already on every verdict row, in the engine name. A second
+identity, over labels `serde_json` must escape or encode as multi-byte UTF-8, is pinned too.
 
 **`KEY_FORMAT`** (`s2w_model::natural_key`, now 1) versions the natural-key text. A test pins a
 known-answer key, so an encoding change without a bump fails the build. Mixed key formats break

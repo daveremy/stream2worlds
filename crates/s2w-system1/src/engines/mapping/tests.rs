@@ -298,3 +298,18 @@ fn the_committed_fixture_mapping_identity_is_pinned() -> TestResult {
     );
     Ok(())
 }
+
+/// A second pinned identity, over labels that `serde_json` must escape (`"`, `\`) or encode
+/// as multi-byte UTF-8, so a change in how the canonical bytes are written cannot silently
+/// rename every engine (decision 0023).
+#[test]
+fn an_identity_over_escaped_and_non_ascii_labels_is_pinned() -> TestResult {
+    let mapping: StreamMapping = serde_json::from_str(
+        r#"{"version":1,"decode":[],"entities":[{"id":"ed\"it\\or","type_label":"usér","key":[["naïve"]],"attrs":[{"name":"ünï","path":["a\"b"]}]}],"relationships":[]}"#,
+    )?;
+    assert_eq!(
+        MappingEngine::new(mapping)?.name(),
+        "mapping-8b7f79bf35a70060"
+    );
+    Ok(())
+}

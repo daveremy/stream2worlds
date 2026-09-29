@@ -314,6 +314,28 @@ fn identical_mappings_under_different_whitespace_share_an_identity() -> TestResu
 }
 
 #[test]
+fn one_mapping_accepted_for_two_sources_routes_both_to_one_engine_name() -> TestResult {
+    let mut rows = Rows::new();
+    rows.propose("a", "one", "A")
+        .propose("b", "two", "A")
+        .decide("a", Policy, Accept)
+        .decide("b", Policy, Accept);
+    let resolution = rows.resolve();
+    let registry = registry(&resolution)?;
+    let one = registry.engines_for(&SourceId::new("one")?);
+    let two = registry.engines_for(&SourceId::new("two")?);
+    assert_eq!((one.len(), two.len()), (1, 1));
+    assert_eq!(one[0].name(), two[0].name());
+    let provenance =
+        |engine: &dyn s2w_system1::Engine| -> Result<serde_json::Value, serde_json::Error> {
+            serde_json::from_slice(&engine.provenance().unwrap_or_default())
+        };
+    assert_eq!(provenance(one[0])?["proposal_id"], "a");
+    assert_eq!(provenance(two[0])?["proposal_id"], "b");
+    Ok(())
+}
+
+#[test]
 fn the_registry_routes_each_resolved_source_to_its_named_mapping_engine() -> TestResult {
     let mut rows = Rows::new();
     rows.propose("a", "one", "A").decide("a", Policy, Accept);

@@ -89,6 +89,9 @@ async fn run_serve_async(
         &EngineRegistry::with_defaults().names(),
         &[],
     )?;
+    // Routes resolve before the source starts, so a corrupt proposal store fails before any
+    // source connects.
+    let registry = routed_registry(&args.log_dir, reporter)?;
     let name = source.name();
     // Start before sharing: no RefCell borrow survives an await, even during cursor lookup.
     let started = source
@@ -99,7 +102,6 @@ async fn run_serve_async(
         .with_metadata(Some(manifest), log.membership_history()?)
         .with_log_dir(args.log_dir.clone());
     report_source_start(reporter, name, &started.notes);
-    let registry = routed_registry(&args.log_dir, reporter)?;
     let (resume, snapshots) = snapshots::prepare(
         &state,
         (&log, &verdicts),

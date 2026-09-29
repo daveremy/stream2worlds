@@ -25,6 +25,19 @@ impl Route {
             Self::Prefix(prefix) => source.as_str().starts_with(prefix.as_str()),
         }
     }
+
+    /// Whether some source id could match both routes.
+    fn overlaps(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exact(a), Self::Exact(b)) => a == b,
+            (Self::Exact(id), Self::Prefix(prefix)) | (Self::Prefix(prefix), Self::Exact(id)) => {
+                id.starts_with(prefix.as_str())
+            }
+            (Self::Prefix(a), Self::Prefix(b)) => {
+                a.starts_with(b.as_str()) || b.starts_with(a.as_str())
+            }
+        }
+    }
 }
 
 /// Why [`EngineRegistry::register`] refused an engine.
@@ -105,9 +118,10 @@ impl EngineRegistry {
 
     /// Adds `engine` on `route`, after every engine already registered.
     ///
-    /// Registering the same name and version on a second route is allowed (overlapping routes
-    /// are legitimate configuration) and logged once; [`Self::engines_for`] then returns it
-    /// once.
+    /// Registering the same name and version on a second route is allowed. When the routes
+    /// can overlap (legitimate configuration) it is logged; [`Self::engines_for`] then returns
+    /// it once. Disjoint routes, such as one mapping accepted for two exact sources, are not
+    /// logged.
     ///
     /// # Errors
     /// [`RegistryError::VersionConflict`] if an engine of the same name is registered at a
@@ -118,15 +132,17 @@ impl EngineRegistry {
         engine: Box<dyn Engine>,
     ) -> Result<&mut Self, RegistryError> {
         let version = engine.version();
-        if let Some((_, existing)) = self.routes.iter().find(|(_, e)| e.name() == engine.name()) {
-            let name = engine.name();
-            if existing.version() != version {
-                return Err(RegistryError::VersionConflict {
-                    name: name.to_owned(),
-                    registered: existing.version(),
-                    rejected: version,
-                });
-            }
+        let name = engine.name();
+        if let Some((_, existing)) = self.routes.iter().find(|(_, e)| e.name() == name)
+            && existing.version() != version
+        {
+            return Err(RegistryError::VersionConflict {
+                name: name.to_owned(),
+                registered: existing.version(),
+                rejected: version,
+            });
+        }
+        if self.overlaps_same_name(&route, name) {
             eprintln!(
                 "s2w: bridge: engine '{name}' is registered on more than one route; a source \
                  matching several runs it once"
@@ -134,6 +150,13 @@ impl EngineRegistry {
         }
         self.routes.push((route, engine));
         Ok(self)
+    }
+
+    /// Whether an engine named `name` is already registered on a route that can overlap `route`.
+    fn overlaps_same_name(&self, route: &Route, name: &str) -> bool {
+        self.routes
+            .iter()
+            .any(|(existing, engine)| engine.name() == name && existing.overlaps(route))
     }
 
     /// Every engine routed for `source`, in registration order, each name once (the first
@@ -236,6 +259,20 @@ mod tests {
         assert_eq!(names(&registry, "a.b")?, ["one", "two"]);
         assert_eq!(names(&registry, "a.c")?, ["one"]);
         Ok(())
+    }
+
+    #[test]
+    fn routes_overlap_only_when_one_source_can_match_both() {
+        let exact = |id: &str| Route::Exact(id.to_owned());
+        let prefix = |p: &str| Route::Prefix(p.to_owned());
+        assert!(exact("a.b").overlaps(&exact("a.b")));
+        assert!(!exact("one").overlaps(&exact("two")));
+        assert!(exact("a.b").overlaps(&prefix("a.")));
+        assert!(prefix("a.").overlaps(&exact("a.b")));
+        assert!(!prefix("a.").overlaps(&exact("b.a")));
+        assert!(prefix("a.").overlaps(&prefix("a.b.")));
+        assert!(prefix("a.b.").overlaps(&prefix("a.")));
+        assert!(!prefix("a.").overlaps(&prefix("b.")));
     }
 
     #[test]
