@@ -26,7 +26,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 - `obfuscation_raw.rs`: check 11, raw obfuscation replay of `MappingEngine` over a recorded raw
   stream and a mapping (decision 0021). Self-tests live in `obfuscation_raw/tests.rs`.
   - `obfuscation_raw/rename.rs`: applies the maps to payloads, the mapping and claims; the
-    non-vacuity checks.
+    non-vacuity checks. Decodes with `s2w_system1::decode` and reads keys with
+    `s2w_model::NaturalKey::parts`, never its own copy; a key that does not read fails the check.
 - `clippy_config.rs`: check 8, every crate's effective clippy config carries the root size thresholds.
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.

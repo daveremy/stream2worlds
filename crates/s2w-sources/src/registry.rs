@@ -4,12 +4,12 @@
 use std::sync::Arc;
 
 pub use crate::filter::FieldFilter;
-use crate::hash::fnv1a64_hex;
 use crate::kafka::KafkaAdapter;
 use crate::presets::preset;
 use crate::source::{Source, SourceError};
 use crate::sse::{FilteredDialect, Opaque, SseConfig, SseSource, USER_AGENT};
 use crate::stdin::StdinSource;
+use s2w_model::fnv1a64_hex;
 
 /// The forms [`resolve`] accepts, for usage messages.
 pub const FORMS: &str = "wikipedia | kafka://<broker>[,<broker>...]/<topic> | sse://<host>/<path> (https) | https://… | http://… | -"; // vocabulary: allow

@@ -5,12 +5,16 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 mod event;
+mod hash;
 mod mapping;
-pub use event::{AttrValue, NaturalKey, WorldEvent};
+mod natural_key;
+pub use event::{AttrValue, WorldEvent};
+pub use hash::{Fnv64, fnv1a64, fnv1a64_hex};
 pub use mapping::{
-    AttrRule, EntityRule, FieldPath, KEY_SEPARATOR, MAPPING_VERSION, MappingError,
-    RelationshipRule, Segment, StreamMapping,
+    AttrRule, EntityRule, FieldPath, MAPPING_VERSION, MappingError, RelationshipRule, Segment,
+    StreamMapping,
 };
+pub use natural_key::{KEY_SEPARATOR, KeyError, KeyPart, NaturalKey};
 
 use serde::{Deserialize, Serialize};
 

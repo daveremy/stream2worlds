@@ -3,7 +3,9 @@
 //! details are inside, so the bytes are portable (a later object-store backend reuses these
 //! functions unchanged).
 
-use super::{Invalid, SNAPSHOT_FORMAT, SnapshotError, SnapshotV1, fnv1a64};
+use s2w_model::fnv1a64;
+
+use super::{Invalid, SNAPSHOT_FORMAT, SnapshotError, SnapshotV1};
 
 /// The first eight bytes of every snapshot file.
 pub const MAGIC: [u8; 8] = *b"S2WSNAP1";

@@ -179,7 +179,7 @@ mod tests {
     use std::time::Duration;
 
     use s2w_log::{EventLog, SqliteEventLog};
-    use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
+    use s2w_model::{Cursor, RawEvent, SourceId, Timestamp, fnv1a64_hex};
     use s2w_sources::registry::resolve;
     use s2w_sources::source::SourceError;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -269,15 +269,6 @@ mod tests {
         if let Err(error) = appended {
             panic!("seeding the log should succeed: {error}");
         }
-    }
-
-    fn fnv1a64_hex(bytes: &[u8]) -> String {
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for &byte in bytes {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(0x0100_0000_01b3);
-        }
-        format!("{hash:016x}")
     }
 
     // Each case below fails before any network connection is attempted, so these run offline.

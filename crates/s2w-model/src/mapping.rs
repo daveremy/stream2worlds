@@ -6,13 +6,11 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::KEY_SEPARATOR;
+
 /// The one mapping format version this crate reads and writes. Aliases or merge rules would be
 /// version 2 (decision 0021).
 pub const MAPPING_VERSION: u32 = 1;
-
-/// Separates a natural key's components: the type label, then each JSON-encoded key part.
-/// A structural separator, so a replay can split a key back into its parts.
-pub const KEY_SEPARATOR: char = '\u{1f}';
 
 /// How one stream's raw payloads map to entity and relationship claims.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

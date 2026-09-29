@@ -16,9 +16,9 @@
 //! the renamed mapping (key segments via the key map; array indexes and rule ids unchanged).
 //! The expected world is built from pass A's claims, mapped by their typed role: types and
 //! kinds via the value map, attribute names via the key map, string attribute values via the
-//! value map, and each natural key split on `KEY_SEPARATOR` with its label and string parts
-//! mapped. Folding the expected claims must equal folding pass B's claims (check 10's
-//! comparator). Any collision, or a mapping name a map cannot cover, fails closed.
+//! value map, and each natural key read with `NaturalKey::parts` with its label and string parts
+//! mapped. Decoding uses the engine's own `s2w_system1::decode`. Folding the expected claims
+//! must equal folding pass B's claims (check 10's comparator). Any collision, or a mapping name a map cannot cover, fails closed.
 //!
 //! Non-vacuity: pass A must yield at least two entity types, one relationship, one multi-part
 //! key, one integer key part and one string attribute; the expected claims must differ from
@@ -31,12 +31,13 @@ use std::path::Path;
 use s2w_core::{World, fold};
 use s2w_model::{
     Cursor, FieldPath, RawEvent, Segment, SourceId, StreamMapping, Timestamp, WorldEvent,
+    fnv1a64_hex,
 };
 use s2w_system1::{Engine, MappingEngine, Verdict};
 use serde_json::Value;
 
 use crate::golden::HUB_CAP;
-use crate::obfuscation::{compare_named, fnv1a64_hex};
+use crate::obfuscation::compare_named;
 
 /// The recorded raw stream: one stored payload per line.
 pub(crate) const RAW: &str = "crates/s2w-system1/testdata/raw-sample.jsonl";

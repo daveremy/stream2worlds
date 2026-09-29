@@ -86,7 +86,7 @@ impl EngineRegistry {
     /// other routing (decision 0021, validity rule 4).
     #[must_use]
     pub fn feed_fingerprint(&self) -> u64 {
-        let mut hash = crate::snapshot::Fnv64::new();
+        let mut hash = s2w_model::Fnv64::new();
         for (route, engine) in &self.routes {
             let (kind, text) = match route {
                 Route::Exact(id) => ("exact", *id),

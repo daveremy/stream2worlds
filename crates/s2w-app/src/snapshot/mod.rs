@@ -22,39 +22,8 @@ use crate::query::BaseTime;
 /// The payload format this code writes and reads. A different value is ignored, never migrated.
 pub const SNAPSHOT_FORMAT: u32 = 1;
 
-/// FNV-1a 64, the one dependency-free hash the snapshot uses for checksums and fingerprints.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Fnv64(u64);
-
-impl Fnv64 {
-    pub(crate) const fn new() -> Self {
-        Self(0xcbf2_9ce4_8422_2325)
-    }
-
-    pub(crate) fn write(&mut self, bytes: &[u8]) -> &mut Self {
-        for byte in bytes {
-            self.0 ^= u64::from(*byte);
-            self.0 = self.0.wrapping_mul(0x100_0000_01b3);
-        }
-        self
-    }
-
-    /// Writes `bytes` preceded by their length, so adjacent fields cannot run together.
-    pub(crate) fn write_field(&mut self, bytes: &[u8]) -> &mut Self {
-        let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        self.write(&len.to_le_bytes()).write(bytes)
-    }
-
-    pub(crate) const fn finish(&self) -> u64 {
-        self.0
-    }
-}
-
-/// FNV-1a 64 of `bytes`.
-#[must_use]
-pub fn fnv1a64(bytes: &[u8]) -> u64 {
-    Fnv64::new().write(bytes).finish()
-}
+use s2w_model::Fnv64;
+use s2w_model::fnv1a64;
 
 /// Identifies the running fold for `hub_cap`: FNV-1a over [`FOLD_VERSION`], `hub_cap`,
 /// [`SNAPSHOT_FORMAT`] and [`FOLD_FIXTURE_HASH`]. A snapshot written by any other fold is

@@ -262,7 +262,7 @@ fn cluster_id(brokers: &[String]) -> String {
         canonical.push(':');
         canonical.push_str(broker);
     }
-    crate::hash::fnv1a64_hex(canonical.as_bytes())
+    s2w_model::fnv1a64_hex(canonical.as_bytes())
 }
 
 /// The log source id of one partition: `kafka.<cluster>.<topic>.p<partition>`. The cluster

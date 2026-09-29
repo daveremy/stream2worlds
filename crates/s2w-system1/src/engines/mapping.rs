@@ -5,11 +5,12 @@
 use std::collections::BTreeMap;
 
 use s2w_model::{
-    AttrValue, EntityRule, FieldPath, KEY_SEPARATOR, MappingError, NaturalKey, RawEvent, Segment,
-    StreamMapping, WorldEvent,
+    AttrValue, EntityRule, KeyPart, MappingError, NaturalKey, RawEvent, StreamMapping, WorldEvent,
+    fnv1a64_hex,
 };
 use serde_json::Value;
 
+use crate::decode::{decode_path, lookup};
 use crate::{AbstainReason, Confidence, Engine, Verdict};
 
 /// Runs one [`StreamMapping`] over raw JSON payloads.
@@ -18,9 +19,9 @@ use crate::{AbstainReason, Confidence, Engine, Verdict};
 /// is absent is skipped; one that holds a non-string or invalid JSON is `Unparseable`), then
 /// match each entity rule. A rule matches when every key path holds a scalar (string, `i64`
 /// integer or bool); floats, out-of-range numbers, nulls, arrays and objects never match. The
-/// natural key is the type label, then each key part JSON-encoded, joined by
-/// [`KEY_SEPARATOR`], so a string `"7"` and an integer `7` stay distinct keys and two types
-/// never share a key. A relationship is claimed when both endpoint rules matched. No rule
+/// natural key is [`NaturalKey::from_parts`]: the type label, then each key part, joined by
+/// [`s2w_model::KEY_SEPARATOR`], so a string `"7"` and an integer `7` stay distinct keys and
+/// two types never share a key. A relationship is claimed when both endpoint rules matched. No rule
 /// matched abstains `Insufficient`; otherwise the claims are proposed as certain, entities in
 /// rule order then relationships in rule order.
 #[derive(Debug, Clone)]
@@ -120,7 +121,7 @@ impl Engine for MappingEngine {
             Err(error) => return abstain(AbstainReason::Unparseable(error.to_string())),
         };
         for path in &self.mapping.decode {
-            if let Err(reason) = decode(&mut value, path) {
+            if let Err(reason) = decode_path(&mut value, path) {
                 return abstain(AbstainReason::Unparseable(reason));
             }
         }
@@ -144,52 +145,20 @@ fn abstain(reason: AbstainReason) -> Verdict {
     Verdict::Abstain { reason }
 }
 
-/// Replaces the JSON text at `path` with its parsed value. An absent path is not an error.
-fn decode(value: &mut Value, path: &FieldPath) -> Result<(), String> {
-    let Some(slot) = lookup_mut(value, path) else {
-        return Ok(());
-    };
-    let Value::String(text) = slot else {
-        return Err("a decode path holds a non-string value".to_owned());
-    };
-    let parsed: Value = serde_json::from_str(text)
-        .map_err(|error| format!("a decode path holds invalid JSON: {error}"))?;
-    *slot = parsed;
-    Ok(())
-}
-
-fn lookup<'v>(value: &'v Value, path: &FieldPath) -> Option<&'v Value> {
-    path.0
-        .iter()
-        .try_fold(value, |node, segment| match segment {
-            Segment::Key(key) => node.as_object()?.get(key),
-            Segment::Index(index) => node.as_array()?.get(*index),
-        })
-}
-
-fn lookup_mut<'v>(value: &'v mut Value, path: &FieldPath) -> Option<&'v mut Value> {
-    path.0
-        .iter()
-        .try_fold(value, |node, segment| match segment {
-            Segment::Key(key) => node.as_object_mut()?.get_mut(key),
-            Segment::Index(index) => node.as_array_mut()?.get_mut(*index),
-        })
-}
-
 /// The rule's natural key, when every key path holds a scalar.
 fn entity_key(value: &Value, rule: &EntityRule) -> Option<NaturalKey> {
-    let mut key = rule.type_label.clone();
-    for path in &rule.key {
-        let part = match lookup(value, path)? {
-            Value::String(text) => serde_json::to_string(text).ok()?,
-            Value::Number(number) => number.as_i64()?.to_string(),
-            Value::Bool(flag) => flag.to_string(),
-            _ => return None,
-        };
-        key.push(KEY_SEPARATOR);
-        key.push_str(&part);
-    }
-    Some(NaturalKey::new(key))
+    let parts = rule
+        .key
+        .iter()
+        .map(|path| match lookup(value, path)? {
+            Value::String(text) => Some(KeyPart::Str(text.clone())),
+            Value::Number(number) => number.as_i64().map(KeyPart::Int),
+            Value::Bool(flag) => Some(KeyPart::Bool(*flag)),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    // A validated mapping's labels never hold the separator, so this never declines.
+    NaturalKey::from_parts(&rule.type_label, &parts).ok()
 }
 
 fn attrs(value: &Value, rule: &EntityRule) -> BTreeMap<String, AttrValue> {
@@ -205,18 +174,6 @@ fn attrs(value: &Value, rule: &EntityRule) -> BTreeMap<String, AttrValue> {
             Some((attr.name.clone(), found))
         })
         .collect()
-}
-
-/// FNV-1a, 64-bit, as 16 lowercase hex digits: a small local digest of the mapping's canonical
-/// bytes for verdict provenance. The same algorithm as `s2w_sources::hash::fnv1a64_hex`, kept
-/// here because this crate may not depend on another adapter.
-fn fnv1a64_hex(bytes: &[u8]) -> String {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for &byte in bytes {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }
 
 #[cfg(test)]
