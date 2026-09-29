@@ -105,6 +105,6 @@ test('the home page never imports the presentation module that injects world CSS
   const { readFileSync } = await import('node:fs');
   for (const file of ['../src/home-main.ts', '../src/home.ts']) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /from\s+['"]\.\/presentation['"]/, file);
+    assert.doesNotMatch(source, /['"]\.\/presentation(\.[jt]s)?['"]/, file);
   }
 });

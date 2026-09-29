@@ -331,7 +331,7 @@ fn stylesheet_accepts_plain_css_and_round_trips() -> TestResult {
     let dir = TestDirectory::new("presentation-stylesheet")?;
     let mut log = SqliteEventLog::open(dir.path())?;
     make_world(&mut log, "w1")?;
-    let css = "/* calm */ body { letter-spacing: .02em; }\n@media (prefers-color-scheme: light) { h1 { color: #123; } }";
+    let css = "html { scroll-behavior: smooth; } /* calm */ body { letter-spacing: .02em; }\n@media (prefers-color-scheme: light) { h1 { color: #123; } }";
     WorldPresentation::set(
         &mut log,
         "w1",
@@ -359,6 +359,8 @@ fn stylesheet_rejects_resource_loading_and_escapes() {
         "a{-moz-binding:foo}",
         "a{width:expression(1)}",
         "a{\u{0}}",
+        "a{content:\"/*\"} b{background:url(//evil.example/p.png)} c{content:\"*/\"}",
+        "a{content:\"/*\"} @import 'x'; c{content:\"*/\"}",
     ] {
         assert!(
             matches!(

@@ -156,8 +156,10 @@ fn is_valid_typeface(value: &str) -> bool {
 /// `<style>` element it is injected into, or hide such a construct behind a CSS escape.
 /// A denylist by design: the sheet is operator-supplied and the viewer never runs script from
 /// CSS, so the goal is "no network, no escape hatch out of the sheet", not a CSS parser.
-/// Comments are stripped before matching, so `@im/**/port` is judged as the browser reads it
-/// (and `@import` split by a comment is not a valid at-rule anyway).
+/// The denylist runs on the raw text AND on the comment-stripped text: a browser tokenizes
+/// strings before comments, so a `/*` inside a string must not let the validator skip real
+/// code (`content:"/*"} x{background:url(..)} y{content:"*/"`), while a comment splitting a
+/// name is not a valid token and needs no special handling.
 fn validate_stylesheet(css: &str) -> Result<(), LogError> {
     let bad = |reason: &str| {
         Err(LogError::InvalidPresentation(format!(
@@ -192,7 +194,7 @@ fn validate_stylesheet(css: &str) -> Result<(), LogError> {
         }
     }
     stripped.push_str(rest);
-    let lower = stripped.to_ascii_lowercase();
+    let lowers = [css.to_ascii_lowercase(), stripped.to_ascii_lowercase()];
     for (needle, what) in [
         ("@import", "@import"),
         ("@namespace", "@namespace"),
@@ -206,12 +208,11 @@ fn validate_stylesheet(css: &str) -> Result<(), LogError> {
         ("cross-fade(", "cross-fade()"),
         ("element(", "element()"),
         ("expression(", "expression()"),
-        ("behavior", "behavior"),
         ("-moz-binding", "-moz-binding"),
         ("javascript:", "javascript:"),
         ("://", "a remote address"),
     ] {
-        if lower.contains(needle) {
+        if lowers.iter().any(|lower| lower.contains(needle)) {
             return bad(&format!("contains {what}, which is not allowed"));
         }
     }
