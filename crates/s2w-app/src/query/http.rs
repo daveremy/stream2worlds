@@ -33,16 +33,29 @@ use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{ACTUAL_BRANCH, HeadView, Lod, ViewParams, WorldView, world_view};
 use crate::bridge::SourceStats;
 
-/// How long a `/world` body waits for a reserved write before answering 503 (s2w#259).
+/// How long a `/world` body waits for reserved writes before answering 503 (s2w#259). A
+/// reserved section is one bridge poll; the viewer retries a 503.
 const BODY_YIELD_LIMIT: Duration = Duration::from_secs(30);
 
 /// The longest a reserved writer, or a `/world` body yielding to one, sleeps between checks.
 const YIELD_MAX_BACKOFF: Duration = Duration::from_millis(5);
 
 /// A reserved timeline write ([`QueryState::reserve_write`]); `/world` bodies wait while it lives.
-pub(crate) struct WriteReservation(Arc<AtomicUsize>);
+pub(crate) struct WriteReservation {
+    _count: Counted,
+}
 
-impl Drop for WriteReservation {
+/// One count in a counter, released on drop.
+struct Counted(Arc<AtomicUsize>);
+
+impl Counted {
+    fn enter(counter: &Arc<AtomicUsize>) -> Self {
+        counter.fetch_add(1, Ordering::SeqCst);
+        Self(Arc::clone(counter))
+    }
+}
+
+impl Drop for Counted {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::SeqCst);
     }
@@ -54,6 +67,9 @@ pub struct QueryState {
     timeline: Arc<RwLock<Timeline>>,
     /// Live [`WriteReservation`]s: a `/world` body takes no read guard while one exists.
     write_reservations: Arc<AtomicUsize>,
+    /// `/world` bodies waiting out a reservation: the next reservation lets them in first, so
+    /// back-to-back polls (a backfill) cannot keep every body out.
+    bodies_waiting: Arc<AtomicUsize>,
     head: Arc<watch::Sender<u64>>,
     world: Arc<str>,
     sse_slots: Arc<tokio::sync::Semaphore>,
@@ -77,6 +93,7 @@ impl QueryState {
         Self {
             timeline: Arc::new(RwLock::new(timeline)),
             write_reservations: Arc::new(AtomicUsize::new(0)),
+            bodies_waiting: Arc::new(AtomicUsize::new(0)),
             head: Arc::new(head),
             world: Arc::from("default"),
             sse_slots: Arc::new(tokio::sync::Semaphore::new(32)),
@@ -233,7 +250,8 @@ impl QueryState {
     /// Runs `f` on the head world and its time bounds under one read lock: what a snapshot
     /// records (decision 0024). `serve` encodes the snapshot inside `f`, so the head is never
     /// cloned (#179). `f` runs on the caller's thread with the read lock held: other readers
-    /// proceed, appends wait. Only the bridge appends, and it calls this between polls.
+    /// proceed, appends wait. Only the bridge appends, and it calls this between polls (under
+    /// its [`Self::reserve_write`], s2w#259).
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.
@@ -291,9 +309,19 @@ impl QueryState {
     /// the body ended cut short at the channel's capacity (~4 MiB): the demo viewer's "Failed to
     /// fetch". Hold the reservation across the synchronous section that writes, and take the
     /// write lock there with no await in between.
+    ///
+    /// A body already waiting goes first, for at most [`stream::STALL`]: it wakes within
+    /// [`YIELD_MAX_BACKOFF`], so this wait is short unless a body is stuck.
     pub(crate) async fn reserve_write(&self) -> WriteReservation {
-        self.write_reservations.fetch_add(1, Ordering::SeqCst);
-        let reservation = WriteReservation(Arc::clone(&self.write_reservations));
+        let until = Instant::now() + stream::STALL;
+        let mut backoff = Duration::from_millis(1);
+        while self.bodies_waiting.load(Ordering::SeqCst) > 0 && Instant::now() < until {
+            tokio::time::sleep(backoff).await;
+            backoff = (backoff * 2).min(YIELD_MAX_BACKOFF);
+        }
+        let reservation = WriteReservation {
+            _count: Counted::enter(&self.write_reservations),
+        };
         let mut backoff = Duration::from_millis(1);
         // A poisoned lock stops the wait; the write itself reports it.
         while matches!(self.timeline.try_write(), Err(TryLockError::WouldBlock)) {
@@ -310,12 +338,16 @@ impl QueryState {
     fn read_for_body(&self) -> Result<RwLockReadGuard<'_, Timeline>, QueryError> {
         let until = Instant::now() + BODY_YIELD_LIMIT;
         let mut backoff = Duration::from_millis(1);
+        let mut waiting = None;
         loop {
             let guard = self.timeline.read().map_err(|_| QueryError::Unavailable)?;
             if self.write_reservations.load(Ordering::SeqCst) == 0 {
                 return Ok(guard);
             }
             drop(guard);
+            if waiting.is_none() {
+                waiting = Some(Counted::enter(&self.bodies_waiting));
+            }
             if Instant::now() >= until {
                 return Err(QueryError::Unavailable);
             }
@@ -336,7 +368,8 @@ impl QueryState {
 
     /// The view at `at` (or the head), labelled with the epoch it was read under. World,
     /// epoch and projection all come from one read: the head is projected where it lies,
-    /// never copied (#216), so appends wait for the projection.
+    /// never copied (#216), so appends wait for the projection (`serve`'s bridge without
+    /// blocking the runtime: [`Self::reserve_write`], s2w#259).
     ///
     /// # Errors
     /// [`QueryError::StaleEpoch`] when `epoch` is given and is not the served one (checked
@@ -1486,6 +1519,36 @@ mod membership_tests {
             let view: serde_json::Value = serde_json::from_slice(&body).expect("whole JSON");
             assert_eq!(view["offset"], u64::from(ENTITIES));
             assert_eq!(state.bounds().expect("bounds").1, u64::from(ENTITIES) + 1);
+        });
+    }
+
+    /// s2w#259: a body waiting out one poll's reservation gets in before the next poll's, so a
+    /// backfill's back-to-back polls cannot answer every `/world` with a 503.
+    #[test]
+    fn a_waiting_body_goes_before_the_next_reservation() {
+        crate::tests::run(false, async {
+            let state = QueryState::new(Timeline::new(3));
+            let first = state.reserve_write().await;
+            let (tx, rx) = std::sync::mpsc::channel();
+            let body = {
+                let state = state.clone();
+                std::thread::spawn(move || {
+                    let guard = state.read_for_body().expect("read");
+                    tx.send(()).expect("send");
+                    std::thread::sleep(Duration::from_millis(50));
+                    drop(guard);
+                })
+            };
+            while state.bodies_waiting.load(Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            drop(first);
+            let second = state.reserve_write().await;
+            assert!(rx.try_recv().is_ok(), "the waiting body went first");
+            drop(second);
+            body.join().expect("body");
+            assert_eq!(state.write_reservations.load(Ordering::SeqCst), 0);
+            assert_eq!(state.bodies_waiting.load(Ordering::SeqCst), 0);
         });
     }
 }

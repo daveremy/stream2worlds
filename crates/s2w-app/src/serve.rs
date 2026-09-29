@@ -293,6 +293,7 @@ type LiveDiscover = (InRun, Rc<RefCell<SqliteEventLog>>, SinkReporter);
 // the same poll/backoff policy, yielding even after full batches so ingestion/HTTP can run.
 // Snapshot capture runs right after each poll with no await in between (decision 0024), then
 // the proposal-store check that may swap in a live rebuild, also with no await (s2w#184).
+// Each poll first awaits a write reservation (s2w#259); from there to the swap, no await.
 async fn local_bridge(
     mut bridge: Bridge<SharedLogReader, SqliteVerdictStore>,
     config: BridgeConfig,
@@ -306,7 +307,7 @@ async fn local_bridge(
         // The poll appends, and a rebuild swaps the timeline, on this runtime thread: wait here,
         // yielding, for any `/world` body to release its read guard, so the write below never
         // blocks the runtime that body needs to drain (s2w#259). No await until it drops.
-        let reservation = bridge.state().clone().reserve_write().await;
+        let reservation = bridge.state().reserve_write().await;
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bridge.poll_once()))
             .map_err(|_| BridgeError::Task("bridge poll panicked".to_owned()))??;
         if let Some((snapshotter, state)) = &snapshots {
