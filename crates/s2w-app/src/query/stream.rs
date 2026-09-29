@@ -16,7 +16,8 @@ pub(crate) const CHUNK_BYTES: usize = 64 * 1024;
 pub(crate) const CHUNKS_IN_FLIGHT: usize = 64;
 
 /// How long the writer waits for room in the channel before giving up. The writer may hold the
-/// timeline's read guard, which blocks every append, so a client that stops reading must not
+/// timeline's read guard, which blocks every append (`serve`'s bridge waits for it without
+/// blocking the runtime: `QueryState::reserve_write`, s2w#259), so a client that stops reading must not
 /// hold it for longer than this per chunk.
 pub(crate) const STALL: Duration = Duration::from_secs(5);
 

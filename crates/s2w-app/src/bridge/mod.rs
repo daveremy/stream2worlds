@@ -404,6 +404,11 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         })
     }
 
+    /// The state this bridge appends to.
+    pub(crate) fn state(&self) -> &QueryState {
+        &self.state
+    }
+
     /// The last log position this bridge consumed and that event's content hash: the checkpoint
     /// a snapshot records (decision 0024). `None` until this bridge has consumed an event, even
     /// after [`Self::resume`], which knows the position but not its hash.
