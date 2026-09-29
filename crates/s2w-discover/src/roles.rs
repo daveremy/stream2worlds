@@ -32,6 +32,10 @@ pub enum Role {
     NoDependents,
     /// An entity identifier: repeated values that other fields are constant under.
     Entity,
+    /// Passes the entity test, but at least `type_uniqueness_pct` of its values are new: nearly
+    /// every event carrying it would mint a new entity, so the world would grow with every
+    /// event (s2w#208). It keys no type; it may still be another type's attribute.
+    NearUnique,
 }
 
 /// Values that occur at least twice in a column, each with the events that carry it.
@@ -142,7 +146,8 @@ pub(crate) fn single_column(column: &Column, cfg: &Config) -> Option<Role> {
 
 /// The dependency test for a candidate key `k`: the best informative dependent decides. A path
 /// in the grey uniqueness band gets the test too, since uniqueness falls as the window grows;
-/// it abstains as `GreyUniqueness` unless it passes.
+/// it abstains as `GreyUniqueness` unless it passes. A path that passes at or above
+/// `type_uniqueness_pct` is `NearUnique`, not an entity.
 pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
     let column = &table.columns[k];
     let grey = pct(column.texts.len(), column.cells.len()) >= cfg.grey_uniqueness_pct;
@@ -163,7 +168,11 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
         .max()
         .unwrap_or(0);
     if best >= cfg.fd_accept_pct {
-        Role::Entity
+        if pct(column.texts.len(), column.cells.len()) >= cfg.type_uniqueness_pct {
+            Role::NearUnique
+        } else {
+            Role::Entity
+        }
     } else if grey {
         Role::GreyUniqueness
     } else if best >= cfg.fd_grey_pct {
