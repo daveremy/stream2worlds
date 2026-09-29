@@ -67,7 +67,7 @@ fn recurrence_pct(column: &Column) -> usize {
 pub(crate) fn aliased(table: &Table, a: usize, b: usize, cfg: &Config) -> bool {
     let (mut both, mut equal) = (0, 0);
     for (event, row) in table.rows.iter().enumerate() {
-        if row.contains_key(&a) && row.contains_key(&b) {
+        if row[a].is_some() && row[b].is_some() {
             both += 1;
             if table.text(event, a) == table.text(event, b) {
                 equal += 1;
@@ -90,10 +90,7 @@ impl Dependency {
         let mut values = BTreeSet::new();
         let mut constant = 0;
         for group in groups {
-            let seen: Vec<u32> = group
-                .iter()
-                .filter_map(|&e| table.rows[e].get(&a).copied())
-                .collect();
+            let seen: Vec<u32> = group.iter().filter_map(|&e| table.rows[e][a]).collect();
             // A dependent missing from a group, or carried once, is evidence of nothing: the
             // group counts against it (every repeat group is in the denominator).
             if seen.len() >= 2 && seen.iter().all(|v| *v == seen[0]) {
@@ -223,7 +220,7 @@ fn explained(table: &Table, c: usize, optional: &[usize]) -> usize {
             by_value.values().all(|events| {
                 let carried = events
                     .iter()
-                    .filter(|&&e| table.rows[e].contains_key(&p))
+                    .filter(|&&e| table.rows[e][p].is_some())
                     .count();
                 let share = pct(carried, events.len());
                 share <= 2 || share >= 98

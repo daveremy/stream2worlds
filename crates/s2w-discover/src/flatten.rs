@@ -64,8 +64,9 @@ pub(crate) struct Table {
     pub(crate) decode: Vec<FieldPath>,
     pub(crate) paths: Vec<FieldPath>,
     pub(crate) columns: Vec<Column>,
-    /// Per event: path index to value id, keyable values only.
-    pub(crate) rows: Vec<BTreeMap<usize, u32>>,
+    /// Per event, per path index: the value id, for keyable values only. Dense, so every
+    /// lookup in the dependency and alias tests is an index.
+    pub(crate) rows: Vec<Vec<Option<u32>>>,
     index: BTreeMap<FieldPath, usize>,
 }
 
@@ -97,9 +98,14 @@ impl Table {
             }
             let event = table.events;
             table.events += 1;
-            table.rows.push(BTreeMap::new());
+            table.rows.push(Vec::new());
             table.walk(event, &mut Vec::new(), &map);
         }
+        let width = table.paths.len();
+        table
+            .rows
+            .iter_mut()
+            .for_each(|row| row.resize(width, None));
         table
     }
 
@@ -125,13 +131,17 @@ impl Table {
         let column = &mut self.columns[index];
         column.push(event, value);
         if let Some(&(_, Some(id))) = column.cells.last() {
-            self.rows[event].insert(index, id);
+            let row = &mut self.rows[event];
+            if row.len() <= index {
+                row.resize(index + 1, None);
+            }
+            row[index] = Some(id);
         }
     }
 
     /// The value text of `path` in `event`, if keyable and present.
     pub(crate) fn text(&self, event: usize, path: usize) -> Option<&str> {
-        let id = *self.rows[event].get(&path)?;
+        let id = self.rows[event][path]?;
         self.columns[path]
             .texts
             .get(id as usize)
