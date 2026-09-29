@@ -45,7 +45,7 @@ split plan; #254 is its first PR.
 ([#255](https://github.com/daveremy/stream2worlds/pull/255), bridge batch 1000 to 250, history
 cap 20,000 to 50,000, cap-2 peak 577 to 520–538 MiB). Both are reviewed and green; a review of
 #253's latest commit found the allocator-env refusal is a fixed name list, so a named variant
-skips it and the test still asserts (harness only), and that is being fixed before merge. PR C
+skips it and the test still asserts (harness only), and that will be fixed before merge. PR C
 (mimalloc) measured −12 MiB on the main-thread topology and −77 MiB on `serve`'s; the ruling is
 that `serve`'s topology decides, so it will be re-measured on PR B's base. Then deploy and a
 hold check. For gate 3, #250 PR 2 adds a `user` type, then containment
