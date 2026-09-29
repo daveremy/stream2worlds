@@ -6,6 +6,8 @@ Runtime wiring: composes sources, the log, the core and the engines; read-only M
 
 - every `s2w-*` library crate; `tokio`, `tokio-stream`, `thiserror`; further runtime, MCP and
   HTTP libraries chosen in decision records
+- `postcard` (no default features, `use-std`) for the world snapshot payload only (decision 0021)
+- dev: `proptest` for the snapshot golden-equivalence test
 - `memory-serve` at runtime and build time for the committed web bundle (decision 0016);
   Node is a frontend development/CI tool only, never part of a Rust build or runtime
 
@@ -26,6 +28,15 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   claims, and serves a stored verdict instead of calling the engine (decision 0012); a verdict
   that does not match the log is an error, never a re-evaluation. The one other write is
   `publish_source_stats`, a read-only telemetry side channel that never touches the timeline.
+- `Timeline` (decision 0021) has a base world (empty, or a restored snapshot's) and serves offsets
+  from the base to the head only; anything below is `offset_before_base` (410). Index the event
+  list only through `events_after`, never by absolute offset. Without a snapshot the base is 0 and
+  every answer is unchanged.
+- `snapshot/` (decision 0021): a snapshot is derived and never trusted. It is loaded only when
+  every validity rule holds, and an invalid file is reported and skipped, never deleted. Its
+  bytes carry no path or host detail. The codec and validity rules are pure; only `store` does
+  I/O, writes atomically (temp file, fsync, rename, dir fsync), and touches only files matching
+  `snapshot-<20 digits>.s2w`. Writer, trigger and serve wiring land in #33 part 1b.
 - `query/` is the one read contract for the view, `--json` and MCP (decision 0006). Its pure half does no
   I/O; the HTTP half only parses parameters and calls it. One SSE message per offset; stable error codes.
 - No domain knowledge in this crate; see decision 0018.

@@ -131,6 +131,15 @@ Stop it with Ctrl-C. Run it again on the same `--log-dir` and it resumes from th
 same directory with a different `--world` is an error. Existing schema-v2 event logs migrate
 atomically to v3, preserving events and cursors. `/worlds` uses the stored display name.
 
+Every offset-taking route serves offsets from `base` to `head`, both reported by
+`GET /worlds/{world}/time`. `base` is 0 today. Once `serve` restarts from a world snapshot
+(#33, part 1b; [decision 0021](docs/decisions/0021-snapshots.md)), `base` becomes the
+snapshot's offset and the history before it is gone from that process: `/world?at=`,
+`/diff?from=`, `/events?from=` or `Last-Event-ID`, and `/entity/{id}/history?to=` below `base`
+answer `410` with `{"error": "offset_before_base"}`, and so does `/time?ts=` before the base's
+last event. Entity history then starts after `base`, and a scrubber should start at `base`. The
+MCP tools share this contract.
+
 `GET /worlds/{world}/sources?at=N` returns a JSON array of `SourceInfo`, one per source ID
 active at `N` (sorted by source id); omitting `at` uses the current timeline head. An addition
 is visible at its recorded offset, a removal is already absent at its offset, and the latest
