@@ -386,7 +386,10 @@ mod backfill {
             let (status, len, etag) = get("/worlds/default/world".to_owned(), last_etag.as_ref());
             seen.slowest_world = seen.slowest_world.max(tick.elapsed());
             match status {
-                StatusCode::OK => last_etag = Some(etag.expect("/world sends an ETag")),
+                StatusCode::OK => {
+                    assert!(len > 0, "/world answered 200 with an empty body");
+                    last_etag = Some(etag.expect("/world sends an ETag"));
+                }
                 StatusCode::NOT_MODIFIED => seen.unchanged += 1,
                 other => panic!("/world answered {other}"),
             }

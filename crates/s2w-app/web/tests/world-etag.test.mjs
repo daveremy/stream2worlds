@@ -28,3 +28,23 @@ test('a refresh sends the last tag of the same URL and a 304 resolves to null', 
   await refreshSnapshot(new URLSearchParams('world=w&lod=type'), new AbortController().signal);
   assert.equal(sent.at(-1).inm, undefined);
 });
+
+// A 200 whose body fails (a stream cut short) must not leave its tag behind (#216).
+test('a failed body does not make the next refresh conditional', async () => {
+  globalThis.location = { origin: 'http://s2w.test' };
+  const { snapshot, refreshSnapshot } = await import('../src/api.ts');
+  const sent = [];
+  const replies = [
+    { status: 200, tag: '"a"', body: '{"offset": 1, "nodes": [' },
+    { status: 200, tag: '"b"', body: '{"offset": 2, "nodes": []}' },
+  ];
+  globalThis.fetch = async (url, init) => {
+    sent.push(init.headers?.['If-None-Match']);
+    const reply = replies.shift();
+    return new Response(reply.body, { status: reply.status, headers: { ETag: reply.tag } });
+  };
+  const params = new URLSearchParams('world=cut');
+  await assert.rejects(snapshot(params, new AbortController().signal));
+  assert.equal((await refreshSnapshot(params, new AbortController().signal)).offset, 2);
+  assert.deepEqual(sent, [undefined, undefined]);
+});

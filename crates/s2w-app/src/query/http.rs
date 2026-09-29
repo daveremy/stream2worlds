@@ -606,7 +606,7 @@ fn resolve_world<'t>(t: &'t Timeline, request: &WorldRequest) -> Result<Resolved
     t.check_epoch(request.epoch)?;
     let offset = request.at.unwrap_or_else(|| t.head());
     t.check_offset(offset)?;
-    let tag = world_etag(t.epoch(), offset, &request.params);
+    let tag = world_etag(t.epoch(), t.hub_cap(), offset, &request.params);
     if request
         .if_none_match
         .as_deref()
@@ -631,9 +631,11 @@ enum WorldAnswer {
     Body(HeaderValue),
 }
 
-/// `/world`'s entity tag: the view is a pure function of (epoch, offset, params), so equal tags
-/// name equal bytes.
-fn world_etag(epoch: Epoch, offset: u64, params: &ViewParams) -> HeaderValue {
+/// `/world`'s entity tag: the view is a pure function of (epoch, fold, offset, params), so equal
+/// tags name equal bytes. The epoch names the feed, not the fold, so the tag also carries
+/// [`FOLD_VERSION`] and the hub cap: a deploy that changes either under the same mapping must
+/// not answer 304 to a page that still holds an old tag.
+fn world_etag(epoch: Epoch, hub_cap: u64, offset: u64, params: &ViewParams) -> HeaderValue {
     let lod = match params.lod {
         Lod::Type => "type",
         Lod::Entity => "entity",
@@ -641,7 +643,10 @@ fn world_etag(epoch: Epoch, offset: u64, params: &ViewParams) -> HeaderValue {
     let focus = params
         .focus
         .map_or_else(|| "-".to_owned(), |f| f.to_string());
-    let tag = format!("\"{epoch}-{offset}-{lod}-{focus}-{}\"", params.hops);
+    let tag = format!(
+        "\"{epoch}-f{FOLD_VERSION}-c{hub_cap}-{offset}-{lod}-{focus}-{}\"",
+        params.hops
+    );
     // Hex, digits, letters, dashes and quotes only: always a valid header value.
     HeaderValue::from_str(&tag).unwrap_or_else(|_| HeaderValue::from_static("\"\""))
 }

@@ -52,9 +52,13 @@ async function fetchWorld(params: URLSearchParams, signal: AbortSignal, conditio
   // `no-store`: the page keeps the view itself; a large body in the HTTP cache helps no one.
   const response = await checked(url, signal, { headers, cache: 'no-store' });
   if (response.status === 304) return null;
+  // Keep the tag only once the body parsed: a body cut short (the server ends a stalled stream
+  // with an error) must not leave a tag for a view this page never showed.
+  lastWorld = undefined;
+  const view: WorldView = await response.json();
   const etag = response.headers.get('ETag');
   lastWorld = etag ? { href: url.href, etag } : undefined;
-  return response.json();
+  return view;
 }
 export async function snapshot(params: URLSearchParams, signal: AbortSignal): Promise<WorldView> {
   return (await fetchWorld(params, signal, false))!;
