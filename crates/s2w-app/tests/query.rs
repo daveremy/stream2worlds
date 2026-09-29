@@ -6,8 +6,8 @@ mod golden {
 
     use axum::Router;
     use axum::body::Body;
-    use axum::http::{Request, StatusCode};
-    use s2w_app::query::{QueryState, Timeline, ViewParams, diff, router, world_view};
+    use axum::http::{HeaderMap, Request, StatusCode, header};
+    use s2w_app::query::{Lod, QueryState, Timeline, ViewParams, diff, router, world_view};
     use s2w_core::{NaturalKey, World, WorldEvent, fold};
     use s2w_model::Timestamp;
     use serde_json::Value;
@@ -544,6 +544,151 @@ mod golden {
         assert_eq!(ids, vec![21, 22, 23, 24, 25]);
         assert_eq!(msgs[4].1, "entity");
         assert_eq!(msgs[4].2["minted"], true);
+    }
+
+    async fn get_raw(app: &Router, request: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
+        let res = app.clone().oneshot(request).await.unwrap();
+        let (parts, body) = res.into_parts();
+        let bytes = axum::body::to_bytes(body, usize::MAX).await.unwrap();
+        (parts.status, parts.headers, bytes.to_vec())
+    }
+
+    #[test]
+    fn streamed_world_is_byte_identical_to_the_pure_projection() {
+        run(streamed_world_is_byte_identical_to_the_pure_projection_body());
+    }
+
+    /// `/world` streams the view node by node (#216). Its bytes must equal
+    /// `serde_json::to_vec(&world_view(..))` at every offset, level of detail and focus the
+    /// projection tests use, in particular the node order: by `e:<id>` STRING, so `e:10` comes
+    /// before `e:2`, which this log exercises (asserted below).
+    async fn streamed_world_is_byte_identical_to_the_pure_projection_body() {
+        // The golden log mints fewer than ten ids; a chain of extra users relating to each
+        // other and to the hub pushes ids past 9, so `e:10` and `e:9` share one view.
+        let mut log = events();
+        for i in 0..8 {
+            log.push(WorldEvent::RelationshipObserved {
+                from: NaturalKey::new(format!("user:Extra{i}")),
+                to: NaturalKey::new(if i % 2 == 0 { "enwiki" } else { "user:Alice" }),
+                kind: "edit".to_owned(),
+            });
+        }
+        let mut timeline = Timeline::new(CAP);
+        for (i, e) in log.iter().enumerate() {
+            timeline.append(Timestamp::from_millis(i64::try_from(i).unwrap() * 1000), e.clone());
+        }
+        let app = router(QueryState::new(timeline));
+        let alice = id_of("user:Alice");
+        let enwiki = id_of("enwiki");
+        let focuses = [
+            (None, 1),
+            (Some(alice), 0),
+            (Some(alice), 1),
+            (Some(alice), 2),
+            (Some(enwiki), 1),
+            (Some(999), 1),
+            (Some(alice), 6),
+        ];
+        let mut string_order_differs = false;
+        for at in 0..=log.len() {
+            let world = fold(World::with_hub_cap(CAP), &log[..at]);
+            for lod in [Lod::Entity, Lod::Type] {
+                for (focus, hops) in focuses {
+                    let params = ViewParams { lod, focus, hops };
+                    let mut uri = format!(
+                        "/worlds/default/world?at={at}&lod={}&hops={hops}",
+                        if lod == Lod::Entity { "entity" } else { "type" }
+                    );
+                    if let Some(focus) = focus {
+                        uri.push_str(&format!("&focus={focus}"));
+                    }
+                    let (status, _, got) =
+                        get_raw(&app, Request::get(&uri).body(Body::empty()).unwrap()).await;
+                    match world_view(&world, &params) {
+                        Ok(view) => {
+                            assert_eq!(status, StatusCode::OK, "{uri}");
+                            let expected = serde_json::to_vec(&view).unwrap();
+                            assert_eq!(
+                                String::from_utf8(got).unwrap(),
+                                String::from_utf8(expected).unwrap(),
+                                "{uri}"
+                            );
+                            let ids: Vec<u64> = view
+                                .nodes
+                                .iter()
+                                .filter_map(|n| n.id().strip_prefix("e:")?.parse().ok())
+                                .collect();
+                            string_order_differs |= ids.windows(2).any(|w| w[0] > w[1]);
+                        }
+                        Err(error) => {
+                            let expected = serde_json::to_value(error.json_body()).unwrap();
+                            let got: Value = serde_json::from_slice(&got).unwrap();
+                            assert!(status.is_client_error(), "{uri}: {status}");
+                            assert_eq!(got, expected, "{uri}");
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            string_order_differs,
+            "no view put a longer id before a shorter one: the string-order trap is untested"
+        );
+    }
+
+    #[test]
+    fn world_answers_304_to_a_matching_etag() {
+        run(world_answers_304_to_a_matching_etag_body());
+    }
+
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
+    )]
+    async fn world_answers_304_to_a_matching_etag_body() {
+        let (state, app) = app();
+        let uri = "/worlds/default/world";
+        let plain = |uri: &str| Request::get(uri).body(Body::empty()).unwrap();
+        let conditional = |uri: &str, tag: &str| {
+            Request::get(uri)
+                .header(header::IF_NONE_MATCH, tag)
+                .body(Body::empty())
+                .unwrap()
+        };
+        let (status, headers, body) = get_raw(&app, plain(uri)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers[header::CONTENT_TYPE], "application/json");
+        let tag = headers[header::ETAG].to_str().unwrap().to_owned();
+        assert!(!body.is_empty());
+
+        for inm in [tag.clone(), format!("W/{tag}"), format!("\"x\", {tag}"), "*".to_owned()] {
+            let (status, headers, body) = get_raw(&app, conditional(uri, &inm)).await;
+            assert_eq!(status, StatusCode::NOT_MODIFIED, "{inm}");
+            assert_eq!(headers[header::ETAG], tag.as_str());
+            assert!(body.is_empty());
+        }
+        // Another level of detail is another view.
+        let (status, headers, _) = get_raw(&app, conditional(&format!("{uri}?lod=type"), &tag)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(headers[header::ETAG], tag.as_str());
+        // A stale epoch is refused before the tag is compared.
+        let stale = format!("{uri}?epoch=00000000000000ff");
+        let (status, _, _) = get_raw(&app, conditional(&stale, &tag)).await;
+        assert_eq!(status, StatusCode::GONE);
+        // The head moves: the old tag no longer matches.
+        state
+            .append(
+                Timestamp::from_millis(99_000),
+                WorldEvent::EntityObserved {
+                    key: NaturalKey::new("user:Zed"),
+                    entity_type: "user".to_owned(),
+                    attrs: std::collections::BTreeMap::new(),
+                },
+            )
+            .unwrap();
+        let (status, headers, _) = get_raw(&app, conditional(uri, &tag)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(headers[header::ETAG], tag.as_str());
     }
 
     #[test]
