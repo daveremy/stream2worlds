@@ -6,7 +6,8 @@ The workspace's fitness functions: `cargo xtask check`.
 
 - `serde`, `serde_json`, `toml`, `syn`, `proc-macro2`, `s2w-core` (the golden replay check folds
   the golden log), `s2w-model` (the obfuscation replay's engine-layer coverage builds
-  `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`)
+  `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`; check
+  11 runs a recorded raw stream through `MappingEngine`)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -20,6 +21,12 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 - `main.rs`: CLI, metadata, dependency and workspace checks.
 - `golden.rs`: deterministic golden replay.
+- `obfuscation.rs`: check 10, obfuscation replay of the golden log through the fold and the
+  claim-reading engines.
+- `obfuscation_raw.rs`: check 11, raw obfuscation replay of `MappingEngine` over a recorded raw
+  stream and a mapping (decision 0021). Self-tests live in `obfuscation_raw/tests.rs`.
+  - `obfuscation_raw/rename.rs`: applies the maps to payloads, the mapping and claims; the
+    non-vacuity checks.
 - `clippy_config.rs`: check 8, every crate's effective clippy config carries the root size thresholds.
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.

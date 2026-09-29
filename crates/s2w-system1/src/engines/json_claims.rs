@@ -1,4 +1,4 @@
-//! The second engine: a payload that already is one claim, for hand-written worlds.
+//! An engine for a payload that already is one claim, for hand-written worlds.
 
 use s2w_model::{RawEvent, WorldEvent};
 use serde::Deserialize;
