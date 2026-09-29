@@ -266,25 +266,23 @@ mod tests {
                 a, b,
                 "the proposals view does not depend on the served epoch"
             );
-            let top: Vec<&str> = a.as_object().unwrap().keys().map(String::as_str).collect();
-            assert_eq!(top, ["decisions", "grades", "proposals"]);
-            let keys: Vec<&str> = a["proposals"][0]
-                .as_object()
-                .unwrap()
-                .keys()
-                .map(String::as_str)
-                .collect();
+            // Sets, not Vecs: the assertion is about which keys exist, not serde_json's map order.
+            let keys_of = |v: &Value| -> std::collections::BTreeSet<String> {
+                v.as_object().unwrap().keys().cloned().collect()
+            };
+            let set = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect();
+            assert_eq!(keys_of(&a), set(&["proposals", "decisions", "grades"]));
             assert_eq!(
-                keys,
-                [
-                    "actor",
-                    "class",
-                    "id",
-                    "payload_hash",
-                    "proposed_at_ms",
+                keys_of(&a["proposals"][0]),
+                set(&[
                     "seq",
-                    "snapshot_offset"
-                ],
+                    "id",
+                    "class",
+                    "actor",
+                    "snapshot_offset",
+                    "payload_hash",
+                    "proposed_at_ms"
+                ]),
                 "no epoch next to snapshot_offset"
             );
             assert_eq!(a["proposals"][0]["snapshot_offset"], position().as_u64());
