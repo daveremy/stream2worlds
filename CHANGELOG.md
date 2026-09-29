@@ -28,6 +28,32 @@ unrouted, and that `serve` builds the same world shape from an obfuscated copy o
 
 **Next:** a name-free prune of relationship rules and a window rule, then deploy.
 
+## Scale gates replay a recorded stream — #174 (2026-09-29)
+
+**Shipped:** the scale gates now measure a recorded 10-minute Wikipedia stream alongside the
+seeded generator, not instead of it
+([#204](https://github.com/daveremy/stream2worlds/pull/204),
+[#209](https://github.com/daveremy/stream2worlds/pull/209)). The recording is raw SSE from
+`mediawiki.page_change.v1`, 11,667 events, pinned by hash and by the world it folds to (11,462
+entities, 19,512 relationships). Fold instructions per event are gated in CI job `scale` and
+heap bytes per entity in `cargo xtask check`, for both supplies. The SSE frame parser the
+fixture uses is now the live adapter's, shared with xtask's replay.
+
+**Learned:** real traffic folds at 15,285 Ir per raw event against the generator's 5,764, but
+a raw event maps to about 5 claims, so per claim it is about 3,060. It holds 346 bytes per
+entity against the generator's 360, both inside decision 0004's 2× line: the gap to the 300 B
+planning figure is about the same on observed data as on chosen data. Live traffic ran at about 19.4 events/s, more than twice the
+rate in the earlier 3-minute capture, so the fixture is 34.2 MB rather than the planned 15 MB;
+it is still committed raw, without LFS. It contains 17 distinct IPv4 addresses of logged-out
+editors, which is public Wikimedia data under CC BY-SA.
+
+**Changed course:** the issue asked to replay the recording *instead of* the generator. The
+two answer different questions (regression on a 10^6-event world versus real-workload shape),
+so both stay gated ([decision 0004](docs/decisions/0004-scale-envelope.md), amendment). The pin
+is FNV-1a 64, not sha256, to avoid a new dependency.
+
+**Next:** parse cost on the same fixture (#166) and fork cost (#167).
+
 ## Learned mappings fill a world at start — #197 PR 4a (2026-09-29)
 
 **Shipped:** `serve` profiles the first 10,000 logged events of each unrouted source with

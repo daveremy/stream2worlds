@@ -79,3 +79,26 @@ Relationships are unchanged at 234 B. s2w#191 (interning) is the remaining cut t
 Amendment, 2026-09-29 (s2w#202): #198 (entities as a `Vec` by dense id) cut fold cost from 9093 to
 5763 Ir/event (-36.6%), measured by CI run 36563251251 (job `scale`) on main. `fold_ir_per_event` is
 now 5764 so the gate keeps the gain.
+
+Amendment, 2026-09-29 (s2w#174): the scale gates now also replay a recorded stream, alongside
+the synthetic generator, not instead of it. The generator scales to 10^6 events and catches
+regressions on a large world, but its distributions are chosen; the recording's are observed.
+The recording is 10 minutes of Wikimedia EventStreams `mediawiki.page_change.v1`
+(`crates/s2w-app/tests/fixtures/recorded-10min.raw.sse`: 11,667 events, 34.2 MB raw, committed
+uncompressed without LFS; the plan estimated about 15 MB, but live traffic ran at about 19.4
+events/s). Its mapping yields 58,335 claims, which fold to 11,462 entities and 19,512
+relationships. Both supplies, side by side in `xtask/scale-baseline.toml`:
+
+| | Fold Ir per event (CI job `scale`) | Heap bytes per entity (`cargo xtask check`) |
+|---|---|---|
+| Synthetic generator | 5,764 (run 36563251251) | 360 B (1.20×) |
+| Recorded fixture | **15,285** per raw event (run 36569430562) | **346 B** (1.15×), 409 B per relationship |
+
+The two Ir figures are not the same unit of work: a synthetic event is one fold input, and a
+recorded raw event maps to about 5 claims (58,335 / 11,667), so the recorded fold costs about
+3,060 Ir per claim. Both byte figures are inside this record's 2× line, so neither needs a
+finding. The recorded gate shares `[memory]`'s 300 B target and 600 B budget. Parse cost
+(#166) and fork cost (#167) are still not measured. The fixture is pinned by its FNV-1a 64:
+CI job `scale` checks the baseline's `[recorded] fixture_fnv1a64`, while check 13 relies on the
+same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by
+`load()`), not on the baseline key.

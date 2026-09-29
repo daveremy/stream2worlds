@@ -89,17 +89,35 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `NOT A DISK NUMBER` and never prints days; a `statfs` failure, a non-Linux host and an
   overlay are all `Unknown`, never `Disk`. The `--json` reporter's output does not change.
 
-## Scale measurements (s2w#32)
+## Scale measurements (s2w#32, s2w#174)
+
+Each scale number is measured on two event supplies side by side: the seeded generator and a
+recorded stream.
 
 - `tests/support/scale_generator.rs` is the one seeded synthetic event generator, included by
   `#[path]` from each user below. Change its constants or distributions and every baseline
   moves; say so in the PR.
+- `tests/fixtures/recorded-10min.raw.sse` is the recorded supply: 10 minutes of raw SSE, 11,667
+  events, 34.2 MB, human-owned (provenance and licence in `tests/fixtures/README.md`; never
+  regenerate or edit it to make a gate pass). `tests/support/recorded.rs` loads it once
+  (`OnceLock`), refuses bytes whose FNV-1a 64 is not `FIXTURE_HASH`, and maps it with
+  `tests/fixtures/recorded.mapping.json` (a symlink to check 11's `sample.mapping.json`).
+  `tests/recorded_fixture.rs` checks its bytes and counts (58,335 claims; `ENTITIES` 11,462 and
+  `RELATIONSHIPS` 19,512 after the fold) and that replay is deterministic. A re-recording
+  re-pins `FIXTURE_HASH`, those counts and `[recorded]` in `xtask/scale-baseline.toml` in the
+  same PR.
 - `benches/scale_ir.rs`: gungraun library benchmark `fold_ir_per_event` (total instructions for
   folding `IR_EVENTS` events; setup not counted). Needs Valgrind and `gungraun-runner` at the
   same version as the `gungraun` pin. The summary lands in
-  `target/gungraun/s2w-app/scale_ir/scale/fold_ir_per_event.events/summary.json`.
-- `tests/scale_mem.rs`: `#[ignore]`d; owns a dhat global allocator; prints one JSON line with
-  bytes per entity (gated) and bytes per relationship (reported).
+  `target/gungraun/s2w-app/scale_ir/scale/fold_ir_per_event.events/summary.json`. The second
+  benchmark, `fold_ir_per_event_recorded` (id `fixture`), folds every claim of the recorded
+  fixture in emission order (loading and mapping not counted) and asserts the pinned entities
+  and relationships in teardown; its summary is `scale/fold_ir_per_event_recorded.fixture/summary.json`
+  under the same directory. Its Ir is divided by raw events, not claims.
+- `tests/scale_mem.rs`: `#[ignore]`d; owns a dhat global allocator; each test prints one JSON
+  line with bytes per entity (gated) and bytes per relationship (reported):
+  `bytes_per_entity_and_relationship` on the generator,
+  `bytes_per_entity_and_relationship_recorded` on the fixture.
 - `benches/scale_wall.rs`: appends, one event per transaction, to a log under
   `$CARGO_TARGET_TMPDIR/scale/`; prints one JSON line naming the filesystem, plus a `warning`
   field (`status::TMPFS_WARNING`) on tmpfs, which `cargo xtask scale` prints as is. Must run;
