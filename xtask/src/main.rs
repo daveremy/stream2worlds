@@ -40,6 +40,10 @@
 //!     key and string value in both (including inside decoded JSON strings) is renamed and
 //!     hashed first. Check 10 covers engines that read claims; this one covers the engine that
 //!     reads raw payloads through a mapping (decision 0021).
+//! 12. **Profiler obfuscation replay** (`discover_replay.rs`): `s2w-discover` proposes the
+//!     same mapping for a recorded raw stream when every object key and string value in it
+//!     (including inside decoded JSON strings) is renamed and hashed first, up to that renaming
+//!     (decision 0022).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -53,6 +57,7 @@ use std::process::{Command, ExitCode};
 use serde::Deserialize;
 
 mod clippy_config;
+mod discover_replay;
 mod golden;
 mod module_size;
 mod obfuscation;
@@ -225,6 +230,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(vocabulary::check(root));
     problems.extend(obfuscation::check(root));
     problems.extend(obfuscation_raw::check(root));
+    problems.extend(discover_replay::check(root));
     problems.extend(clippy_config::check(root, &meta));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
@@ -260,7 +266,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, clippy config: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))
