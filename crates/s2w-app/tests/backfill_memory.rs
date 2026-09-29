@@ -43,8 +43,11 @@
 //!   that child only, never on itself (it populates the log). [`ALLOCATORS`] lists them;
 //!   `arena2` only means something under `bridge-run` (the main-thread child has one arena).
 //! - `S2W_BACKFILL_MEMORY_HISTORY_CAP=<n>` and `S2W_BACKFILL_MEMORY_BATCH=<n>`, read by the
-//!   bridge child: the timeline's history cap and `BridgeConfig::batch`. The default sweep
-//!   (no `VARIANTS`) refuses to run with either set, so a green default run always asserted.
+//!   bridge child: the timeline's history cap and `BridgeConfig::batch`.
+//! - The default sweep (no `VARIANTS`) refuses to run with either knob or any allocator
+//!   variable set (any `MALLOC_*`, `GLIBC_TUNABLES`, `LD_PRELOAD`), so a green default run
+//!   always asserted. A named `bridge` or `viewer` child under an allocator variable reports
+//!   and does not assert.
 //! - The `backfill_memory_heap` target includes this file with dhat as the global allocator
 //!   and runs `bridge` only, printing dhat's `max_bytes` (Rust heap peak) beside `VmHWM`.
 //!   Compare its `max_bytes` with this target's `bridge` `VmHWM`: the gap is non-heap resident
@@ -568,11 +571,12 @@ mod backfill {
         let blocking = base == "bridge-run";
         let history_cap = knob(HISTORY_CAP);
         let batch_knob = knob(BATCH);
-        // Only the default configuration asserts: a knob, an allocator tuning, another thread
-        // topology or dhat measures something else.
+        // Only the default configuration asserts: a knob, an allocator tuning (named or
+        // inherited), another thread topology or dhat measures something else.
         let measuring = (variant != "bridge" && variant != "viewer")
             || history_cap.is_some()
             || batch_knob.is_some()
+            || allocator_env().is_some()
             || heap_target();
         let (log, verdicts, registry) = bridge_inputs(directory);
         let mut timeline = Timeline::new(CAP);
@@ -665,21 +669,31 @@ mod backfill {
             Some(only) => only.split(',').collect(),
             None if heap_target() => vec!["bridge"],
             None => {
-                // The knobs, and every allocator variable a `+<allocator>` variant sets: the
-                // children inherit the caller's environment.
-                let tunings = ALLOCATORS.iter().flat_map(|(_, vars)| vars.iter());
-                for name in [HISTORY_CAP, BATCH]
+                // The knobs and any allocator variable: the children inherit the caller's
+                // environment.
+                let knobs = [HISTORY_CAP, BATCH]
                     .into_iter()
-                    .chain(tunings.map(|(name, _)| *name))
-                {
-                    assert!(
-                        std::env::var_os(name).is_none(),
+                    .find(|name| std::env::var_os(name).is_some())
+                    .map(str::to_owned);
+                if let Some(name) = knobs.or_else(allocator_env) {
+                    panic!(
                         "{name} is set: name the variants to measure; the default sweep asserts"
                     );
                 }
                 DEFAULT_VARIANTS.to_vec()
             }
         }
+    }
+
+    /// The first allocator variable in the environment, if any: glibc's `MALLOC_*` and
+    /// `GLIBC_TUNABLES`, or an `LD_PRELOAD` that may replace the allocator. Any of them makes
+    /// the peak a different measurement.
+    fn allocator_env() -> Option<String> {
+        std::env::vars_os()
+            .map(|(name, _)| name.to_string_lossy().into_owned())
+            .find(|name| {
+                name.starts_with("MALLOC_") || name == "GLIBC_TUNABLES" || name == "LD_PRELOAD"
+            })
     }
 
     /// A variant's base and its allocator tuning: `bridge-run+arena2` is
@@ -765,7 +779,7 @@ mod backfill {
             assert!(output.status.success(), "{variant} child failed");
             // A filter that matched no test also exits 0: prove the child ran.
             assert!(
-                String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+                String::from_utf8_lossy(&output.stdout).contains("test result: ok. 1 passed;"),
                 "{variant} child ran no test (filter {filter})"
             );
         }
