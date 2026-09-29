@@ -39,7 +39,8 @@ pub struct Config {
     pub fd_grey_pct: usize,
     /// Equal in at least this share of shared events: two paths are aliases.
     pub alias_pct: usize,
-    /// Parses as a JSON object in at least this share of events: a decode step.
+    /// Parses as a JSON object in at least this share of events: a decode step. 100 by default:
+    /// the executor abstains on a whole event whose decode step fails.
     pub decode_pct: usize,
     /// Most values an event-type field may have.
     pub category_max: usize,
@@ -57,7 +58,7 @@ impl Default for Config {
             fd_accept_pct: 95,
             fd_grey_pct: 80,
             alias_pct: 99,
-            decode_pct: 99,
+            decode_pct: 100,
             category_max: 32,
         }
     }

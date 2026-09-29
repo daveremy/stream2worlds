@@ -27,8 +27,9 @@ ruling on #163: labels come from field paths).
 
 Percentages are whole percent on integer ratios, rounded down. All are `Config` fields.
 
-1. **Decode and flatten.** A root string field that parses as a JSON object in ≥99% of the
-   ≥20 events carrying it becomes a decode step. Objects flatten by key; arrays are skipped
+1. **Decode and flatten.** A root string field that parses as a JSON object in every one of
+   the ≥20 events carrying it becomes a decode step (the executor abstains on a whole event
+   whose decode fails, so a partial decode would silently drop events). Objects flatten by key; arrays are skipped
    (a v0 key path cannot address them). Strings, `i64`s and bools are keyable; floats and
    nulls are not. Payloads that are not JSON objects are counted and skipped.
 2. **Per-path statistics.** Count, distinct values, and recurrence: the share of repeats whose
@@ -49,7 +50,7 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    it passes.
 5. **Aliases.** Two entity paths equal in ≥99% of the ≥20 events carrying both are one class.
 6. **1:1 merge.** Classes that determine each other (both directions functional, same 95% / 5
-   group rule, ≥20 shared events) are two encodings of one entity (research 0002 §4) and merge.
+   group rule over the events carrying both, ≥20 of them) are two encodings of one entity (research 0002 §4) and merge.
    The key is chosen without names: most alias members, then most events, then most distinct
    values, then integer over string over bool. A tie keeps them apart. The losers' paths become
    attributes. A one-way dependency does not merge or demote.
@@ -67,8 +68,13 @@ distinct `parent/leaf` tails of the class's paths joined by `+` (with `\`, `/` a
 escaped); when two classes would share a label, both use their full paths. `rule_id` and
 `type_labels` are public so the replay check can re-derive them.
 
+Two thresholds are fixed rather than in `Config`: a dependent is informative when its distinct
+values across constant groups are at least half the constant groups, and the event-type test
+uses the 2% / 98% presence band.
+
 **Determinism.** `BTreeMap` only, no floats in any decision or output, no tie broken by a name.
-Output rules are sorted by id; the replay canonicalizes the same way.
+Output rules are sorted by id, so their order follows the (renamed) names; the invariance
+contract below holds up to rule order, and the replay canonicalizes it.
 
 ## The obfuscation-invariance contract
 

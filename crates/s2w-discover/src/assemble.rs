@@ -11,9 +11,11 @@ use crate::flatten::{BOOL, INT, STR, Table, pct};
 use crate::roles::{Dependency, Role, aliased, candidate_dependent, repeat_groups};
 use crate::{Config, rule_id, type_labels};
 
-/// An entity type: an alias class, plus the key paths of classes merged into it as 1:1.
+/// An entity type: an alias class, one representative value per event, and the key paths of
+/// classes merged into it as 1:1.
 struct Type {
     members: Vec<usize>,
+    values: Vec<Option<String>>,
     merged: Vec<usize>,
 }
 
@@ -53,7 +55,7 @@ pub(crate) fn assemble(
     let mut relationships = Vec::new();
     for (i, a) in types.iter().enumerate() {
         for b in &types[i + 1..] {
-            relationships.extend(relate(table, &a.members, &b.members, cfg));
+            relationships.extend(relate(table, a, b, cfg));
         }
     }
     relationships.sort_by(|a, b| (&a.from, &a.to, &a.kind).cmp(&(&b.from, &b.to, &b.kind)));
@@ -81,24 +83,10 @@ fn attr(table: &Table, path: usize) -> AttrRule {
 /// distinct values, then integer over string over bool. A tie keeps the classes apart.
 fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Vec<Type> {
     let values: Vec<Vec<Option<String>>> = classes.iter().map(|c| class_values(table, c)).collect();
-    let mut parent: Vec<usize> = (0..classes.len()).collect();
-    for i in 0..classes.len() {
-        for j in i + 1..classes.len() {
-            let pairs = co_occurring(&values[i], &values[j]);
-            let swapped: Vec<(&str, &str)> = pairs.iter().map(|&(x, y)| (y, x)).collect();
-            if pairs.len() >= cfg.min_support
-                && functional(&pairs, cfg)
-                && functional(&swapped, cfg)
-            {
-                let (ri, rj) = (find(&parent, i), find(&parent, j));
-                parent[ri.max(rj)] = ri.min(rj);
-            }
-        }
-    }
-    let mut components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    for i in 0..classes.len() {
-        components.entry(find(&parent, i)).or_default().push(i);
-    }
+    let linked = |i: usize, j: usize| {
+        let pairs = co_occurring(&values[i], &values[j]);
+        pairs.len() >= cfg.min_support && directions(&pairs, cfg) == (true, true)
+    };
     let rank = |c: &Vec<usize>| {
         let col = |p: usize| &table.columns[p];
         let kind = c.iter().map(|&p| col(p).kinds).max().unwrap_or(0);
@@ -111,34 +99,54 @@ fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Ve
         (c.len(), count, distinct, kind)
     };
     let mut types = Vec::new();
-    for members in components.into_values() {
+    for members in components(classes.len(), linked) {
         let mut ranked: Vec<_> = members.iter().map(|&i| (rank(&classes[i]), i)).collect();
         ranked.sort_by_key(|r| std::cmp::Reverse(r.0));
         let unique_top = ranked.len() == 1 || ranked[0].0 != ranked[1].0;
-        if unique_top {
-            let merged = ranked[1..]
+        let winners = if unique_top {
+            &ranked[..1]
+        } else {
+            &ranked[..]
+        };
+        let merged: Vec<usize> = if unique_top {
+            ranked[1..]
                 .iter()
                 .flat_map(|&(_, i)| classes[i].clone())
-                .collect();
-            types.push(Type {
-                members: classes[ranked[0].1].clone(),
-                merged,
-            });
+                .collect()
         } else {
-            types.extend(members.iter().map(|&i| Type {
-                members: classes[i].clone(),
-                merged: Vec::new(),
-            }));
-        }
+            Vec::new()
+        };
+        types.extend(winners.iter().map(|&(_, i)| Type {
+            members: classes[i].clone(),
+            values: values[i].clone(),
+            merged: merged.clone(),
+        }));
     }
     types
 }
 
-fn find(parent: &[usize], mut i: usize) -> usize {
-    while parent[i] != i {
-        i = parent[i];
+/// Connected components of `0..n` under `linked`, each sorted, ordered by smallest member.
+fn components(n: usize, linked: impl Fn(usize, usize) -> bool) -> Vec<Vec<usize>> {
+    fn find(parent: &[usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            i = parent[i];
+        }
+        i
     }
-    i
+    let mut parent: Vec<usize> = (0..n).collect();
+    for i in 0..n {
+        for j in i + 1..n {
+            if linked(i, j) {
+                let (ri, rj) = (find(&parent, i), find(&parent, j));
+                parent[ri.max(rj)] = ri.min(rj);
+            }
+        }
+    }
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for i in 0..n {
+        groups.entry(find(&parent, i)).or_default().push(i);
+    }
+    groups.into_values().collect()
 }
 
 fn co_occurring<'a>(a: &'a [Option<String>], b: &'a [Option<String>]) -> Vec<(&'a str, &'a str)> {
@@ -150,45 +158,23 @@ fn co_occurring<'a>(a: &'a [Option<String>], b: &'a [Option<String>]) -> Vec<(&'
 
 /// Union of entity paths that hold equal values in the same events.
 fn alias_classes(table: &Table, keys: &[usize], cfg: &Config) -> Vec<Vec<usize>> {
-    let mut parent: BTreeMap<usize, usize> = keys.iter().map(|&k| (k, k)).collect();
-    fn root(parent: &BTreeMap<usize, usize>, mut k: usize) -> usize {
-        while parent[&k] != k {
-            k = parent[&k];
-        }
-        k
-    }
-    for (i, &a) in keys.iter().enumerate() {
-        for &b in &keys[i + 1..] {
-            if aliased(table, a, b, cfg) {
-                let (ra, rb) = (root(&parent, a), root(&parent, b));
-                parent.insert(ra.max(rb), ra.min(rb));
-            }
-        }
-    }
-    let mut classes: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
-    for &k in keys {
-        classes.entry(root(&parent, k)).or_default().push(k);
-    }
-    classes.into_values().collect()
+    components(keys.len(), |i, j| aliased(table, keys[i], keys[j], cfg))
+        .into_iter()
+        .map(|c| c.into_iter().map(|i| keys[i]).collect())
+        .collect()
 }
 
-/// Non-key paths constant under `k`'s repeated values.
+/// Non-key paths constant under `k`'s repeated values. `k` passed the entity test, so it has
+/// at least `min_groups` groups; unlike that test, a dependent need not be informative here:
+/// an attribute with few values (a namespace, a flag-like category) is still an attribute.
 fn attributes(table: &Table, k: usize, keys: &BTreeSet<usize>, cfg: &Config) -> Vec<AttrRule> {
     let groups = repeat_groups(&table.columns[k]);
-    let mut attrs: Vec<AttrRule> = (0..table.paths.len())
+    (0..table.paths.len())
         .filter(|a| !keys.contains(a) && candidate_dependent(&table.columns[*a], cfg))
         .filter(|&a| !aliased(table, k, a, cfg))
-        .filter(|&a| {
-            let d = Dependency::measure(table, &groups, a);
-            d.considered >= cfg.min_groups && d.share() >= cfg.fd_accept_pct
-        })
-        .map(|a| AttrRule {
-            name: rule_id(&table.paths[a]),
-            path: table.paths[a].clone(),
-        })
-        .collect();
-    attrs.sort_by(|a, b| a.name.cmp(&b.name));
-    attrs
+        .filter(|&a| Dependency::measure(table, &groups, a).share() >= cfg.fd_accept_pct)
+        .map(|a| attr(table, a))
+        .collect()
 }
 
 /// One representative value per event for an alias class: its members hold equal values, so
@@ -205,18 +191,14 @@ fn class_values(table: &Table, class: &[usize]) -> Vec<Option<String>> {
 }
 
 /// Co-occurrence relationship between two types, with its cardinality as the kind.
-fn relate(table: &Table, a: &[usize], b: &[usize], cfg: &Config) -> Vec<RelationshipRule> {
-    let (va, vb) = (class_values(table, a), class_values(table, b));
-    let pairs = co_occurring(&va, &vb);
+fn relate(table: &Table, a: &Type, b: &Type, cfg: &Config) -> Vec<RelationshipRule> {
+    let pairs = co_occurring(&a.values, &b.values);
     if pairs.len() < cfg.min_support {
         return Vec::new();
     }
-    let forward = functional(&pairs, cfg);
-    let swapped: Vec<(&str, &str)> = pairs.iter().map(|&(x, y)| (y, x)).collect();
-    let backward = functional(&swapped, cfg);
     let da = pairs.iter().map(|p| p.0).collect::<BTreeSet<_>>().len();
     let db = pairs.iter().map(|p| p.1).collect::<BTreeSet<_>>().len();
-    let (from, to, kind) = match (forward, backward) {
+    let (from, to, kind) = match directions(&pairs, cfg) {
         (true, false) => (a, b, "n:1"),
         (false, true) => (b, a, "n:1"),
         (true, true) => return Vec::new(),
@@ -225,8 +207,8 @@ fn relate(table: &Table, a: &[usize], b: &[usize], cfg: &Config) -> Vec<Relation
         (false, false) => (b, a, "n:m"),
     };
     let mut rules = Vec::new();
-    for &f in &endpoints(table, from) {
-        for &t in &endpoints(table, to) {
+    for &f in &endpoints(table, &from.members) {
+        for &t in &endpoints(table, &to.members) {
             rules.push(RelationshipRule {
                 from: rule_id(&table.paths[f]),
                 to: rule_id(&table.paths[t]),
@@ -252,8 +234,15 @@ fn endpoints(table: &Table, class: &[usize]) -> Vec<usize> {
         .collect()
 }
 
+/// Whether the left value determines the right one, and the right the left.
+fn directions(pairs: &[(&str, &str)], cfg: &Config) -> (bool, bool) {
+    let swapped: Vec<(&str, &str)> = pairs.iter().map(|&(x, y)| (y, x)).collect();
+    (functional(pairs, cfg), functional(&swapped, cfg))
+}
+
 /// Whether the left value determines the right one: constant right values under repeated
-/// left values in at least `fd_accept_pct` of at least `min_groups` groups.
+/// left values in at least `fd_accept_pct` of at least `min_groups` groups. Unlike the entity
+/// test, only events carrying both count: two types are compared where they co-occur.
 fn functional(pairs: &[(&str, &str)], cfg: &Config) -> bool {
     let mut groups: BTreeMap<&str, (usize, BTreeSet<&str>)> = BTreeMap::new();
     for &(left, right) in pairs {
