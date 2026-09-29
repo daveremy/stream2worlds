@@ -106,6 +106,19 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     Fixtures live in `h_measure/context/tests.rs`.
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
+- `module_cycles.rs`: check 15, no dependency cycle between the modules of one crate target
+  (s2w#67, plan #44 §1c). Edges run leaf to leaf, from the module naming a path to the module
+  that defines the item; an edge to or from an ancestor is containment and is dropped. Tarjan
+  SCCs are taken on the leaf graph and again on the graph projected onto each depth's
+  ancestors, so a cycle that closes through an item defined in a `mod.rs` is seen. Test-only
+  code is skipped. Paths that exist only after macro expansion are an accepted gap; macro
+  bodies that parse as comma-separated expressions are read. Report-only (`ENFORCE`) until
+  s2w#240 breaks the `s2w_app` cycle. Self-tests in `module_cycles/tests.rs`.
+  - `module_cycles/resolve.rs`: per-module items, `use` entries and paths from the walker's
+    ASTs (`module_size::walk::Scan::asts`), and name resolution through `use`/`pub use` and
+    globs to the defining module. Extern crates (Cargo metadata), prelude names, primitives,
+    generic parameters, `Self`, leading `::` and extern-crate globs are not this crate's; any
+    other multi-segment path that does not resolve is a finding.
 - `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory after checking the recorded fixture's pin, the `[ir]` and `[ir.recorded]` judgments, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` baseline belongs to that job's image.
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual

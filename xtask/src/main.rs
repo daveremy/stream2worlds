@@ -56,6 +56,7 @@
 //! 15. **Module cycles** (`module_cycles.rs`): no dependency cycle between the modules of one
 //!     crate target. Edges run from the naming module to the module that defines the item,
 //!     through `use`/`pub use` re-exports and globs; ancestor edges are containment (s2w#67).
+//!     Report-only until s2w#240.
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
