@@ -231,7 +231,7 @@ fn the_recorded_supply_is_judged_against_its_own_tables() {
     dropped.relationships = 3;
     let (_, problems) = judge_memory(&b, Supply::Recorded, &dropped);
     assert!(
-        problems[0].contains("[memory.recorded] pins 3 and 4"),
+        problems[0].contains("[memory.recorded] pins 3 entities and 4 relationships"),
         "{problems:?}"
     );
 }

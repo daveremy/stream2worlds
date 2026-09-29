@@ -36,11 +36,6 @@ use s2w_model::WorldEvent;
 
 use scale_generator::{IR_EVENTS, SEED, mixed_events};
 
-/// Entities and relationships after folding every claim of the recorded fixture; the same pins
-/// as `tests/recorded_fixture.rs` and `[memory.recorded]`.
-const RECORDED_ENTITIES: usize = 11_462;
-const RECORDED_RELATIONSHIPS: usize = 19_512;
-
 /// Entities in [`mixed_events`]`(IR_EVENTS, _)`: its 80% entity-observed share.
 const IR_ENTITIES: usize = IR_EVENTS - IR_EVENTS / 5;
 
@@ -67,7 +62,7 @@ fn recorded_claims() -> Vec<WorldEvent> {
 fn check_recorded((world, claims): (World, Vec<WorldEvent>)) {
     assert_eq!(
         (world.entity_count(), world.relationships().len()),
-        (RECORDED_ENTITIES, RECORDED_RELATIONSHIPS),
+        (recorded::ENTITIES, recorded::RELATIONSHIPS),
         "the fold of {} recorded claims did not hold the pinned entities and relationships",
         claims.len()
     );

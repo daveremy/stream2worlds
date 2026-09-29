@@ -1,5 +1,8 @@
-//! `cargo xtask scale` (s2w#32, decision 0004): fold instructions per event under Valgrind,
-//! judged against `[ir]` in `xtask/scale-baseline.toml`, then the reported-only numbers.
+//! `cargo xtask scale` (s2w#32, decision 0004): fold instructions per event under Valgrind for
+//! both event supplies (s2w#174), judged against `[ir]` and `[ir.recorded]` in
+//! `xtask/scale-baseline.toml`, then the reported-only numbers. The recorded fixture's pin
+//! (`[recorded]`, `[ir.recorded] events`) is checked first, so a changed recording fails before
+//! the Valgrind run, in xtask's own terms.
 //!
 //! Linux only, and needs `valgrind` plus `gungraun-runner` at the version `s2w-app` pins for
 //! `gungraun`; a missing tool is a failure with the install command, never a skip. The
@@ -16,13 +19,7 @@ use crate::scale::{self, Baseline, Supply};
 
 /// The benchmark's output directory under the target directory.
 const OUTPUT: &str = "gungraun/s2w-app/scale_ir";
-/// Each supply's summary, under [`OUTPUT`]: `<group>/<function>.<bench id>`.
-fn summary(supply: Supply) -> &'static str {
-    match supply {
-        Supply::Synthetic => "scale/fold_ir_per_event.events/summary.json",
-        Supply::Recorded => "scale/fold_ir_per_event_recorded.fixture/summary.json",
-    }
-}
+
 /// The generator whose `IR_EVENTS` the benchmark folds.
 const GENERATOR: &str = "crates/s2w-app/tests/support/scale_generator.rs";
 /// Decision 0004's ingest target, events per second.
@@ -224,14 +221,14 @@ fn bench(root: &Path, target: &Path) -> Result<PathBuf, String> {
 /// One supply's total Callgrind `Ir`. [`bench`] deleted the output directory first, so a
 /// summary that exists is this run's.
 fn summary_total(output: &Path, supply: Supply) -> Result<u64, String> {
-    let (summary, name) = (output.join(summary(supply)), supply.label());
+    let (summary, name) = (output.join(supply.ir_summary()), supply.name("fold Ir"));
     let text = std::fs::read_to_string(&summary).map_err(|e| {
         format!(
-            "fold Ir{name}: UNKNOWN, no summary written by this run at {} ({e}); the benchmark or gungraun's output layout changed",
+            "{name}: UNKNOWN, no summary written by this run at {} ({e}); the benchmark or gungraun's output layout changed",
             summary.display()
         )
     })?;
-    scale::summary_ir(&text).map_err(|e| format!("fold Ir{name}: UNKNOWN, {e}"))
+    scale::summary_ir(&text).map_err(|e| format!("{name}: UNKNOWN, {e}"))
 }
 
 /// The append rate: the benchmark must run and print its JSON line; the value is reported, not

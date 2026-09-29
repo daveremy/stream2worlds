@@ -27,11 +27,28 @@ impl Supply {
         }
     }
 
-    /// Suffix on every report line, so the two supplies' numbers are never confused.
-    pub(crate) fn label(self) -> &'static str {
+    /// `metric` as every report line names it, so the two supplies' numbers are never confused.
+    pub(crate) fn name(self, metric: &str) -> String {
         match self {
-            Self::Synthetic => "",
-            Self::Recorded => " (recorded)",
+            Self::Synthetic => metric.to_owned(),
+            Self::Recorded => format!("{metric} (recorded)"),
+        }
+    }
+
+    /// The `scale_mem` test that measures this supply; run with `--exact`, so a rename matches
+    /// nothing and fails.
+    pub(crate) fn mem_test(self) -> &'static str {
+        match self {
+            Self::Synthetic => "tests::bytes_per_entity_and_relationship",
+            Self::Recorded => "tests::bytes_per_entity_and_relationship_recorded",
+        }
+    }
+
+    /// The gungraun summary of this supply's `scale_ir` bench: `<group>/<function>.<bench id>`.
+    pub(crate) fn ir_summary(self) -> &'static str {
+        match self {
+            Self::Synthetic => "scale/fold_ir_per_event.events/summary.json",
+            Self::Recorded => "scale/fold_ir_per_event_recorded.fixture/summary.json",
         }
     }
 

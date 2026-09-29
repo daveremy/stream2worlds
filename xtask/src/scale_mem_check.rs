@@ -1,19 +1,13 @@
 //! Check 13, heap bytes per entity (s2w#32, decision 0004): runs `s2w-app`'s ignored
-//! `scale_mem` test (a nested `cargo test`), reads the last stdout line that parses as JSON, and
-//! judges it against `[memory]` in `xtask/scale-baseline.toml`, plus the baseline-growth check.
+//! `scale_mem` tests, one per event supply (s2w#174), each as a nested `cargo test`, reads the
+//! last stdout line that parses as JSON, and judges it against that supply's table (`[memory]`
+//! or `[memory.recorded]`) in `xtask/scale-baseline.toml`, plus the baseline-growth check. The
+//! recorded test's loader refuses a changed fixture itself, so this check does not re-read it.
 //! No JSON line, a failed test or a zero measurement is a failure, never a pass. Fold
 //! instructions per event need Valgrind, so they live in `cargo xtask scale` instead.
 use std::path::Path;
 
 use crate::scale::{self, BASELINE, MemMeasurement, Supply};
-
-/// Each supply's test; `--exact` so a rename matches nothing and fails below.
-fn test_name(supply: Supply) -> &'static str {
-    match supply {
-        Supply::Synthetic => "tests::bytes_per_entity_and_relationship",
-        Supply::Recorded => "tests::bytes_per_entity_and_relationship_recorded",
-    }
-}
 
 /// Runs the memory check; `tighten` also lowers `[memory]` values to the measurement.
 pub(super) fn check(root: &Path, tighten: bool) -> Vec<String> {
@@ -23,13 +17,6 @@ pub(super) fn check(root: &Path, tighten: bool) -> Vec<String> {
         Err(e) => return vec![e],
     };
     let mut problems = scale::growth(root, &baseline);
-    match std::fs::read(root.join(scale::FIXTURE)) {
-        Ok(bytes) => problems.extend(scale::judge_fixture(&baseline, &bytes).err()),
-        Err(e) => problems.push(format!(
-            "recorded fixture: UNKNOWN, {}: {e}",
-            scale::FIXTURE
-        )),
-    }
     let mut measured = Vec::new();
     for supply in Supply::ALL {
         match measure(root, supply) {
@@ -55,7 +42,7 @@ pub(super) fn check(root: &Path, tighten: bool) -> Vec<String> {
 }
 
 fn measure(root: &Path, supply: Supply) -> Result<MemMeasurement, String> {
-    let (test, name) = (test_name(supply), format!("bytes/entity{}", supply.label()));
+    let (test, name) = (supply.mem_test(), supply.name("bytes/entity"));
     let out = crate::cargo()
         .args([
             "test",

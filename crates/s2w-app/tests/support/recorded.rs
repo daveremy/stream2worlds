@@ -14,7 +14,8 @@
 //! index, so every run over the same bytes produces the same claims.
 //!
 //! The fixture is pinned: [`load`] refuses bytes whose hash is not [`FIXTURE_HASH`], so no
-//! measurement runs on a changed recording, and `tests/recorded_fixture.rs` pins the counts. It
+//! measurement runs on a changed recording; [`ENTITIES`] and [`RELATIONSHIPS`] pin what the fold
+//! makes of it, and `tests/recorded_fixture.rs` pins the rest of the counts. It
 //! is human-owned like a golden file, never re-recorded or edited to make a measurement pass.
 
 use std::error::Error;
@@ -42,6 +43,13 @@ const MAPPING: &str = concat!(
 
 /// FNV-1a 64 of the fixture's bytes, as `Fnv64` computes it.
 pub(crate) const FIXTURE_HASH: u64 = 0x070e_ba9f_7d43_edcd;
+
+/// Entities in the world after folding every claim of the fixture, in emission order. Pinned
+/// here once for every Rust reader (the fixture test, the `scale_ir` bench's teardown);
+/// `[memory.recorded]` in `xtask/scale-baseline.toml` pins the same numbers for xtask.
+pub(crate) const ENTITIES: usize = 11_462;
+/// Relationships in that world.
+pub(crate) const RELATIONSHIPS: usize = 19_512;
 
 /// The source id every loaded event carries.
 const SOURCE: &str = "recorded";

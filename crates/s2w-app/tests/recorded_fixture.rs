@@ -12,7 +12,9 @@ mod recorded;
 use s2w_core::{World, fold};
 use s2w_model::WorldEvent;
 
-use recorded::{FIXTURE_HASH, Fallible, bytes, claims, hash, load, mapping};
+use recorded::{
+    ENTITIES, FIXTURE_HASH, Fallible, RELATIONSHIPS, bytes, claims, hash, load, mapping,
+};
 
 /// Events (SSE frames with both `data` and `id`) in the fixture.
 const EVENTS: usize = 11_667;
@@ -24,10 +26,6 @@ const ENTITY_CLAIMS: usize = 35_001;
 const RELATIONSHIP_CLAIMS: usize = 23_334;
 /// Events the engine abstains on.
 const ABSTAINED: usize = 0;
-/// Entities in the world after folding every claim.
-const ENTITIES: usize = 11_462;
-/// Relationships in the world after folding every claim.
-const RELATIONSHIPS: usize = 19_512;
 
 #[test]
 fn the_fixture_bytes_are_pinned() -> Fallible<()> {

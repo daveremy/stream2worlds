@@ -181,7 +181,7 @@ pub(super) fn judge_fixture(b: &Baseline, bytes: &[u8]) -> Result<(), String> {
 /// Judges one supply's total fold instructions against its `[ir]` table. `Ok` is the report
 /// line.
 pub(super) fn judge_ir(b: &Baseline, supply: Supply, total_ir: u64) -> Result<String, String> {
-    let (name, key) = (format!("fold Ir{}", supply.label()), supply.ir());
+    let (name, key) = (supply.name("fold Ir"), supply.ir());
     if total_ir == 0 {
         return Err(format!(
             "{name}: UNKNOWN (the benchmark reported 0 instructions); fix the bench run, an unknown never passes"
@@ -225,7 +225,7 @@ pub(super) fn judge_memory(
     m: &MemMeasurement,
 ) -> (Vec<String>, Vec<String>) {
     let (mem, gate, key) = (&b.memory, b.memory_gate(supply), supply.memory());
-    let name = format!("bytes/entity{}", supply.label());
+    let name = supply.name("bytes/entity");
     let mut report = Vec::new();
     let mut problems = Vec::new();
     if m.bytes_per_entity == 0 || m.entities == 0 {
@@ -234,11 +234,15 @@ pub(super) fn judge_memory(
         ));
         return (report, problems);
     }
-    let pinned = (gate.entities, gate.relationships.unwrap_or(m.relationships));
-    if (m.entities, m.relationships) != pinned {
+    let relationships_moved = gate.relationships.is_some_and(|r| r != m.relationships);
+    if m.entities != gate.entities || relationships_moved {
         problems.push(format!(
-            "{name}: the memory test folded {} entities and {} relationships but {key} pins {} and {}; {}, so re-measure and update {key} in {BASELINE}",
-            m.entities, m.relationships, pinned.0, pinned.1, supply.changed()
+            "{name}: the memory test folded {} entities and {} relationships but {key} pins {} entities{}; {}, so re-measure and update {key} in {BASELINE}",
+            m.entities,
+            m.relationships,
+            gate.entities,
+            gate.relationships.map(|r| format!(" and {r} relationships")).unwrap_or_default(),
+            supply.changed()
         ));
     }
     let (measured, target) = (
@@ -273,7 +277,7 @@ fn judge_memory_baseline(
     problems: &mut Vec<String>,
 ) {
     let (base, key) = (b.memory_gate(supply).bytes_per_entity, supply.memory());
-    let name = format!("bytes/entity{}", supply.label());
+    let name = supply.name("bytes/entity");
     if base == 0 {
         problems.push(format!(
             "{name}: baseline unset: measured {} B; set {key} bytes_per_entity = {} in {BASELINE} with a Baseline-growth: s2w#<N> trailer",

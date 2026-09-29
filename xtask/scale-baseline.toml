@@ -1,13 +1,15 @@
 # Scale baseline (s2w#32; decision 0004; research 0006 §12). Human-owned, like the golden files.
 #
-# Read by `cargo xtask check` ([memory], via s2w-app's ignored `scale_mem` test) and by
+# Read by `cargo xtask check` ([memory], via s2w-app's ignored `scale_mem` tests) and by
 # `cargo xtask scale` ([ir], fold instructions under Valgrind; CI job 'scale'). Every key is
 # required. Two event supplies are gated side by side (s2w#174): the seeded generator ([ir],
-# [memory]) and the recorded fixture ([recorded], [ir.recorded], [memory.recorded]). A measurement more than `tolerance_percent` above its baseline fails. Raising
-# fold_ir_per_event, bytes_per_entity (either supply), target_bytes_per_entity, budget_bytes_per_entity or
-# tolerance_percent against origin/main needs a `Baseline-growth: s2w#<N>` trailer on a commit
-# in the PR and a reason in the PR body. `cargo xtask check --tighten-baseline` lowers [memory] values; it never raises
-# them and never touches [ir].
+# [memory]) and the recorded fixture ([recorded], [ir.recorded], [memory.recorded]).
+# A measurement more than `tolerance_percent` above its baseline fails. Raising
+# fold_ir_per_event or bytes_per_entity (either supply), target_bytes_per_entity,
+# budget_bytes_per_entity or tolerance_percent against origin/main needs a
+# `Baseline-growth: s2w#<N>` trailer on a commit in the PR and a reason in the PR body.
+# `cargo xtask check --tighten-baseline` lowers [memory] values; it never raises them and never
+# touches [ir].
 
 tolerance_percent = 5
 set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29); recorded supply s2w#174 (2026-09-29)"
@@ -55,8 +57,8 @@ entities = 100000 # MEM_ENTITIES in the generator; the test's JSON line must agr
 # The recorded fixture's claims: entity-observed first, then relationship-observed (s2w-app
 # test bytes_per_entity_and_relationship_recorded). Shares [memory]'s target and budget.
 [memory.recorded]
-# Measured 346 B on 2026-09-29 (hub, rustc 1.98.1) over 11,462 entities; the synthetic figure
-# steps at powers of two of its entity count, so the two are not expected to match.
+# Measured 346 B on 2026-09-29 (hub, rustc 1.98.1). The synthetic figure steps at powers of two
+# of its entity count, so the two supplies are not expected to match.
 bytes_per_entity = 346
 bytes_per_relationship_reported = 409 # informational
 entities = 11462 # pinned; the test's JSON line must agree

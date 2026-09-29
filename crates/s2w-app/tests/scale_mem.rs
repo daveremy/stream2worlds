@@ -112,6 +112,11 @@ mod tests {
             "stage (b) must not mint entities"
         );
         let relationship_count = world.relationships().len();
+        assert_eq!(
+            (entity_count, relationship_count),
+            (recorded::ENTITIES, recorded::RELATIONSHIPS),
+            "the recorded fold did not hold the pinned world"
+        );
 
         let bytes_per_entity = per_item(before, after_entities, entity_count);
         assert!(bytes_per_entity > 0, "no heap growth measured for entities");
