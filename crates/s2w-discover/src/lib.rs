@@ -18,6 +18,12 @@ use s2w_model::{FieldPath, Segment, StreamMapping};
 
 pub use roles::Role;
 
+/// The profiler's version, recorded on every proposal it makes (`Actor::Agent { model: "h-lite",
+/// version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
+/// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
+/// crate version: the workspace keeps every crate at 0.0.0.
+pub const PROFILER_VERSION: &str = "1";
+
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {

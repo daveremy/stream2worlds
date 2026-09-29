@@ -22,6 +22,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 
 use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
+use crate::discover::{self, DiscoverConfig};
 use crate::query::{QueryState, router};
 use crate::{
     AppError, Reporter, current_thread_runtime, group_commit, open_error, parse_filters, routes,
@@ -48,6 +49,9 @@ pub struct ServeArgs {
     pub filters: Vec<String>,
     /// Snapshot restore and writing (`--snapshot-every`, `--no-snapshot`; decision 0024).
     pub snapshots: SnapshotConfig,
+    /// The learned-mapping producer's window and thresholds (decision 0025). No CLI flag:
+    /// production uses the default, tests shrink it.
+    pub discover: DiscoverConfig,
 }
 
 /// Ingests and serves until Ctrl-C or SIGTERM, source completion or a fatal failure.
@@ -91,7 +95,7 @@ async fn run_serve_async(
     )?;
     // Routes resolve before the source starts, so a corrupt proposal store fails before any
     // source connects.
-    let registry = routed_registry(&args.log_dir, reporter)?;
+    let registry = routed_registry(&log, &args.log_dir, &args.discover, reporter)?;
     let name = source.name();
     // Start before sharing: no RefCell borrow survives an await, even during cursor lookup.
     let started = source
@@ -138,15 +142,22 @@ async fn run_serve_async(
 
 /// The default routes plus one per source with an accepted stream-mapping proposal in
 /// `log_dir` (decision 0023), each reported on `reporter`. Resolved before any snapshot is
-/// restored: the routes decide the feed fingerprint a snapshot must match.
+/// restored: the routes decide the feed fingerprint a snapshot must match. Between the two
+/// resolutions the learned-mapping producer (decision 0025) may file and accept a mapping for
+/// an unrouted source; its failures are notes, never an error.
 ///
 /// # Errors
 /// As [`routes::load`] and [`routes::registry`].
 fn routed_registry(
+    log: &SqliteEventLog,
     log_dir: &Path,
+    discover: &DiscoverConfig,
     reporter: &mut dyn Reporter,
 ) -> Result<EngineRegistry, AppError> {
-    let resolution = routes::load(log_dir)?;
+    let mut resolution = routes::load(log_dir)?;
+    if discover::run(log, log_dir, &resolution, discover, reporter) {
+        resolution = routes::load(log_dir)?;
+    }
     for line in routes::report_lines(&resolution) {
         reporter.note(&line);
     }

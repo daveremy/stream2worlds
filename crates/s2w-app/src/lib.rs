@@ -2,6 +2,7 @@
 
 mod assets;
 pub mod bridge;
+pub mod discover;
 mod group_commit;
 pub mod mcp;
 pub mod proposals;
