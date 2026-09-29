@@ -2,7 +2,8 @@
 //! `e` names the event, `t` is a sequence, `a` (aliased at `x.a`) and `d.b` (inside a decoded
 //! string) are entities with attributes `an` and `d.bn`, `a` determines `d.b`, `c` and `cc`
 //! determine each other, `g` and `h` sit in the grey uniqueness band (only `h` has a dependent,
-//! `hn`, and passes the entity test but is too unique to key a type), `r` repeats with nothing depending on it, `k` explains when `o` is present.
+//! `hn`, and passes the entity test but is too unique to key a type), `r` repeats with
+//! nothing depending on it, `k` explains when `o` is present.
 
 use std::collections::BTreeMap;
 

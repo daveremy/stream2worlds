@@ -150,7 +150,8 @@ pub(crate) fn single_column(column: &Column, cfg: &Config) -> Option<Role> {
 /// `type_uniqueness_pct` is `NearUnique`, not an entity.
 pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
     let column = &table.columns[k];
-    let grey = pct(column.texts.len(), column.cells.len()) >= cfg.grey_uniqueness_pct;
+    let unique = pct(column.texts.len(), column.cells.len());
+    let grey = unique >= cfg.grey_uniqueness_pct;
     let groups = repeat_groups(column);
     if groups.len() < cfg.min_groups {
         return if grey {
@@ -168,7 +169,7 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
         .max()
         .unwrap_or(0);
     if best >= cfg.fd_accept_pct {
-        if pct(column.texts.len(), column.cells.len()) >= cfg.type_uniqueness_pct {
+        if unique >= cfg.type_uniqueness_pct {
             Role::NearUnique
         } else {
             Role::Entity
