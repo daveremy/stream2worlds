@@ -1,4 +1,4 @@
-//! The five MCP tools: one per query API route, each calling the same [`QueryState`] method its
+//! The six MCP tools: one per query API route, each calling the same [`QueryState`] method its
 //! route calls. A tool's text is `serde_json::to_string` of the route's DTO — the same
 //! serializer, so the same bytes — and an in-domain [`QueryError`] becomes an `is_error` result
 //! whose text is the route's error body. Arguments that fail to deserialize at all are rejected
@@ -11,8 +11,8 @@ use rmcp::tool;
 use rmcp::tool_router;
 
 use crate::query::{
-    Branch, HistoryEntry, QueryError, TimeResult, ViewParams, WorldDiff, WorldView, check_branch,
-    check_world, parse_lod, world_view,
+    Branch, HistoryEntry, QueryError, SourceInfo, TimeResult, ViewParams, WorldDiff, WorldView,
+    check_branch, check_world, parse_lod, world_view,
 };
 
 use super::WorldMcp;
@@ -93,6 +93,15 @@ pub struct TimeArgs {
     pub branch: Option<String>,
     /// A timestamp in milliseconds since the epoch.
     pub ts: Option<i64>,
+}
+
+/// `sources`'s parameters: the `/worlds/{world}/sources` route's path and query parameters.
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+pub struct SourcesArgs {
+    /// The string identifier of the world to query.
+    pub world: String,
+    /// The fold offset whose membership to list; the head when absent.
+    pub at: Option<u64>,
 }
 
 #[tool_router(vis = "pub(crate)")]
@@ -184,6 +193,20 @@ impl WorldMcp {
         check_branch(args.branch.as_deref())?;
         self.state.time(args.ts)
     }
+
+    /// Each member source with how many of its events the bridge consumed, how many no engine
+    /// is routed for, and the most recent of those. Requires `world` and mirrors
+    /// `GET /worlds/{world}/sources`.
+    #[tool(name = "sources", description = SOURCES, annotations(read_only_hint = true))]
+    pub fn sources(&self, Parameters(args): Parameters<SourcesArgs>) -> CallToolResult {
+        serve(self.sources_of(args))
+    }
+
+    /// `/worlds/{world}/sources`'s logic.
+    fn sources_of(&self, args: SourcesArgs) -> Result<Vec<SourceInfo>, QueryError> {
+        check_world(&self.state, &args.world)?;
+        self.state.sources(args.at)
+    }
 }
 
 /// Descriptions are `&'static str`s the macro can quote; keeping them as named constants stops
@@ -211,3 +234,7 @@ const TIME: &str = "Requires the world string parameter. The world's time index.
     at or before it; without ts, returns the range summary: head, first_ts, last_ts and how many \
     out-of-order timestamps were clamped. Mirrors GET /worlds/{world}/time. Fold offsets are \
     what world_view, world_diff and entity_history accept.";
+const SOURCES: &str = "Requires the world string parameter. The world's member sources at a \
+    fold offset (the head by default), each with consumed and unrouted event counts and \
+    recent_unrouted, the most recent events no engine is routed for, most recent first. Mirrors \
+    GET /worlds/{world}/sources; use it to see events logged that no engine has routed yet.";

@@ -56,6 +56,7 @@ mod tests {
                 [
                     "branches",
                     "entity_history",
+                    "sources",
                     "time",
                     "world_diff",
                     "world_view"

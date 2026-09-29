@@ -648,8 +648,20 @@ async fn sources(
 ) -> Response {
     let run = || -> Result<Vec<SourceInfo>, QueryError> {
         check_world(&state, &world)?;
-        let at = parse("at", p.at.as_deref())?;
-        state.read(|timeline| {
+        state.sources(parse("at", p.at.as_deref())?)
+    };
+    run().map(Json).into_response()
+}
+
+impl QueryState {
+    /// Each member source at fold offset `at` (the head when absent) with what the bridge has
+    /// done with its events. The route and the MCP `sources` tool both call this.
+    ///
+    /// # Errors
+    /// [`QueryError::OffsetBeyondHead`] if `at` is past the head;
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn sources(&self, at: Option<u64>) -> Result<Vec<SourceInfo>, QueryError> {
+        self.read(|timeline| {
             let at = at.unwrap_or_else(|| timeline.head());
             if at > timeline.head() {
                 return Err(QueryError::OffsetBeyondHead {
@@ -659,8 +671,8 @@ async fn sources(
             }
             // The join key is the SourceId itself: membership rows and the bridge's counters
             // both name sources by it, so a member the bridge has not read yet reports zeros.
-            let stats = state.source_stats.borrow();
-            Ok(members_at(&state.membership, at)
+            let stats = self.source_stats.borrow();
+            Ok(members_at(&self.membership, at)
                 .into_iter()
                 .map(|source| {
                     let empty = SourceStats::default();
@@ -683,8 +695,7 @@ async fn sources(
                 })
                 .collect())
         })
-    };
-    run().map(Json).into_response()
+    }
 }
 
 #[cfg(test)]
@@ -846,9 +857,21 @@ mod membership_tests {
             .unwrap();
             bridge.poll_once().unwrap();
 
-            let app = router(state);
+            let app = router(state.clone());
+            let (status, http_body) = get(&app, "/worlds/default/sources").await;
+            let mcp = crate::mcp::WorldMcp::new(state);
+            let tool = mcp.sources(rmcp::handler::server::wrapper::Parameters(
+                serde_json::from_value(serde_json::json!({"world": "default"})).unwrap(),
+            ));
+            assert_ne!(tool.is_error, Some(true));
             assert_eq!(
-                get(&app, "/worlds/default/sources").await,
+                serde_json::from_str::<serde_json::Value>(&tool.content[0].as_text().unwrap().text)
+                    .unwrap(),
+                http_body,
+                "the MCP tool and the HTTP route serve the same sources"
+            );
+            assert_eq!(
+                (status, http_body),
                 (
                     StatusCode::OK,
                     serde_json::json!([{
