@@ -1,8 +1,8 @@
 //! An append-only event log with atomic source cursors.
 //!
 //! [`SqliteEventLog`] is the durable implementation. [`InMemoryEventLog`] provides the same
-//! seam without I/O for composition and tests. The System 1 verdict store sits beside the log
-//! in the same directory: see [`VerdictStore`].
+//! seam without I/O for composition and tests. System 1 verdicts and System 2 proposals sit
+//! beside the log in the same directory: see [`VerdictStore`] and [`ProposalStore`].
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
@@ -17,12 +17,18 @@ use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
 mod manifest;
 mod membership;
 mod presentation;
+mod proposals;
 mod reader;
 mod verdicts;
 
 pub use manifest::WorldManifest;
 pub use membership::{EffectiveFrom, MembershipRow, members_at};
 pub use presentation::{Palette, Typefaces, WorldPresentation, WorldPresentationInput};
+pub use proposals::{
+    Actor, ActorClassGrade, Decider, InMemoryProposalStore, NewDecision, NewProposal, Outcome,
+    ProposalStore, ReadOnlySqliteProposalStore, SqliteProposalStore, StoredDecision,
+    StoredProposal, Tally, grade,
+};
 pub use reader::LogReader;
 pub use verdicts::{
     InMemoryVerdictStore, ReadOnlySqliteVerdictStore, SqliteVerdictStore, StoredVerdict,
@@ -41,15 +47,15 @@ const FNV_PRIME: u64 = 0x100_0000_01b3;
 /// lock, opens the database, forces WAL mode and `extra_pragmas`, then checks the stored
 /// `user_version` against `schema_version` and runs `initialize_schema` on a fresh database.
 ///
-/// Shared by [`SqliteEventLog::open`] and [`SqliteVerdictStore::open`], which differ only in
-/// their filenames, extra pragmas, schema version, and how a fresh schema is created.
+/// Shared by the event, verdict and proposal stores, which differ only in their filenames,
+/// extra pragmas, schema version, and how a fresh schema is created.
 ///
 /// # Errors
 /// [`LogError::Locked`] when another handle owns `lock_file`; a storage or corruption error
 /// when the directory or database cannot be initialized safely.
 #[expect(
     clippy::too_many_arguments,
-    reason = "one argument per storage-format knob of the two SQLite stores sharing this opener; a parameter struct would only rename them"
+    reason = "one argument per storage-format knob of the SQLite stores sharing this opener; a parameter struct would only rename them"
 )]
 fn open_sqlite_store(
     directory: &Path,
@@ -135,7 +141,7 @@ fn open_sqlite_store_read_only(
     Ok(connection)
 }
 
-/// Rejects a payload before any write is attempted, shared by every [`EventLog`] impl.
+/// Rejects a payload before any write is attempted, shared by event and proposal stores.
 fn check_payload_size(len: usize) -> Result<(), LogError> {
     if len > MAX_PAYLOAD_BYTES {
         return Err(LogError::TooLarge);
