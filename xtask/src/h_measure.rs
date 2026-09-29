@@ -124,55 +124,31 @@ fn grades_itself_perfectly(
     Ok(())
 }
 
-/// The contract's frozen fixtures (B3), scored and checked, as a printed table: the 4/9 case
-/// (key `{a, b, c}`, prediction `{a, b, d}`) and an all-singletons prediction.
+/// The contract's frozen fixtures ([`score::frozen_fixtures`]), scored and checked, as a
+/// printed table.
 fn reference_fixtures() -> Result<String, String> {
-    let partition = |pairs: &[(&str, &str)]| mentions::Partition {
-        cluster: pairs
-            .iter()
-            .map(|(path, cluster)| ((0, (*path).to_owned()), (*cluster).to_owned()))
-            .collect(),
-    };
-    let key = partition(&[("a", "E"), ("b", "E"), ("c", "E")]);
-    let four_ninths = score::score(
-        &key,
-        &partition(&[("a", "X"), ("b", "X"), ("d", "X")]),
-        &BTreeSet::new(),
-    );
-    let singletons = score::score(
-        &key,
-        &partition(&[("a", "1"), ("b", "2"), ("c", "3")]),
-        &BTreeSet::new(),
-    );
     let exact = |got: Option<f64>| got.is_some_and(|x| (9.0 * x - 4.0).abs() < 1e-12);
-    let m = four_ninths.micro;
-    if !(exact(m.precision) && exact(m.recall) && exact(m.f1)) {
-        return Err(format!("scorer: the 4/9 fixture scores {m:?}"));
-    }
-    if singletons.recovery != Some(0.0) {
-        return Err(format!(
-            "scorer: the all-singletons fixture recovers {:?}",
-            singletons.recovery
-        ));
-    }
     let mut table = "fixture         P       R       F1      false-merge  recovery".to_owned();
-    for (name, row) in [("4/9", &four_ninths), ("all-singletons", &singletons)] {
+    for (name, key, prediction) in score::frozen_fixtures() {
+        let row = score::score(&key, &prediction, &BTreeSet::new());
         let b = row.micro;
+        let holds = match name {
+            "4/9" => exact(b.precision) && exact(b.recall) && exact(b.f1),
+            _ => row.recovery == Some(0.0),
+        };
+        if !holds {
+            return Err(format!("scorer: the {name} fixture scores {row:?}"));
+        }
         table.push_str(&format!(
             "\n{name:<15} {:<7} {:<7} {:<7} {:<12} {}",
-            shown(b.precision),
-            shown(b.recall),
-            shown(b.f1),
-            shown(row.false_merge),
-            shown(row.recovery)
+            score::shown(b.precision),
+            score::shown(b.recall),
+            score::shown(b.f1),
+            score::shown(row.false_merge),
+            score::shown(row.recovery)
         ));
     }
     Ok(table)
-}
-
-/// A metric as printed: four decimals, or "undefined" for a zero denominator.
-fn shown(metric: Option<f64>) -> String {
-    metric.map_or_else(|| "undefined".to_owned(), |x| format!("{x:.4}"))
 }
 
 /// `(record, natural key)` for every entity `MappingEngine` proposes.

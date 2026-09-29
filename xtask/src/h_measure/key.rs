@@ -99,7 +99,10 @@ impl KeySpec {
     /// mention path moved last (where [`super::mentions::mapping_mentions`] places the mention),
     /// labelled with the key's type. A mention rule whose path is not an identity path is an
     /// alias of another value, which no v0 rule can join, so it gets no rule: grading this
-    /// mapping measures the format's ceiling, not a discoverer.
+    /// mapping measures the format's ceiling, not a discoverer. Moving the mention path last
+    /// reorders the key parts, so two mention rules of one type on the same multi-path identity
+    /// (`a` and `b`, both identified by `[a, b]`) get differently ordered keys and the oracle
+    /// splits their entity: a second limit of the format, pinned by a fixture.
     pub(crate) fn oracle(&self) -> Result<StreamMapping, String> {
         self.validate()?;
         let mut entities = Vec::new();
@@ -129,6 +132,11 @@ impl KeySpec {
             .validate()
             .map_err(|e| format!("the oracle mapping is not valid: {e}"))?;
         Ok(mapping)
+    }
+
+    /// The unscored paths as mention path ids.
+    pub(crate) fn unscored_ids(&self) -> BTreeSet<String> {
+        self.unscored.iter().map(rule_id).collect()
     }
 
     /// Fails closed on anything that would make the key partition ambiguous.

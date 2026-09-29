@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::super::key::KeySpec;
 use super::super::mentions::Partition;
-use super::{Score, grade, score};
+use super::{Score, frozen_fixtures, grade, score};
 
 /// A partition from `(record, path, cluster)` triples.
 fn part(mentions: &[(usize, &str, &str)]) -> Partition {
@@ -48,13 +48,22 @@ fn two_entities() -> Partition {
 
 #[test]
 fn the_four_ninths_case() {
-    let key = part(&[(0, "a", "E"), (0, "b", "E"), (0, "c", "E")]);
-    let got = graded(&key, &part(&[(0, "a", "X"), (0, "b", "X"), (0, "d", "X")]));
+    let [(_, key, prediction), _] = frozen_fixtures();
+    let got = graded(&key, &prediction);
     exactly(got.micro.precision, 4.0, 9.0);
     exactly(got.micro.recall, 4.0, 9.0);
     exactly(got.micro.f1, 4.0, 9.0);
     exactly(got.false_merge, 5.0, 9.0);
     assert_eq!(got.spurious, [("d".to_owned(), 1)].into());
+}
+
+#[test]
+fn the_frozen_all_singletons_case_recovers_nothing() {
+    let [_, (_, key, prediction)] = frozen_fixtures();
+    let got = graded(&key, &prediction);
+    assert_eq!(got.recovery, Some(0.0));
+    assert_eq!(got.micro.precision, Some(1.0));
+    exactly(got.micro.recall, 1.0, 3.0);
 }
 
 #[test]
@@ -219,7 +228,7 @@ fn a_prediction_whose_key_twin_abstained_is_spurious() {
 }
 
 #[test]
-fn the_oracle_of_a_key_without_aliases_scores_one() {
+fn the_oracle_of_a_key_whose_mentions_have_their_own_identities_scores_one() {
     let key = spec(&json!({ "version": 0, "types": [
         { "type": "S", "mentions": [{ "path": ["ctx"], "identity": [["ctx"]] }] },
         { "type": "O", "mentions": [
@@ -252,5 +261,18 @@ fn the_oracle_cannot_join_four_aliases() {
     let got = grade(&key, &mapping(&json!([])), &payloads).expect("grades");
     exactly(got.ceiling.micro.recall, 1.0, 16.0);
     assert_eq!(got.ceiling.micro.precision, Some(1.0));
+    assert_eq!(got.ceiling.recovery, Some(0.0));
+}
+
+#[test]
+fn the_oracle_splits_two_mentions_of_one_multi_path_identity() {
+    let key = spec(
+        &json!({ "version": 0, "types": [{ "type": "T", "mentions": [
+        { "path": ["a"], "identity": [["a"], ["b"]] },
+        { "path": ["b"], "identity": [["a"], ["b"]] }
+    ] }] }),
+    );
+    let got = grade(&key, &mapping(&json!([])), &[json!({ "a": "x", "b": "y" })]).expect("grades");
+    exactly(got.ceiling.micro.recall, 1.0, 2.0);
     assert_eq!(got.ceiling.recovery, Some(0.0));
 }

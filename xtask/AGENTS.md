@@ -54,7 +54,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/key.rs`: the answer-key spec, format version 0 (`decode`, `types` with mention
     rules `{path, identity}`, `unscored`), its fail-closed validation, `from_mapping`, and
     `oracle`: the best v0 mapping for the key (one rule per mention rule whose path is an
-    identity path, mention path last; alias mentions get no rule), graded as the ceiling row.
+    identity path, mention path last; alias mentions get no rule, and two mention rules on one
+    multi-path identity are split by the reordering), graded as the ceiling row.
     Domain knowledge lives in the spec file, never here.
   - `h_measure/mentions.rs`: the key and mapping executors. A mention is `(record index,
     s2w_discover::rule_id(path))`. A mapping rule mentions its entity at its **last** key path:
