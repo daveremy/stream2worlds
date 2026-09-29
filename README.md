@@ -27,7 +27,7 @@
   verdicts or snapshots. [Decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)
 - **Humans can grade proposals.** `s2w proposals list|grade|decide` shows the proposal store
   and records a human accept or reject, the decision that grades a producer and can revoke the
-  stream mapping a source runs. `serve` picks up a decision at its next start.
+  stream mapping a source runs. A running `serve` picks up a decision live and rebuilds the world ([#184](https://github.com/daveremy/stream2worlds/issues/184)).
   [#185](https://github.com/daveremy/stream2worlds/issues/185)
 - **Restarting from a snapshot takes about half the memory.** A restored world is shared
   instead of copied, and writing a snapshot no longer clones the world: folding 10^6 events the
@@ -216,7 +216,7 @@ whitespace, control characters and `;` so the prefix always splits cleanly. For 
 `stream-mapping` proposal, `decide` also prints what the source runs after the write: a reject
 of the mapping a source runs revokes it, back to the previous accepted mapping or to unrouted
 ([decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)). A running `s2w serve`
-resolves routes only at start, so it picks up the change at its next restart. An accept on a
+sees the change within a poll and rebuilds the world under the new routes (#184 2b-ii). An accept on a
 mapping proposal whose payload does not decode is refused, because routing excludes that row
 whatever is decided; a reject is always allowed. Exit codes: 0 recorded; 2 for a usage error;
 1 for a data error (`unknown_proposal`, `store_locked`, `bad_parameter`, `storage`), with the
