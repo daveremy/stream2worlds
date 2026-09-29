@@ -278,3 +278,31 @@ fn the_oracle_splits_two_mentions_of_one_multi_path_identity() {
     exactly(got.ceiling.micro.recall, 1.0, 2.0);
     assert_eq!(got.ceiling.recovery, Some(0.0));
 }
+
+#[test]
+fn excluded_mentions_are_dropped_from_the_mapping_and_the_oracle_alike() {
+    let key = spec(
+        &json!({ "version": 1, "types": [{ "type": "T", "mentions": [
+        { "path": ["n"], "identity": [["ctx"], ["n"]], "no_identity": [0] }
+    ] }] }),
+    );
+    let payloads = [
+        json!({ "ctx": "c", "n": 0 }),
+        json!({ "ctx": "c", "n": 0 }),
+        json!({ "ctx": "c", "n": 7 }),
+        json!({ "ctx": "c", "n": 7 }),
+    ];
+    // The v0 format cannot exclude a value, so this mapping mints the sentinel entity.
+    let naive = mapping(&json!([
+        { "id": "t", "type_label": "T", "key": [["ctx"], ["n"]], "attrs": [] }
+    ]));
+    let got = grade(&key, &naive, &payloads).expect("grades");
+    assert_eq!(got.excluded, [("n".to_owned(), 2)].into());
+    // The key has no mention at the sentinel records, so both predictions drop them: neither
+    // spurious nor abstained, and the mapping reaches the ceiling.
+    for score in [&got.ceiling, &got.mapping] {
+        assert_eq!(score.micro.f1, Some(1.0), "{score:?}");
+        assert!(score.spurious.is_empty(), "{score:?}");
+    }
+    assert_eq!(got.mapping, got.ceiling);
+}

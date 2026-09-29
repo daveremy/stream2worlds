@@ -5,8 +5,8 @@
 //! The mapping executor decodes and builds keys with `s2w_system1::decode`, the functions
 //! `MappingEngine` runs, so a predicted cluster is byte for byte the natural key `serve` folds.
 
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, BTreeSet};
 
 use s2w_discover::rule_id;
 use s2w_model::{FieldPath, StreamMapping};
@@ -86,10 +86,25 @@ pub(crate) struct KeyMentions {
     /// but some identity path did not, so the key places no mention there. Reported beside the
     /// score, never scored.
     pub abstained: BTreeMap<String, usize>,
+    /// Excluded mentions: the mention path held one of its rule's `no_identity` values, so the
+    /// key places no mention there (neither a singleton nor a merge). Reported, never scored.
+    pub excluded: BTreeSet<Mention>,
+}
+
+impl KeyMentions {
+    /// Excluded mentions per mention path id.
+    pub(crate) fn excluded_per_path(&self) -> BTreeMap<String, usize> {
+        let mut counts = BTreeMap::new();
+        for (_, path) in &self.excluded {
+            *counts.entry(path.clone()).or_default() += 1;
+        }
+        counts
+    }
 }
 
 /// Applies a key spec, after validating it: a record mentions an entity at a rule's path when
-/// that path and every identity path hold a key part. The gold cluster is the type and the
+/// that path and every identity path hold a key part and the path's value is not one of the
+/// rule's `no_identity` values (an excluded mention). The gold cluster is the type and the
 /// identity parts, encoded as a natural key; its type is the key's label part.
 pub(crate) fn key_mentions(spec: &KeySpec, corpus: &Decoded) -> Result<KeyMentions, String> {
     spec.validate()?;
@@ -100,10 +115,14 @@ pub(crate) fn key_mentions(spec: &KeySpec, corpus: &Decoded) -> Result<KeyMentio
         };
         for kind in &spec.types {
             for rule in &kind.mentions {
-                if lookup(value, &rule.path).and_then(key_part).is_none() {
+                let Some(part) = lookup(value, &rule.path).and_then(key_part) else {
+                    continue;
+                };
+                let id = rule_id(&rule.path);
+                if rule.excludes(&part) {
+                    found.excluded.insert((record, id));
                     continue;
                 }
-                let id = rule_id(&rule.path);
                 // A validated spec has one rule per mention id, so this insert never replaces
                 // a mention; relaxing that rule would need the mapping executor's conflict error.
                 match natural_key(value, &kind.label, &rule.identity) {

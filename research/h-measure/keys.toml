@@ -38,3 +38,9 @@ file = "dev-key-v0.canonical-mention.json"
 variant = "canonical-mention"
 sha256 = "30990677e66034db8ce6db38105e00853421efe3f84665e95ece01e3ba02a799"
 reading = "alias-only mention paths (server_name, server_url, meta.domain, title_url) unscored: what an arm scores when aliases are not asked of it (ruling 2026-09-29 item 3)"
+
+[[key]]
+file = "dev-key-v1.json"
+variant = "base"
+sha256 = "006c50d4a8067c620a157534cb17f5cdfcf64f58ff275184aafaaefc55a48595"
+reading = "dev-key-v0 (base) in key format 1, plus no_identity [0] on the log_id mention: an AbuseFilter hit carries log_id 0 and writes no log row, so it mentions no log entity (1,348 of the dev corpus's 19,684 log mentions; v0 merged them into one log per wiki). #225, ruling 2026-09-29 item 3"

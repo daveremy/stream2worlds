@@ -322,6 +322,10 @@ pub(crate) struct Grade {
     pub ceiling: Score,
     /// Abstained paths from the key executor, per mention path id.
     pub abstained: BTreeMap<String, usize>,
+    /// Excluded mentions from the key executor (`no_identity`), per mention path id. The key
+    /// has no mention there, so each is dropped from every prediction (the mapping's and the
+    /// oracle's alike) before scoring: neither spurious nor abstained, like an unscored path.
+    pub excluded: BTreeMap<String, usize>,
     /// Records the key's decode steps could not decode.
     pub undecodable: usize,
 }
@@ -343,14 +347,28 @@ pub(crate) fn grade(
         other = Decoded::new(payloads, &mapping.decode);
         &other
     };
-    let predicted = mapping_mentions(mapping, mapping_corpus)?;
-    let oracle = mapping_mentions(&spec.oracle()?, &corpus)?;
+    // A mention's record is its index in `payloads` whichever decode steps built the corpus, so
+    // the key's excluded set applies to a prediction made on the mapping's own decoding.
+    let predicted = without(mapping_mentions(mapping, mapping_corpus)?, &gold.excluded);
+    let oracle = without(mapping_mentions(&spec.oracle()?, &corpus)?, &gold.excluded);
     Ok(Grade {
         mapping: score(&gold.partition, &predicted, &unscored),
         ceiling: score(&gold.partition, &oracle, &unscored),
+        excluded: gold.excluded_per_path(),
         abstained: gold.abstained,
         undecodable: corpus.undecodable(),
     })
+}
+
+/// A prediction with the key's excluded mentions dropped. `no_identity` means the key has no
+/// mention at that record and path, and the v0 mapping format cannot exclude a value, so every
+/// prediction (graded mapping and oracle alike) is filtered the same way; filtering only the
+/// oracle would make the ceiling unreachable by any expressible mapping.
+fn without(mut predicted: Partition, excluded: &BTreeSet<Mention>) -> Partition {
+    predicted
+        .cluster
+        .retain(|mention, _| !excluded.contains(mention));
+    predicted
 }
 
 #[cfg(test)]
