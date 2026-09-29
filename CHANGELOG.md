@@ -36,10 +36,11 @@ viewer refresh is an env knob
 fixed by moving `grade` out of `score`
 ([#247](https://github.com/daveremy/stream2worlds/pull/247)) and two of the three `s2w_app`
 edges fixed by moving proposal reads and `sse_cap_guard` into `query`
-([#248](https://github.com/daveremy/stream2worlds/pull/248)). The Sprint 80 entry was written
+([#248](https://github.com/daveremy/stream2worlds/pull/248)); the last edge, through
+`bridge::SourceStats`, is #240 PR 2. The Sprint 80 entry was written
 late ([#234](https://github.com/daveremy/stream2worlds/pull/234)).
 
-**Learned:** a viewer at the page's real 5 s cadence costs the backfill 1.4×, not the 5× a 1 s
+**Learned:** a viewer at the page's real 5 s cadence costs the backfill about 1.4×, not the 5× a 1 s
 viewer showed: 60–65 s against 43–48 s with no viewer, at a peak of 876–902 MiB. One viewer
 needs no redesign. The oracle-v0 reference scores F1 0.587 and 0.566 on the same spans, so
 H-lite is too weak to be a baseline yet: it has no `user` or `revision` type and mints

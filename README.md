@@ -29,7 +29,7 @@
 - **A gate-3 score cannot come from a mapping nobody froze.** `cargo xtask h-measure freeze`
   pins keys and corpora by sha256, and `score` re-runs the freeze and refuses any frozen file
   that differs. [#242](https://github.com/daveremy/stream2worlds/pull/242)
-- **A viewer refreshing every 5 s slows a backfill 1.4×, not 5×.** `/world` streams from the
+- **A viewer refreshing every 5 s slows a backfill about 1.4×, not 5×.** `/world` streams from the
   head with ETag/304; one viewer needs no redesign.
   [#239](https://github.com/daveremy/stream2worlds/pull/239)
 - **`serve` learns a mapping for a new stream and applies it.** At start, a source with no
@@ -38,7 +38,8 @@
   decide --outcome reject`. [Decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)
 - **In progress:** the demo box passed its check once, then the kernel killed `serve` at the
   1 GiB cap 2 s after a rebuild, so it is not yet holding. The remaining 40 to 100 MiB is
-  [#220](https://github.com/daveremy/stream2worlds/issues/220).
+  [#220](https://github.com/daveremy/stream2worlds/issues/220); the box runs with an empty world
+  until it lands.
 
 ## Demos
 
