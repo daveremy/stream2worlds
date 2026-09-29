@@ -25,6 +25,7 @@ use serde_json::Value;
 
 mod context;
 mod freeze;
+mod grade;
 pub(crate) mod key;
 pub(crate) mod mentions;
 mod pins;
@@ -191,7 +192,7 @@ fn grades_itself_perfectly(
     mapping: &StreamMapping,
     payloads: &[Value],
 ) -> Result<(), String> {
-    let own = score::grade(own_key, mapping, payloads)?;
+    let own = grade::grade(own_key, mapping, payloads)?;
     for (row, graded) in [("mapping", &own.mapping), ("ceiling", &own.ceiling)] {
         if graded.micro.f1 != Some(1.0) || graded.recovery != Some(1.0) {
             return Err(format!(

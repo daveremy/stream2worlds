@@ -75,10 +75,12 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     to a corpus once; every executor whose steps match shares it.
   - `h_measure/score.rs`: B-cubed P/R/F1 (micro, per type, and without singleton-only types),
     the mention-weighted false-merge rate, entity recovery (≥ 90% both ways, integer
-    comparisons), the per-path table and spurious mentions; `grade` scores a mapping and the
-    oracle ceiling on one corpus, dropping the key's excluded mentions from both predictions
-    first (the key has no mention there; a v0 mapping cannot exclude a value). A zero
-    denominator is `None` (undefined). Fixtures live in `h_measure/score/tests.rs`.
+    comparisons), the per-path table and spurious mentions. A zero denominator is `None`
+    (undefined). Fixtures live in `h_measure/score/tests.rs`.
+  - `h_measure/grade.rs`: `grade` scores a mapping and the oracle ceiling on one corpus,
+    dropping the key's excluded mentions from both predictions first (the key has no mention
+    there; a v0 mapping cannot exclude a value), and adds the `context` rows. It sits above
+    both `score` and `context` so neither imports the other (s2w#241).
   - `h_measure/pins.rs`: reads `research/h-measure/keys.toml` and `corpora.toml` (with each
     corpus's `role`: development, heldout, reserved). A key or corpus that is not pinned, or
     whose sha256 does not match its pin, is refused, as is a corpus whose SSE frame count is not

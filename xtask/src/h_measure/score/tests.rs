@@ -5,9 +5,10 @@ use std::collections::BTreeSet;
 use s2w_model::StreamMapping;
 use serde_json::{Value, json};
 
+use super::super::grade::grade;
 use super::super::key::KeySpec;
 use super::super::mentions::Partition;
-use super::{Score, frozen_fixtures, grade, score};
+use super::{Score, frozen_fixtures, score};
 
 /// A partition from `(record, path, cluster)` triples.
 fn part(mentions: &[(usize, &str, &str)]) -> Partition {
