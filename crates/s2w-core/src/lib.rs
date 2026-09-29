@@ -6,9 +6,11 @@
 //! result as folding the whole log (decision 0005; `cargo xtask check` replays a golden log).
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+mod attr_map;
 mod event;
 mod world;
 
+pub use attr_map::{AttrMap, AttrMapIter};
 pub use event::{AttrValue, EntityId, NaturalKey, WorldEvent};
 pub use world::{
     DEFAULT_HUB_IN_DEGREE_CAP, EntityState, FOLD_FIXTURE_HASH, FOLD_VERSION, HubCounters,

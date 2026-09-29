@@ -9,7 +9,7 @@
 # them and never touches [ir].
 
 tolerance_percent = 5
-set_by = "s2w#32 (2026-09-28)"
+set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29)"
 
 # Instructions per event are owned by the CI image below: Valgrind counts are stable on one
 # image and compiler, not across machines, so a local run is not the baseline. Set from the
@@ -23,14 +23,15 @@ profile = "bench"
 
 # Heap bytes per entity after folding entity-observed events, counted by dhat (test profile).
 [memory]
-# Measured 830 B on 2026-09-28 (hub, rustc 1.98.1). Baseline; > +tolerance fails.
-bytes_per_entity = 830
+# Measured 830 B on 2026-09-28, then 438 B after s2w#172 stored entity attributes as a sorted
+# Vec (hub, rustc 1.98.1). Baseline; > +tolerance fails.
+bytes_per_entity = 438
 # Decision 0004's planning target; printed with the measured ratio, not a ceiling. Raising it
 # is growth.
 target_bytes_per_entity = 300
-# Interim hard ceiling, pending a human decision-0004 amendment: the measured 830 B is 2.77x the
-# 300 B target, beyond that record's 2x amendment line. Above this always fails.
-budget_bytes_per_entity = 900
+# Hard ceiling: decision 0004's 2x line over the 300 B target (was an interim 900 B while the
+# measured 830 B sat at 2.77x; s2w#172 brought it under). Above this always fails.
+budget_bytes_per_entity = 600
 # Informational: heap bytes per relationship-observed event after the entities.
 bytes_per_relationship_reported = 234
 entities = 100000 # MEM_ENTITIES in the generator; the test's JSON line must agree

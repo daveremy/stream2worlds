@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use s2w_core::{AttrValue, EntityId, World};
+use s2w_core::{AttrMap, EntityId, World};
 use serde::Serialize;
 
 use super::QueryError;
@@ -66,7 +66,7 @@ pub enum Node {
         /// Natural keys that resolve to this entity, for labels.
         keys: Vec<String>,
         /// Attributes.
-        attrs: BTreeMap<String, AttrValue>,
+        attrs: AttrMap,
         /// Ids merged into this entity, excluding itself.
         members: Vec<EntityId>,
         /// Relationships to hubs, served on the source instead of as links.
@@ -84,7 +84,7 @@ pub enum Node {
         /// Natural keys that resolve to this entity.
         keys: Vec<String>,
         /// Attributes.
-        attrs: BTreeMap<String, AttrValue>,
+        attrs: AttrMap,
         /// Ids merged into this entity, excluding itself.
         members: Vec<EntityId>,
         /// Distinct (resolved) sources pointing at the hub.
