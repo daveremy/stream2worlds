@@ -3,8 +3,8 @@
 use s2w_model::StreamMapping;
 use serde_json::{Value, json};
 
+use super::super::grade::{Grade, grade};
 use super::super::key::KeySpec;
-use super::super::score::{Grade, grade};
 use super::ContextRow;
 
 fn spec(value: &Value) -> KeySpec {

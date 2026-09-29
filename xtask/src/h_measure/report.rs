@@ -16,8 +16,9 @@ use s2w_model::{MAPPING_VERSION, StreamMapping};
 use serde::Serialize;
 
 use super::freeze::{Frozen, derive};
+use super::grade::{Grade, grade};
 use super::pins::{Pins, Role, sha256};
-use super::score::{Bcubed, Grade, Score, grade, shown};
+use super::score::{Bcubed, Score, shown};
 
 /// The report's first paragraph: the mapping format's alias limit (ruling on s2w#56,
 /// 2026-09-29), stated before any number.
