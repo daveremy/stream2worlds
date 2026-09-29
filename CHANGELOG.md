@@ -13,7 +13,7 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
-## World memory: 830 to 438 bytes per entity — #172 (2026-09-29)
+## World memory: 830 to 438 bytes per entity — #194 (2026-09-29)
 
 **Shipped:** each entity's attributes now live in a sorted `Vec` (`AttrMap`) instead of a
 `BTreeMap`. The fold's heap per entity fell from 830 B to 438 B on the scale generator, and the
