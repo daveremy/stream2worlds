@@ -7,3 +7,5 @@
 /data/
 /codex-work/
 /.demo-data/
+__pycache__/
+*.pyc
