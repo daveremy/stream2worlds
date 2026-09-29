@@ -15,8 +15,17 @@
 //!   backfill's transient (payload batches, verdict rows, claims in flight). It asserts the
 //!   process's peak resident stays under [`SERVE_PEAK_LIMIT`] (600 MiB): the fitness function
 //!   for decision 0026's history cap, with no viewer connected.
-//! - `queries`: after the `timeline` fold, the peak of one `/world` read at the head and one
-//!   `/diff` from the head to itself — what a connected view adds.
+//! - `queries`: after the `timeline` fold, a `/world` read at the head split into its parts,
+//!   each its own peak window: the projection alone (`view_at`, which borrows the head) and the
+//!   JSON serialization alone; then one `/diff` from the head to itself. Before #216 PR 2a each
+//!   read also copied the head world, the size `world` reports. (Not measured here: a freed
+//!   copy's pages stay resident and pad whichever window comes next.)
+//! - `viewer`: the `bridge` backfill with a reader thread attached before the first poll,
+//!   issuing one `/world` and one `/diff?from=<head>&to=<head>` through the real router every
+//!   [`VIEWER_TICK`] and draining each body, as a page does (at 1 s, the page's old rate, a
+//!   worst case). It reports the whole-process peak against [`VIEWER_PEAK_LIMIT`] and the
+//!   slowest `/world`, an upper bound on how long one read held the fold's lock (it also counts
+//!   the wait for an append and the JSON serialized after release).
 //!
 //! The fixture (11,667 events) is cycled to 1.5x10^5 with every string leaf suffixed by the
 //! cycle number (`fresh`, as in `discover_volume.rs`), so every cycle observes new entities:
@@ -33,11 +42,17 @@ mod recorded;
 #[cfg(test)]
 mod backfill {
     use std::path::PathBuf;
-    use std::time::Instant;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
 
     use s2w_app::bridge::{Bridge, BridgeConfig, EngineRegistry, Route};
     use s2w_app::discover::DISCOVER_WINDOW;
-    use s2w_app::query::{QueryState, Timeline, ViewParams};
+    use s2w_app::query::{QueryState, Timeline, ViewParams, router};
     use s2w_core::{World, fold};
     use s2w_discover::{Config, Discovery, discover};
     use s2w_log::{EventLog, SqliteEventLog, SqliteVerdictStore};
@@ -56,6 +71,11 @@ mod backfill {
     /// no viewer connected (decision 0026): room under the demo box's `MemoryMax=1G` for the
     /// viewer path and the allocator.
     const SERVE_PEAK_LIMIT: usize = 600 * 1024 * 1024;
+    /// The demo box's `MemoryMax`: the most a serve process may hold at its peak with a viewer
+    /// connected (s2w#216's finish line).
+    const VIEWER_PEAK_LIMIT: usize = 1024 * 1024 * 1024;
+    /// How often the `viewer` reader asks for the world.
+    const VIEWER_TICK: Duration = Duration::from_millis(1000);
 
     /// A `/proc/self/status` field in bytes (`VmRSS`: resident now, `VmHWM`: peak resident).
     fn status(field: &str) -> usize {
@@ -223,8 +243,22 @@ mod backfill {
             let view = state
                 .view_at(Some(head), None, &ViewParams::default())
                 .unwrap();
-            drop(view);
-            report("query /world at head", before, started, "");
+            report(
+                "query /world part: projection",
+                before,
+                started,
+                &format!(", {} nodes, {} links", view.nodes.len(), view.links.len()),
+            );
+            let before = reset_peak();
+            let started = Instant::now();
+            let json = serde_json::to_vec(&view).unwrap();
+            report(
+                "query /world part: serialization",
+                before,
+                started,
+                &format!(", body {}", mib(json.len())),
+            );
+            drop((json, view));
             let before = reset_peak();
             let started = Instant::now();
             // Past the history cap, `/diff` serves the head only (decision 0026).
@@ -246,10 +280,88 @@ mod backfill {
         log.append_batch(batch).unwrap();
     }
 
+    /// What the `viewer` reader saw.
+    #[derive(Default)]
+    struct Viewed {
+        worlds: usize,
+        diffs: usize,
+        refused: usize,
+        largest_body: usize,
+        slowest_world: Duration,
+    }
+
+    /// A page's reads until `stop`: every [`VIEWER_TICK`], one `/world` and one `/diff` of the
+    /// head with itself through the real router, each body drained so the JSON is counted.
+    fn viewer(state: &QueryState, stop: &AtomicBool) -> Viewed {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let app = router(state.clone());
+        let mut seen = Viewed::default();
+        let get = |uri: String| {
+            let app = app.clone();
+            runtime.block_on(async move {
+                let res = app
+                    .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                let status = res.status();
+                let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (status, body.len())
+            })
+        };
+        while !stop.load(Ordering::Relaxed) {
+            let tick = Instant::now();
+            let (status, len) = get("/worlds/default/world".to_owned());
+            seen.slowest_world = seen.slowest_world.max(tick.elapsed());
+            assert_eq!(status, StatusCode::OK, "/world");
+            seen.worlds += 1;
+            seen.largest_body = seen.largest_body.max(len);
+            let (_, head, _) = state.bounds().unwrap();
+            // The head can move between the two reads; below the base that is a 410, fine.
+            let (status, len) = get(format!("/worlds/default/diff?from={head}&to={head}"));
+            match status {
+                StatusCode::OK => seen.diffs += 1,
+                StatusCode::GONE => seen.refused += 1,
+                other => panic!("/diff answered {other}"),
+            }
+            seen.largest_body = seen.largest_body.max(len);
+            std::thread::sleep(VIEWER_TICK.saturating_sub(tick.elapsed()));
+        }
+        seen
+    }
+
+    /// Prints what the `viewer` reader saw against the whole-process `peak`.
+    fn report_viewer(viewed: &Viewed, peak: usize) {
+        eprintln!(
+            "viewer: {} /world, {} /diff ({} refused), largest body {}, slowest /world {} ms",
+            viewed.worlds,
+            viewed.diffs,
+            viewed.refused,
+            mib(viewed.largest_body),
+            viewed.slowest_world.as_millis()
+        );
+        assert!(viewed.worlds > 0, "the viewer never read the world");
+        // Reported, not asserted: stage 1 (#216 PR 2a) removes the world copy but still builds
+        // the whole view and its JSON body; the streamed `/world` (PR 2b) turns this on.
+        eprintln!(
+            "viewer: peak {} the {} finish line",
+            if peak < VIEWER_PEAK_LIMIT {
+                "under"
+            } else {
+                "OVER"
+            },
+            mib(VIEWER_PEAK_LIMIT)
+        );
+    }
+
     /// The `bridge` child starts like a serve process: it reads the mapping and the source
     /// the parent wrote, never loading the fixture or running the profiler, so its whole-process
-    /// peak is what serve would hold.
-    fn bridge(directory: &PathBuf) {
+    /// peak is what serve would hold. With `with_viewer`, a [`viewer`] thread reads throughout.
+    fn bridge(directory: &PathBuf, with_viewer: bool) {
         let mapping: StreamMapping =
             serde_json::from_slice(&std::fs::read(directory.join(MAPPING_FILE)).unwrap()).unwrap();
         let source = std::fs::read_to_string(directory.join(SOURCE_FILE)).unwrap();
@@ -271,6 +383,11 @@ mod backfill {
             BridgeConfig::default(),
         )
         .unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let reader = with_viewer.then(|| {
+            let (state, stop) = (state.clone(), Arc::clone(&stop));
+            std::thread::spawn(move || viewer(&state, &stop))
+        });
         let mut consumed = 0;
         loop {
             let report = bridge.poll_once().unwrap();
@@ -279,29 +396,36 @@ mod backfill {
             }
             consumed += report.stats.consumed;
         }
+        stop.store(true, Ordering::Relaxed);
+        let viewed = reader.map(|r| r.join().unwrap());
         let (_, head, _) = state.bounds().unwrap();
+        let name = if with_viewer { "viewer" } else { "bridge" };
         report(
-            "bridge",
+            name,
             before,
             started,
             &format!(", {consumed} raw events, {head} world events"),
         );
         let peak = status("VmHWM:");
         eprintln!(
-            "bridge: whole-process peak {} (baseline {} before the bridge)",
+            "{name}: whole-process peak {} (baseline {} before the bridge)",
             mib(peak),
             mib(before)
         );
-        assert!(
-            peak < SERVE_PEAK_LIMIT,
-            "serve peak {} is over {}",
-            mib(peak),
-            mib(SERVE_PEAK_LIMIT)
-        );
+        let Some(viewed) = viewed else {
+            assert!(
+                peak < SERVE_PEAK_LIMIT,
+                "serve peak {} is over {}",
+                mib(peak),
+                mib(SERVE_PEAK_LIMIT)
+            );
+            return;
+        };
+        report_viewer(&viewed, peak);
     }
 
     #[test]
-    #[ignore = "folds 1.5x10^5 events in four children; run by hand with --release"]
+    #[ignore = "folds 1.5x10^5 events in five children; run by hand with --release"]
     fn backfill_memory_breakdown() {
         let events = load().unwrap();
         let discovered = mapping(events);
@@ -320,7 +444,7 @@ mod backfill {
         .unwrap();
         std::fs::write(directory.join(SOURCE_FILE), events[0].source.as_str()).unwrap();
         eprintln!("log populated in {:.1} s", started.elapsed().as_secs_f64());
-        for variant in ["world", "timeline", "queries", "bridge"] {
+        for variant in ["world", "timeline", "queries", "bridge", "viewer"] {
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(["backfill::child", "--exact", "--ignored", "--nocapture"])
                 .env(VARIANT, variant)
@@ -341,8 +465,11 @@ mod backfill {
         let Ok(variant) = std::env::var(VARIANT) else {
             return;
         };
-        if variant == "bridge" {
-            bridge(&PathBuf::from(std::env::var(LOG_DIR).unwrap()));
+        if variant == "bridge" || variant == "viewer" {
+            bridge(
+                &PathBuf::from(std::env::var(LOG_DIR).unwrap()),
+                variant == "viewer",
+            );
             return;
         }
         let events = load().unwrap();

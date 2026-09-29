@@ -36,6 +36,10 @@ const BEHIND = 'Fell behind the live stream; reloading';
 const keys = ['world', 'at', 'branch', 'lod', 'focus', 'hops'];
 // The proposal ledger changes on System 2's cadence, not per event: poll it on its own slow timer.
 const PROPOSALS_POLL_MS = 5000;
+// At most one full `/world` refetch per this many ms while deltas keep arriving. Each one is
+// projected under the server's read lock, which blocks the fold (#216), so a busy stream must
+// not trigger one per second; deltas still apply locally between refetches.
+const WORLD_REFRESH_MS = 5000;
 function describe(error: unknown): string {
   return error instanceof ApiError && error.code === 'offset_beyond_head' ? 'No data at this offset' :
     error instanceof Error ? error.message : String(error);
@@ -120,7 +124,7 @@ async function start(): Promise<void> {
         }
       }
       finally { fetching = false; if (dirty && !signal.aborted) scheduleRefresh(); }
-    }, Math.max(0, 1000 - (Date.now() - lastFetch)));
+    }, Math.max(0, WORLD_REFRESH_MS - (Date.now() - lastFetch)));
   }
   function reconnect(): void {
     if (signal.aborted) return;

@@ -7,7 +7,7 @@ mod golden {
     use axum::Router;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use s2w_app::query::{QueryState, Timeline, ViewParams, router, world_view};
+    use s2w_app::query::{QueryState, Timeline, ViewParams, diff, router, world_view};
     use s2w_core::{NaturalKey, World, WorldEvent, fold};
     use s2w_model::Timestamp;
     use serde_json::Value;
@@ -544,6 +544,37 @@ mod golden {
         assert_eq!(ids, vec![21, 22, 23, 24, 25]);
         assert_eq!(msgs[4].1, "entity");
         assert_eq!(msgs[4].2["minted"], true);
+    }
+
+    #[test]
+    fn every_diff_matches_the_pure_diff() {
+        run(every_diff_matches_the_pure_diff_body());
+    }
+
+    /// `/diff` borrows the head and short-circuits `from == to` (#216): every pair, the
+    /// equal ones included, must still answer exactly what the pure diff of two folds does.
+    async fn every_diff_matches_the_pure_diff_body() {
+        let (_, app) = app();
+        let log = events();
+        let worlds: Vec<World> = (0..=log.len())
+            .map(|at| fold(World::with_hub_cap(CAP), &log[..at]))
+            .collect();
+        for (from, a) in worlds.iter().enumerate() {
+            for (to, b) in worlds.iter().enumerate() {
+                let expected = serde_json::to_value(diff(a, b).unwrap()).unwrap();
+                let (status, got) =
+                    get(&app, &format!("/worlds/default/diff?from={from}&to={to}")).await;
+                assert_eq!(status, StatusCode::OK, "from={from} to={to}");
+                assert_eq!(got, expected, "from={from} to={to}");
+            }
+        }
+        // An equal pair past the head is still refused, exactly as `/world` refuses it.
+        let past = log.len() + 1;
+        let (status, got) = get(&app, &format!("/worlds/default/diff?from={past}&to={past}")).await;
+        let (world_status, world_err) =
+            get(&app, &format!("/worlds/default/world?at={past}")).await;
+        assert_eq!(status, world_status);
+        assert_eq!(got, world_err);
     }
 
     #[test]

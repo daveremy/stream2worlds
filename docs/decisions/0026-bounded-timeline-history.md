@@ -77,10 +77,33 @@ second, smaller one: once the window has dropped events, no reader uses a retain
 `WorldEvent`, only its `Delta`, so dropping the event after the first trim would shrink the
 window further.
 
+*(Superseded by the PR 2a entry below; the figures stay as its "before" evidence.)*
 **Not covered: a connected viewer.** One `/world` read at the head clones the head world and
 projects it: +1.1 GiB resident, +1.4 GiB peak on this load; one `/diff` +1.5 GiB (+2.3 peak).
 The 600 MiB figure is for a backfill with no viewer. Serving `/world` and `/diff` at the head
 without cloning the world is PR 2 of #216, whose finish line is `demo: PASS` on the box.
+
+**2026-09-29, #216 PR 2a (no world copy).** `/world` and `/diff` now read the head where it lies,
+under the read lock, and `/diff` with `from == to` projects nothing. The `viewer` variant runs the
+same backfill with a reader asking for `/world` and `/diff` of the head every second through the
+real router (same host, same run order; "Before" is this branch's `backfill_memory.rs` run
+against the `s2w-app` source of `main` at 3fc07c0):
+
+| Part | Before | After |
+|---|---|---|
+| One `/world` at the head: projection | 1,406 MiB peak (with the copy) | 920 MiB peak |
+| Its JSON body | 194 MiB | 194 MiB |
+| One `/diff` head..head | 2,261 MiB peak | 0 |
+| Backfill with a viewer, whole process | 3,983 MiB peak | **1,700-1,711 MiB peak (3 runs)** |
+| Slowest `/world` (bounds one read-lock hold) | 2.9 s, lock not held | 3.4-3.8 s, lock held |
+| Backfill wall time with a viewer (no viewer: 43-48 s) | 54 s | 69-77 s |
+
+Still over the 1 GiB finish line: the owned view (138,462 nodes, 1,225,116 links) and its body
+are the rest, which the streamed `/world` of PR 2b removes. Holding the lock through the
+projection slows the fold by about half under a 1 s viewer; the page now refetches at most
+every 5 s. The projection still runs on the HTTP runtime's thread, as it did before, but now
+with the lock held: once the bridge is waiting to append, every other read waits behind it too.
+PR 2b moves the projection to `spawn_blocking`.
 
 ## Alternatives considered
 

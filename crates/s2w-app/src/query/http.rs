@@ -232,17 +232,19 @@ impl QueryState {
         f(&*self.timeline.read().map_err(|_| QueryError::Unavailable)?)
     }
 
-    /// The world at `at`, or at the head when `at` is absent.
+    /// A copy of the world at `at`, or at the head when `at` is absent. At the head this
+    /// clones the whole world: for tests and replay checks, never a request path (#216).
     ///
     /// # Errors
     /// Whatever [`Timeline::world_at`] returns, or [`QueryError::Unavailable`] if the lock was
     /// poisoned.
     pub fn world_at(&self, at: Option<u64>) -> Result<World, QueryError> {
-        self.read(|t| t.world_at(at.unwrap_or_else(|| t.head())))
+        self.read(|t| Ok(t.world_at(at.unwrap_or_else(|| t.head()))?.into_owned()))
     }
 
-    /// The view at `at` (or the head), labelled with the epoch it was read under. World and
-    /// epoch come from one read; the projection runs after the lock is released.
+    /// The view at `at` (or the head), labelled with the epoch it was read under. World,
+    /// epoch and projection all come from one read: the head is projected where it lies,
+    /// never copied (#216), so appends wait for the projection.
     ///
     /// # Errors
     /// [`QueryError::StaleEpoch`] when `epoch` is given and is not the served one (checked
@@ -254,13 +256,13 @@ impl QueryState {
         epoch: Option<Epoch>,
         params: &ViewParams,
     ) -> Result<WorldView, QueryError> {
-        let (world, epoch) = self.read(|t| {
+        self.read(|t| {
             t.check_epoch(epoch)?;
-            Ok((t.world_at(at.unwrap_or_else(|| t.head()))?, t.epoch()))
-        })?;
-        Ok(WorldView {
-            epoch,
-            ..world_view(&world, params)?
+            let world = t.world_at(at.unwrap_or_else(|| t.head()))?;
+            Ok(WorldView {
+                epoch: t.epoch(),
+                ..world_view(&world, params)?
+            })
         })
     }
 
@@ -300,23 +302,28 @@ impl QueryState {
     /// What changed between `from` and `to`, or the head when `to` is absent.
     ///
     /// # Errors
-    /// [`QueryError::StaleEpoch`] (checked first), [`QueryError::OffsetBeyondHead`] past the
-    /// head, or [`QueryError::Unavailable`] if the lock was poisoned. Both worlds come from one
-    /// read, so a diff never spans two histories.
+    /// [`QueryError::StaleEpoch`] (checked first), [`QueryError::OffsetBeforeBase`] below the
+    /// base, [`QueryError::OffsetBeyondHead`] past the head, or [`QueryError::Unavailable`] if
+    /// the lock was poisoned. Both worlds come from one read, so a diff never spans two
+    /// histories, and the diff is computed under it: the head is borrowed, never copied
+    /// (#216). Appends wait for both projections, and for the fold of `from` below the head
+    /// (full history only). `from == to` is empty without projecting anything; once the
+    /// history window has dropped, head..head is the only diff there is.
     pub fn diff(
         &self,
         from: u64,
         to: Option<u64>,
         epoch: Option<Epoch>,
     ) -> Result<WorldDiff, QueryError> {
-        let (a, b) = self.read(|t| {
+        self.read(|t| {
             t.check_epoch(epoch)?;
-            Ok((
-                t.world_at(from)?,
-                t.world_at(to.unwrap_or_else(|| t.head()))?,
-            ))
-        })?;
-        diff(&a, &b)
+            let to = to.unwrap_or_else(|| t.head());
+            if from == to {
+                t.check_offset(from)?;
+                return Ok(WorldDiff::unchanged(from));
+            }
+            diff(&*t.world_at(from)?, &*t.world_at(to)?)
+        })
     }
 
     /// The time index at `ts`, or its whole range when `ts` is absent.
