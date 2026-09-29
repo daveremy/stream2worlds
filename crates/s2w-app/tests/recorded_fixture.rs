@@ -12,7 +12,9 @@ mod recorded;
 use s2w_core::{World, fold};
 use s2w_model::WorldEvent;
 
-use recorded::{FIXTURE_HASH, Fallible, bytes, claims, frames, hash, load, mapping};
+use recorded::{
+    ENTITIES, FIXTURE_HASH, Fallible, RELATIONSHIPS, bytes, claims, hash, load, mapping,
+};
 
 /// Events (SSE frames with both `data` and `id`) in the fixture.
 const EVENTS: usize = 11_667;
@@ -24,10 +26,6 @@ const ENTITY_CLAIMS: usize = 35_001;
 const RELATIONSHIP_CLAIMS: usize = 23_334;
 /// Events the engine abstains on.
 const ABSTAINED: usize = 0;
-/// Entities in the world after folding every claim.
-const ENTITIES: usize = 11_462;
-/// Relationships in the world after folding every claim.
-const RELATIONSHIPS: usize = 19_512;
 
 #[test]
 fn the_fixture_bytes_are_pinned() -> Fallible<()> {
@@ -46,7 +44,7 @@ fn the_fixture_parses_maps_and_folds_to_the_pinned_counts() -> Fallible<()> {
     let events = load()?;
     assert_eq!(events.len(), EVENTS, "events");
 
-    let mapped = claims(&events, mapping()?)?;
+    let mapped = claims(events, mapping()?)?;
     let entity_claims = mapped
         .claims
         .iter()
@@ -78,23 +76,11 @@ fn the_fixture_parses_maps_and_folds_to_the_pinned_counts() -> Fallible<()> {
 #[test]
 fn replay_is_deterministic() -> Fallible<()> {
     let events = load()?;
-    let first = claims(&events, mapping()?)?.claims;
-    let second = claims(&events, mapping()?)?.claims;
+    let first = claims(events, mapping()?)?.claims;
+    let second = claims(events, mapping()?)?.claims;
     assert!(
         first == second,
         "two runs of the mapping over the same events proposed different claims"
     );
     Ok(())
-}
-
-#[test]
-fn frames_join_multi_line_data_and_drop_incomplete_frames() {
-    let text = ": comment\ndata: a\ndata: b\nid: 1\n\ndata: orphan\n\nid: 2\ndata: c\n\nid: 3\n";
-    assert_eq!(
-        frames(text),
-        vec![
-            ("a\nb".to_owned(), "1".to_owned()),
-            ("c".to_owned(), "2".to_owned()),
-        ]
-    );
 }

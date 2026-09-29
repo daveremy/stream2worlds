@@ -64,7 +64,7 @@ pub(crate) fn replay(sse: &str, harness: &Harness) -> Vec<String> {
 }
 
 fn replay_inner(sse: &str, harness: &Harness) -> Result<Vec<String>, Vec<String>> {
-    let payloads = envelopes(sse);
+    let payloads = envelopes(sse).map_err(|e| vec![format!("{FIXTURE}: {e}")])?;
     let (profile_a, a) = profile(harness.profiler, &payloads)?;
     let a = proposed("A (plain)", a)?;
     let decode_only = StreamMapping {
@@ -100,27 +100,13 @@ fn replay_inner(sse: &str, harness: &Harness) -> Result<Vec<String>, Vec<String>
     Ok(problems)
 }
 
-/// The fixture's events as stored envelopes: one per blank-line-terminated event carrying both
-/// a `data:` and an `id:` field (multi-line data joined by `\n`, per the SSE format).
-pub(crate) fn envelopes(sse: &str) -> Vec<Value> {
-    let mut out = Vec::new();
-    let (mut data, mut id): (Option<String>, Option<String>) = (None, None);
-    for line in sse.lines().chain(std::iter::once("")) {
-        if line.is_empty() {
-            if let (Some(d), Some(i)) = (data.take(), id.take()) {
-                out.push(serde_json::json!({"data": d, "id": i}));
-            }
-            continue;
-        }
-        let (field, value) = line.split_once(':').unwrap_or((line, ""));
-        let value = value.strip_prefix(' ').unwrap_or(value);
-        match field {
-            "data" => data = Some(data.map_or_else(|| value.to_owned(), |d| d + "\n" + value)),
-            "id" => id = Some(value.to_owned()),
-            _ => {}
-        }
-    }
-    out
+/// The fixture's events as stored envelopes: one per frame carrying both a `data:` and an `id:`
+/// field, cut by the live SSE adapter's own framing ([`s2w_sources::replay_frames`]).
+pub(crate) fn envelopes(sse: &str) -> Result<Vec<Value>, String> {
+    Ok(s2w_sources::replay_frames(sse.as_bytes())?
+        .into_iter()
+        .map(|(id, data)| serde_json::json!({"data": data, "id": id}))
+        .collect())
 }
 
 fn profile(profiler: Profiler, payloads: &[Value]) -> Result<(Profile, Discovery), Vec<String>> {

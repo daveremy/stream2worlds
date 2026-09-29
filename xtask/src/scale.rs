@@ -11,8 +11,13 @@ use serde::de::DeserializeOwned;
 
 use crate::module_size::{git, trailer};
 
+mod supply;
+pub(super) use supply::Supply;
+
 /// The baseline file, relative to the workspace root.
 pub(super) const BASELINE: &str = "xtask/scale-baseline.toml";
+/// The recorded fixture the second supply replays (s2w#174), relative to the workspace root.
+pub(super) const FIXTURE: &str = "crates/s2w-app/tests/fixtures/recorded-10min.raw.sse";
 
 /// `xtask/scale-baseline.toml`. Every field is required: a renamed or missing key is a parse
 /// failure, never a silent default.
@@ -21,8 +26,35 @@ pub(super) const BASELINE: &str = "xtask/scale-baseline.toml";
 pub(super) struct Baseline {
     pub(super) tolerance_percent: u64,
     pub(super) set_by: String,
+    pub(super) recorded: RecordedFixture,
     pub(super) ir: IrBaseline,
     pub(super) memory: MemoryBaseline,
+}
+
+/// `[recorded]`: the pin on the recorded fixture's bytes (FNV-1a 64, as `s2w_model::Fnv64`
+/// computes it and `crates/s2w-app/tests/support/recorded.rs` pins it).
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RecordedFixture {
+    pub(super) fixture_fnv1a64: u64,
+}
+
+/// `[ir.recorded]`: fold instructions per raw event of the recorded fixture, same CI image.
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct IrRecorded {
+    pub(super) fold_ir_per_event: u64,
+    pub(super) events: u64,
+}
+
+/// `[memory.recorded]`: heap bytes per entity after folding the recorded fixture's claims.
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MemoryRecorded {
+    pub(super) bytes_per_entity: u64,
+    pub(super) bytes_per_relationship_reported: u64,
+    pub(super) entities: u64,
+    pub(super) relationships: u64,
 }
 
 /// `[ir]`: fold instructions per event, owned by the CI image that measured it.
@@ -34,6 +66,7 @@ pub(super) struct IrBaseline {
     pub(super) events: u64,
     pub(super) rustc: String,
     pub(super) profile: String,
+    pub(super) recorded: IrRecorded,
 }
 
 /// `[memory]`: heap bytes per entity after the fold, allocator-counted.
@@ -45,6 +78,7 @@ pub(super) struct MemoryBaseline {
     pub(super) budget_bytes_per_entity: u64,
     pub(super) bytes_per_relationship_reported: u64,
     pub(super) entities: u64,
+    pub(super) recorded: MemoryRecorded,
 }
 
 /// The memory test's JSON line.
@@ -66,9 +100,16 @@ pub(super) fn parse(text: &str) -> Result<Baseline, String> {
             b.tolerance_percent
         ));
     }
-    if b.ir.profile != "bench" || b.ir.events == 0 || b.memory.entities == 0 {
+    let sizes = [
+        b.ir.events,
+        b.memory.entities,
+        b.ir.recorded.events,
+        b.memory.recorded.entities,
+        b.memory.recorded.relationships,
+    ];
+    if b.ir.profile != "bench" || sizes.contains(&0) {
         return Err(format!(
-            "{BASELINE}: [ir] profile must be \"bench\" and [ir] events / [memory] entities must be > 0; fix the file"
+            "{BASELINE}: [ir] profile must be \"bench\" and every events / entities / relationships count must be > 0; fix the file"
         ));
     }
     Ok(b)
@@ -115,18 +156,45 @@ fn percent(measured: f64, base: f64) -> f64 {
     (measured - base) / base * 100.0
 }
 
-/// Judges the fold's total instructions against `[ir]`. `Ok` is the report line.
-pub(super) fn judge_ir(b: &Baseline, total_ir: u64) -> Result<String, String> {
-    if total_ir == 0 {
-        return Err("fold Ir: UNKNOWN (the benchmark reported 0 instructions); fix the bench run, an unknown never passes".into());
+/// Checks the recorded fixture's bytes against `[recorded]` and counts its events (frames with
+/// both `id:` and `data:`, by the live SSE framing) against `[ir.recorded] events`. A changed
+/// recording never gets measured: it is human-owned, like a golden file.
+pub(super) fn judge_fixture(b: &Baseline, bytes: &[u8]) -> Result<(), String> {
+    let actual = s2w_model::Fnv64::new().write(bytes).finish();
+    let pinned = b.recorded.fixture_fnv1a64;
+    if actual != pinned {
+        return Err(format!(
+            "recorded fixture: UNKNOWN, {FIXTURE} has FNV-1a 64 {actual:#x}, not [recorded] fixture_fnv1a64 = {pinned:#x}; restore the file (it is human-owned), never re-pin to make a gate pass"
+        ));
     }
-    let per_event = total_ir as f64 / b.ir.events as f64;
+    let events = s2w_sources::replay_frames(bytes)
+        .map_err(|e| format!("recorded fixture: UNKNOWN, {FIXTURE}: {e}"))?
+        .len() as u64;
+    if events != b.ir.recorded.events {
+        return Err(format!(
+            "recorded fixture: {FIXTURE} holds {events} events but [ir.recorded] events = {}; the framing changed, so fix it or re-measure and update {BASELINE}",
+            b.ir.recorded.events
+        ));
+    }
+    Ok(())
+}
+
+/// Judges one supply's total fold instructions against its `[ir]` table. `Ok` is the report
+/// line.
+pub(super) fn judge_ir(b: &Baseline, supply: Supply, total_ir: u64) -> Result<String, String> {
+    let (name, key) = (supply.name("fold Ir"), supply.ir());
+    if total_ir == 0 {
+        return Err(format!(
+            "{name}: UNKNOWN (the benchmark reported 0 instructions); fix the bench run, an unknown never passes"
+        ));
+    }
+    let (base, events) = b.ir_gate(supply);
+    let per_event = total_ir as f64 / events as f64;
     let set_to = per_event.ceil();
-    let base = b.ir.fold_ir_per_event;
     if base == 0 {
         return Err(format!(
-            "fold Ir: baseline unset: measured {set_to} Ir/event ({total_ir} Ir over {} events); set [ir] fold_ir_per_event = {set_to} and [ir] rustc = the `rustc -V` line in {BASELINE} from the CI job 'scale' (image {}), with a Baseline-growth: s2w#<N> trailer",
-            b.ir.events, b.ir.ci_image
+            "{name}: baseline unset: measured {set_to} Ir/event ({total_ir} Ir over {events} events); set {key} fold_ir_per_event = {set_to} and [ir] rustc = the `rustc -V` line in {BASELINE} from the CI job 'scale' (image {}), with a Baseline-growth: s2w#<N> trailer",
+            b.ir.ci_image
         ));
     }
     let base_f = base as f64;
@@ -134,35 +202,48 @@ pub(super) fn judge_ir(b: &Baseline, total_ir: u64) -> Result<String, String> {
     let tol = b.tolerance_percent as f64;
     if change > tol {
         return Err(format!(
-            "fold Ir regressed {change:+.1}%: measured {per_event:.0} Ir/event vs baseline {base} (tolerance {tol}%); make the fold cheaper, or if the cost is intended raise [ir] fold_ir_per_event to {set_to} in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer"
+            "{name} regressed {change:+.1}%: measured {per_event:.0} Ir/event vs baseline {base} (tolerance {tol}%); make the fold cheaper, or if the cost is intended raise {key} fold_ir_per_event to {set_to} in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer"
         ));
     }
     // Unlike [memory], nothing lowers [ir] automatically: it belongs to the CI image, so a local
     // improvement is only a hint.
     let mut line = format!(
-        "fold Ir: {per_event:.0} Ir/event vs baseline {base} ({change:+.1}%, tolerance {tol}%)"
+        "{name}: {per_event:.0} Ir/event vs baseline {base} ({change:+.1}%, tolerance {tol}%)"
     );
     if change < -tol {
         line.push_str(&format!(
-            "; improved past tolerance, lower [ir] fold_ir_per_event to {set_to} to lock it in"
+            "; improved past tolerance, lower {key} fold_ir_per_event to {set_to} to lock it in"
         ));
     }
     Ok(line)
 }
 
-/// Judges the memory test's measurement against `[memory]`: report lines, then problems.
-pub(super) fn judge_memory(b: &Baseline, m: &MemMeasurement) -> (Vec<String>, Vec<String>) {
-    let mem = &b.memory;
+/// Judges one supply's memory measurement against its `[memory]` table: report lines, then
+/// problems. Target and budget are shared: decision 0004's line applies to real data too.
+pub(super) fn judge_memory(
+    b: &Baseline,
+    supply: Supply,
+    m: &MemMeasurement,
+) -> (Vec<String>, Vec<String>) {
+    let (mem, gate, key) = (&b.memory, b.memory_gate(supply), supply.memory());
+    let name = supply.name("bytes/entity");
     let mut report = Vec::new();
     let mut problems = Vec::new();
     if m.bytes_per_entity == 0 || m.entities == 0 {
-        problems.push("bytes/entity: UNKNOWN (the memory test measured 0); fix the test, an unknown never passes".into());
+        problems.push(format!(
+            "{name}: UNKNOWN (the memory test measured 0); fix the test, an unknown never passes"
+        ));
         return (report, problems);
     }
-    if m.entities != mem.entities {
+    let relationships_moved = gate.relationships.is_some_and(|r| r != m.relationships);
+    if m.entities != gate.entities || relationships_moved {
         problems.push(format!(
-            "bytes/entity: the memory test folded {} entities but [memory] entities = {}; the generator changed, so re-measure and update [memory] in {BASELINE}",
-            m.entities, mem.entities
+            "{name}: the memory test folded {} entities and {} relationships but {key} pins {} entities{}; {}, so re-measure and update {key} in {BASELINE}",
+            m.entities,
+            m.relationships,
+            gate.entities,
+            gate.relationships.map(|r| format!(" and {r} relationships")).unwrap_or_default(),
+            supply.changed()
         ));
     }
     let (measured, target) = (
@@ -171,34 +252,36 @@ pub(super) fn judge_memory(b: &Baseline, m: &MemMeasurement) -> (Vec<String>, Ve
     );
     let ratio = measured / target.max(1.0);
     report.push(format!(
-        "bytes/entity: {} B = {ratio:.2}x decision 0004's {} B target{}; bytes/relationship {} B over {} relationships (reported, baseline {})",
+        "{name}: {} B = {ratio:.2}x decision 0004's {} B target{}; bytes/relationship {} B over {} relationships (reported, baseline {})",
         m.bytes_per_entity,
         mem.target_bytes_per_entity,
         if ratio > 2.0 { ", beyond its 2x amendment line: interim ceiling only, overshoot tracked in s2w#172" } else { "" },
         m.bytes_per_relationship,
         m.relationships,
-        mem.bytes_per_relationship_reported
+        gate.reported
     ));
     if m.bytes_per_entity > mem.budget_bytes_per_entity {
         problems.push(format!(
-            "bytes/entity {} B exceeds the hard budget {} B ([memory] budget_bytes_per_entity); shrink the world's per-entity footprint, or get a decision 0004 amendment before raising the budget with a Baseline-growth: s2w#<N> trailer",
+            "{name} {} B exceeds the hard budget {} B ([memory] budget_bytes_per_entity); shrink the world's per-entity footprint, or get a decision 0004 amendment before raising the budget with a Baseline-growth: s2w#<N> trailer",
             m.bytes_per_entity, mem.budget_bytes_per_entity
         ));
     }
-    judge_memory_baseline(b, m, &mut report, &mut problems);
+    judge_memory_baseline(b, supply, m, &mut report, &mut problems);
     (report, problems)
 }
 
 fn judge_memory_baseline(
     b: &Baseline,
+    supply: Supply,
     m: &MemMeasurement,
     report: &mut Vec<String>,
     problems: &mut Vec<String>,
 ) {
-    let base = b.memory.bytes_per_entity;
+    let (base, key) = (b.memory_gate(supply).bytes_per_entity, supply.memory());
+    let name = supply.name("bytes/entity");
     if base == 0 {
         problems.push(format!(
-            "bytes/entity: baseline unset: measured {} B; set [memory] bytes_per_entity = {} in {BASELINE} with a Baseline-growth: s2w#<N> trailer",
+            "{name}: baseline unset: measured {} B; set {key} bytes_per_entity = {} in {BASELINE} with a Baseline-growth: s2w#<N> trailer",
             m.bytes_per_entity, m.bytes_per_entity
         ));
         return;
@@ -209,12 +292,12 @@ fn judge_memory_baseline(
     );
     if change > tol {
         problems.push(format!(
-            "bytes/entity regressed {change:+.1}%: measured {} B vs baseline {base} B (tolerance {tol}%); shrink the per-entity footprint, or if intended raise [memory] bytes_per_entity in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer",
+            "{name} regressed {change:+.1}%: measured {} B vs baseline {base} B (tolerance {tol}%); shrink the per-entity footprint, or if intended raise {key} bytes_per_entity in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer",
             m.bytes_per_entity
         ));
     } else if change < -tol {
         report.push(format!(
-            "bytes/entity improved {change:+.1}% past tolerance; run cargo xtask check --tighten-baseline to lower [memory] bytes_per_entity"
+            "{name} improved {change:+.1}% past tolerance; run cargo xtask check --tighten-baseline to lower {key} bytes_per_entity"
         ));
     }
 }
@@ -225,7 +308,15 @@ pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'s
     let keys = |b: &Baseline| {
         [
             ("[ir] fold_ir_per_event", b.ir.fold_ir_per_event),
+            (
+                "[ir.recorded] fold_ir_per_event",
+                b.ir.recorded.fold_ir_per_event,
+            ),
             ("[memory] bytes_per_entity", b.memory.bytes_per_entity),
+            (
+                "[memory.recorded] bytes_per_entity",
+                b.memory.recorded.bytes_per_entity,
+            ),
             (
                 "[memory] target_bytes_per_entity",
                 b.memory.target_bytes_per_entity,
@@ -239,6 +330,8 @@ pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'s
             // per-event and per-entity figures without any code change.
             ("[ir] events", b.ir.events),
             ("[memory] entities", b.memory.entities),
+            ("[ir.recorded] events", b.ir.recorded.events),
+            ("[memory.recorded] entities", b.memory.recorded.entities),
         ]
     };
     let before = base.map(keys);
@@ -274,10 +367,10 @@ pub(super) fn growth(root: &Path, current: &Baseline) -> Vec<String> {
     }
 }
 
-/// `--tighten-baseline` for `[memory]`: lowers `bytes_per_entity` and
+/// `--tighten-baseline` for one supply's `[memory]` table: lowers `bytes_per_entity` and
 /// `bytes_per_relationship_reported` to the measurement, never raises either, and keeps every
 /// comment. `None` when nothing is lower.
-pub(super) fn tighten_text(text: &str, m: &MemMeasurement) -> Option<String> {
+pub(super) fn tighten_text(text: &str, supply: Supply, m: &MemMeasurement) -> Option<String> {
     let mut section = String::new();
     let mut changed = false;
     let mut out: Vec<String> = Vec::new();
@@ -286,7 +379,7 @@ pub(super) fn tighten_text(text: &str, m: &MemMeasurement) -> Option<String> {
         if trimmed.starts_with('[') {
             section = trimmed.to_owned();
         }
-        let lowered = (section == "[memory]")
+        let lowered = (section == supply.memory())
             .then(|| lower_line(trimmed, m))
             .flatten();
         changed |= lowered.is_some();

@@ -45,10 +45,12 @@
 //!     (including inside decoded JSON strings) is renamed and hashed first, up to that renaming
 //!     (decision 0022).
 //! 13. **Scale memory** (`scale_mem_check.rs`, baseline and judges in `scale.rs`): runs
-//!     `s2w-app`'s ignored `scale_mem` test as a nested `cargo test` and gates heap bytes per
-//!     entity against `xtask/scale-baseline.toml` (+tolerance and a hard budget), plus that
-//!     file's baseline-growth trailer rule. `cargo xtask scale` (`scale_run.rs`) gates fold
-//!     instructions per event under Valgrind (decision 0004).
+//!     `s2w-app`'s two ignored `scale_mem` tests, one per event supply (seeded generator,
+//!     recorded fixture), as nested `cargo test`s and gates heap bytes per entity against
+//!     `[memory]` and `[memory.recorded]` in `xtask/scale-baseline.toml` (+tolerance and a
+//!     shared hard budget), plus that file's baseline-growth trailer rule. `cargo xtask scale`
+//!     (`scale_run.rs`) gates fold instructions per event for both supplies under Valgrind
+//!     (decision 0004, s2w#174).
 //! 14. **Decision numbers** (`decision_numbers.rs`): no two files in `docs/decisions/` share a
 //!     numeric prefix; the failure names every file holding the number (s2w#181).
 //!
