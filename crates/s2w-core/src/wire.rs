@@ -14,32 +14,34 @@ pub(crate) mod entities {
     use serde::{Deserialize, Deserializer, Serializer};
 
     use crate::event::EntityId;
-    use crate::world::EntityState;
+    use crate::world::{EntityState, id_at};
 
     pub(crate) fn serialize<S: Serializer>(
         entities: &[EntityState],
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         serializer.collect_map(
-            (0_u64..)
-                .zip(entities)
-                .map(|(id, state)| (EntityId::new(id), state)),
+            entities
+                .iter()
+                .enumerate()
+                .map(|(index, state)| (id_at(index), state)),
         )
     }
 
     /// Through a `BTreeMap`, as the old field was, so unsorted or repeated keys behave as they
-    /// did; then the keys must be exactly `0..len` (no gap, no offset start).
+    /// did; then the keys must be exactly `0..len` (no gap, no offset start). The keys are
+    /// distinct and sorted, so that holds exactly when the last one is `len - 1`.
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Vec<EntityState>, D::Error> {
         let map = BTreeMap::<EntityId, EntityState>::deserialize(deserializer)?;
-        if let Some((index, id)) = (0_u64..)
-            .zip(map.keys())
-            .find(|&(index, id)| id.get() != index)
+        if let Some((last, _)) = map.last_key_value()
+            && id_at(map.len() - 1) != *last
         {
             return Err(D::Error::custom(format_args!(
-                "entity ids are not dense: id {} at position {index}",
-                id.get()
+                "entity ids are not dense: {} entities, last id {}",
+                map.len(),
+                last.get()
             )));
         }
         Ok(map.into_values().collect())

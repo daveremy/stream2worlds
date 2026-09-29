@@ -269,7 +269,7 @@ impl<'w> Graph<'w> {
     }
 
     fn find(&self, raw: u64) -> Option<EntityId> {
-        self.world.entity_id(raw).map(|e| self.world.resolve(e))
+        self.world.minted_id(raw).map(|e| self.world.resolve(e))
     }
 
     /// Undirected BFS from `start`; hubs are included but never expanded.

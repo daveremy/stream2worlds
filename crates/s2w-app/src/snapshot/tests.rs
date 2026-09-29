@@ -461,6 +461,11 @@ fn dense_entities_bytes_are_btreemap_bytes() -> TestResult {
         fold(World::with_hub_cap(3), &golden),
         fold(World::with_hub_cap(1), &golden),
     ] {
+        if world.entity_count() > 0 {
+            // Both `hub_refs` branches are on the wire: absent (`{}`) and present.
+            assert!(world.entities().any(|(_, e)| e.has_hub_refs()));
+            assert!(world.entities().any(|(_, e)| !e.has_hub_refs()));
+        }
         let old = OldWorld::of(&world);
         let bytes = postcard::to_stdvec(&old)?;
         assert_eq!(postcard::to_stdvec(&world)?, bytes);
@@ -484,6 +489,11 @@ fn sparse_entity_ids_do_not_decode() -> TestResult {
     let offset_start = |old: &mut OldWorld<'_>| -> Result<(), &'static str> {
         old.entities.pop_first().map(|_| ()).ok_or("no entities")
     };
+    // The mirror itself decodes, so a rejection below is the density check, not a shape drift.
+    assert_eq!(
+        postcard::from_bytes::<World>(&postcard::to_stdvec(&OldWorld::of(&world))?)?,
+        world
+    );
     for corrupt in [gap, offset_start] {
         let mut old = OldWorld::of(&world);
         corrupt(&mut old)?;

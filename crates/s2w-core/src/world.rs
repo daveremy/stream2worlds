@@ -212,11 +212,12 @@ impl World {
         self.entities.len()
     }
 
-    /// The minted id whose raw value is `raw`, or `None` if no entity has it.
+    /// `raw` as an id, if an entity was minted with it (an O(1) range check).
     #[must_use]
-    pub fn entity_id(&self, raw: u64) -> Option<EntityId> {
-        let id = EntityId::new(raw);
-        self.entity(id).map(|_| id)
+    pub fn minted_id(&self, raw: u64) -> Option<EntityId> {
+        usize::try_from(raw)
+            .is_ok_and(|index| index < self.entities.len())
+            .then(|| EntityId::new(raw))
     }
 
     /// The id the next minted entity will get.
@@ -263,13 +264,16 @@ impl World {
         current
     }
 
-    /// The key's id, minting one on first mention. `None` only if the id space is exhausted.
+    /// The key's id, minting one on first mention.
+    ///
+    /// `None` only for a deserialized world whose id counter is not its entity count: the id is
+    /// the index `push` gives, so such a world mints nothing (the fold stays total, and every
+    /// mint in one event fails alike, so none leaves half its state). The id space itself (the
+    /// `checked_add`) cannot run out first: that needs 2^64 entities in memory.
     fn mint(&mut self, key: &NaturalKey) -> Option<EntityId> {
         if let Some(&id) = self.keys.get(key) {
             return Some(id);
         }
-        // The id is the index `push` gives. A deserialized world whose counter disagrees with
-        // its entity count mints nothing (the fold stays total, the index stays the id).
         if index_of(EntityId::new(self.next_entity_id)) != Some(self.entities.len()) {
             return None;
         }
@@ -280,30 +284,12 @@ impl World {
         Some(id)
     }
 
-    /// Whether `n` more ids can be minted. The id `u64::MAX` is never assigned.
-    fn can_mint(&self, n: u64) -> bool {
-        self.next_entity_id.checked_add(n).is_some()
-    }
-
-    fn unknown(&self, keys: &[&NaturalKey]) -> u64 {
-        let mut distinct: BTreeSet<&NaturalKey> = BTreeSet::new();
-        for k in keys {
-            if !self.keys.contains_key(*k) {
-                distinct.insert(k);
-            }
-        }
-        u64::try_from(distinct.len()).unwrap_or(u64::MAX)
-    }
-
     fn observe_entity(
         &mut self,
         key: &NaturalKey,
         entity_type: &str,
         attrs: &BTreeMap<String, AttrValue>,
     ) {
-        if !self.can_mint(self.unknown(&[key])) {
-            return;
-        }
         let Some(id) = self.mint(key) else {
             return;
         };
@@ -317,10 +303,7 @@ impl World {
     }
 
     fn observe_relationship(&mut self, from: &NaturalKey, to: &NaturalKey, kind: &str) {
-        if !self.can_mint(self.unknown(&[from, to])) {
-            return;
-        }
-        // Capacity for both endpoints was checked above, so neither mint can fail alone.
+        // Both mints succeed or both fail (see `mint`), so a failure leaves no half state.
         let (Some(from_id), Some(to_id)) = (self.mint(from), self.mint(to)) else {
             return;
         };
@@ -416,7 +399,7 @@ pub fn fold<'a>(world: World, events: impl IntoIterator<Item = &'a WorldEvent>) 
 }
 
 /// The id of the entity at `index` in `World::entities`.
-fn id_at(index: usize) -> EntityId {
+pub(crate) fn id_at(index: usize) -> EntityId {
     // usize is at most 64 bits on every supported target.
     EntityId::new(u64::try_from(index).unwrap_or(u64::MAX))
 }
