@@ -13,6 +13,19 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Learned mappings fill a world at start — #197 PR 4a (2026-09-29)
+
+**Shipped:** `serve` profiles the first 10,000 logged events of each unrouted source with
+`s2w-discover`, files the mapping as a `stream-mapping` proposal from `h-lite`, and accepts it
+with a `policy` decision, the first `policy` writer in the codebase
+([decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)). The source is routed and
+backfilled in the same start, which is what fills the demo world. The producer is idempotent
+by (source, identity), so a restart and a human reject are both stable, and it holds the
+proposal writer only for the write.
+
+**Next:** PR 4b profiles a source that reaches the window mid-run, proves obfuscation
+invariance through `serve`, and measures the world a learned mapping builds.
+
 ## Sprint 77 — routes become data, the world gets lighter (2026-09-29, 03:00–05:00)
 
 The sprint's aim was the path from a raw stream to a populated world with no domain code:

@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use s2w_app::discover::DiscoverConfig;
 use s2w_app::query::{QueryState, Timeline};
 use s2w_app::serve::{DEFAULT_EVERY, ServeArgs, SnapshotConfig};
 use s2w_app::{AppError, DEFAULT_HUB_IN_DEGREE_CAP, HumanReporter};
@@ -105,6 +106,7 @@ fn parse(args: &[String]) -> Result<ServeArgs, String> {
         port: port_number(port)?,
         filters,
         snapshots: snapshot_config(every, no_snapshot)?,
+        discover: DiscoverConfig::default(),
     })
 }
 
@@ -164,6 +166,7 @@ mod tests {
                 port: 4310,
                 filters: Vec::new(),
                 snapshots: SnapshotConfig::default(),
+                discover: DiscoverConfig::default(),
             })
         );
         assert_eq!(
@@ -183,6 +186,7 @@ mod tests {
                 port: 0,
                 filters: Vec::new(),
                 snapshots: SnapshotConfig::default(),
+                discover: DiscoverConfig::default(),
             })
         );
     }

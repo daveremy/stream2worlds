@@ -4,7 +4,7 @@ Runtime wiring: composes sources, the log, the core and the engines; read-only M
 
 ## Allowed dependencies
 
-- every `s2w-*` library crate; `tokio`, `tokio-stream`, `thiserror`; further runtime, MCP and
+- every `s2w-*` library crate, `s2w-discover` included (the learned-mapping producer); `tokio`, `tokio-stream`, `thiserror`; further runtime, MCP and
   HTTP libraries chosen in decision records
 - `postcard` (no default features, `use-std`) for the world snapshot payload only (decision 0024)
 - dev: `proptest` for the snapshot golden-equivalence test
@@ -40,6 +40,12 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   snapshot restore, because the feed fingerprint depends on the routes. The world manifest's
   engine list is historical (the defaults at creation), not the live registry. Replay reads
   stored verdicts of registered engine names only (`VerdictStore::read_range_of`).
+- `discover` (decision 0025) is the learned-mapping producer and the only `policy` decider.
+  It runs between `serve`'s two route resolutions, profiles only member sources with no
+  effective mapping, writes nothing when a `stream-mapping` proposal for the same (source,
+  identity) exists from any actor (looked up under the writer lock), mints the proposal id from
+  (actor, source, window, identity), opens the proposal writer per run and drops it (never held
+  by `serve`), and turns every failure into a `discover:` note, never an error.
 - `Timeline` (decision 0024) has a base world (empty, or a restored snapshot's) and serves offsets
   from the base to the head only; anything below is `offset_before_base` (410). Index the event
   list only through `events_after`, never by absolute offset. Without a snapshot the base is 0 and

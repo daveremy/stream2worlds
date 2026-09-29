@@ -106,6 +106,7 @@ fn both_writer_locks_map_to_usage_and_release() {
         port: 0,
         filters: Vec::new(),
         snapshots: SnapshotConfig::default(),
+        discover: DiscoverConfig::default(),
     };
     let log = SqliteEventLog::open(dir.path()).expect("first event log opens");
     let error = run_serve(state(), args.clone(), &mut TestReporter::default())
@@ -970,6 +971,8 @@ struct Feed {
     /// `None`: resolve routes from the proposal store in the log directory, as `serve` does.
     registry: Option<EngineRegistry>,
     until: Until,
+    /// The learned-mapping producer's settings when `registry` is `None`.
+    discover: DiscoverConfig,
 }
 
 /// When a [`serve_until`] run stops.
@@ -997,6 +1000,7 @@ impl Feed {
                 .collect(),
             registry: Some(EngineRegistry::with_defaults()),
             until: Until::Nodes(nodes),
+            discover: DiscoverConfig::default(),
         }
     }
 }
@@ -1023,7 +1027,8 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
     let mut reporter = TestReporter::default();
     let registry = match feed.registry {
         Some(registry) => registry,
-        None => routed_registry(dir.path(), &mut reporter).expect("routes resolve"),
+        None => routed_registry(&log, dir.path(), &feed.discover, &mut reporter)
+            .expect("routes resolve"),
     };
     let (resume, snapshots) = snapshots::prepare(
         &state,
@@ -1257,6 +1262,7 @@ fn mapped(range: std::ops::Range<usize>, registry: Option<EngineRegistry>) -> Fe
         until: Until::Consumed(range.len() as u64),
         events: raw_events(range),
         registry,
+        discover: DiscoverConfig::default(),
     }
 }
 
@@ -1569,5 +1575,129 @@ fn without_an_epoch_a_pinned_url_would_be_served_another_mappings_world() {
             .await,
             StatusCode::GONE
         );
+    });
+}
+
+// The learned-mapping producer at start (decision 0025). The log is seeded directly; the run
+// feeds nothing and stops once the bridge has read every logged event.
+
+fn learned() -> Feed {
+    use crate::discover::tests::{SOURCE, small};
+    Feed {
+        source: SourceId::new(SOURCE).expect("source"),
+        events: Vec::new(),
+        registry: None,
+        until: Until::Consumed(400),
+        discover: small(),
+    }
+}
+
+fn proposal_rows(dir: &TestDirectory) -> (Vec<String>, usize) {
+    let store = s2w_log::ReadOnlySqliteProposalStore::open(dir.path()).expect("store");
+    let ids = store
+        .proposals()
+        .expect("proposals")
+        .into_iter()
+        .map(|proposal| proposal.id)
+        .collect();
+    (ids, store.decisions().expect("decisions").len())
+}
+
+#[test]
+fn serve_files_routes_and_folds_a_learned_mapping_at_start_and_a_restart_changes_nothing() {
+    use crate::discover::tests::{SOURCE, append, stream};
+    run(false, async {
+        let dir = TestDirectory::new("serve-learned");
+        append(dir.path(), SOURCE, stream(400));
+        let Some(first) = serve_until(&dir, NO_SNAPSHOT, learned()).await else {
+            return;
+        };
+        let (ids, decisions) = proposal_rows(&dir);
+        assert_eq!(
+            (ids.len(), decisions),
+            (1, 1),
+            "one proposal, one policy accept"
+        );
+        assert!(
+            noted(&first, &format!("discover: {SOURCE}: proposed mapping "))
+                && noted(&first, &format!("route: source '{SOURCE}' runs mapping "))
+                && noted(&first, &format!("from proposal {}", ids[0])),
+            "{:?}",
+            first.notes
+        );
+        assert!(
+            node_count(&first) > 0,
+            "the learned mapping fills the world"
+        );
+        assert_eq!(first.bounds.1, first.state.bounds().expect("bounds").1);
+
+        let second = serve_until(&dir, NO_SNAPSHOT, learned())
+            .await
+            .expect("sockets allowed once");
+        assert_eq!(proposal_rows(&dir), (ids, 1), "a restart writes nothing");
+        assert!(!noted(&second, "discover:"), "{:?}", second.notes);
+        assert_eq!(
+            second.world, first.world,
+            "the same world from stored verdicts"
+        );
+    });
+}
+
+#[test]
+fn a_human_reject_unroutes_a_learned_mapping_and_its_entities_leave_the_world() {
+    use crate::discover::tests::{SOURCE, append, reject, stream};
+    run(false, async {
+        let dir = TestDirectory::new("serve-learned-revoke");
+        append(dir.path(), SOURCE, stream(400));
+        let Some(first) = serve_until(&dir, NO_SNAPSHOT, learned()).await else {
+            return;
+        };
+        assert!(node_count(&first) > 0);
+        let (ids, _) = proposal_rows(&dir);
+        reject(dir.path(), &ids[0]);
+        let revoked = serve_until(&dir, NO_SNAPSHOT, learned())
+            .await
+            .expect("sockets allowed once");
+        assert_eq!(
+            proposal_rows(&dir),
+            (ids.clone(), 2),
+            "only the reject was added"
+        );
+        assert!(
+            noted(
+                &revoked,
+                &format!("is already proposed (proposal {})", ids[0])
+            ),
+            "{:?}",
+            revoked.notes
+        );
+        assert!(!noted(&revoked, "route: source "), "{:?}", revoked.notes);
+        assert_eq!(
+            node_count(&revoked),
+            0,
+            "unrouted: the learned entities are gone"
+        );
+    });
+}
+
+#[test]
+fn an_abstaining_profiler_leaves_serve_unrouted_and_empty() {
+    use crate::discover::tests::SOURCE;
+    run(false, async {
+        let dir = TestDirectory::new("serve-learned-abstain");
+        let payloads = (0..400_u64)
+            .map(|i| format!(r#"{{"e":"e{i}","u":{}}}"#, i * 7).into_bytes())
+            .collect();
+        crate::discover::tests::append(dir.path(), SOURCE, payloads);
+        let Some(run) = serve_until(&dir, NO_SNAPSHOT, learned()).await else {
+            return;
+        };
+        assert!(
+            noted(&run, &format!("discover: {SOURCE}: abstained (")),
+            "{:?}",
+            run.notes
+        );
+        assert!(!dir.path().join(s2w_log::PROPOSAL_DATABASE_FILE).exists());
+        assert_eq!(node_count(&run), 0);
     });
 }
