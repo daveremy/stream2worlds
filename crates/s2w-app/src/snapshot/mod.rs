@@ -206,14 +206,20 @@ pub fn check_fold(snapshot: &SnapshotV1, expected: Expected) -> Result<(), Inval
         || world.hub_in_degree_cap() != snapshot.hub_cap
         || snapshot.hub_cap != expected.hub_cap
         || world.fold_version() != FOLD_VERSION
+        // Ids are the index into `entities` (s2w#190): the next id must be the entity count, or
+        // the world could never mint again.
+        || u64::try_from(world.entity_count()).ok() != Some(world.next_entity_id())
     {
         return Err(Invalid::Corrupt(format!(
-            "header says offset {} cap {}, world says offset {} cap {} fold {}",
+            "header says offset {} cap {}, world says offset {} cap {} fold {} \
+             entities {} next id {}",
             snapshot.offset,
             snapshot.hub_cap,
             world.offset(),
             world.hub_in_degree_cap(),
-            world.fold_version()
+            world.fold_version(),
+            world.entity_count(),
+            world.next_entity_id()
         )));
     }
     Ok(())

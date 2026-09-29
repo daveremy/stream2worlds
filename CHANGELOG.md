@@ -69,6 +69,24 @@ proposed and accepted for it yet. Alongside, the scale gates went live and the f
 
 ---
 
+## World memory: 438 to 360 bytes per entity — #190 (2026-09-29)
+
+**Shipped:** the world keeps its entities in a `Vec` indexed by id instead of a `BTreeMap`, and an
+entity with no hub references no longer carries an empty map inline (`EntityState` is 56 B, was
+72). The fold's heap per entity fell from 438 B to 360 B on the scale generator (1.20× decision
+0004's 300 B target) and the gate's baseline moved with it. Snapshot bytes and `world_hash` are
+unchanged, now pinned by two tests; a snapshot whose entity ids are not exactly `0..n` no longer
+loads.
+
+**Learned:** the cut was 78 B, not the ~110 B estimated. The B-tree nodes cost 152 B per entity,
+and the `Vec` that replaced them is not free: it doubles, so 100,000 entities sit in 131,072
+slots of 56 B, 73 B each. The figure will step at every power of two.
+
+**Changed course:** none.
+
+**Next:** interned type and attribute names
+([#191](https://github.com/daveremy/stream2worlds/issues/191)), the cut expected to cross 300 B.
+
 ## Human review from the command line: `s2w proposals` — #185 (2026-09-29)
 
 **Shipped:** `s2w proposals list|grade|decide`, part of #163 (PR 2c). `list` prints the proposal

@@ -69,3 +69,9 @@ so the interim ceiling is retired and `budget_bytes_per_entity` is 600 B, the 2Ã
 Relationships are unchanged at 234 B. The remaining gap to 300 B is node overhead in the
 `entities` and `keys` maps and repeated type and attribute-name text: s2w#190 (entities by
 dense id) and s2w#191 (interning, a snapshot format change).
+
+Amendment, 2026-09-29 (s2w#190): entities are now a `Vec` indexed by their dense id, and
+`EntityState` is 56 B (hub refs boxed, absent when empty). Same wire bytes; snapshot bytes and
+`world_hash` pinned. Measured **360 B** per entity (1.20Ã—). The `Vec` doubles, so the figure is
+lumpy at powers of two: at 100,000 entities it holds 131,072 slots, 73 B per entity.
+Relationships are unchanged at 234 B. s2w#191 (interning) is the remaining cut toward 300 B.

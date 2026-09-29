@@ -174,7 +174,7 @@ fn history_after_a_restore_matches_the_full_history_past_the_base() -> TestResul
     let timeline = restored(GOLDEN_CAP, &events, &ts, o)?;
     let (base, head) = (u64::try_from(o)?, full.head());
     let world = full.world_at(head)?;
-    for id in world.entities().keys().map(|id| id.get()) {
+    for id in world.entities().map(|(id, _)| id.get()) {
         let tail: Vec<_> = full
             .history(id, head)?
             .into_iter()

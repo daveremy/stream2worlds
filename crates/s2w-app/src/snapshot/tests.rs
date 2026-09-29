@@ -152,6 +152,14 @@ fn wrong_format_fold_or_feed_is_ignored() -> TestResult {
         check_fold(&inconsistent, EXPECTED),
         Err(Invalid::Corrupt(_))
     ));
+    let mut out_of_step = snapshot_at(3)?;
+    let mut world = serde_json::to_value(&out_of_step.world)?;
+    world["next_entity_id"] = serde_json::json!(out_of_step.world.next_entity_id() + 1);
+    out_of_step.world = serde_json::from_value(world)?;
+    assert!(matches!(
+        check_fold(&out_of_step, EXPECTED),
+        Err(Invalid::Corrupt(_))
+    ));
     Ok(())
 }
 
@@ -385,6 +393,101 @@ fn attr_map_bytes_are_btreemap_bytes() -> TestResult {
         assert_eq!(postcard::to_stdvec(&attrs)?, bytes);
         assert_eq!(serde_json::to_vec(&attrs)?, serde_json::to_vec(&source)?);
         assert_eq!(postcard::from_bytes::<s2w_core::AttrMap>(&bytes)?, attrs);
+    }
+    Ok(())
+}
+
+/// `World` in the wire shape it had before s2w#190: `entities` a map by id and `hub_refs` a plain
+/// map. Built from the public accessors, so it is an independent statement of the old format.
+/// Ids are raw `u64` keys: `EntityId` is `transparent`, so the bytes are the same.
+#[derive(serde::Serialize)]
+struct OldWorld<'a> {
+    world_id: s2w_core::WorldId,
+    offset: u64,
+    fold_version: u32,
+    hub_in_degree_cap: u64,
+    next_entity_id: u64,
+    keys: &'a BTreeMap<NaturalKey, s2w_core::EntityId>,
+    merges: &'a BTreeMap<s2w_core::EntityId, s2w_core::EntityId>,
+    entities: BTreeMap<u64, OldEntityState<'a>>,
+    relationships: Vec<(&'a s2w_core::Relationship, &'a u64)>,
+    hub_counters: &'a BTreeMap<s2w_core::EntityId, s2w_core::HubCounters>,
+}
+
+#[derive(serde::Serialize)]
+struct OldEntityState<'a> {
+    entity_type: &'a str,
+    attrs: &'a s2w_core::AttrMap,
+    hub_refs: BTreeMap<&'a str, s2w_core::EntityId>,
+}
+
+impl<'a> OldWorld<'a> {
+    fn of(world: &'a World) -> Self {
+        Self {
+            world_id: world.world_id(),
+            offset: world.offset(),
+            fold_version: world.fold_version(),
+            hub_in_degree_cap: world.hub_in_degree_cap(),
+            next_entity_id: world.next_entity_id(),
+            keys: world.keys(),
+            merges: world.merges(),
+            entities: world
+                .entities()
+                .map(|(id, state)| {
+                    let old = OldEntityState {
+                        entity_type: &state.entity_type,
+                        attrs: &state.attrs,
+                        hub_refs: state.hub_refs().collect(),
+                    };
+                    (id.get(), old)
+                })
+                .collect(),
+            relationships: world.relationships().iter().collect(),
+            hub_counters: world.hub_counters(),
+        }
+    }
+}
+
+/// `World::entities` is a dense `Vec` and `hub_refs` an `Option<Box<..>>` in memory (s2w#190), but
+/// both stay maps on the wire: the golden world (merges, hub refs, empty and full entities) writes
+/// the same postcard and JSON bytes as the old shape, and old-shape bytes decode to the same world.
+#[test]
+fn dense_entities_bytes_are_btreemap_bytes() -> TestResult {
+    let golden: Vec<WorldEvent> = serde_json::from_str(include_str!(
+        "../../../s2w-core/tests/fixtures/golden-fold-v1.json"
+    ))?;
+    for world in [
+        World::default(),
+        fold(World::with_hub_cap(3), &golden),
+        fold(World::with_hub_cap(1), &golden),
+    ] {
+        let old = OldWorld::of(&world);
+        let bytes = postcard::to_stdvec(&old)?;
+        assert_eq!(postcard::to_stdvec(&world)?, bytes);
+        assert_eq!(serde_json::to_vec(&world)?, serde_json::to_vec(&old)?);
+        assert_eq!(postcard::from_bytes::<World>(&bytes)?, world);
+    }
+    Ok(())
+}
+
+/// A snapshot whose entity ids are not exactly `0..len` does not decode: the fold indexes
+/// entities by id and must not trust the file.
+#[test]
+fn sparse_entity_ids_do_not_decode() -> TestResult {
+    let world = fold(World::with_hub_cap(3), &events(4));
+    assert!(world.entity_count() >= 2);
+    let gap = |old: &mut OldWorld<'_>| -> Result<(), &'static str> {
+        let (id, state) = old.entities.pop_last().ok_or("no entities")?;
+        old.entities.insert(id + 1, state);
+        Ok(())
+    };
+    let offset_start = |old: &mut OldWorld<'_>| -> Result<(), &'static str> {
+        old.entities.pop_first().map(|_| ()).ok_or("no entities")
+    };
+    for corrupt in [gap, offset_start] {
+        let mut old = OldWorld::of(&world);
+        corrupt(&mut old)?;
+        assert!(postcard::from_bytes::<World>(&postcard::to_stdvec(&old)?).is_err());
     }
     Ok(())
 }

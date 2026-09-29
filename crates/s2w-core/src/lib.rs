@@ -8,6 +8,7 @@
 
 mod attr_map;
 mod event;
+mod wire;
 mod world;
 
 pub use attr_map::AttrMap;

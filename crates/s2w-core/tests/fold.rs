@@ -57,7 +57,7 @@ fn ids_are_minted_once_in_order_of_first_mention() {
         .collect();
     assert_eq!(ids, [0, 1, 2]);
     assert_eq!(w.offset(), 3);
-    assert_eq!(w.entities().len(), 3);
+    assert_eq!(w.entity_count(), 3);
 }
 
 #[test]
@@ -124,10 +124,10 @@ fn attrs_land_on_the_survivor_and_stay_after_revoke() {
     let a = w.id_of(&key("a")).unwrap();
     let b = w.id_of(&key("b")).unwrap();
     assert_eq!(
-        w.entities()[&a].attrs.get("bot"),
+        w.entity(a).unwrap().attrs.get("bot"),
         Some(&AttrValue::Bool(true))
     );
-    assert!(w.entities()[&b].attrs.is_empty());
+    assert!(w.entity(b).unwrap().attrs.is_empty());
 }
 
 #[test]
@@ -150,8 +150,8 @@ fn hub_cap_counts_distinct_sources_and_turns_edges_into_hub_refs() {
         w.relationships().values().copied().collect::<Vec<_>>(),
         [2, 1]
     );
-    assert_eq!(w.entities()[&p3].hub_refs.get("on"), Some(&wiki));
-    assert_eq!(w.entities()[&p1].hub_refs.get("on"), Some(&wiki));
+    assert_eq!(w.entity(p3).unwrap().hub_ref("on"), Some(wiki));
+    assert_eq!(w.entity(p1).unwrap().hub_ref("on"), Some(wiki));
     let counters = &w.hub_counters()[&wiki];
     assert_eq!(counters.in_degree(), 3);
     assert_eq!(counters.by_kind.get("on"), Some(&5));
@@ -199,20 +199,72 @@ fn small_fold_snapshot() {
     insta::assert_json_snapshot!(w);
 }
 
-/// Minting past the id space is a no-op. Only reachable through a deserialized world.
+/// A deserialized world whose id counter disagrees with its entity count mints nothing: the id
+/// is the entity's index, so a mint there would mis-index it. The fold stays total. (Exhausting
+/// the id space itself now takes 2^64 minted entities; the old way to reach it, a snapshot with
+/// the counter at `u64::MAX - 1` and no entities, is this case.)
 #[test]
-fn id_exhaustion_is_a_no_op() {
-    let mut json = serde_json::to_value(World::default()).unwrap();
-    json["next_entity_id"] = serde_json::json!(u64::MAX - 1);
-    let w: World = serde_json::from_value(json).unwrap();
+fn a_counter_out_of_step_with_entities_mints_nothing() {
+    for counter in [1, u64::MAX - 1] {
+        let mut json = serde_json::to_value(World::default()).unwrap();
+        json["next_entity_id"] = serde_json::json!(counter);
+        let w: World = serde_json::from_value(json).unwrap();
 
-    let two_new = fold(w.clone(), &[relate("a", "b", "edited")]);
-    assert!(two_new.keys().is_empty());
-    assert!(two_new.relationships().is_empty());
-    assert_eq!(two_new.offset(), 1);
+        let related = fold(w.clone(), &[relate("a", "b", "edited")]);
+        assert!(related.keys().is_empty());
+        assert!(related.relationships().is_empty());
+        assert_eq!(related.offset(), 1);
 
-    let one_new = fold(w, &[observe("a", "user", &[])]);
-    assert_eq!(one_new.id_of(&key("a")).unwrap().get(), u64::MAX - 1);
-    let full = fold(one_new, &[observe("b", "user", &[])]);
-    assert_eq!(full.id_of(&key("b")), None);
+        let observed = fold(w, &[observe("a", "user", &[])]);
+        assert_eq!(observed.id_of(&key("a")), None);
+        assert_eq!(observed.entity_count(), 0);
+        assert_eq!(observed.offset(), 1);
+    }
+}
+
+/// `entities` is indexed by id, so a deserialized world must have ids exactly `0..len`.
+#[test]
+fn entity_ids_must_be_dense_on_deserialize() {
+    let w = fold(
+        World::default(),
+        &[observe("a", "user", &[]), observe("b", "user", &[])],
+    );
+    let json = serde_json::to_value(&w).unwrap();
+    assert!(serde_json::from_value::<World>(json.clone()).is_ok());
+
+    let state = json["entities"]["0"].clone();
+    for ids in [&["0", "2"][..], &["1"], &["1", "2"]] {
+        let mut bad = json.clone();
+        bad["entities"] = ids
+            .iter()
+            .map(|id| ((*id).to_owned(), state.clone()))
+            .collect();
+        let err = serde_json::from_value::<World>(bad)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("entity ids are not dense"), "{ids:?}: {err}");
+    }
+}
+
+/// An entity with no hub refs holds none in memory and writes `{}`; one with refs round-trips.
+#[test]
+fn hub_refs_round_trip_as_a_map() {
+    let w = fold(
+        World::with_hub_cap(1),
+        &[relate("p1", "wiki", "on"), relate("p2", "wiki", "on")],
+    );
+    let p1 = w.id_of(&key("p1")).unwrap();
+    let p2 = w.id_of(&key("p2")).unwrap();
+    assert!(!w.entity(p1).unwrap().has_hub_refs());
+    assert!(w.entity(p2).unwrap().has_hub_refs());
+    let json = serde_json::to_value(&w).unwrap();
+    assert_eq!(
+        json["entities"][p1.get().to_string()]["hub_refs"],
+        serde_json::json!({})
+    );
+    assert_eq!(
+        json["entities"][p2.get().to_string()]["hub_refs"]["on"],
+        serde_json::json!(w.id_of(&key("wiki")).unwrap().get())
+    );
+    assert_eq!(serde_json::from_value::<World>(json).unwrap(), w);
 }

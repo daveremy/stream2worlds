@@ -189,7 +189,7 @@ impl<'w> Graph<'w> {
     )]
     fn new(world: &'w World) -> Self {
         let mut members: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
-        for &id in world.entities().keys() {
+        for (id, _) in world.entities() {
             let r = world.resolve(id);
             let list = members.entry(r).or_default();
             if r != id {
@@ -240,13 +240,13 @@ impl<'w> Graph<'w> {
                 *w = w.saturating_add(weight);
             }
         }
-        for (&id, state) in world.entities() {
-            for (kind, &hub) in &state.hub_refs {
+        for (id, state) in world.entities() {
+            for (kind, hub) in state.hub_refs() {
                 let h = world.resolve(hub);
                 // A hub_ref always names a target that tripped the cap, so `h` is a hub unless
                 // a merge re-resolved it; such a ref has no hub node to point at.
                 if hubs.contains_key(&h) {
-                    hub_edges.insert((world.resolve(id), h, kind.clone()));
+                    hub_edges.insert((world.resolve(id), h, kind.to_owned()));
                 }
             }
         }
@@ -269,11 +269,7 @@ impl<'w> Graph<'w> {
     }
 
     fn find(&self, raw: u64) -> Option<EntityId> {
-        self.world
-            .entities()
-            .keys()
-            .find(|e| e.get() == raw)
-            .map(|&e| self.world.resolve(e))
+        self.world.entity_id(raw).map(|e| self.world.resolve(e))
     }
 
     /// Undirected BFS from `start`; hubs are included but never expanded.
@@ -304,14 +300,14 @@ impl<'w> Graph<'w> {
     }
 
     fn entity_type(&self, id: EntityId) -> String {
-        match self.world.entities().get(&id) {
+        match self.world.entity(id) {
             Some(state) if !state.entity_type.is_empty() => state.entity_type.clone(),
             _ => "untyped".to_owned(),
         }
     }
 
     fn entity_node(&self, id: EntityId, members: &[EntityId]) -> Node {
-        let state = self.world.entities().get(&id);
+        let state = self.world.entity(id);
         let entity_type = state.map(|s| s.entity_type.clone()).unwrap_or_default();
         let attrs = state.map(|s| s.attrs.clone()).unwrap_or_default();
         let keys = self.keys.get(&id).cloned().unwrap_or_default();

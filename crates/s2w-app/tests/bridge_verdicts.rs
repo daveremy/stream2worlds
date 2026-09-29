@@ -136,11 +136,7 @@ fn all_rows<V: VerdictStore>(store: &V, through: LogPosition) -> Fallible<Vec<St
 
 fn tag(world: &World, key: &str, attr: &str) -> Option<AttrValue> {
     let id = world.id_of(&NaturalKey::new(key))?;
-    world
-        .entities()
-        .iter()
-        .find(|(e, _)| **e == id)
-        .and_then(|(_, state)| state.attrs.get(attr).cloned())
+    world.entity(id)?.attrs.get(attr).cloned()
 }
 
 /// A fresh directory under the system temp dir, removed on drop (even when a test panics).
@@ -293,7 +289,7 @@ fn a_panic_is_persisted_and_replayed_without_calling_the_engine() -> TestResult 
         ),
         (2, 2, 0)
     );
-    assert!(world.entities().is_empty());
+    assert_eq!(world.entity_count(), 0);
     Ok(())
 }
 
