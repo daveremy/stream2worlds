@@ -303,6 +303,10 @@ async fn local_bridge(
     let mut ready = Some(ready);
     let mut delay = config.poll;
     loop {
+        // The poll appends, and a rebuild swaps the timeline, on this runtime thread: wait here,
+        // yielding, for any `/world` body to release its read guard, so the write below never
+        // blocks the runtime that body needs to drain (s2w#259). No await until it drops.
+        let reservation = bridge.state().clone().reserve_write().await;
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bridge.poll_once()))
             .map_err(|_| BridgeError::Task("bridge poll panicked".to_owned()))??;
         if let Some((snapshotter, state)) = &snapshots {
@@ -321,6 +325,7 @@ async fn local_bridge(
         if let Some(rebuild) = &mut rebuild {
             bridge = rebuild.after_poll(bridge, &report)?;
         }
+        drop(reservation);
         if let Some(ready) = ready.take() {
             let _ignored = ready.send(());
         }

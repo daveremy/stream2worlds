@@ -178,6 +178,8 @@ async function start(): Promise<void> {
         if (!signal.aborted) applyPresentation(p, renderer);
       } catch { /* non-essential */ }
       if (signal.aborted) return;
+      // A large world takes seconds to build: name the wait instead of an empty canvas.
+      status.textContent = 'Loading world…';
       const view = await snapshot(params, signal); lastFetch = Date.now();
       const seed = await evidence(params, view.offset, view.epoch, signal);
       if (signal.aborted) return;
