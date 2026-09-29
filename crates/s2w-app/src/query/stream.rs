@@ -23,8 +23,8 @@ pub(crate) const STALL: Duration = Duration::from_secs(5);
 /// How long the writer may wait for the client in total, counted from the channel's creation and
 /// checked whenever the channel is full. [`STALL`] bounds one chunk, so a client reading just
 /// under it per chunk could otherwise hold the read guard for hours on a large body; past this,
-/// the body ends with an error and the guard is released. A client that keeps up is never cut. A local read of the recorded load's
-/// ~190 MiB world takes 2-4 s (#216).
+/// the body ends with an error and the guard is released. A client that keeps up is never cut.
+/// A local read of the recorded load's ~190 MiB world takes 2-4 s (#216).
 pub(crate) const BODY_BUDGET: Duration = Duration::from_secs(60);
 
 /// The longest the writer sleeps between tries while the channel is full.
