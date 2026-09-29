@@ -20,7 +20,7 @@ use crate::module_size::walk::Scan;
 use resolve::{Collector, Mod, Res, Resolver, Use};
 
 /// Report-only while false: findings print with `[report-only]` and do not fail the check.
-/// Flip to true once s2w#240 breaks the `s2w_app` cycle; there is no exemption file (#44 §4).
+/// Flip to true once s2w#240 (`s2w_app`) and s2w#241 (`xtask::h_measure`) break their cycles; there is no exemption file (#44 §4).
 const ENFORCE: bool = false;
 
 pub(super) fn check(meta: &super::Metadata) -> Vec<String> {
