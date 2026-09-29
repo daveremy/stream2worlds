@@ -127,8 +127,8 @@ impl KeySpec {
     /// (`a` and `b`, both identified by `[a, b]`) get differently ordered keys and the oracle
     /// splits their entity: a second limit of the format, pinned by a fixture. The mapping
     /// format cannot exclude a value, so a rule with `no_identity` still gets its entity rule;
-    /// [`super::score::grade`] drops the key's excluded mentions from the oracle's partition, so
-    /// the ceiling honours the exclusion.
+    /// [`super::score::grade`] drops the key's excluded mentions from every prediction, the
+    /// oracle's included, so the ceiling honours the exclusion.
     pub(crate) fn oracle(&self) -> Result<StreamMapping, String> {
         self.validate()?;
         let mut entities = Vec::new();
