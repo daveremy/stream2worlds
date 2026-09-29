@@ -363,3 +363,28 @@ fn a_borrowed_snapshot_encodes_to_the_owned_snapshots_bytes()
     assert_eq!(codec::encode(&snapshot)?, expected);
     Ok(())
 }
+
+/// `EntityState::attrs` is an `AttrMap` in memory (s2w#172) but must stay a `BTreeMap` on the
+/// wire: the same postcard bytes (snapshots, `world_hash`) and the same JSON, and a snapshot
+/// written by either decodes into the other.
+#[test]
+fn attr_map_bytes_are_btreemap_bytes() -> TestResult {
+    let many: BTreeMap<String, AttrValue> = [
+        ("zeta", AttrValue::Str("last".into())),
+        ("alpha", AttrValue::Int(i64::MIN)),
+        ("mid", AttrValue::Bool(false)),
+        ("attr_07", AttrValue::Str(String::new())),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect();
+    let one = BTreeMap::from([("k".to_owned(), AttrValue::Int(1))]);
+    for source in [BTreeMap::new(), one, many] {
+        let attrs = s2w_core::AttrMap::from(source.clone());
+        let bytes = postcard::to_stdvec(&source)?;
+        assert_eq!(postcard::to_stdvec(&attrs)?, bytes);
+        assert_eq!(serde_json::to_vec(&attrs)?, serde_json::to_vec(&source)?);
+        assert_eq!(postcard::from_bytes::<s2w_core::AttrMap>(&bytes)?, attrs);
+    }
+    Ok(())
+}

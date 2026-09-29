@@ -61,3 +61,11 @@ accept an interim hard ceiling of 900 B per entity (`budget_bytes_per_entity`), 
 ships and stops regressions now. The 300 B target does not move; the baseline file carries it
 for the printed ratio. The overshoot is tracked in s2w#172: measure where the bytes go, then cut
 toward 300 B.
+
+Amendment, 2026-09-29 (s2w#172): a dhat breakdown put 544 B of the 830 B in one `BTreeMap` leaf
+node per entity for its attributes. Storing them as a sorted `Vec` at exact capacity (same wire
+bytes, `world_hash` pinned) measures **438 B** per entity (1.46×), inside this record's 2× line,
+so the interim ceiling is retired and `budget_bytes_per_entity` is 600 B, the 2× line itself.
+Relationships are unchanged at 234 B. The remaining gap to 300 B is node overhead in the
+`entities` and `keys` maps and repeated type and attribute-name text: s2w#190 (entities by
+dense id) and s2w#191 (interning, a snapshot format change).

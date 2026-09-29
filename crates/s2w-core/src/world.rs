@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
+use crate::attr_map::AttrMap;
 use crate::event::{AttrValue, EntityId, NaturalKey, WorldEvent};
 
 /// The version of the fold's semantics, stamped into every [`World`] it creates.
@@ -42,7 +43,7 @@ pub struct EntityState {
     /// relationship.
     pub entity_type: String,
     /// Attributes; each key holds its latest observed value.
-    pub attrs: BTreeMap<String, AttrValue>,
+    pub attrs: AttrMap,
     /// Relationships this entity has to hub entities, by kind, kept as attributes because the
     /// target is past the in-degree cap. The value is the hub's id.
     pub hub_refs: BTreeMap<String, EntityId>,
@@ -240,9 +241,7 @@ impl World {
         let target = self.resolve(id);
         let state = self.entities.entry(target).or_default();
         entity_type.clone_into(&mut state.entity_type);
-        for (k, v) in attrs {
-            state.attrs.insert(k.clone(), v.clone());
-        }
+        state.attrs.extend_from_map(attrs);
     }
 
     fn observe_relationship(&mut self, from: &NaturalKey, to: &NaturalKey, kind: &str) {
