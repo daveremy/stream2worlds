@@ -76,7 +76,7 @@ inside that definition rather than debated separately every time it comes up.
 
 ## Revisit when
 
-- Issue #17 (identifier-domain and obfuscation-hashing questions) lands — several of H-min's
+- ~~Issue #17 (identifier-domain and obfuscation-hashing questions) lands~~ (answered 2026-09-29, contract amendment) — several of H-min's
   measurement conventions (not this record) are provisional on its answers.
 - The obfuscated stream and its obfuscator (contract B2.2) exist, so H-min's plain-stream number
   can be compared against an obfuscated one instead of standing alone.

@@ -599,3 +599,28 @@ and frozen before the evaluation window, exactly as mappings are. It may be tune
 development window. Separately, "the same view form on the obfuscated copy" is a **reported
 measurement** at gate 3, not a B1 pass condition; it is a pass condition of the dashboard feature
 (s2w#116) instead. This note changes no arm, metric, threshold or stream; B1 stands as signed.
+
+### 2026-09-29: answers to the four identifier-domain questions (s2w#17; addition, no change in meaning)
+
+Research 0002 §9 asked four questions about the gate-3 answer key and the B2 obfuscator. Dave
+decided the two that were his (2026-09-27, via karpathy); the other three were settled as
+engineering calls. This note records the four answers. It changes no arm, metric, threshold or
+stream, and adds no floor; B2, B3 and B4 stand as signed.
+
+| # | Question (research 0002 §9) | Answer |
+|---|---|---|
+| 1 | Title hash domain: `(page, title)` or `(page, wiki, title)`? | **`wiki` is folded into the title hash domain.** Cross-wiki title collisions are removed by the obfuscation itself, which protects B4's no-waiver 0.05 false-merge floor. (Dave, 2026-09-27) |
+| 2a | Are `revision.old` and `revision.new` one identifier domain? | **Yes, one domain.** The carry-over chain survives obfuscation. |
+| 2b | Does `wiki` fold into the revision domain? | **Yes, folded in, for the same reason as the title domain.** (Dave, 2026-09-27) |
+| 3 | Is `id` (rcid) an identifier domain? | **It is hashed as an identifier domain, and excluded from scored key mentions.** Each rcid is a singleton per event, so scoring it adds no recall and only floor risk. |
+| 4 | Are `wiki`, `server_name`, `server_url` and `meta.domain` one entity in the answer key? | **Yes, one entity.** They are deterministic 1:1 aliases, so merging them is never a false merge. |
+
+**Cross-wiki composite-key discovery** is scored as its own **unfloored sub-metric**, on both the
+obfuscated and the plain streams, reported beside B3's scored metrics. It is not decided through
+the gated hash domains, so no gate's pass or fail depends on it. Definition: s2w#56 PR 2b.
+
+**Supporting measurement, not part of the decision** (s2w#17 comment, 2026-09-29; s2w#56 PR 2a
+capture: 200,000 events, 231 wikis, replicate windows of 10,000 events). With no fold, the worst
+10,000-event window has a title false-merge rate of 2.45%, against the 0.05 floor. Revisions and
+rcid measure 0% in every window. The fold ruling stands regardless of this number: it was made
+before the measurement and holds under either outcome.
