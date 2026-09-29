@@ -46,8 +46,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   every answer is unchanged. Base and head share one world (`Arc`) until the first append after a
   restore copies it (#179); never hand out the `Arc` itself, or the next append copies the whole
   world and the old one stays alive.
-  `QueryState::replace_timeline` is the one way to install a restored
-  timeline, and only `serve`'s startup restore calls it, before the bridge exists.
+  `QueryState::replace_timeline` is the one way to install a timeline, and only `serve`'s
+  startup (`snapshots::prepare`) calls it, before the bridge exists. A timeline carries its
+  `Epoch` (decision 0023): `prepare` installs the registry's feed fingerprint on the empty
+  timeline first, and a restored one chains `.with_epoch`. Every read that resolves a client
+  offset calls `Timeline::check_epoch` under the same lock, before any bounds check.
 - `snapshot/` (decision 0024): a snapshot is derived and never trusted. It is loaded only when
   every validity rule holds, and an invalid file is reported and skipped, never deleted. Its
   bytes carry no path or host detail. The codec and validity rules are pure; only `store` does

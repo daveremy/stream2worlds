@@ -150,7 +150,11 @@ mod base {
             let got = sse_frames(body, n).await;
             let (_, body) = request(&full_app, &uri, None).await;
             assert_eq!(got, sse_frames(body, n).await);
-            assert!(got[0].contains(&format!("id: {}", BASE + 1)), "{}", got[0]);
+            assert!(
+                got[0].contains(&format!("id: 0000000000000000:{}\n", BASE + 1)),
+                "{}",
+                got[0]
+            );
             // Resuming by Last-Event-ID at the base is served, not gone.
             let (status, _) = request(
                 &restored_app,

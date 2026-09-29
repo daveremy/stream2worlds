@@ -26,8 +26,8 @@ use super::QueryError;
 use super::delta::{Delta, fold_with_delta};
 use super::diff::{WorldDiff, diff};
 use super::proposals::ProposalsView;
-use super::timeline::{BaseTime, HistoryEntry, TimeRange, TimedEvent, Timeline};
-use super::view::{ACTUAL_BRANCH, Lod, ViewParams, world_view};
+use super::timeline::{BaseTime, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline};
+use super::view::{ACTUAL_BRANCH, Lod, ViewParams, WorldView, world_view};
 use crate::bridge::SourceStats;
 
 /// Shared server state: the timeline and a head-offset signal that wakes SSE subscribers.
@@ -150,9 +150,11 @@ impl QueryState {
         Ok(head)
     }
 
-    /// Installs a restored timeline (decision 0024) and wakes subscribers with its head. `serve`
-    /// calls this once, before the bridge starts and before the listener binds, so no reader
-    /// or SSE follower can observe the swap.
+    /// Installs a timeline (decision 0024) and wakes subscribers with its head. World and
+    /// [`Epoch`] are one value, so they are swapped under one write lock and every read sees a
+    /// consistent pair; an SSE follower notices the new epoch on its next read and ends with
+    /// `stale_epoch`. `serve` calls this at start-up (`snapshots::prepare`: the empty timeline
+    /// under the registry's epoch, then a restored one), before the bridge starts.
     ///
     /// # Errors
     /// [`QueryError::Unavailable`] if the lock was poisoned.
@@ -198,6 +200,13 @@ impl QueryState {
             .map_or(0, |stats| stats.consumed)
     }
 
+    /// The events between the served base and head, in order.
+    #[cfg(test)]
+    pub(crate) fn timeline_events(&self) -> Vec<super::TimedEvent> {
+        self.read(|t| Ok(t.events_after(t.base())?.to_vec()))
+            .unwrap_or_default()
+    }
+
     fn read<T>(&self, f: impl FnOnce(&Timeline) -> Result<T, QueryError>) -> Result<T, QueryError> {
         f(&*self.timeline.read().map_err(|_| QueryError::Unavailable)?)
     }
@@ -209,6 +218,29 @@ impl QueryState {
     /// poisoned.
     pub fn world_at(&self, at: Option<u64>) -> Result<World, QueryError> {
         self.read(|t| t.world_at(at.unwrap_or_else(|| t.head())))
+    }
+
+    /// The view at `at` (or the head), labelled with the epoch it was read under. World and
+    /// epoch come from one read; the projection runs after the lock is released.
+    ///
+    /// # Errors
+    /// [`QueryError::StaleEpoch`] when `epoch` is given and is not the served one (checked
+    /// first); whatever [`Timeline::world_at`] and [`world_view`] return; or
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn view_at(
+        &self,
+        at: Option<u64>,
+        epoch: Option<Epoch>,
+        params: &ViewParams,
+    ) -> Result<WorldView, QueryError> {
+        let (world, epoch) = self.read(|t| {
+            t.check_epoch(epoch)?;
+            Ok((t.world_at(at.unwrap_or_else(|| t.head()))?, t.epoch()))
+        })?;
+        Ok(WorldView {
+            epoch,
+            ..world_view(&world, params)?
+        })
     }
 
     /// The one branch served, with its head and fold version.
@@ -230,34 +262,55 @@ impl QueryState {
     /// The entity's history up to `to`, or up to the head when `to` is absent.
     ///
     /// # Errors
-    /// Whatever [`Timeline::history`] returns, or [`QueryError::Unavailable`] if the lock was
-    /// poisoned.
-    pub fn history(&self, id: u64, to: Option<u64>) -> Result<Vec<HistoryEntry>, QueryError> {
-        self.read(|t| t.history(id, to.unwrap_or_else(|| t.head())))
+    /// [`QueryError::StaleEpoch`] (checked first), whatever [`Timeline::history`] returns, or
+    /// [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn history(
+        &self,
+        id: u64,
+        to: Option<u64>,
+        epoch: Option<Epoch>,
+    ) -> Result<Vec<HistoryEntry>, QueryError> {
+        self.read(|t| {
+            t.check_epoch(epoch)?;
+            t.history(id, to.unwrap_or_else(|| t.head()))
+        })
     }
 
     /// What changed between `from` and `to`, or the head when `to` is absent.
     ///
     /// # Errors
-    /// [`QueryError::OffsetBeyondHead`] past the head, or [`QueryError::Unavailable`] if the
-    /// lock was poisoned.
-    pub fn diff(&self, from: u64, to: Option<u64>) -> Result<WorldDiff, QueryError> {
-        self.world_at(Some(from))
-            .and_then(|a| self.world_at(to).map(|b| (a, b)))
-            .and_then(|(a, b)| diff(&a, &b))
+    /// [`QueryError::StaleEpoch`] (checked first), [`QueryError::OffsetBeyondHead`] past the
+    /// head, or [`QueryError::Unavailable`] if the lock was poisoned. Both worlds come from one
+    /// read, so a diff never spans two histories.
+    pub fn diff(
+        &self,
+        from: u64,
+        to: Option<u64>,
+        epoch: Option<Epoch>,
+    ) -> Result<WorldDiff, QueryError> {
+        let (a, b) = self.read(|t| {
+            t.check_epoch(epoch)?;
+            Ok((
+                t.world_at(from)?,
+                t.world_at(to.unwrap_or_else(|| t.head()))?,
+            ))
+        })?;
+        diff(&a, &b)
     }
 
     /// The time index at `ts`, or its whole range when `ts` is absent.
     ///
     /// # Errors
-    /// [`QueryError::TimeBeforeBase`] for a `ts` inside a restored snapshot;
-    /// [`QueryError::Unavailable`] if the lock was poisoned.
-    pub fn time(&self, ts: Option<i64>) -> Result<TimeResult, QueryError> {
+    /// [`QueryError::StaleEpoch`] (checked first); [`QueryError::TimeBeforeBase`] for a `ts`
+    /// inside a restored snapshot; [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn time(&self, ts: Option<i64>, epoch: Option<Epoch>) -> Result<TimeResult, QueryError> {
         self.read(|t| {
+            t.check_epoch(epoch)?;
             Ok(match ts {
                 Some(ts) => TimeResult::At(TimeAt {
                     ts,
                     offset: t.offset_at(Timestamp::from_millis(ts))?,
+                    epoch: t.epoch(),
                 }),
                 None => TimeResult::Range(t.time_range()),
             })
@@ -272,7 +325,9 @@ impl IntoResponse for QueryError {
             | Self::UnknownEntity { .. }
             | Self::UnknownWorld { .. }
             | Self::UnknownProposal { .. } => StatusCode::NOT_FOUND,
-            Self::OffsetBeforeBase { .. } | Self::TimeBeforeBase { .. } => StatusCode::GONE,
+            Self::OffsetBeforeBase { .. }
+            | Self::TimeBeforeBase { .. }
+            | Self::StaleEpoch { .. } => StatusCode::GONE,
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
             Self::Unavailable | Self::StreamLimit => StatusCode::SERVICE_UNAVAILABLE,
@@ -310,9 +365,10 @@ struct Params {
     from: Option<String>,
     to: Option<String>,
     ts: Option<String>,
+    epoch: Option<String>,
 }
 
-fn parse<T: std::str::FromStr>(
+pub(crate) fn parse<T: std::str::FromStr>(
     name: &'static str,
     raw: Option<&str>,
 ) -> Result<Option<T>, QueryError>
@@ -394,7 +450,7 @@ async fn world(
             hops: parse("hops", p.hops.as_deref())?.unwrap_or(1),
         };
         let at = parse("at", p.at.as_deref())?;
-        world_view(&state.world_at(at)?, &params)
+        state.view_at(at, parse("epoch", p.epoch.as_deref())?, &params)
     };
     run().map(Json).into_response()
 }
@@ -494,7 +550,7 @@ async fn world_diff(
         check_branch(p.branch.as_deref())?;
         let from = parse("from", p.from.as_deref())?.unwrap_or(0);
         let to = parse("to", p.to.as_deref())?;
-        state.diff(from, to)
+        state.diff(from, to, parse("epoch", p.epoch.as_deref())?)
     };
     run().map(Json).into_response()
 }
@@ -518,7 +574,7 @@ async fn history(
             reason: format!("'{id}': {e}"),
         })?;
         let to = parse("to", p.to.as_deref())?;
-        state.history(id, to)
+        state.history(id, to, parse("epoch", p.epoch.as_deref())?)
     };
     run().map(Json).into_response()
 }
@@ -530,6 +586,8 @@ pub struct TimeAt {
     pub ts: i64,
     /// The largest offset whose events were received at or before `ts`.
     pub offset: u64,
+    /// The history `offset` belongs to.
+    pub epoch: Epoch,
 }
 
 /// `/worlds/{world}/time`'s answer: one timestamp's offset, or the whole range when no `ts` was
@@ -551,7 +609,10 @@ async fn time(
     let run = || -> Result<_, QueryError> {
         check_world(&state, &world)?;
         check_branch(p.branch.as_deref())?;
-        state.time(parse("ts", p.ts.as_deref())?)
+        state.time(
+            parse("ts", p.ts.as_deref())?,
+            parse("epoch", p.epoch.as_deref())?,
+        )
     };
     run().map(Json).into_response()
 }
@@ -563,12 +624,35 @@ struct Message<'a> {
     delta: &'a Delta,
 }
 
-fn sse_event(offset: u64, delta: &Delta) -> Event {
-    let event = Event::default().id(offset.to_string()).event(delta.kind());
+/// An SSE message's `id:`: `<epoch>:<offset>`, so a browser's automatic `Last-Event-ID`
+/// reconnect carries the history it read (s2w#184).
+fn sse_id(epoch: Epoch, offset: u64) -> String {
+    format!("{epoch}:{offset}")
+}
+
+/// Parses a `Last-Event-ID`: `<epoch>:<offset>` (what this server sends), or a bare `<offset>`
+/// (a client that opted out of the epoch check).
+fn parse_last_event_id(raw: &str) -> Result<(Option<Epoch>, u64), QueryError> {
+    let bad = |reason: String| QueryError::BadParameter {
+        name: "Last-Event-ID",
+        reason: format!("'{raw}': {reason}"),
+    };
+    let (epoch, offset) = match raw.split_once(':') {
+        Some((epoch, offset)) => (Some(epoch.parse::<Epoch>().map_err(bad)?), offset),
+        None => (None, raw),
+    };
+    let offset = offset.parse::<u64>().map_err(|e| bad(e.to_string()))?;
+    Ok((epoch, offset))
+}
+
+fn sse_event(epoch: Epoch, offset: u64, delta: &Delta) -> Event {
+    let event = Event::default()
+        .id(sse_id(epoch, offset))
+        .event(delta.kind());
     match event.json_data(Message { offset, delta }) {
         Ok(event) => event,
         Err(e) => Event::default()
-            .id(offset.to_string())
+            .id(sse_id(epoch, offset))
             .event("error")
             .data(e.to_string()),
     }
@@ -584,7 +668,13 @@ fn sse_error(error: &QueryError) -> Event {
 
 /// SSE: replays strictly after `from` (or `Last-Event-ID`) through `at` and closes, or
 /// through the head when `at` is absent, then
-/// follows appends. Each message's `id:` is the offset after its event.
+/// follows appends. Each message's `id:` is `<epoch>:<offset>`, the offset after its event.
+///
+/// The offset comes from `Last-Event-ID` when present, else `from`; the epoch from the
+/// header's prefix when present, else `?epoch`. A supplied epoch that is not the served one
+/// answers 410 `stale_epoch` before any bounds check. The stream remembers the epoch it
+/// started under (supplied or not) and ends with one `stale_epoch` error event if the served
+/// history changes under it.
 async fn events(
     State(state): State<QueryState>,
     Path(world): Path<String>,
@@ -595,32 +685,7 @@ async fn events(
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
-    let start = || -> Result<(u64, World, Option<u64>), QueryError> {
-        check_world(&state, &world)?;
-        check_branch(p.branch.as_deref())?;
-        let from = match last_event_id.as_deref() {
-            Some(id) => parse("Last-Event-ID", Some(id))?,
-            None => parse("from", p.from.as_deref())?,
-        }
-        .unwrap_or(0);
-        let at = parse("at", p.at.as_deref())?;
-        let world = state.read(|t| {
-            if let Some(at) = at {
-                if at < from {
-                    return Err(QueryError::BadParameter {
-                        name: "at",
-                        reason: "must be at least from".to_owned(),
-                    });
-                }
-                // Validate the bound without folding a second snapshot.
-                if at > t.head() {
-                    return Err(QueryError::OffsetBeyondHead { at, head: t.head() });
-                }
-            }
-            t.world_at(from)
-        })?;
-        Ok((from, world, at))
-    };
+    let start = || events_start(&state, &world, &p, last_event_id.as_deref());
     // Acquire the stream-cap permit BEFORE folding any history (round-1 review finding): a
     // request arriving over the cap should pay only the semaphore check, not the full fold
     // `start()` does under the read lock. The permit is dropped (freeing the slot) if `start()`
@@ -629,12 +694,12 @@ async fn events(
         Ok(permit) => permit,
         Err(error) => return error.into_response(),
     };
-    let (from, world, at) = match start() {
+    let (cursor, world) = match start() {
         Ok(ok) => ok,
         Err(e) => return e.into_response(),
     };
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
-    tokio::spawn(follow(state, from, world, at, tx));
+    tokio::spawn(follow(state, cursor, world, tx));
     let headers = [(
         HeaderName::from_static("x-accel-buffering"),
         HeaderValue::from_static("no"),
@@ -650,20 +715,72 @@ async fn events(
         .into_response()
 }
 
+/// Validates an `/events` request and folds the world it starts from, all under one read:
+/// the epoch check first, then the bounds.
+fn events_start(
+    state: &QueryState,
+    world: &str,
+    p: &Params,
+    last_event_id: Option<&str>,
+) -> Result<(Cursor, World), QueryError> {
+    check_world(state, world)?;
+    check_branch(p.branch.as_deref())?;
+    let query_epoch = parse("epoch", p.epoch.as_deref())?;
+    let (epoch, from) = match last_event_id {
+        Some(id) => {
+            let (epoch, from) = parse_last_event_id(id)?;
+            (epoch.or(query_epoch), from)
+        }
+        None => (query_epoch, parse("from", p.from.as_deref())?.unwrap_or(0)),
+    };
+    let at = parse("at", p.at.as_deref())?;
+    state.read(|t| {
+        t.check_epoch(epoch)?;
+        if let Some(at) = at {
+            if at < from {
+                return Err(QueryError::BadParameter {
+                    name: "at",
+                    reason: "must be at least from".to_owned(),
+                });
+            }
+            // Validate the bound without folding a second snapshot.
+            if at > t.head() {
+                return Err(QueryError::OffsetBeyondHead { at, head: t.head() });
+            }
+        }
+        let cursor = Cursor {
+            epoch: t.epoch(),
+            pos: from,
+            at,
+        };
+        Ok((cursor, t.world_at(from)?))
+    })
+}
+
+/// Where an SSE follower is: the history it started under, the offset it has sent through,
+/// and the bound it closes at.
+struct Cursor {
+    epoch: Epoch,
+    pos: u64,
+    at: Option<u64>,
+}
+
 async fn follow(
     state: QueryState,
-    from: u64,
+    cursor: Cursor,
     mut world: World,
-    at: Option<u64>,
     tx: mpsc::Sender<Result<Event, Infallible>>,
 ) {
+    let Cursor { epoch, mut pos, at } = cursor;
     let mut head = state.head.subscribe();
-    let mut pos = from;
     loop {
         head.borrow_and_update();
         // Base-relative through `events_after`: after a snapshot restore, index 0 is the
-        // base's offset, never offset 0 (decision 0024).
+        // base's offset, never offset 0 (decision 0024). The epoch check comes first: after a
+        // timeline swap, `pos` names an offset of another history, and continuing would send
+        // the new history's events as if they followed the old one's (even from `pos == 0`).
         let batch: Vec<TimedEvent> = match state.read(|t| {
+            t.check_epoch(Some(epoch))?;
             let after = t.events_after(pos)?;
             let take = at.map_or(after.len(), |at| {
                 usize::try_from(at.saturating_sub(pos)).map_or(after.len(), |n| n.min(after.len()))
@@ -682,7 +799,7 @@ async fn follow(
             let (next, delta) = fold_with_delta(world, &timed.event);
             world = next;
             pos = pos.saturating_add(1);
-            if tx.send(Ok(sse_event(pos, &delta))).await.is_err() {
+            if tx.send(Ok(sse_event(epoch, pos, &delta))).await.is_err() {
                 return;
             }
         }
@@ -753,7 +870,10 @@ async fn sources(
 ) -> Response {
     let run = || -> Result<Vec<SourceInfo>, QueryError> {
         check_world(&state, &world)?;
-        state.sources(parse("at", p.at.as_deref())?)
+        state.sources(
+            parse("at", p.at.as_deref())?,
+            parse("epoch", p.epoch.as_deref())?,
+        )
     };
     run().map(Json).into_response()
 }
@@ -763,10 +883,15 @@ impl QueryState {
     /// done with its events. The route and the MCP `sources` tool both call this.
     ///
     /// # Errors
-    /// [`QueryError::OffsetBeyondHead`] if `at` is past the head;
-    /// [`QueryError::Unavailable`] if the lock was poisoned.
-    pub fn sources(&self, at: Option<u64>) -> Result<Vec<SourceInfo>, QueryError> {
+    /// [`QueryError::StaleEpoch`] (checked first); [`QueryError::OffsetBeyondHead`] if `at` is
+    /// past the head; [`QueryError::Unavailable`] if the lock was poisoned.
+    pub fn sources(
+        &self,
+        at: Option<u64>,
+        epoch: Option<Epoch>,
+    ) -> Result<Vec<SourceInfo>, QueryError> {
         self.read(|timeline| {
+            timeline.check_epoch(epoch)?;
             let at = at.unwrap_or_else(|| timeline.head());
             if at > timeline.head() {
                 return Err(QueryError::OffsetBeyondHead {

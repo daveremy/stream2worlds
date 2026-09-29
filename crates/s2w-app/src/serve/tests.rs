@@ -911,8 +911,8 @@ fn web_live_sse_observes_an_append_after_opening() {
             .expect("chunk")
             .expect("bytes");
         let text = String::from_utf8(chunk.to_vec()).expect("text");
-        assert!(text.contains("id: 2\n"), "{text}");
-        assert!(!text.contains("id: 1\n"), "exclusive resume: {text}");
+        assert!(text.contains("id: 0000000000000000:2\n"), "{text}");
+        assert!(!text.contains(":1\n"), "exclusive resume: {text}");
     });
 }
 
@@ -958,6 +958,8 @@ struct ServedRun {
     bounds: (u64, u64),
     /// `GET /worlds/default/world` at that moment.
     world: serde_json::Value,
+    /// The run's query state, still readable after the stop.
+    state: QueryState,
 }
 
 /// What one [`serve_until`] run ingests and routes.
@@ -1111,6 +1113,7 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
         notes,
         bounds,
         world,
+        state,
     })
 }
 
@@ -1183,7 +1186,21 @@ fn a_restarted_serve_resumes_from_its_final_snapshot_and_matches_a_full_replay()
             replayed.world, second.world,
             "restore + tail == full replay"
         );
+        assert_serves_the_registry_epoch(&[&first, &second, &replayed]);
     });
+}
+
+/// Fresh, restored and replayed timelines all serve the registry's epoch, never the reserved 0
+/// (#184).
+fn assert_serves_the_registry_epoch(runs: &[&ServedRun]) {
+    let epoch = format!(
+        "{:016x}",
+        EngineRegistry::with_defaults().feed_fingerprint()
+    );
+    assert_ne!(epoch, "0000000000000000");
+    for run in runs {
+        assert_eq!(run.world["epoch"], epoch, "{:?}", run.notes);
+    }
 }
 
 fn store_offsets(dir: &TestDirectory) -> Vec<u64> {
@@ -1405,6 +1422,152 @@ fn a_bare_engine_name_would_restore_a_snapshot_taken_under_another_mapping() {
         assert_ne!(
             second.world, cold.world,
             "under one bare name, mapping A's snapshot is served as mapping B's world"
+        );
+    });
+}
+
+// The epoch on the query contract (#184, PR 2b-i).
+
+fn served(state: &QueryState) -> Router {
+    router(state.clone()).layer(middleware::from_fn(host_allowlist))
+}
+
+async fn status_of(app: &Router, uri: &str) -> StatusCode {
+    web_response(app, uri).await.0
+}
+
+async fn world_json(app: &Router, uri: &str) -> serde_json::Value {
+    let (status, _, bytes) = web_response(app, uri).await;
+    assert_eq!(status, StatusCode::OK, "{uri}");
+    serde_json::from_slice(&bytes).expect("world")
+}
+
+#[test]
+fn a_restart_under_another_mapping_serves_a_new_epoch_and_the_old_one_is_gone() {
+    run(false, async {
+        let dir = TestDirectory::new("serve-epoch-remapped");
+        let registry_a = routed_to(engine(mapping_a(), "p-a"));
+        let fp_a = registry_a.feed_fingerprint();
+        let Some(first) = serve_until(&dir, NO_SNAPSHOT, mapped(0..10, Some(registry_a))).await
+        else {
+            return;
+        };
+        assert_eq!(first.world["epoch"], format!("{fp_a:016x}"));
+
+        let registry_b = routed_to(engine(mapping_b(), "p-b"));
+        let fp_b = registry_b.feed_fingerprint();
+        assert_ne!(fp_a, fp_b, "another mapping is another epoch");
+        let mut tail = mapped(10..20, Some(registry_b));
+        tail.until = Until::Consumed(20);
+        let second = serve_until(&dir, NO_SNAPSHOT, tail)
+            .await
+            .expect("sockets allowed once");
+        assert_eq!(second.world["epoch"], format!("{fp_b:016x}"));
+
+        let app = served(&second.state);
+        let at = first.bounds.1.min(second.bounds.1);
+        assert!(at > 0, "both runs folded events");
+        assert_eq!(
+            status_of(
+                &app,
+                &format!("/worlds/default/world?at={at}&epoch={fp_a:016x}")
+            )
+            .await,
+            StatusCode::GONE,
+            "a URL pinned under A is gone under B"
+        );
+        assert_eq!(
+            status_of(
+                &app,
+                &format!("/worlds/default/world?at={at}&epoch={fp_b:016x}")
+            )
+            .await,
+            StatusCode::OK
+        );
+    });
+}
+
+/// Folds raw events 0..20 under `registry` in a fresh directory; the timeline events.
+async fn folded(name: &str, registry: EngineRegistry) -> Option<Vec<crate::query::TimedEvent>> {
+    let dir = TestDirectory::new(name);
+    let run = serve_until(&dir, NO_SNAPSHOT, mapped(0..20, Some(registry))).await?;
+    Some(run.state.timeline_events())
+}
+
+fn timeline_of(events: &[crate::query::TimedEvent], epoch: u64) -> Timeline {
+    let mut timeline =
+        Timeline::new(crate::DEFAULT_HUB_IN_DEGREE_CAP).with_epoch(crate::query::Epoch(epoch));
+    for e in events {
+        timeline.append(e.at, e.event.clone());
+    }
+    timeline
+}
+
+/// A's history served, then swapped for B's, each under the given epoch: the router, A's world
+/// at `at` from before the swap, and `at`.
+async fn swapped(
+    a: &[crate::query::TimedEvent],
+    b: &[crate::query::TimedEvent],
+    (epoch_a, epoch_b): (u64, u64),
+) -> (Router, serde_json::Value, u64) {
+    let state = QueryState::new(timeline_of(a, epoch_a));
+    let app = served(&state);
+    let at = u64::try_from(a.len().min(b.len())).expect("small");
+    let before = world_json(&app, &format!("/worlds/default/world?at={at}")).await;
+    state
+        .replace_timeline(timeline_of(b, epoch_b))
+        .expect("replace");
+    (app, before, at)
+}
+
+/// The mutants the epoch rules out, next to the real design: without distinct epochs a URL
+/// pinned under A is answered with B's world, and a bare offset is answered at all.
+#[test]
+fn without_an_epoch_a_pinned_url_would_be_served_another_mappings_world() {
+    run(false, async {
+        let registry_a = routed_to(engine(mapping_a(), "p-a"));
+        let registry_b = routed_to(engine(mapping_b(), "p-b"));
+        let (fp_a, fp_b) = (registry_a.feed_fingerprint(), registry_b.feed_fingerprint());
+        assert_ne!(fp_a, fp_b, "guard: the mappings are different epochs");
+        let Some(a) = folded("serve-epoch-mutant-a", registry_a).await else {
+            return;
+        };
+        let b = folded("serve-epoch-mutant-b", registry_b)
+            .await
+            .expect("sockets allowed once");
+
+        // Mutant 1: both histories under epoch 0.
+        let (app, before, at) = swapped(&a, &b, (0, 0)).await;
+        assert!(at > 0, "both mappings fold events");
+        let after = world_json(
+            &app,
+            &format!("/worlds/default/world?at={at}&epoch=0000000000000000"),
+        )
+        .await;
+        assert_ne!(
+            before, after,
+            "guard + mutant: epoch 0 serves B's world for a URL pinned under A"
+        );
+
+        // The real design: A's epoch is gone after the swap.
+        let (app, _, at) = swapped(&a, &b, (fp_a, fp_b)).await;
+        let pinned = format!("/worlds/default/world?at={at}&epoch={fp_a:016x}");
+        assert_eq!(status_of(&app, &pinned).await, StatusCode::GONE);
+
+        // Mutant 2: an id-only design serves the viewer's bare reconnect; the epoch refuses it.
+        let from = at - 1;
+        assert_eq!(
+            status_of(&app, &format!("/worlds/default/events?from={from}&at={at}")).await,
+            StatusCode::OK,
+            "a bare offset opts out and is served B's history"
+        );
+        assert_eq!(
+            status_of(
+                &app,
+                &format!("/worlds/default/events?from={from}&at={at}&epoch={fp_a:016x}")
+            )
+            .await,
+            StatusCode::GONE
         );
     });
 }

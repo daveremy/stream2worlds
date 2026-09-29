@@ -458,7 +458,10 @@ mod golden {
                 let (mut id, mut event, mut data) = (None, None, None);
                 for line in frame.lines() {
                     if let Some(v) = line.strip_prefix("id: ") {
-                        id = Some(v.parse::<u64>().unwrap());
+                        // `<epoch>:<offset>`; this timeline serves epoch 0.
+                        let (epoch, offset) = v.split_once(':').unwrap();
+                        assert_eq!(epoch, "0000000000000000");
+                        id = Some(offset.parse::<u64>().unwrap());
                     } else if let Some(v) = line.strip_prefix("event: ") {
                         event = Some(v.to_owned());
                     } else if let Some(v) = line.strip_prefix("data: ") {

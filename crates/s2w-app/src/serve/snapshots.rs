@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use s2w_log::{LogPosition, LogReader, VerdictStore};
 
-use crate::query::{QueryState, Timeline};
+use crate::query::{Epoch, QueryState, Timeline};
 use crate::snapshot::{
     Expected, SNAPSHOT_FORMAT, SnapshotRefV1, check_fold, check_log, codec, fold_hash, store,
 };
@@ -68,12 +68,32 @@ pub(super) fn prepare<L: LogReader + ?Sized>(
     (config, feed_hash): (SnapshotConfig, u64),
     reporter: &mut dyn Reporter,
 ) -> Result<(Option<LogPosition>, Option<Snapshotter>), AppError> {
+    install_epoch(state, Epoch(feed_hash))?;
     if !config.enabled {
         return Ok((None, None));
     }
     let resume = restore(state, log, verdicts, (log_dir, feed_hash), reporter)?;
     let snapshotter = Snapshotter::start(log_dir, config, feed_hash, reporter.note_sink())?;
     Ok((resume, Some(snapshotter)))
+}
+
+/// Installs an empty timeline serving history `epoch` (the registry's feed fingerprint,
+/// s2w#184), so every answer from here on names the routes it was folded under, with or
+/// without a snapshot. Refuses a timeline that already holds events: swapping one out from
+/// under the bridge is a rebuild, not start-up.
+///
+/// # Errors
+/// [`AppError::BridgeStopped`] if the timeline is unavailable or not empty.
+fn install_epoch(state: &QueryState, epoch: Epoch) -> Result<(), AppError> {
+    let (base, head, hub_cap) = state.bounds().map_err(stopped)?;
+    if base != 0 || head != 0 {
+        return Err(AppError::BridgeStopped(format!(
+            "cannot install epoch {epoch}: the timeline already spans {base}..{head}"
+        )));
+    }
+    state
+        .replace_timeline(Timeline::new(hub_cap).with_epoch(epoch))
+        .map_err(stopped)
 }
 
 /// Loads the newest valid snapshot in `log_dir` into `state` and returns the log position the
@@ -128,7 +148,9 @@ pub(super) fn restore<L: LogReader + ?Sized>(
         )));
     };
     state
-        .replace_timeline(Timeline::from_snapshot(snapshot.world, snapshot.time))
+        .replace_timeline(
+            Timeline::from_snapshot(snapshot.world, snapshot.time).with_epoch(Epoch(feed_hash)),
+        )
         .map_err(stopped)?;
     let (base, head, _) = state.bounds().map_err(stopped)?;
     if base != offset || head != offset {

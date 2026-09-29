@@ -279,6 +279,43 @@ mod tests {
                     json!({"world":"default","branch":"future"}),
                     "branch_not_yet",
                 ),
+                // An epoch that is not the served one (a fresh timeline serves 0).
+                (
+                    "world_view",
+                    "/worlds/default/world?at=3&epoch=1111111111111111",
+                    json!({"world":"default","at":3,"epoch":"1111111111111111"}),
+                    "stale_epoch",
+                ),
+                (
+                    "world_diff",
+                    "/worlds/default/diff?from=0&to=3&epoch=1111111111111111",
+                    json!({"world":"default","from":0,"to":3,"epoch":"1111111111111111"}),
+                    "stale_epoch",
+                ),
+                (
+                    "entity_history",
+                    "/worlds/default/entity/1/history?epoch=1111111111111111",
+                    json!({"world":"default","id":1,"epoch":"1111111111111111"}),
+                    "stale_epoch",
+                ),
+                (
+                    "time",
+                    "/worlds/default/time?epoch=1111111111111111",
+                    json!({"world":"default","epoch":"1111111111111111"}),
+                    "stale_epoch",
+                ),
+                (
+                    "sources",
+                    "/worlds/default/sources?epoch=1111111111111111",
+                    json!({"world":"default","epoch":"1111111111111111"}),
+                    "stale_epoch",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?epoch=zz",
+                    json!({"world":"default","epoch":"zz"}),
+                    "bad_parameter",
+                ),
             ] {
                 assert_http(&state, uri, &call(&server, tool, args), Some(code)).await;
             }

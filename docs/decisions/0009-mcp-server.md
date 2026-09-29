@@ -31,7 +31,10 @@ authentication layer, or Streamable HTTP transport is added here.
 All five advertise `read_only_hint: true`. `/events` is an SSE subscription, not a sixth
 request/response tool. HTTP and MCP call the same `QueryState` methods; MCP also reuses
 the HTTP branch and level-of-detail validators. Optional parameters and defaults match
-the routes, including `from=0`, `to=head`, and the actual branch.
+the routes, including `from=0`, `to=head`, and the actual branch. Since decision 0023
+(PR 2b-i), `world_view`, `world_diff`, `entity_history`, `time` and `sources` take an optional
+`epoch` (16 hex) with the routes' `stale_epoch` semantics; the standalone `s2w mcp` replay
+serves epoch 0.
 
 Successful results contain one text item from `serde_json::to_string(&dto)`, without
 `structured_content`, preserving the HTTP JSON bytes. Domain `QueryError`s return

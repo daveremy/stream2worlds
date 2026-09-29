@@ -157,6 +157,13 @@ answer `410` with `{"error": "offset_before_base"}`, and so does `/time?ts=` bef
 last event. Entity history then starts after `base`, and a scrubber should start at `base`. The
 MCP tools share this contract.
 
+Offsets belong to a history, named by its **epoch** (16 hex digits, reported by `/world`,
+`/time` and every SSE `id:` as `<epoch>:<offset>`; [decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)).
+A restart under another stream mapping serves a new epoch. Pass `?epoch=` (or a
+`Last-Event-ID` with the prefix) to pin one: if the served history has changed, the route
+answers `410` with `{"error": "stale_epoch"}` rather than another history's world, and an open
+`/events` stream ends with one `stale_epoch` error event. Bare offsets are served as before.
+
 `GET /worlds/{world}/sources?at=N` returns a JSON array of `SourceInfo`, one per source ID
 active at `N` (sorted by source id); omitting `at` uses the current timeline head. An addition
 is visible at its recorded offset, a removal is already absent at its offset, and the latest

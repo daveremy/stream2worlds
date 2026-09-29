@@ -23,14 +23,14 @@ pub use http::{
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
-pub use timeline::{BaseTime, HistoryEntry, TimeRange, TimedEvent, Timeline};
+pub use timeline::{BaseTime, Epoch, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
 };
 
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
 // never disagree about what a valid `world`, `branch` or `lod` is.
-pub(crate) use http::{check_branch, check_world, open_proposal_reader, parse_lod};
+pub(crate) use http::{check_branch, check_world, open_proposal_reader, parse, parse_lod};
 
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.
 #[derive(Clone, Debug, PartialEq, Eq, Error)]
@@ -67,6 +67,19 @@ pub enum QueryError {
         ts: i64,
         /// The earliest servable offset.
         base: u64,
+    },
+    /// The client's offset belongs to another history than the one served now: the serving
+    /// registry's feed fingerprint changed since the client read it (s2w#184, amending 0006).
+    /// The same offset may name a different world, so it is refused rather than answered.
+    #[error(
+        "epoch {supplied} is not the served history ({current}); the world was rebuilt under \
+         other routes, re-read /world or /time and continue from their epoch and offset"
+    )]
+    StaleEpoch {
+        /// The epoch the client sent.
+        supplied: Epoch,
+        /// The epoch served now.
+        current: Epoch,
     },
     /// Only the actual world exists; branches are a later gate.
     #[error(
@@ -146,6 +159,7 @@ impl QueryError {
         match self {
             Self::OffsetBeyondHead { .. } => "offset_beyond_head",
             Self::OffsetBeforeBase { .. } | Self::TimeBeforeBase { .. } => "offset_before_base",
+            Self::StaleEpoch { .. } => "stale_epoch",
             Self::BranchNotYet { .. } => "branch_not_yet",
             Self::LodNotYet { .. } => "lod_not_yet",
             Self::BadParameter { .. } => "bad_parameter",
