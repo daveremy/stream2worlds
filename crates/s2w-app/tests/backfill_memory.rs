@@ -665,7 +665,13 @@ mod backfill {
             Some(only) => only.split(',').collect(),
             None if heap_target() => vec!["bridge"],
             None => {
-                for name in [HISTORY_CAP, BATCH] {
+                // The knobs, and every allocator variable a `+<allocator>` variant sets: the
+                // children inherit the caller's environment.
+                let tunings = ALLOCATORS.iter().flat_map(|(_, vars)| vars.iter());
+                for name in [HISTORY_CAP, BATCH]
+                    .into_iter()
+                    .chain(tunings.map(|(name, _)| *name))
+                {
                     assert!(
                         std::env::var_os(name).is_none(),
                         "{name} is set: name the variants to measure; the default sweep asserts"
@@ -757,6 +763,11 @@ mod backfill {
                 .unwrap();
             eprint!("{}", String::from_utf8_lossy(&output.stderr));
             assert!(output.status.success(), "{variant} child failed");
+            // A filter that matched no test also exits 0: prove the child ran.
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("1 passed"),
+                "{variant} child ran no test (filter {filter})"
+            );
         }
         let _ignored = std::fs::remove_dir_all(&directory);
     }
