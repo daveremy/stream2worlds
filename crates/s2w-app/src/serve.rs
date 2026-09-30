@@ -324,7 +324,7 @@ fn next_batch(batch: usize, max: usize, elapsed: Duration, budget: Duration) -> 
     let took = elapsed.as_micros().max(1);
     let floor = MIN_BATCH.min(max);
     let next = if took > budget {
-        let scaled = u128::from(batch) * budget / took;
+        let scaled = u128::try_from(batch).unwrap_or(u128::MAX) * budget / took;
         usize::try_from(scaled).unwrap_or(usize::MAX).max(batch / 2)
     } else if took < budget / 4 {
         batch.saturating_mul(2)
