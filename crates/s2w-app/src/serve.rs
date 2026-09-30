@@ -304,8 +304,8 @@ impl EventLog for SharedLogWriter {
 type LiveDiscover = (InRun, Rc<RefCell<SqliteEventLog>>, SinkReporter);
 
 /// How long one catch-up poll may hold the runtime that also serves HTTP (s2w#331). A full
-/// batch of 250 wikipedia events took ~60-150 ms to replay on the demo box, and every request,
-/// static files included, waited behind one or more of them. Measured on the hub (one core,
+/// batch of 250 demo-stream events took ~60-150 ms to replay on the demo box, and every
+/// request, static files included, waited behind one or more of them. Measured on the hub (one core,
 /// full replay, first 30 s): mean `/main.js` latency 144 ms unbounded, 29 ms at 20 ms, for 14%
 /// less replay; 15 ms bought 21 ms for 19% less, 10 ms roughly halved replay, because each poll
 /// also pays a fixed commit and read cost.
