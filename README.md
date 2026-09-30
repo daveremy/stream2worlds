@@ -21,24 +21,22 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **The demo check now fails loudly.** It asserts the first-paint and graph gates on every run
+  (`--no-gates` opts out); 11 of 12 acceptance runs passed across 1 and 4 viewers.
+  [#292](https://github.com/daveremy/stream2worlds/issues/292)
+- **A restart stalls the page far less.** Replay yields to HTTP between 20 ms batches: mean
+  `/main.js` latency during catch-up fell from 144 ms to 29 ms on the hub.
+  [#338](https://github.com/daveremy/stream2worlds/pull/338)
+- **Byte sizes are no longer entity types.** An integer churn floor (`PROFILER_VERSION` 8) drops
+  `mediainfo/content_size`, going from 13 to 12 types with no recall loss.
+  [#336](https://github.com/daveremy/stream2worlds/pull/336)
 - **The graph gate passes on the demo box.** The full type view builds in 274 ms instead of
   1,488 ms at 213k entities, and the demo box measured first paint 960 ms and graph 1,813 ms
   with 4 viewers, against gates of 1 s and 3 s.
   [#329](https://github.com/daveremy/stream2worlds/pull/329)
-- **Viewers no longer make the fold wait.** `/world` releases the timeline's lock before it
-  sorts and writes: with 4 viewers the backfill finished in 109 s instead of 783 s.
-  [#328](https://github.com/daveremy/stream2worlds/pull/328)
-- **A large world paints its shape first.** `/world?lod=type&links=none` returns the type summary
-  in about 150 ms at 360k entities, and the viewer draws it before the links arrive.
-  [#318](https://github.com/daveremy/stream2worlds/pull/318),
-  [#319](https://github.com/daveremy/stream2worlds/pull/319)
-- **System 2 can propose a dashboard.** `s2w dashboard propose --system2-cmd <program>` asks any
-  model CLI for the manifest, sandboxed (no shell, cleared environment, time and byte caps) and
-  replayable. [#320](https://github.com/daveremy/stream2worlds/pull/320)
-- **In progress:** the graph gate's full acceptance table (1 and 4 viewers, quiet and
-  mid-backfill) ([#292](https://github.com/daveremy/stream2worlds/issues/292)), and two
-  attribute-shaped types still minted as entities
-  ([#327](https://github.com/daveremy/stream2worlds/issues/327)).
+- **In progress:** the first run after a restart still misses first paint by 36 ms
+  ([#331](https://github.com/daveremy/stream2worlds/issues/331)), the cold-load case of the demo check ([#292](https://github.com/daveremy/stream2worlds/issues/292)), and the Living
+  Wikipedia direction ([#337](https://github.com/daveremy/stream2worlds/issues/337)).
 
 ## Demos
 

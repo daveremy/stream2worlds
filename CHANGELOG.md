@@ -13,6 +13,46 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The demo check fails loudly, and a restart stalls the page far less — [#338](https://github.com/daveremy/stream2worlds/pull/338), [#336](https://github.com/daveremy/stream2worlds/pull/336), [#334](https://github.com/daveremy/stream2worlds/pull/334), [#332](https://github.com/daveremy/stream2worlds/pull/332) (2026-09-30)
+
+**Shipped:** the demo check now asserts its first-paint and graph gates on every run, with
+`--no-gates` to opt out, so a red demo run means something. The acceptance table behind that
+change passed 11 of 12 runs across 1 and 4 viewers, quiet and mid-backfill; the one failure came
+60 s after a restart ([#292](https://github.com/daveremy/stream2worlds/issues/292)). Measuring that failure found two causes. The 410 was our own
+check script asking for the evidence tail the old way (`from=`); it now asks `last=500`, as the
+viewer does. And `serve` ran HTTP and replay on one thread, so for the first seconds after a
+restart every request took 88 to 207 ms, even static `/main.js`. Each catch-up batch now has a
+20 ms budget, so HTTP gets a turn between batches. On the hub, over the first 30 s of a full
+replay, mean `/main.js` latency fell from 144 ms to 29 ms for a 14% cost in replay throughput
+([#331](https://github.com/daveremy/stream2worlds/issues/331), [#338](https://github.com/daveremy/stream2worlds/pull/338)). The profiler stopped minting byte sizes as entity types: a churn
+floor on integer-valued keys (`PROFILER_VERSION` 8) takes `mediainfo/content_size` out, going from
+13 to 12 types and dropping 0.40% of world events with no recall loss on the reserved span
+([#327](https://github.com/daveremy/stream2worlds/issues/327), [#336](https://github.com/daveremy/stream2worlds/pull/336)). `cargo xtask check` now fails when the README's Scale row
+disagrees with `scale-baseline.toml`
+([#324](https://github.com/daveremy/stream2worlds/issues/324), [#334](https://github.com/daveremy/stream2worlds/pull/334)). The Sprint 89 entry below landed as [#332](https://github.com/daveremy/stream2worlds/pull/332).
+
+**Learned:** all five predictions posted before the #327 run held. Leg A showed that no rule based
+on value equality can also remove `revision/comment` without losing the real `title` type (`page`
+recall 0.50 to 0.25), and that the profiler's never-read-text invariant rules out the "free text
+by length" guard the issue proposed. `revision/comment` stays a recorded false class, and whether
+the profiler may read text is now [#333](https://github.com/daveremy/stream2worlds/issues/333). On the demo box, the first run after a restart
+still misses first paint by 36 ms (1,036 ms against the 1,000 ms gate); by about 70 s both gates
+pass, and the 410 is gone. The gates-on default did its job in that run. Local gates also passed
+in Sprint 89 while CI failed on rustdoc; the S2W gates line now carries
+`RUSTDOCFLAGS="-D warnings" cargo doc`, whose absence let that step pass on anything.
+
+**Changed course:** [#331](https://github.com/daveremy/stream2worlds/issues/331) was filed mid-sprint from #292's table and both PRs merged, but
+it stays open because the box still misses the first run by 36 ms, and #292 stays open until a cold
+load passes too. Dave also set the direction for making the demo compelling, in three layers:
+legible ([#288](https://github.com/daveremy/stream2worlds/issues/288) to [#290](https://github.com/daveremy/stream2worlds/issues/290)), then alive (surging now, born today, a 24 h
+time-lapse), then meaningful (diff text plus cited System 2 summaries, which needs a new source).
+System 2 runs on a headless model CLI for now, with two model tiers and pluggable providers for
+open source ([#337](https://github.com/daveremy/stream2worlds/issues/337), [#335](https://github.com/daveremy/stream2worlds/issues/335)).
+
+**Next:** measure the catch-up batch budget on the demo box's 1.5 CPU rather than the hub's and
+close [#331](https://github.com/daveremy/stream2worlds/issues/331) and [#292](https://github.com/daveremy/stream2worlds/issues/292); then the legible layer of the Living Wikipedia design
+([#337](https://github.com/daveremy/stream2worlds/issues/337)), and the text-reading question in [#333](https://github.com/daveremy/stream2worlds/issues/333).
+
 ## The full type view builds in 274 ms, and `/world` stops making the fold wait — [#329](https://github.com/daveremy/stream2worlds/pull/329), [#328](https://github.com/daveremy/stream2worlds/pull/328), [#326](https://github.com/daveremy/stream2worlds/pull/326), [#323](https://github.com/daveremy/stream2worlds/pull/323) (2026-09-30)
 
 **Shipped:** the demo box passes every gate for the first time: first paint 960 ms (gate 1 s) and
