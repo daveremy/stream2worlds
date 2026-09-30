@@ -18,6 +18,7 @@ mod proposals;
 mod read_timings;
 mod resolve;
 mod sentences;
+mod sources;
 mod stream;
 mod stream_mapping;
 mod summary_memo;
@@ -50,6 +51,7 @@ pub use sentences::{
     MAX_SENTENCES, SentenceEntity, SentenceRow, SentencesView, check_last as check_sentences_last,
     read_last, read_sentences,
 };
+pub use sources::{RECENT_UNROUTED_CAP, SourceStats};
 pub use stream_mapping::{
     ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope, proposal_id,
 };

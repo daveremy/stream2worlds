@@ -5,7 +5,8 @@ use s2w_log::{LogError, LogPosition, LogReader, StoredEvent, StoredVerdict, Verd
 use s2w_model::{Timestamp, WorldEvent};
 use s2w_system1::{AbstainReason, Verdict};
 
-use super::{Bridge, BridgeStats, SourceStats, evaluate_one};
+use super::{Bridge, BridgeStats, evaluate_one};
+use crate::query::SourceStats;
 
 /// One poll batch, judged but not yet committed or served.
 #[derive(Default)]

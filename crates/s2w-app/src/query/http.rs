@@ -33,13 +33,13 @@ use super::projection::HeadView;
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
 use super::sentences::SentencesView;
+use super::sources::SourceStats;
 use super::stream;
 use super::summary_memo::{SummaryKey, SummaryMemo};
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{
     ACTUAL_BRANCH, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary, world_view,
 };
-use crate::bridge::SourceStats;
 
 /// How long a `/world` body waits for reserved writes before answering 503 (s2w#259). A
 /// reserved section is one bridge poll; the viewer retries a 503.
