@@ -27,8 +27,8 @@
 //! The replay runs over two mapping fixtures (decision 0027): the version-1 `MAPPING` and the
 //! version-2 `MAPPING_LINKS`, whose link claims `EntitiesMerged`. A merge claim maps both keys
 //! like any other key. For the linked fixture (and any mapping with links), pass A must also
-//! claim at least one merge, and folding pass A without its merges must give a different world,
-//! so the merges are exercised, not only carried.
+//! claim at least one merge, and at least one of pass A's merges must take effect in the fold
+//! (join two entities), so the merges are exercised, not only carried.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -88,9 +88,13 @@ pub(crate) fn check(root: &Path) -> Vec<String> {
         Err(e) => return vec![format!("{RAW}: {e}")],
     };
     let mut problems = Vec::new();
-    for (path, merges) in [(MAPPING, false), (MAPPING_LINKS, true)] {
+    for path in [MAPPING, MAPPING_LINKS] {
         let found = match fs::read_to_string(root.join(path)) {
-            Ok(mapping) => replay_requiring(&raw, &mapping, &Harness::REAL, merges),
+            Ok(mapping) if path == MAPPING_LINKS && !has_links(&mapping) => vec![
+                "the linked fixture must state a link, or check 11 never replays a merge"
+                    .to_owned(),
+            ],
+            Ok(mapping) => replay(&raw, &mapping, &Harness::REAL),
             Err(e) => vec![e.to_string()],
         };
         problems.extend(found.into_iter().map(|p| format!("{path}: {p}")));
@@ -98,34 +102,27 @@ pub(crate) fn check(root: &Path) -> Vec<String> {
     problems
 }
 
-/// Replays one mapping; a mapping with links must exercise a merge.
-#[cfg(test)]
-pub(crate) fn replay(raw_text: &str, mapping_text: &str, harness: &Harness) -> Vec<String> {
-    replay_requiring(raw_text, mapping_text, harness, false)
+/// Whether `mapping_text` is a mapping with at least one link; anything else is `false`, and
+/// the replay reports why it does not parse.
+fn has_links(mapping_text: &str) -> bool {
+    serde_json::from_str::<StreamMapping>(mapping_text).is_ok_and(|m| !m.links.is_empty())
 }
 
-/// [`replay`], with `merges` requiring a merge even when the mapping states no link, so the
-/// linked fixture cannot lose its link and still pass.
-pub(crate) fn replay_requiring(
-    raw_text: &str,
-    mapping_text: &str,
-    harness: &Harness,
-    merges: bool,
-) -> Vec<String> {
-    replay_inner(raw_text, mapping_text, harness, merges).unwrap_or_else(|problems| problems)
+/// Replays one mapping; a mapping with links must exercise a merge.
+pub(crate) fn replay(raw_text: &str, mapping_text: &str, harness: &Harness) -> Vec<String> {
+    replay_inner(raw_text, mapping_text, harness).unwrap_or_else(|problems| problems)
 }
 
 fn replay_inner(
     raw_text: &str,
     mapping_text: &str,
     harness: &Harness,
-    merges: bool,
 ) -> Result<Vec<String>, Vec<String>> {
     let lines: Vec<&str> = raw_text.lines().filter(|l| !l.trim().is_empty()).collect();
     let payloads = parse_lines(&lines)?;
     let mapping: StreamMapping = serde_json::from_str(mapping_text)
         .map_err(|e| vec![format!("not a stream mapping: {e}")])?;
-    let merges = merges || !mapping.links.is_empty();
+    let merges = !mapping.links.is_empty();
     let maps = Maps::build(&payloads, &mapping)?;
     let mut mapping_b = maps.mapping(&mapping).map_err(|e| vec![e])?;
     (harness.mutate_b)(&mut mapping_b);
@@ -145,7 +142,10 @@ fn replay_inner(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| vec![e])?;
     let mut problems = non_vacuity(&claims_a, &expected, merges);
-    if merges && merges_change_nothing(&claims_a)? {
+    let merged = claims_a
+        .iter()
+        .any(|claim| matches!(claim, WorldEvent::EntitiesMerged { .. }));
+    if merged && merges_change_nothing(&claims_a) {
         problems.push("raw obfuscation replay is vacuous: pass A's merges must change the folded world. Extend the fixture or the mapping".to_owned());
     }
     problems.extend(leaked_leaves(&claims_b, &maps.raw_leaves));
@@ -191,14 +191,12 @@ fn run(
     Ok(claims)
 }
 
-/// Whether folding `claims` without their merges gives the same world as folding them all.
-fn merges_change_nothing(claims: &[WorldEvent]) -> Result<bool, Vec<String>> {
-    let unmerged: Vec<WorldEvent> = claims
-        .iter()
-        .filter(|claim| !matches!(claim, WorldEvent::EntitiesMerged { .. }))
-        .cloned()
-        .collect();
-    Ok(fold_json(claims)? == fold_json(&unmerged)?)
+/// Whether no merge in `claims` took effect: the fold records a merge only when it joins two
+/// entities, so an empty merge table means every merge was a no-op.
+fn merges_change_nothing(claims: &[WorldEvent]) -> bool {
+    fold(World::with_hub_cap(HUB_CAP), claims)
+        .merges()
+        .is_empty()
 }
 
 fn fold_json(claims: &[WorldEvent]) -> Result<Value, Vec<String>> {

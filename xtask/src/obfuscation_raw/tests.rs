@@ -187,7 +187,7 @@ fn the_maps_cover_every_mapping_name_and_decode_into_the_data_string() {
 #[test]
 fn the_committed_linked_fixture_replays_clean() {
     assert_eq!(
-        replay_requiring(RAW_TEXT, LINKS_TEXT, &Harness::REAL, true),
+        replay(RAW_TEXT, LINKS_TEXT, &Harness::REAL),
         Vec::<String>::new()
     );
 }
@@ -203,21 +203,16 @@ fn a_pass_b_without_its_merges_is_a_different_world() {
     assert_different_world(&replay(RAW_TEXT, LINKS_TEXT, &harness));
 }
 
-/// The linked fixture must claim a merge that changes the world: without its link (the
-/// version-1 fixture, required to merge) the replay is vacuous on both counts.
+/// `check` refuses a linked fixture that states no link (it would replay as a version-1
+/// mapping and never exercise a merge); `has_links` is what tells the two apart.
 #[test]
-fn a_linked_fixture_without_a_merge_is_reported() {
-    let problems = replay_requiring(RAW_TEXT, MAPPING_TEXT, &Harness::REAL, true);
-    for what in ["one merge claim", "merges must change the folded world"] {
-        assert!(
-            problems.iter().any(|p| p.contains(what)),
-            "{what}: {problems:?}"
-        );
-    }
+fn has_links_tells_the_linked_fixture_from_the_first() {
+    assert!(has_links(LINKS_TEXT));
+    assert!(!has_links(MAPPING_TEXT));
 }
 
-/// A link whose two rules always give equal keys claims no merge, and the linked fixture's
-/// replay says so rather than passing.
+/// A link whose two rules always give equal keys claims no merge, and the replay says so
+/// rather than passing.
 #[test]
 fn a_link_whose_keys_never_differ_is_reported() {
     // `data.performer.wiki_id` equals `data.wiki_id` on every line, so the two keys are equal
@@ -231,6 +226,54 @@ fn a_link_whose_keys_never_differ_is_reported() {
     let problems = replay(RAW_TEXT, &mapping, &Harness::REAL);
     assert!(
         problems.iter().any(|p| p.contains("one merge claim")),
+        "{problems:?}"
+    );
+}
+
+/// A toy engine whose merges name one key twice: it claims merges, but none changes the world.
+struct MergesThatChangeNothing(MappingEngine);
+
+impl Engine for MergesThatChangeNothing {
+    fn name(&self) -> &'static str {
+        "toy_self_merge"
+    }
+    fn version(&self) -> u32 {
+        1
+    }
+    fn evaluate(&self, event: &RawEvent) -> Verdict {
+        match self.0.evaluate(event) {
+            Verdict::Propose { claims, confidence } => Verdict::Propose {
+                claims: claims
+                    .into_iter()
+                    .map(|claim| match claim {
+                        WorldEvent::EntitiesMerged { survivor, .. } => WorldEvent::EntitiesMerged {
+                            absorbed: survivor.clone(),
+                            survivor,
+                        },
+                        other => other,
+                    })
+                    .collect(),
+                confidence,
+            },
+            abstain @ Verdict::Abstain { .. } => abstain,
+        }
+    }
+}
+
+#[test]
+fn merges_that_change_nothing_are_reported() {
+    let harness = Harness {
+        engine: |mapping| {
+            let inner = MappingEngine::new(mapping).map_err(|e| e.to_string())?;
+            Ok(Box::new(MergesThatChangeNothing(inner)))
+        },
+        ..Harness::REAL
+    };
+    let problems = replay(RAW_TEXT, LINKS_TEXT, &harness);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("merges must change the folded world")),
         "{problems:?}"
     );
 }

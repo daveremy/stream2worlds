@@ -286,10 +286,11 @@ fn linked() -> StreamMapping {
     linked
 }
 
-fn claims_of(verdict: Verdict) -> Vec<WorldEvent> {
+/// The claims of a proposal; an abstain is an error, never an empty list.
+fn claims_of(verdict: Verdict) -> Result<Vec<WorldEvent>, String> {
     match verdict {
-        Verdict::Propose { claims, .. } => claims,
-        Verdict::Abstain { .. } => Vec::new(),
+        Verdict::Propose { claims, .. } => Ok(claims),
+        Verdict::Abstain { reason } => Err(format!("abstained: {reason:?}")),
     }
 }
 
@@ -343,8 +344,7 @@ fn a_link_claims_nothing_on_equal_keys_or_a_missing_side() -> TestResult {
         r#"{"a":{"alias":"y"}}"#,
         r#"{"a":{"id":"x","alias":1.5}}"#,
     ] {
-        let claims = claims_of(engine.evaluate(&raw(&enveloped(inner)?)?));
-        assert!(!claims.is_empty(), "{inner}");
+        let claims = claims_of(engine.evaluate(&raw(&enveloped(inner)?)?))?;
         assert!(!claims.iter().any(is_merge), "{inner}: {claims:?}");
     }
     Ok(())
@@ -363,7 +363,7 @@ fn merges_are_claimed_in_link_order() -> TestResult {
     });
     let engine = MappingEngine::new(mapping)?;
     let payload = enveloped(r#"{"a":{"id":"x","alias":"y","other":"z"}}"#)?;
-    let merges: Vec<NaturalKey> = claims_of(engine.evaluate(&raw(&payload)?))
+    let merges: Vec<NaturalKey> = claims_of(engine.evaluate(&raw(&payload)?))?
         .into_iter()
         .filter_map(|claim| match claim {
             WorldEvent::EntitiesMerged { absorbed, .. } => Some(absorbed),
@@ -445,8 +445,7 @@ fn the_committed_linked_fixture_merges_on_every_line_and_its_identity_is_pinned(
     let lines = include_str!("../../../testdata/raw-sample.jsonl");
     let mut merges = 0;
     for line in lines.lines() {
-        let claims = claims_of(engine.evaluate(&raw(line.as_bytes())?));
-        assert!(!claims.is_empty(), "{line}");
+        let claims = claims_of(engine.evaluate(&raw(line.as_bytes())?))?;
         merges += claims
             .iter()
             .filter(|claim| matches!(claim, WorldEvent::EntitiesMerged { .. }))

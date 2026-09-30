@@ -119,7 +119,7 @@ Check 11 replays a second fixture, `crates/s2w-system1/testdata/sample-links.map
 `data.meta.domain`) absorbed by `site` (`data.wiki_id`). The two paths determine each other on
 the 20 sample lines and never share text, so every line claims one merge and the fold keeps
 seven, one per site. A merge claim maps both keys through the value map. The linked replay must
-claim at least one merge, and folding pass A without its merges must give a different world.
+claim at least one merge, and at least one merge must take effect in the fold (join two entities).
 Its identity, `mapping-25768f1123cac8c0`, is pinned.
 
 ## Plan (#245)
