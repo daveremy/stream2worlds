@@ -102,3 +102,11 @@ finding. The recorded gate shares `[memory]`'s 300 B target and 600 B budget. Pa
 CI job `scale` checks the baseline's `[recorded] fixture_fnv1a64`, while check 13 relies on the
 same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by
 `load()`), not on the baseline key.
+
+Amendment, 2026-09-29 (s2w#168): per-partition source lag is now reported, not measured as a
+gate. The `Source` seam's `Started` carries a `Watermarks` signal: Kafka tracks the high
+watermark each fetch reply already returns, per partition, and the app's position on its stream;
+SSE and stdin state that they report none. `watch`'s and `serve`'s human status line prints
+`lag p0 12, p1 0` (a `?` until a position is known; `lag not reported` for SSE and stdin, never
+0). The `sources` route, MCP and the view gain it in s2w#284. The "per-partition lag are not
+measured yet" sentence above predates this.
