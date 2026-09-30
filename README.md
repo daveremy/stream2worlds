@@ -35,7 +35,7 @@
   entry, so `dev-key-v2*.json` list `{"prefix": ["data", "log_params"]}` instead of 84 exact
   `log_params` paths. The v0 and v1 keys are unchanged.
   [#348](https://github.com/daveremy/stream2worlds/pull/348)
-- **The `s2w` binary allocates through mimalloc.** The backfill's resident peak drops by 69-105
+- **The `s2w` binary allocates through mimalloc.** The backfill's resident peak drops by 69-106
   MiB on the recorded load ([decision 0031](docs/decisions/0031-mimalloc-global-allocator.md)).
   [#353](https://github.com/daveremy/stream2worlds/pull/353)
 - **In progress:** naming the unnamed types ([#351](https://github.com/daveremy/stream2worlds/issues/351)),
