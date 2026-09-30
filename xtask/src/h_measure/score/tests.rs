@@ -1,12 +1,10 @@
 //! Scorer fixtures (contract B3 "Reference scorer and fixtures", identity subset).
 
-use std::collections::BTreeSet;
-
 use s2w_model::StreamMapping;
 use serde_json::{Value, json};
 
 use super::super::grade::grade;
-use super::super::key::KeySpec;
+use super::super::key::{KeySpec, Unscored};
 use super::super::mentions::Partition;
 use super::{Score, frozen_fixtures, score};
 
@@ -27,7 +25,7 @@ fn put(partition: &mut Partition, record: usize, path: &str, cluster: &str) {
 }
 
 fn graded(key: &Partition, predicted: &Partition) -> Score {
-    score(key, predicted, &BTreeSet::new())
+    score(key, predicted, &Unscored::default())
 }
 
 /// `got` is `num / den`, checked by cross-multiplying.
@@ -196,7 +194,11 @@ fn a_singleton_only_type_gets_its_own_row() {
 fn an_unscored_path_is_dropped_from_the_prediction() {
     let mut predicted = two_entities();
     put(&mut predicted, 0, "z", "S");
-    let got = score(&two_entities(), &predicted, &["z".to_owned()].into());
+    let got = score(
+        &two_entities(),
+        &predicted,
+        &Unscored::exact(["z".to_owned()]),
+    );
     assert_eq!(got.micro.precision, Some(1.0));
     assert!(got.spurious.is_empty());
 }

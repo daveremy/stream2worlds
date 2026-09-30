@@ -13,6 +13,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `dev-key-v0.<variant>.json` | Sensitivity variants. Each differs from the base only as `keys.toml` says; `diff` the files to see the variant. |
 | `dev-key-v1.json` | dev-key v1: the v0 base key in key-spec format 1, with `"no_identity": [0]` on the `log_id` mention (#225). The v0 files stay as they are. |
 | `dev-key-v1.<variant>.json` | Each v0 sensitivity variant in format 1, with the same `no_identity` on `log_id`, pinned before any score. |
+| `dev-key-v2.json`, `dev-key-v2.<variant>.json` | Each v1 key in key-spec format 2, with its 84 exact `log_params` entries replaced by one prefix entry (#224). The v1 files stay as they are. |
 | `frozen/h-lite-v2.dev-N.json` | H-lite (`PROFILER_VERSION` 2) frozen on `dev` at N = 10^4 and 2×10^5 (commit 5e74d8f, built at eeeced7), before any held-out corpus was scored. Score them with a build whose profiler and `Config` match, or `score` refuses. |
 | `results/h-lite-v2.dev-N.<corpus>.md` | The pre-registered held-out reports, one per frozen file and held-out corpus, read in research [0009](../0009-h-min-plain-wikipedia.md). |
 | `frozen/h-lite-v3.dev-N.json`, `results/h-lite-v3.*` | H-lite `PROFILER_VERSION` 3 (s2w#250 PR 1): frozen on `dev` at the same windows, its `dev` profile table, and its `reserved-2` reports next to v2's on the same span. |
@@ -126,6 +127,9 @@ the 84 paths it takes in the **dev** corpus (itself, its keys, and array indexes
 `log_params` path that occurs only in a held-out corpus is still scored; the report counts any
 predicted mention there. This is an accepted limit of v0 (ruling 2026-09-29, item 2). A prefix
 form for `unscored` is a key-format change: #224.
+*Update 2026-09-30 (#224): key format 2 lifts this limit. `dev-key-v2*.json` list
+`{"prefix": ["data", "log_params"]}` instead of the 84 paths, so every `log_params` path in any
+corpus is unscored. The v0 and v1 keys keep the limit; see "Key format 2" below.*
 
 Canary events (`meta.domain` = `canary`, hourly, in either topic) carry only `$schema` and
 `meta`, so no wiki, page, user, revision or log mention exists in them. Every key mentions each
@@ -147,7 +151,7 @@ report these as excluded mentions, per path. Rules:
 - Values compare as key parts, so `0` and `"0"` are different sentinels. Each value must be a
   string, an integer or a boolean, listed once.
 - `no_identity` is allowed only on a rule whose `path` is one of its `identity` paths, and only
-  in a `"version": 1` spec. An alias rule (path not in its identity) cannot carry it, and an
+  in a spec of version 1 or later. An alias rule (path not in its identity) cannot carry it, and an
   alias mention of a sentinel identity is **not** excluded; a key that needs that is another
   format change.
 - `grade` drops the key's excluded mentions from **every** prediction before scoring, the
@@ -166,3 +170,29 @@ excluded. On this corpus every v1 log entity is then a singleton (no non-zero `l
 within a wiki), so `log` is a singleton-only type in the dev score; the key does not force
 it. The v0 sensitivity variants still merge `log_id` 0; a variant that needs the exclusion is
 a new format-1 file.
+
+## Key format 2: prefix form for unscored paths (#224)
+
+Format 2 is format 1 plus a second form of `unscored` entry. An entry is either a path, as
+before, matched exactly, or `{"prefix": [...]}`, which covers that path and every path under
+it: its keys, their keys and array indexes, at any depth. Rules:
+
+- Paths compare as mention path ids (`s2w_discover::rule_id`), as exact entries always did, so
+  `["a", 1]` and `["a", "1"]` are one path. A prefix covers only whole segments: the prefix
+  `["data", "p"]` covers `data.p.x` but not the key `px`, nor the one key `p.x`.
+- A prefix is allowed only in a `"version": 2` spec. An entry listed twice, or at or under
+  another entry's prefix, is refused: the prefix already covers it. A mention path at or under
+  a prefix is refused, as a mention path that is also unscored always was.
+- An exact entry in a format-2 file behaves as in format 0: it covers itself only.
+- A format-0 or format-1 file reads exactly as before, so every v0 and v1 pin still validates
+  unchanged.
+
+`dev-key-v2.json` and its five variants are the v1 files with `"version": 2` and the 84 exact
+`log_params` entries replaced by one `{"prefix": ["data", "log_params"]}` entry; nothing else
+differs (`diff` them). On the dev corpus, v1 and v2 give the same thing: for each of the six
+pairs, the key executor's partition and the grade of `frozen/h-min-v8.dev-200000.json` are
+equal (checked 2026-09-30 by a one-off test on this change's build, not kept: it needs the
+uncommitted corpus). A v2 key differs from v1 only on a corpus
+that holds a `log_params` path the dev corpus does not. `score` refuses a key that the freeze
+did not record, so a v2 key grades mappings frozen after these pins, not the files already in
+`frozen/`.

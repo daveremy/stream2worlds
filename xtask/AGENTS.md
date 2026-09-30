@@ -61,15 +61,20 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   The measurement's data (answer keys, `keys.toml` pins, the corpus manifest) lives in
   `research/h-measure/`; a test in `h_measure/tests.rs` checks that every key `keys.toml` pins
   parses, validates and yields an oracle mapping.
-  - `h_measure/key.rs`: the answer-key spec, format versions 0 and 1 (`decode`, `types` with
+  - `h_measure/key.rs`: the answer-key spec, format versions 0, 1 and 2 (`decode`, `types` with
     mention rules `{path, identity}`, `unscored`; format 1 adds an optional `no_identity` list of
     sentinel values on a mention rule whose path is an identity path: a record holding one there
-    has no mention, compared as key parts), its fail-closed validation, `from_mapping` (writes
+    has no mention, compared as key parts; format 2 adds the `unscored` prefix form, s2w#224), its fail-closed validation, `from_mapping` (writes
     the newest format), and
     `oracle`: the oracle-v0 mapping for the key, a reference not a proven best (one rule per mention rule whose path is an
     identity path, mention path last; alias mentions get no rule, and two mention rules on one
     multi-path identity are split by the reordering), graded as the ceiling row.
     Domain knowledge lives in the spec file, never here.
+    - `h_measure/key/unscored.rs`: `unscored` entries, an exact path (every format) or
+      `{"prefix": path}` (format 2: the path and every path under it), and `Unscored`, the
+      mention path ids `score` drops predictions by. Prefixes match whole `rule_id` segments.
+      Validation refuses a prefix before format 2, an entry listed twice, and an entry at or
+      under another entry's prefix. Self-tests in `key/unscored/tests.rs`.
   - `h_measure/mentions.rs`: the key and mapping executors. A mention is `(record index,
     s2w_discover::rule_id(path))`. A mapping rule mentions its entity at its **last** key path:
     a composite key lists context parts first, and the context usually keys a type of its own.

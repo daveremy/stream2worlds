@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use s2w_model::NaturalKey;
 use serde::Serialize;
 
+use super::key::Unscored;
 use super::mentions::{Mention, Partition};
 
 /// B-cubed precision, recall and F1 over some set of mentions.
@@ -143,11 +144,11 @@ struct Tables<'a> {
 }
 
 impl<'a> Tables<'a> {
-    fn new(key: &'a Partition, predicted: &'a Partition, unscored: &BTreeSet<String>) -> Self {
+    fn new(key: &'a Partition, predicted: &'a Partition, unscored: &Unscored) -> Self {
         let predicted: BTreeMap<&Mention, &str> = predicted
             .cluster
             .iter()
-            .filter(|((_, path), _)| !unscored.contains(path))
+            .filter(|((_, path), _)| !unscored.covers(path))
             .map(|(mention, cluster)| (mention, cluster.as_str()))
             .collect();
         let mut overlap = BTreeMap::new();
@@ -185,9 +186,9 @@ impl<'a> Tables<'a> {
     }
 }
 
-/// Scores `predicted` against `key`. Predicted mentions at an `unscored` path id are dropped
-/// first (the key never holds one).
-pub(crate) fn score(key: &Partition, predicted: &Partition, unscored: &BTreeSet<String>) -> Score {
+/// Scores `predicted` against `key`. Predicted mentions at a path id `unscored` covers are
+/// dropped first (the key never holds one).
+pub(crate) fn score(key: &Partition, predicted: &Partition, unscored: &Unscored) -> Score {
     let tables = Tables::new(key, predicted, unscored);
     let (mut micro, mut without) = (Sums::default(), Sums::default());
     let mut per_type: BTreeMap<&str, Sums> = BTreeMap::new();

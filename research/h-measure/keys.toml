@@ -74,3 +74,39 @@ file = "dev-key-v1.canonical-mention.json"
 variant = "canonical-mention"
 sha256 = "82fa6b0118fb35d3c6f8f446fe78776d84d87a8e8bfe960b0bc9fb6aca1ff4b4"
 reading = "dev-key-v0.canonical-mention.json in key format 1, plus no_identity [0] on the log_id mention, as dev-key-v1.json: the sensitivity variants read against the primary key with the same log_id exclusion (s2w#56 PR 2b)"
+
+[[key]]
+file = "dev-key-v2.json"
+variant = "base"
+sha256 = "dd42ae26b5d7bbd32d44e8a45bc3a95af6bcbe124f8b157d38ae0546008d9d5c"
+reading = "dev-key-v1.json (base) in key format 2: the 84 exact log_params paths it lists (the ones the dev corpus shows) become one prefix entry, so a log_params path that occurs only in a held-out corpus is unscored too. #224, ruling 2026-09-29 item 2"
+
+[[key]]
+file = "dev-key-v2.q1-no-wiki.json"
+variant = "q1-no-wiki"
+sha256 = "8b130d07b238fde4772c6bb0aa2b390df4a8b4b0b73ed0c089c2b8bcdf34b374"
+reading = "dev-key-v1.q1-no-wiki.json in key format 2, with the log_params prefix entry, as dev-key-v2.json (#224)"
+
+[[key]]
+file = "dev-key-v2.q3-rcid-scored.json"
+variant = "q3-rcid-scored"
+sha256 = "ffc94b1907ed3f41183aa8dfb148fea232375375e88685f91135affad3f246b0"
+reading = "dev-key-v1.q3-rcid-scored.json in key format 2, with the log_params prefix entry, as dev-key-v2.json (#224)"
+
+[[key]]
+file = "dev-key-v2.q4-separate.json"
+variant = "q4-separate"
+sha256 = "40cbf908ac2ea703bc622080e9c5feea47f79f9a32abd4105b724a5d471333fb"
+reading = "dev-key-v1.q4-separate.json in key format 2, with the log_params prefix entry, as dev-key-v2.json (#224)"
+
+[[key]]
+file = "dev-key-v2.user-global.json"
+variant = "user-global"
+sha256 = "ffa2f158dcbc8a4203344b6689271830ba785b29e8371dd77758b8c47063018a"
+reading = "dev-key-v1.user-global.json in key format 2, with the log_params prefix entry, as dev-key-v2.json (#224)"
+
+[[key]]
+file = "dev-key-v2.canonical-mention.json"
+variant = "canonical-mention"
+sha256 = "a559964891f28df5feb04930643f6e8ea596d043426980c7f01adfb6d43e81f2"
+reading = "dev-key-v1.canonical-mention.json in key format 2, with the log_params prefix entry, as dev-key-v2.json (#224)"
