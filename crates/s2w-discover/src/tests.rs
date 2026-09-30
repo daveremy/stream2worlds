@@ -1363,43 +1363,133 @@ fn the_fallback_never_labels_a_type_by_a_date_time() {
 #[test]
 fn the_fallback_never_labels_a_type_by_a_category() {
     use s2w_model::Label;
-    // `who` names 400 entities; `kind` takes three values. `kind` is the only attribute of
-    // `who`'s rule, so it is the most distinct candidate, and it still names a category.
+    // `who` names 400 entities; `kind` takes twenty values. `kind` is the only attribute of
+    // the `actor` rule keyed by `who`, so it is the most distinct candidate. It clears the
+    // floor (20 >= 8) and coverage (1200 <= 2 * 1200), and fails only the half share
+    // (40 < 400): a category.
     let events: Vec<Value> = stream(1200)
         .into_iter()
         .enumerate()
         .map(|(i, mut event)| {
             event["who"] = json!(format!("user{}", i % 400));
-            event["kind"] = json!(["edit", "new", "log"][i % 3]);
+            event["kind"] = json!(format!("k{}", i % 20));
             event
         })
         .collect();
     let mut input = manifest_input(&events);
-    let source = &mut input.sources[0];
-    source.mapping.entities.push(s2w_model::EntityRule {
-        id: "who".to_owned(),
-        type_label: "who".to_owned(),
-        key: vec![path(&["who"])],
-        attrs: vec![s2w_model::AttrRule {
-            name: "kind".to_owned(),
-            path: path(&["kind"]),
-        }],
-    });
-    source.mapping_identity = source.mapping.identity().expect("valid mapping");
-    assert!(
-        source.paths.iter().any(|p| p.path == path(&["kind"])),
-        "vacuous: `kind` is not profiled"
+    add_rule(&mut input, "actor", "who", "kind");
+    let kind = stats_of(&input, "kind");
+    assert_eq!(
+        (kind.count, kind.distinct),
+        (1200, 20),
+        "vacuous: `kind` is not the share case"
     );
     let m = fallback_manifest(&input);
     assert_eq!(m.validate(&input.context()), Ok(()));
-    let row = m
-        .types
-        .iter()
-        .find(|r| r.type_label == "who")
-        .expect("a `who` row");
     assert_eq!(
-        row.label,
-        Some(Label::Key(s2w_model::KeyLabel { key: 0 })),
-        "{row:?}"
+        row_label(&m, "actor"),
+        Some(Label::Key(s2w_model::KeyLabel { key: 0 }))
     );
+}
+
+/// Adds a rule `label` keyed by `key` whose one attribute is `attr`, and re-derives the identity.
+fn add_rule(input: &mut s2w_model::ManifestInput, label: &str, key: &str, attr: &str) {
+    let source = &mut input.sources[0];
+    source.mapping.entities.push(s2w_model::EntityRule {
+        id: label.to_owned(),
+        type_label: label.to_owned(),
+        key: vec![path(&[key])],
+        attrs: vec![s2w_model::AttrRule {
+            name: attr.to_owned(),
+            path: path(&[attr]),
+        }],
+    });
+    source.mapping_identity = source.mapping.identity().expect("valid mapping");
+}
+
+fn row_label(m: &s2w_model::DashboardManifest, label: &str) -> Option<s2w_model::Label> {
+    m.types
+        .iter()
+        .find(|r| r.type_label == label)
+        .unwrap_or_else(|| panic!("a `{label}` row"))
+        .label
+        .clone()
+}
+
+fn stats_of<'a>(input: &'a s2w_model::ManifestInput, field: &str) -> &'a s2w_model::PathStats {
+    input.sources[0]
+        .paths
+        .iter()
+        .find(|p| p.path == path(&[field]))
+        .unwrap_or_else(|| panic!("vacuous: `{field}` is not profiled"))
+}
+
+#[test]
+fn the_fallback_never_labels_a_rare_type_by_an_event_wide_attribute() {
+    use s2w_model::{KeyLabel, Label};
+    // `rare` is on every 50th event and names 12 entities; `tag` is on every event and takes
+    // 10 values. `tag` clears the share (10 * 2 >= 12) and the floor (10 >= 8), so only
+    // coverage keeps it off: its 10 values are counted over 1200 events, `rare`'s over 24.
+    let events: Vec<Value> = stream(1200)
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut event)| {
+            event["tag"] = json!(format!("t{}", i % 10));
+            if i % 50 == 0 {
+                event["rare"] = json!(format!("r{}", i / 50 % 12));
+            }
+            event
+        })
+        .collect();
+    let mut input = manifest_input(&events);
+    add_rule(&mut input, "rare", "rare", "tag");
+    let (rare, tag) = (stats_of(&input, "rare"), stats_of(&input, "tag"));
+    assert_eq!((rare.count, rare.distinct), (24, 12), "vacuous: {rare:?}");
+    assert_eq!((tag.count, tag.distinct), (1200, 10), "vacuous: {tag:?}");
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    assert_eq!(row_label(&m, "rare"), Some(Label::Key(KeyLabel { key: 0 })));
+}
+
+#[test]
+fn the_fallback_needs_a_minimum_of_distinct_values_to_label_a_type() {
+    use s2w_model::{KeyLabel, Label};
+    // `few` names 6 entities and `mode` takes 3 values on the same events: the share passes
+    // (3 * 2 >= 6) and coverage passes, but 3 values are too few to tell a name from a category.
+    let events: Vec<Value> = stream(1200)
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut event)| {
+            event["few"] = json!(format!("f{}", i % 6));
+            event["mode"] = json!(["m0", "m1", "m2"][i % 3]);
+            event
+        })
+        .collect();
+    let mut input = manifest_input(&events);
+    add_rule(&mut input, "few", "few", "mode");
+    let (few, mode) = (stats_of(&input, "few"), stats_of(&input, "mode"));
+    assert_eq!((few.count, few.distinct), (1200, 6), "vacuous: {few:?}");
+    assert_eq!((mode.count, mode.distinct), (1200, 3), "vacuous: {mode:?}");
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    assert_eq!(row_label(&m, "few"), Some(Label::Key(KeyLabel { key: 0 })));
+}
+
+#[test]
+fn the_fallback_still_labels_types_by_their_naming_attributes() {
+    use s2w_model::{AttrLabel, Label};
+    // Positive control for the two rules above. Every attribute here rides on its key's events.
+    // `d.bn` has exactly 8 distinct values, so it sits on the floor (`>=`) with 15 entities.
+    let input = manifest_input(&stream(1200));
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    for (row, attr) in [("a+x/a", "an"), ("c", "cc"), ("d/b", "d.bn")] {
+        assert_eq!(
+            row_label(&m, row),
+            Some(Label::Attr(AttrLabel {
+                attr: attr.to_owned()
+            })),
+            "{row}"
+        );
+    }
 }

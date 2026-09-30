@@ -108,7 +108,7 @@ fn the_fallback_files_an_accepted_manifest_and_a_second_run_writes_nothing() {
     let basis = report.basis.clone().expect("basis");
     assert!(
         basis.starts_with(&format!(
-            "policy={POLICY} proposer=dashboard-fallback/2 world={WORLD} built_on={SOURCE}:"
+            "policy={POLICY} proposer=dashboard-fallback/3 world={WORLD} built_on={SOURCE}:"
         )),
         "{basis}"
     );

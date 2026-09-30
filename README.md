@@ -263,7 +263,7 @@ same bytes as `GET /worlds/{world}/dashboard` and MCP `dashboard`. A manifest is
 
 `s2w dashboard propose --log-dir DIR [--world NAME] [--dry-run] [--json]` builds the proposer
 input from each mapped member source's newest 2000 logged events and files the deterministic
-proposer's manifest (actor `dashboard-fallback/1`) with a `dashboard-auto-apply/1` policy
+proposer's manifest (actor `dashboard-fallback/3`) with a `dashboard-auto-apply/1` policy
 decision: accept when it validates, reject (a null-manifest row) when it does not. A second run
 on the same log writes nothing. `--dry-run` writes nothing, and with `--json` prints the
 envelope it would file. It takes the proposal store's writer lock for its appends only, so it
