@@ -240,9 +240,8 @@ impl StreamMapping {
 impl StreamMapping {
     /// The mapping identity (decision 0023): FNV-1a 64 as 16 hex digits over, in order,
     /// [`KEY_FORMAT`] and the mapping's own `version` (little-endian `u32`, decision 0027) and
-    /// the mapping's canonical
-    /// JSON (`serde_json` of the struct, fields in declaration order), each as one
-    /// length-prefixed field. Whitespace or key order in the text a mapping was read from never
+    /// the mapping's canonical JSON (`serde_json` of the struct, fields in declaration order),
+    /// each as one length-prefixed field. Whitespace or key order in the text a mapping was read from never
     /// changes it; a key-format or mapping-format bump always does. It names the engine that
     /// runs the mapping (`mapping-<identity>`), so stored verdicts and world snapshots made
     /// under one mapping are never served under another.
@@ -564,11 +563,11 @@ mod tests {
 
         let mut v2 = mapping();
         v2.version = MAPPING_VERSION_LINKS;
-        assert_eq!(
-            serde_json::to_vec(&v2)?[12..],
-            serde_json::to_vec(&mapping())?[12..]
-        );
         assert_ne!(v2.identity()?, mapping().identity()?);
+        assert_eq!(
+            identity_digest(KEY_FORMAT, MAPPING_VERSION_LINKS, &serde_json::to_vec(&v2)?),
+            v2.identity()?
+        );
         Ok(())
     }
 

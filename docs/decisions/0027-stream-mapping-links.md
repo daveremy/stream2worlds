@@ -106,8 +106,8 @@ instead; `validate()` checks both and a test pins each rejection.
 
 `MappingEngine::new` refuses a mapping with links (`MappingEngineError::LinksNotExecuted`)
 until #245 PR 2 makes it claim merges, and `routes::decode_envelope` excludes a stored linked
-mapping with that reason, so `serve` reports it at start-up and still routes every other
-source. A link is never run silently dropped. A version-2 mapping without links runs.
+mapping from routing with that reason (other callers still decode it), so `serve` reports it at start-up and still routes every other
+source. A link is never silently dropped. A version-2 mapping without links runs.
 
 ## Plan (#245)
 

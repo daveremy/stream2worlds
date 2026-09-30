@@ -82,8 +82,7 @@ struct Candidate<'a> {
 ///
 /// # Errors
 /// A message naming the failure: not JSON of the envelope's shape, another envelope format,
-/// an invalid source id, a mapping that fails [`StreamMapping::validate`], or a mapping with
-/// links, which [`MappingEngine`] does not execute yet (decision 0027).
+/// an invalid source id, or a mapping that fails [`StreamMapping::validate`].
 pub fn decode_envelope(payload: &[u8]) -> Result<(SourceId, StreamMapping, String), String> {
     let envelope: MappingEnvelope =
         serde_json::from_slice(payload).map_err(|error| format!("payload: {error}"))?;
@@ -98,10 +97,6 @@ pub fn decode_envelope(payload: &[u8]) -> Result<(SourceId, StreamMapping, Strin
         .mapping
         .identity()
         .map_err(|error| format!("mapping: {error}"))?;
-    if !envelope.mapping.links.is_empty() {
-        let error = MappingEngineError::LinksNotExecuted(envelope.mapping.links.len());
-        return Err(format!("mapping: {error}"));
-    }
     Ok((source, envelope.mapping, identity))
 }
 
@@ -113,12 +108,20 @@ fn later<'a>(slot: &mut Option<&'a StoredDecision>, decision: &'a StoredDecision
 }
 
 /// Every [`STREAM_MAPPING_CLASS`] proposal, decoded, in ascending `seq`; the unusable ones
-/// apart, in proposal order.
+/// apart, in proposal order. A mapping with links is unusable until [`MappingEngine`] executes
+/// them (decision 0027).
 fn candidates(proposals: &[StoredProposal]) -> (Vec<Candidate<'_>>, Vec<Excluded>) {
     let mut excluded = Vec::new();
     let mut candidates = Vec::new();
     for proposal in proposals.iter().filter(|p| p.class == STREAM_MAPPING_CLASS) {
         match decode_envelope(&proposal.payload) {
+            Ok((_, mapping, _)) if !mapping.links.is_empty() => excluded.push(Excluded {
+                proposal_id: proposal.id.clone(),
+                reason: format!(
+                    "mapping: {}",
+                    MappingEngineError::LinksNotExecuted(mapping.links.len())
+                ),
+            }),
             Ok((source, mapping, identity)) => candidates.push(Candidate {
                 seq: proposal.seq,
                 id: &proposal.id,

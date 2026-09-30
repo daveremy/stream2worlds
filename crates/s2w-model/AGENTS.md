@@ -29,9 +29,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   pinned by a test. The format is versioned by `KEY_FORMAT` (decision 0023): change the bytes a
   key holds and you bump it, which a known-answer key test enforces.
 - `StreamMapping::identity()` (decision 0023) names a mapping: `KEY_FORMAT`, the mapping's own
-  `version` (decision 0027) and the canonical JSON, in that order. It names the engine that runs the mapping, so stored
-  verdicts and snapshots are keyed by it. Never change what it hashes without a decision record;
-  the fixture mapping's identity is pinned, and so are a version-1 and a version-2 identity.
+  `version` (decision 0027) and the canonical JSON, in that order. It names the engine that
+  runs the mapping, so stored verdicts and snapshots are keyed by it. Never change what it
+  hashes without a decision record; the fixture mapping's identity is pinned, and so are a
+  version-1 and a version-2 identity.
 - FNV-1a 64 (`Fnv64`, `fnv1a64`, `fnv1a64_hex`) lives here once. Its values are persisted
   (source ids, log content hashes, snapshot checksums, fixture hashes): never change it.
 - No domain knowledge in this crate; see decision 0018.
