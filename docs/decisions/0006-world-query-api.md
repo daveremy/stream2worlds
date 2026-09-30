@@ -40,8 +40,13 @@ Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §
 > **Amended (2026-09-30, s2w#270):** at most one full `/world` (`lod=entity`) projection is built
 > at a time. Requests with the same epoch, `at`, `lod`, `focus` and `hops` share one build and
 > one serialized body; a request never joins a build already under way. Up to 32 requests may
-> queue for it, and one more answers 503 `world_queue_full` (retry shortly). `lod=type` is
-> unaffected. The 30 s wait limit and the response bytes are unchanged.
+> queue for it, and one more answers 503 `world_queue_full` (retry shortly). `lod=type` was
+> unaffected (superseded by the s2w#297 amendment below). The 30 s wait limit and the response
+> bytes are unchanged.
+>
+> **Amended (2026-09-30, s2w#297):** full `lod=type` views join the same queue, and the grouping
+> key includes `links`. Only the type summary (`lod=type&links=none`, s2w#296) is built outside
+> it, so first paint never waits behind a full build.
 
 ## Decision
 

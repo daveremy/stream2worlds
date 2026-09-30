@@ -1,7 +1,7 @@
-//! Single-flight `/world?lod=entity` generations (s2w#270, PR 2 of s2w#235).
+//! Single-flight `/world` generations (s2w#270, PR 2 of s2w#235; full `lod=type` since s2w#297).
 //!
 //! Every full-view projection holds ~330 MiB while it is alive, and four viewers used to build
-//! four at once (s2w#243: a 1.86 GiB peak). Here at most one `lod=entity` projection is in
+//! four at once (s2w#243: a 1.86 GiB peak). Here at most one full projection is in
 //! flight per [`QueryState`]: a *generation* takes the read guard once, resolves the epoch, the
 //! offset and the `ETag`, answers every subscriber whose `If-None-Match` names that tag with
 //! `304` before building anything, builds the projection only if a subscriber is left, and
@@ -9,8 +9,8 @@
 //! subscriber.
 //!
 //! Requests are grouped by exactly what the `ETag` and the body depend on: the requested epoch,
-//! `at`, `lod`, `focus` and `hops` ([`Key`]); equal keys produce equal bytes. The key is the
-//! literal request, so `?at=<head>` and no `at` build separately: that loses sharing, never
+//! `at`, `lod`, `focus`, `hops` and `links` ([`Key`]); equal keys produce equal bytes. The key is
+//! the literal request, so `?at=<head>` and no `at` build separately: that loses sharing, never
 //! correctness. A request arriving while a generation runs joins the queued group with its
 //! key, or starts one; it never joins the generation already under way, so it never gets half
 //! a body. When a generation ends the driver serves the group whose oldest waiter has waited
@@ -23,8 +23,9 @@
 //! on one blocking thread at a time, and the queue's mutex is never held across a send or the
 //! timeline guard.
 //!
-//! `lod=type` (a small owned view) bypasses the queue: [`serve_alone`] runs the same
-//! generation for one request on its own blocking thread.
+//! Only the type summary (`lod=type&links=none`, s2w#296) bypasses the queue, so first paint
+//! never waits behind a full projection: [`serve_alone`] runs the same generation for one
+//! request on its own blocking thread. Full `lod=type` views queue like `lod=entity` (s2w#297).
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -50,7 +51,7 @@ pub(super) struct Key {
     pub(super) epoch: Option<Epoch>,
     /// The requested offset; absent means the head when the generation runs.
     pub(super) at: Option<u64>,
-    /// The requested view: level of detail, focus and hops.
+    /// The requested view: level of detail, focus, hops and link detail.
     pub(super) params: ViewParams,
 }
 
@@ -181,7 +182,7 @@ pub(super) fn submit(state: &QueryState, key: Key, waiter: Waiter) -> Result<(),
     Ok(())
 }
 
-/// Serves one request outside the queue, on the calling (blocking) thread: `lod=type`.
+/// Serves one request outside the queue, on the calling (blocking) thread: the type summary.
 pub(super) fn serve_alone(state: &QueryState, key: Key, waiter: Waiter) {
     generate(
         state,
@@ -378,25 +379,35 @@ mod tests {
         blocker
     }
 
+    /// Two concurrent requests for `query` queue behind a parked blocker and share one build.
+    async fn two_identical_requests_share_one_build(query: &str) {
+        let state = state(200, 16);
+        let app = router(state.clone());
+        let reservation = state.reserve_write().await;
+        let blocker = park(&state, &app).await;
+        let (b, c) = (get(&app, query, None), get(&app, query, None));
+        // Both queue behind the blocker: neither is served alone.
+        until(|| state.generations().queued() == 2).await;
+        drop(reservation);
+        assert_eq!(response(blocker).await.status(), StatusCode::OK);
+        let (b, c) = (response(b).await, response(c).await);
+        assert_eq!((b.status(), c.status()), (StatusCode::OK, StatusCode::OK));
+        assert_eq!(etag(&b), etag(&c));
+        let (b, c) = (body(b).await.expect("whole"), body(c).await.expect("whole"));
+        assert_eq!(b, c, "one generation, one set of bytes");
+        // The blocker's generation and one shared generation for both.
+        assert_eq!(builds(&state).await, (2, 3));
+    }
+
     #[test]
     fn identical_requests_share_one_build_and_get_identical_bytes() {
-        crate::tests::run(false, async {
-            let state = state(200, 16);
-            let app = router(state.clone());
-            let reservation = state.reserve_write().await;
-            let blocker = park(&state, &app).await;
-            let (b, c) = (get(&app, "", None), get(&app, "", None));
-            until(|| state.generations().queued() == 2).await;
-            drop(reservation);
-            assert_eq!(response(blocker).await.status(), StatusCode::OK);
-            let (b, c) = (response(b).await, response(c).await);
-            assert_eq!((b.status(), c.status()), (StatusCode::OK, StatusCode::OK));
-            assert_eq!(etag(&b), etag(&c));
-            let (b, c) = (body(b).await.expect("whole"), body(c).await.expect("whole"));
-            assert_eq!(b, c, "one generation, one set of bytes");
-            // The blocker's generation and one shared generation for both.
-            assert_eq!(builds(&state).await, (2, 3));
-        });
+        crate::tests::run(false, two_identical_requests_share_one_build(""));
+    }
+
+    #[test]
+    fn identical_full_type_requests_share_one_build() {
+        // Full `lod=type` joins the queue (s2w#297).
+        crate::tests::run(false, two_identical_requests_share_one_build("?lod=type"));
     }
 
     #[test]
@@ -546,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn lod_type_is_not_gated_behind_a_stalled_entity_generation() {
+    fn the_summary_is_not_gated_behind_a_stalled_generation() {
         crate::tests::run(false, async {
             let state = big();
             let app = router(state.clone());
@@ -554,12 +565,13 @@ mod tests {
             assert_eq!(parked.status(), StatusCode::OK);
             // The entity body is unread: its generation holds the read guard on a full channel.
             let started = std::time::Instant::now();
-            let types = response(get(&app, "?lod=type", None)).await;
-            assert_eq!(types.status(), StatusCode::OK);
-            body(types).await.expect("whole");
+            let summary = response(get(&app, "?lod=type&links=none", None)).await;
+            assert_eq!(summary.status(), StatusCode::OK);
+            body(summary).await.expect("whole");
+            assert_eq!(state.generations().queued(), 0, "the summary never queued");
             assert!(
                 started.elapsed() < crate::query::stream::STALL,
-                "lod=type waited for the entity generation"
+                "the type summary waited for the entity generation"
             );
             assert!(
                 state.generations().running(),

@@ -50,6 +50,10 @@ immutable, so the body still describes one (epoch, offset).
 flight; requests with equal ETag inputs share one build and one serialization through a
 fan-out writer. `If-None-Match` is answered under the guard before any build.
 
+*Amended 2026-09-30 (s2w#297):* full `lod=type` views join the same queue, so at most one
+full projection of either level is in flight. Only the type summary (`lod=type&links=none`,
+s2w#296) is served outside the queue, so first paint never waits behind a full build.
+
 ## Consequences
 
 - **Memory, part A (measured, hub, rustc 1.98.1, dhat):** `[memory]` 360 to 369 B per entity
