@@ -61,6 +61,9 @@
 //! 16. **Frozen contract** (`contract_frozen.rs`): everything above `## Dated notes after
 //!     sign-off` in `docs/evaluation-contract.md` matches the sha256 of the signed text pinned
 //!     in the source; changes go in dated notes below that heading (s2w#59).
+//! 17. **README Scale row** (`readme_scale.rs`): every figure in the Technical architecture
+//!     Scale row (Ir per event, bytes per entity and their ratios, bytes per relationship, parse
+//!     Ir, target and ceiling) equals `xtask/scale-baseline.toml` (s2w#324).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -84,6 +87,7 @@ mod module_cycles;
 mod module_size;
 mod obfuscation;
 mod obfuscation_raw;
+mod readme_scale;
 mod scale;
 mod scale_mem_check;
 mod scale_run;
@@ -282,6 +286,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(scale_mem_check::check(root, tighten));
     problems.extend(decision_numbers::check(root));
     problems.extend(contract_frozen::check(root));
+    problems.extend(readme_scale::check(root, &table));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
