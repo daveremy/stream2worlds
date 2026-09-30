@@ -9,6 +9,7 @@
 /// order. A deserialized world is untrusted: its ids must be exactly `0..len`, or it is rejected.
 pub(crate) mod entities {
     use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     use serde::de::Error as _;
     use serde::{Deserialize, Deserializer, Serializer};
@@ -17,14 +18,15 @@ pub(crate) mod entities {
     use crate::world::{EntityState, id_at};
 
     pub(crate) fn serialize<S: Serializer>(
-        entities: &[EntityState],
+        entities: &[Arc<EntityState>],
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
+        // `&**state`: the `EntityState` itself, so the `Arc` adds nothing to the bytes.
         serializer.collect_map(
             entities
                 .iter()
                 .enumerate()
-                .map(|(index, state)| (id_at(index), state)),
+                .map(|(index, state)| (id_at(index), &**state)),
         )
     }
 
@@ -33,7 +35,7 @@ pub(crate) mod entities {
     /// distinct and sorted, so that holds exactly when the last one is `len - 1`.
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<Vec<EntityState>, D::Error> {
+    ) -> Result<Vec<Arc<EntityState>>, D::Error> {
         let map = BTreeMap::<EntityId, EntityState>::deserialize(deserializer)?;
         if let Some((last, _)) = map.last_key_value()
             && id_at(map.len() - 1) != *last
@@ -44,7 +46,7 @@ pub(crate) mod entities {
                 last.get()
             )));
         }
-        Ok(map.into_values().collect())
+        Ok(map.into_values().map(Arc::new).collect())
     }
 }
 

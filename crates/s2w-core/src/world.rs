@@ -1,6 +1,7 @@
 //! The world state and the fold over [`WorldEvent`]s.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +79,18 @@ impl EntityState {
     pub const fn has_hub_refs(&self) -> bool {
         self.hub_refs.is_some()
     }
+
+    /// Whether [`observe`](Self::observe) with these arguments would change this state. Exact:
+    /// `false` only when the write would leave the state `==` to what it was.
+    fn observation_changes(&self, entity_type: &str, attrs: &BTreeMap<String, AttrValue>) -> bool {
+        self.entity_type != entity_type || self.attrs.changes(attrs)
+    }
+
+    /// An entity observation: the latest type wins, and each attribute holds its latest value.
+    fn observe(&mut self, entity_type: &str, attrs: &BTreeMap<String, AttrValue>) {
+        entity_type.clone_into(&mut self.entity_type);
+        self.attrs.extend_from_map(attrs);
+    }
 }
 
 /// A materialized edge. Endpoints are the ids resolved when the relationship was observed.
@@ -124,8 +137,10 @@ pub struct World {
     keys: BTreeMap<NaturalKey, EntityId>,
     merges: BTreeMap<EntityId, EntityId>,
     /// Indexed by id: ids are dense `0..len` (minted in order by `mint`, never deleted).
+    /// Each state sits behind an `Arc`, so a cloned world shares every state until one side
+    /// writes it, and a write copies only that entity (`Arc::make_mut`; decision 0028).
     #[serde(with = "crate::wire::entities")]
-    entities: Vec<EntityState>,
+    entities: Vec<Arc<EntityState>>,
     #[serde(with = "crate::wire::relationships")]
     relationships: BTreeMap<Relationship, u64>,
     hub_counters: BTreeMap<EntityId, HubCounters>,
@@ -197,12 +212,20 @@ impl World {
         self.entities
             .iter()
             .enumerate()
-            .map(|(index, state)| (id_at(index), state))
+            .map(|(index, state)| (id_at(index), &**state))
     }
 
     /// The entity minted as `id`, if it has been.
     #[must_use]
     pub fn entity(&self, id: EntityId) -> Option<&EntityState> {
+        self.entity_arc(id).map(|state| &**state)
+    }
+
+    /// The shared handle to the entity minted as `id`, if it has been. A reader that clones it
+    /// keeps that state as it is now: the fold never mutates a state another handle holds, it
+    /// copies it first (decision 0028).
+    #[must_use]
+    pub fn entity_arc(&self, id: EntityId) -> Option<&Arc<EntityState>> {
         self.entities.get(index_of(id)?)
     }
 
@@ -226,8 +249,10 @@ impl World {
         self.next_entity_id
     }
 
+    /// Copies the state first if another handle shares it. Call it only for a write that
+    /// changes the state: a no-op write through it would still copy (decision 0028).
     fn entity_mut(&mut self, id: EntityId) -> Option<&mut EntityState> {
-        self.entities.get_mut(index_of(id)?)
+        self.entities.get_mut(index_of(id)?).map(Arc::make_mut)
     }
 
     /// Materialized relationships and how many times each was observed.
@@ -280,7 +305,7 @@ impl World {
         let id = EntityId::new(self.next_entity_id);
         self.next_entity_id = self.next_entity_id.checked_add(1)?;
         self.keys.insert(key.clone(), id);
-        self.entities.push(EntityState::default());
+        self.entities.push(Arc::default());
         Some(id)
     }
 
@@ -295,11 +320,16 @@ impl World {
         };
         let target = self.resolve(id);
         // Always minted in a fold-produced world; a snapshot pointing past its entities no-ops.
-        let Some(state) = self.entity_mut(target) else {
+        let Some(state) = self.entity(target) else {
             return;
         };
-        entity_type.clone_into(&mut state.entity_type);
-        state.attrs.extend_from_map(attrs);
+        // A write that changes nothing must not reach `entity_mut`, which copies a shared state.
+        if !state.observation_changes(entity_type, attrs) {
+            return;
+        }
+        if let Some(state) = self.entity_mut(target) {
+            state.observe(entity_type, attrs);
+        }
     }
 
     fn observe_relationship(&mut self, from: &NaturalKey, to: &NaturalKey, kind: &str) {
@@ -321,7 +351,11 @@ impl World {
         let over_cap = u64::try_from(counters.sources.len()).map_or(true, |n| n > cap);
 
         if over_cap {
-            if let Some(state) = self.entity_mut(from_r) {
+            // Skip a ref the entity already holds, so the write does not copy a shared state.
+            let held = self
+                .entity(from_r)
+                .is_some_and(|state| state.hub_ref(kind) == Some(to_r));
+            if !held && let Some(state) = self.entity_mut(from_r) {
                 state
                     .hub_refs
                     .get_or_insert_with(Box::default)
@@ -407,4 +441,54 @@ pub(crate) fn id_at(index: usize) -> EntityId {
 /// The index of `id` in `World::entities`, if it fits a usize.
 fn index_of(id: EntityId) -> Option<usize> {
     usize::try_from(id.get()).ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use proptest::prelude::*;
+
+    use super::EntityState;
+    use crate::attr_map::AttrMap;
+    use crate::event::AttrValue;
+
+    fn arb_value() -> impl Strategy<Value = AttrValue> {
+        prop_oneof![
+            (0..3i64).prop_map(AttrValue::Int),
+            any::<bool>().prop_map(AttrValue::Bool),
+            prop::sample::select(&["", "a", "b"][..]).prop_map(|s| AttrValue::Str(s.to_owned())),
+        ]
+    }
+
+    fn arb_attrs() -> impl Strategy<Value = BTreeMap<String, AttrValue>> {
+        prop::collection::btree_map(
+            prop::sample::select(&["a", "b", "c", "d"][..]).prop_map(str::to_owned),
+            arb_value(),
+            0..4,
+        )
+    }
+
+    fn arb_type() -> impl Strategy<Value = String> {
+        prop::sample::select(&["", "user", "page"][..]).prop_map(str::to_owned)
+    }
+
+    proptest! {
+        /// The fold skips an observation exactly when writing it would change nothing, so the
+        /// skip changes when a shared state is copied, never the folded value (s2w#271).
+        #[test]
+        fn an_observation_is_skipped_exactly_when_it_would_change_nothing(
+            state_type in arb_type(),
+            state_attrs in arb_attrs(),
+            entity_type in arb_type(),
+            attrs in arb_attrs(),
+        ) {
+            let mut stored = AttrMap::default();
+            stored.extend_from_map(&state_attrs);
+            let state = EntityState { entity_type: state_type, attrs: stored, hub_refs: None };
+            let mut written = state.clone();
+            written.observe(&entity_type, &attrs);
+            prop_assert_eq!(state.observation_changes(&entity_type, &attrs), written != state);
+        }
+    }
 }

@@ -268,3 +268,91 @@ fn hub_refs_round_trip_as_a_map() {
     );
     assert_eq!(serde_json::from_value::<World>(json).unwrap(), w);
 }
+
+/// Whether `a` and `b` share the state of the entity minted for `k` (decision 0028); `None` if
+/// either world lacks it.
+fn shares(a: &World, b: &World, k: &str) -> Option<bool> {
+    let id = a.id_of(&key(k))?;
+    Some(std::sync::Arc::ptr_eq(a.entity_arc(id)?, b.entity_arc(id)?))
+}
+
+#[test]
+fn a_cloned_world_shares_states_until_a_write_copies_one() {
+    let original = fold(
+        World::default(),
+        &[
+            observe("u", "user", &[("lang", AttrValue::Str("en".into()))]),
+            observe("v", "user", &[]),
+        ],
+    );
+    let copy = original.clone();
+    assert_eq!(shares(&original, &copy, "u"), Some(true));
+    assert_eq!(shares(&original, &copy, "v"), Some(true));
+
+    let written = fold(
+        copy,
+        &[observe("u", "user", &[("bot", AttrValue::Bool(true))])],
+    );
+    assert_eq!(
+        shares(&original, &written, "u"),
+        Some(false),
+        "the write copies u"
+    );
+    assert_eq!(
+        shares(&original, &written, "v"),
+        Some(true),
+        "v was not written"
+    );
+    let u = original.id_of(&key("u")).unwrap();
+    assert_eq!(original.entity(u).unwrap().attrs.get("bot"), None);
+    assert_eq!(
+        written.entity(u).unwrap().attrs.get("bot"),
+        Some(&AttrValue::Bool(true))
+    );
+}
+
+#[test]
+fn a_write_that_changes_nothing_copies_nothing() {
+    let attrs = [
+        ("lang", AttrValue::Str("en".into())),
+        ("n", AttrValue::Int(1)),
+    ];
+    let original = fold(
+        World::with_hub_cap(1),
+        &[
+            observe("u", "user", &attrs),
+            relate("p1", "wiki", "on"),
+            relate("p2", "wiki", "on"), // past the cap: p2 holds a hub ref
+        ],
+    );
+    let same = fold(
+        original.clone(),
+        &[
+            observe("u", "user", &attrs),
+            observe("u", "user", &attrs[..1]), // a subset of what u holds
+            relate("p2", "wiki", "on"),        // the hub ref p2 already holds
+        ],
+    );
+    assert_eq!(same.offset(), original.offset() + 3);
+    assert_eq!(shares(&original, &same, "u"), Some(true));
+    assert_eq!(shares(&original, &same, "p2"), Some(true));
+
+    // Each kind of change still copies: a new value, a new type, a new hub ref kind.
+    for event in [
+        observe("u", "user", &[("n", AttrValue::Int(2))]),
+        observe("u", "page", &[]),
+    ] {
+        assert_eq!(
+            shares(&original, &fold(original.clone(), &[event]), "u"),
+            Some(false)
+        );
+    }
+    assert_eq!(
+        shares(
+            &original,
+            &fold(original.clone(), &[relate("p2", "wiki", "in")]),
+            "p2"
+        ),
+        Some(false)
+    );
+}
