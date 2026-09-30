@@ -31,8 +31,8 @@
 - **Events read as sentences.** `/sentences` and MCP `sentences` render the last N events from the
   manifest's per-type sentence, each with the entities it names.
   [#302](https://github.com/daveremy/stream2worlds/issues/302)
-- **The fallback no longer labels editors "edit".** A label needs coverage and at least 8
-  distinct values (`dashboard-fallback/3`).
+- **The fallback no longer labels links by a category word.** A label needs coverage and at
+  least 8 distinct values (`dashboard-fallback/3`).
   [#344](https://github.com/daveremy/stream2worlds/pull/344)
 - **In progress:** the live-demo label share ([#342](https://github.com/daveremy/stream2worlds/issues/342)) and the viewer showing names, icons and
   sentences ([#289](https://github.com/daveremy/stream2worlds/issues/289)).

@@ -49,7 +49,7 @@ by 22 s the catch-up budget no longer matters. First paint is mostly network: ab
 ~800 ms is round trips to the box. The real remaining worst case is replay length: at about
 100k events since the last snapshot (roughly 8 h), the graph gate fails until replay finishes near
 26 s ([#341](https://github.com/daveremy/stream2worlds/issues/341)). The 20 sampled sentences matched their raw events 20 of 20 but read well for a
-person 0 of 20, because the box's stored manifest predated the fallback that writes sentences.
+person 0 of 20, because the fallback writes "type + key" by design, so readable sentences need a System 2 manifest.
 
 **Changed course:** the plan was to tune the replay batch budget on the box. The measurement made
 that unnecessary, and the work moved to the labels.
