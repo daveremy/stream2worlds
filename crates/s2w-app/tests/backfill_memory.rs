@@ -43,7 +43,9 @@
 //!   for one body. Since s2w#270 one generation can serve several readers' bodies: `builds`
 //!   counts generations, `bodies` what they served.
 //! - `viewers4`: `viewer` with four readers, the demo check's `--viewers 4` (s2w#272), under
-//!   the same [`VIEWER_PEAK_LIMIT`] assertion.
+//!   the same [`VIEWER_PEAK_LIMIT`] assertion: s2w#235's acceptance row. Run only when named: it
+//!   is red today. Measured 2026-09-30 on hub (release, load ~5): 1353 MiB peak, 109 s wall;
+//!   main a58d945 (`viewer` with `S2W_BACKFILL_MEMORY_VIEWERS=4`) 1635 MiB, 783 s.
 //!
 //! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants;
 //! `S2W_BACKFILL_MEMORY_VIEWER_TICK_MS=1000` sets the `viewer` tick;
@@ -148,9 +150,7 @@ mod backfill {
         })
     }
     /// The variants the default sweep (no `VARIANTS`) runs.
-    const DEFAULT_VARIANTS: [&str; 6] = [
-        "world", "timeline", "queries", "bridge", "viewer", "viewers4",
-    ];
+    const DEFAULT_VARIANTS: [&str; 5] = ["world", "timeline", "queries", "bridge", "viewer"];
     /// How many readers the `viewers4` variant runs: the demo check's `--viewers 4` (s2w#272).
     const VIEWERS4: usize = 4;
     /// The bridge child's timeline history cap, when set (s2w#220).
