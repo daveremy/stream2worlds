@@ -12,8 +12,8 @@ schema bump. A `world_presentation` row was rejected: that table is latest-row-w
 decisions, so a manifest there could not be graded by actor or revoked by identity.
 
 This PR ships the record, its validation, resolution and the read surfaces. #301 PR 1 adds the
-deterministic proposer and its filer (`### The proposer`, below); the System 2 proposer follows
-in #301's second PR and the viewer in #302. The plan is the `## Plan
+deterministic proposer and its filer (`### The proposer`, below); #311 adds the System 2
+proposer (`### The System 2 proposer`, below); the viewer follows in #302. The plan is the `## Plan
 (s2w#288)` comment on #288 and the two comments after it that amend it; where they differ, the
 later comment wins.
 
@@ -76,6 +76,59 @@ mapped sources than `built_on`'s cap of 32.
 - `EventLog::head()` and `LogReader::read_head()` give the tail its start. They are named
   apart for the same reason as `replay` and `read_after`: both traits are in scope in the
   same files, so one name would be ambiguous.
+
+### The System 2 proposer (#311, 2026-09-30)
+
+`s2w dashboard propose ... --system2-model M/V [--system2-env NAME]... --system2-cmd <program>
+[<arg>...] [--]` runs `s2w_app::dashboard::propose_system2`: the same filer and policy as
+above, with `System2Proposer` (`s2w-system2`) over an `ExecProvider` in place of the fallback.
+Without `--system2-cmd` and `--system2-model` the fallback runs, as before.
+
+- **One attempt, at most two calls.** The prompt (`crates/s2w-system2/prompts/manifest.txt`,
+  scanned by check 9) carries the input as one line of JSON between two marker lines. A reply
+  that is not JSON, does not decode, or fails `validate()` gets one repair call carrying the
+  reply and the fault; its answer is final. A provider failure (timeout, exit status, output
+  over the cap) is not repaired. Tokens and latency are summed over the calls; `raw` is the last
+  reply (or the output a failed repair call captured). The prompt files' hash is the envelope's `prompt_hash` and is folded into the input
+  hash, so a prompt edit is a new input.
+- **The command.** Run without a shell, `argv` as given, in a fresh empty directory, with an
+  empty environment plus the `--system2-env` variables (each must be set, or the run stops with
+  `bad_parameter` before the log opens). The prompt goes to stdin; stdout is the reply. Limits:
+  180 s, 1 MiB of stdout, 64 KiB of stderr. On unix the command gets its own process group and a
+  timeout kills the group (best effort, `/bin/kill`), so a wrapper's child does not keep running.
+  Each failure is a null-manifest row with a reject whose basis names it (`exec: timed out
+  after 180 s`, `exec: stdout was still open after the command exited`, ...), with the latency
+  and any stdout captured.
+- **Actor.** `--system2-model` is split at its last `/` into model and version and recorded as
+  given; a CLI may take an alias there, and the row records the alias. The model never names
+  itself.
+- **Replay.** `ReplayProvider` answers from recorded replies keyed by the prompt's hash; a miss
+  is a null-manifest row. Tests use it and local `sh` scripts only; no test calls a model.
+
+**Operator recipe.**
+
+1. Pick a CLI that reads a prompt on stdin and prints only the reply on stdout, and run it with
+   its tools off (no shell, no file or network tools): the prompt carries stream data, and a
+   tool-less command is the operator's responsibility, not something `s2w` can check.
+2. Give `argv[0]` as an absolute path, or pass `PATH` with `--system2-env PATH`: the command
+   sees no variable it is not given.
+3. Pass what the CLI needs to run and authenticate: usually `--system2-env HOME
+   --system2-env PATH` plus its API-key variable.
+4. Put `--system2-cmd` last, or end it with `--`: every token after it up to a standalone `--`
+   is the command's, so the command cannot receive a literal `--`.
+5. Try it with `--dry-run --json`: when the run would file, the command runs (and costs what a
+   call costs), nothing is written, and the report shows the envelope and the decision it would
+   get. A log that already has this actor's row for the input runs nothing.
+
+```sh
+s2w dashboard propose --log-dir ./s2w-data --json \
+  --system2-model <model>/<version> \
+  --system2-env HOME --system2-env PATH --system2-env <API_KEY_VARIABLE> \
+  --system2-cmd /absolute/path/to/model-cli <its flags for stdin prompt, text reply, no tools>
+```
+
+Tokens are null on this path: a generic CLI's stdout carries no token count `s2w` can trust.
+Which provider and model class the first real run uses is s2w#288's open question.
 
 ### Format 1: required and optional
 
@@ -182,7 +235,8 @@ worlds; create the proposal store on a read.
   manifest in effect now.
 - **Automatic re-proposal.** A stale manifest is flagged, not replaced; triggers are a later
   #116 slice.
-- **The System 2 proposer and the exec path** (#301's second PR): the prompt, the configured
-  command and the operator's responsibility that it is tool-less, and replay of recorded
-  replies.
+- **A token count from the exec path.** Tokens are null for `--system2-cmd`; reading them
+  needs a known CLI's output format (s2w#288).
+- **The first real System 2 run** on the demo world: it waits on s2w#288's provider and model
+  class.
 - **The viewer** (#302).

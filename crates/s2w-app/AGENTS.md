@@ -73,7 +73,9 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   (`LogReader::read_head` plus a doubling window), asks a `ManifestProposer` outside the
   writer lock, re-plans under the lock, and never files twice for one (world, input hash,
   actor): a manifest row stops it, and so do `MAX_ATTEMPTS` null-manifest rows. It runs only
-  from `s2w dashboard propose`, never from `serve`.
+  from `s2w dashboard propose`, never from `serve`. `propose_system2` composes
+  `s2w-system2`'s `System2Proposer` over an `ExecProvider` (s2w#311); a setup error is
+  `bad_parameter` before the log opens.
 - `discover` (decision 0025) is the learned-mapping producer and a `policy` decider.
   It runs between `serve`'s two route resolutions, profiles only member sources with no
   effective mapping, writes nothing when a `stream-mapping` proposal for the same (source,
