@@ -448,6 +448,7 @@ type of the path that follows it best: among its followers that key another type
 share, then the most values; a tie keeps every tied type, and no such follower means no
 relationship. Entities and attributes are unchanged. The comment and the size stay types (an
 accepted false class, with their cost capped); free text is out of scope for this profiler.
+*(2026-09-30, v8: the size no longer does; see the s2w#327 amendment below.)*
 
 **Measured** (`backfill_memory`'s `world` child, the page-change fixture cycled to 1.5x10^5; type
 and relationship-rule counts from the 10^4 mapping):
@@ -486,6 +487,45 @@ of the three page-key paths (12 rules; in 1,615 events most pages have one edito
 dependency holds there), and `registration_dt` is no longer an attribute of the prior-state
 editor's `user_text`. A date-time was an `Entity` path in v6 and is a plain dependent now, so it
 can follow any key it depends on. Research 0009's #291 addendum has the tables.
+
+## Amendment 2026-09-30: an integer key must come back (s2w#327, `PROFILER_VERSION` 8)
+
+The v6 churn guard left two of #282's ruled classes on the recorded page-change fixture:
+`revision/comment` (5.2% of world events) and `mediainfo/content_size` (0.4%). Both pass the second
+test with about half their changes superseded, well under `churn_pct`.
+
+**Return floor (`Config::return_pct`, 30).** A second-test key whose every value is an integer
+(`Column::kinds` is integer only) must also come back under some follower: under at least one
+follower with at least `min_support` counted changes (the churn guard's count), fewer than
+`return_pct` of them are superseded. A key with no such follower is not judged. The floor reads the
+value's kind, not its text. The evaluation contract leaves numbers unchanged under obfuscation
+(§2), so the rule survives renaming, hashing and the date-time shift, and check 12 stays exact.
+`content_size` reads 59 under all ten of its followers and now fails. No integer key on `dev`
+passes only the second test at 10^4 or 2x10^5, so the rule cannot move a `dev` score.
+
+**Why integers only: the named counterexample.** A floor on every kind would also remove the
+comment. It would remove `dev`'s `title` at 2x10^5 too. `title` is a true, scored entity (`page`)
+that passes only the second test there, with one follower (`user`). No order or equality statistic
+separates it from `revision.comment` (measured on leg A of #327, in sample):
+
+| | uniqueness | lowest superseded share | repeat groups spanning 10% or more |
+|---|---|---|---|
+| `dev` `title`, 2x10^5 | 40 | 44 | 34% |
+| fixture `revision.comment`, 10^4 | 36 | 46 | 60% |
+
+The same floor at 30 on every kind cut in-sample `dev-key-v1` recall at 2x10^5 from 0.4240 to
+0.3674 (mapping F1 0.5890 to 0.5319, `page` R 0.50 to 0.25), so it was rejected. This extends the
+v6 amendment's finding: equality, presence and order cannot tell free text from a child entity.
+Only a text format could, and reading text is a new design question (s2w#333), not this rule.
+`revision/comment` stays an accepted false class, with its cost capped by the leaf cap.
+
+**Measured.** The recorded page-change fixture's discovered types drop from 13 to 12 (only
+`mediainfo/content_size` goes). One pass over its 11,667 events gives 1,109,478 world events,
+down from 1,113,978 (-4,500, 0.40%). On `dev` the v8 freezes at 10^4 and 2x10^5 equal v7's except
+for the version and the config text. Every `dev-key-v1` and `user-global` score on `reserved-4`
+equals v7's at both windows. Research 0009's #327 addendum has the per-span table. The per-key
+numbers above come from `s2w_discover::key_report`, which `s2w-app`'s ignored `discover_diag`
+test prints for any recorded stream.
 
 ## Out of scope
 

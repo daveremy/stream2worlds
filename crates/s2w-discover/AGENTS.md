@@ -23,7 +23,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   is a new decision record, never a quiet addition to `stamp.rs`.
 - The second entity test carries a churn guard and a leaf cap (decision 0022, `PROFILER_VERSION`
   6): a key whose values move on and never return fails it, and a type only it admits relates
-  once. Both read stream order and equality only; no counter is named anywhere.
+  once. Both read stream order and equality only; no counter is named anywhere. An integer-valued
+  second-test key must also come back under some follower (`return_pct`, `PROFILER_VERSION` 8,
+  s2w#327); it reads the value's kind, which obfuscation leaves unchanged, never its text.
+- `diag::key_report` prints the entity tests' per-key numbers for a person (s2w-app's ignored
+  `discover_diag` test). No rule reads it.
 - Type labels and attribute names are built from the stream's own key names, as data.
 - Abstaining is a first-class answer: every role that cannot be decided says so in `Profile`,
   and no mapping is emitted without an entity type or below `min_events`.
