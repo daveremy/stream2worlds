@@ -1,6 +1,7 @@
 import ForceGraph from 'force-graph';
 import type { NodeObject } from 'force-graph';
 import type { Link, Node } from '../api';
+import { LINE_HEIGHT, SMALL_VIEW, collideForce, fitView, labelBox, labelLines, maxRadius, maxTypeCount, nodeRadius } from '../nodesize';
 import { labelFor, linkColor, typeColor } from '../profile';
 import type { GraphRenderer } from '../renderer';
 import type { ViewState } from '../state';
@@ -18,6 +19,18 @@ export class Force2D implements GraphRenderer {
   private labelById = new Map<string, string>();
   private groundColor = DEFAULT_GROUND;
   private inkColor = DEFAULT_INK;
+  private typeMax = 1;
+  private maxR = maxRadius(0, 0);
+  // Set when a small view arrives with no node in common with the last one: fit on its first
+  // tick (so it never paints unfitted) and again when the layout settles.
+  private fitOnTick = false;
+  private fitOnStop = false;
+  private radius(node: GraphNode): number {
+    return nodeRadius(node, this.degreeMap, this.typeMax, this.maxR);
+  }
+  private lines(node: GraphNode): string[] {
+    return node.kind === 'type' ? labelLines(this.label(node)) : [this.label(node)];
+  }
   private label(node: GraphNode): string {
     return this.labelById.get(node.id) ?? labelFor(node, this.keyByType);
   }
@@ -34,15 +47,20 @@ export class Force2D implements GraphRenderer {
   mount(element: HTMLElement, state: ViewState): void {
     this.graph = new ForceGraph<GraphNode, Link>(element).backgroundColor(this.groundColor)
       .nodeColor((node: GraphNode) => typeColor(node.entity_type))
-      .nodeVal((node: GraphNode) => sizeFor(node, this.degreeMap))
+      .nodeRelSize(1).nodeVal((node: GraphNode) => this.radius(node) ** 2)
       .nodeCanvasObjectMode(() => 'after')
       .nodeCanvasObject((node: GraphNode, context: CanvasRenderingContext2D, globalScale: number) => {
-        if (globalScale < 0.7 || node.x === undefined || node.y === undefined) return;
+        // Type views are small and each type node is the point of the view: always labelled.
+        if ((node.kind !== 'type' && globalScale < 0.7) || node.x === undefined || node.y === undefined) return;
         const fontSize = 11 / globalScale;
         context.font = `${fontSize}px system-ui, sans-serif`;
         context.textAlign = 'center'; context.textBaseline = 'top'; context.fillStyle = this.inkColor;
-        context.fillText(this.label(node), node.x, node.y + 5 / globalScale);
+        const top = node.y + this.radius(node) + 2 / globalScale;
+        this.lines(node).forEach((line, index) =>
+          context.fillText(line, node.x!, top + (index * LINE_HEIGHT) / globalScale));
       })
+      .onEngineTick(() => { if (this.fitOnTick) { this.fitOnTick = false; this.fit(); } })
+      .onEngineStop(() => { if (this.fitOnStop) { this.fitOnStop = false; this.fit(); } })
       .linkColor(link => linkColor(link.kind)).linkDirectionalArrowLength(4)
       .nodeLabel((node: GraphNode) => {
         // Tooltip libraries accept HTML strings: return a text-only element for stream data.
@@ -51,7 +69,9 @@ export class Force2D implements GraphRenderer {
           `${this.label(node)} · ${node.entity_type}${node.kind === 'hub' ? ` · hub (${node.in_degree})` : ''}`;
         return label;
       });
+    this.maxR = maxRadius(element.clientWidth, element.clientHeight);
     this.resize = new ResizeObserver(() => {
+      this.maxR = maxRadius(element.clientWidth, element.clientHeight);
       this.graph?.width(element.clientWidth).height(element.clientHeight);
     });
     this.resize.observe(element);
@@ -68,6 +88,7 @@ export class Force2D implements GraphRenderer {
     this.degreeMap = state.degreeMap;
     this.keyByType = state.keyByType;
     this.labelById = state.labels;
+    this.typeMax = maxTypeCount(stateNodes);
     const previous: Map<string, Partial<GraphNode>> = new Map(
       (this.graph?.graphData().nodes ?? []).map(node => [node.id, node]));
     const nodes = structuredClone(stateNodes).map((node) => {
@@ -76,13 +97,22 @@ export class Force2D implements GraphRenderer {
       const { x, y, vx, vy, fx, fy } = prior as Record<string, number | undefined>;
       return Object.assign(node, { x, y, vx, vy, fx, fy });
     });
+    // Small views (the type view): no overlap, laid out before first paint, fitted once. Large
+    // entity views keep force-graph's defaults.
+    const small = nodes.length <= SMALL_VIEW;
+    if (small && nodes.length > 0 && !nodes.some(node => previous.has(node.id))) this.fitOnTick = this.fitOnStop = true;
+    this.graph?.d3Force('collide', small ? collideForce<GraphNode>(node => labelBox(this.radius(node), this.lines(node))) : null)
+      .warmupTicks(small ? 100 : 0);
+    this.graph?.d3Force('charge')?.strength(small ? -400 : -30);
     this.graph?.graphData({ nodes, links: structuredClone([...state.links.values()]) });
   }
+  /** Fits a new small view, labels included, to the canvas; never magnifies past 1 so the radius bound holds. */
+  private fit(): void {
+    if (!this.graph) return;
+    const placed = this.graph.graphData().nodes.flatMap(node => node.x === undefined || node.y === undefined ? [] :
+      [{ x: node.x, y: node.y, radius: this.radius(node), lines: this.lines(node) }]);
+    const camera = fitView(placed, this.graph.width(), this.graph.height());
+    if (camera) this.graph.centerAt(camera.x, camera.y).zoom(camera.k);
+  }
   destroy(): void { this.resize?.disconnect(); this.graph?._destructor(); this.graph = undefined; }
-}
-
-function sizeFor(node: Node, degreeMap: Map<string, number>): number {
-  if (node.kind === 'hub') return Math.max(1, node.in_degree);
-  if (node.kind === 'type') return Math.max(1, node.count);
-  return Math.max(1, degreeMap.get(node.id) ?? 1);
 }
