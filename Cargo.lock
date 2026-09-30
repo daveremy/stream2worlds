@@ -3187,6 +3187,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "proc-macro2",
+ "quote",
  "s2w-core",
  "s2w-discover",
  "s2w-model",

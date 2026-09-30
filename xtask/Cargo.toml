@@ -21,3 +21,4 @@ toml.workspace = true
 sha2.workspace = true
 syn.workspace = true
 proc-macro2.workspace = true
+quote.workspace = true
