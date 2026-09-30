@@ -57,7 +57,13 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   snapshot restore, because the feed fingerprint depends on the routes. The world manifest's
   engine list is historical (the defaults at creation), not the live registry. Replay reads
   stored verdicts of registered engine names only (`VerdictStore::read_range_of`).
-- `discover` (decision 0025) is the learned-mapping producer and the only `policy` decider.
+- `dashboard` (decision 0029, s2w#301) is the dashboard-manifest filer and the other `policy`
+  decider (`dashboard-auto-apply/1`). It builds the input from the log tail
+  (`LogReader::read_head` plus a doubling window), asks a `ManifestProposer` outside the
+  writer lock, re-plans under the lock, and never files twice for one (world, input hash,
+  actor): a manifest row stops it, and so do `MAX_ATTEMPTS` null-manifest rows. It runs only
+  from `s2w dashboard propose`, never from `serve`.
+- `discover` (decision 0025) is the learned-mapping producer and a `policy` decider.
   It runs between `serve`'s two route resolutions, profiles only member sources with no
   effective mapping, writes nothing when a `stream-mapping` proposal for the same (source,
   identity) exists from any actor (looked up under the writer lock), mints the proposal id from

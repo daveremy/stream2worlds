@@ -967,3 +967,162 @@ fn renaming_is_invariant_with_a_leaf() {
     let a = mapping(a);
     assert_eq!(canonical(mapping(b)), obf.mapping(&a));
 }
+
+#[test]
+fn path_profiles_count_strings_and_their_mean_length() {
+    let events = vec![
+        json!({"s": "ab", "n": 1, "m": "abcd"}),
+        json!({"s": "abcde", "n": 2, "m": 3}),
+        json!({"s": "abcdef", "n": 3}),
+    ];
+    let (profile, _) = run(&events, &[]);
+    let stats = |keys: &[&str]| {
+        let p = path(keys);
+        let found = profile
+            .paths
+            .iter()
+            .find(|x| x.path == p)
+            .expect("path profiled");
+        (found.count, found.str_count, found.str_len_mean)
+    };
+    // 2 + 5 + 6 = 13 bytes over 3 strings: the mean rounds down to 4.
+    assert_eq!(stats(&["s"]), (3, 3, 4));
+    assert_eq!(stats(&["n"]), (3, 0, 0));
+    assert_eq!(stats(&["m"]), (2, 1, 4));
+}
+
+fn manifest_input(events: &[Value]) -> s2w_model::ManifestInput {
+    let (profile, discovery) = run(events, &[]);
+    let mapping = mapping(discovery);
+    s2w_model::ManifestInput {
+        world: "w".to_owned(),
+        sources: vec![s2w_model::SourceInput {
+            source: "s1".to_owned(),
+            mapping_identity: mapping.identity().expect("valid mapping"),
+            mapping,
+            events: u64::try_from(profile.events).unwrap(),
+            event_type: profile.event_type.clone(),
+            paths: manifest::path_stats(&profile),
+            sample: Vec::new(),
+        }],
+    }
+}
+
+fn fallback_manifest(input: &s2w_model::ManifestInput) -> s2w_model::DashboardManifest {
+    use s2w_model::{ManifestOutcome, ManifestProposer};
+    match manifest::FallbackProposer.propose(input) {
+        ManifestOutcome::Manifest { manifest, .. } => *manifest,
+        other => panic!("no manifest: {other:?}"),
+    }
+}
+
+#[test]
+fn the_fallback_validates_against_its_own_input_with_feed_and_one_default_role() {
+    use s2w_model::{Label, Template};
+    let input = manifest_input(&stream(1200));
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    assert_eq!(m.quintessential_projection.template, Template::Feed);
+    assert_eq!(m.roles.iter().filter(|r| r.default).count(), 1);
+    assert!(
+        m.roles
+            .iter()
+            .all(|r| r.projection.template == Template::Feed)
+    );
+    assert!(
+        m.types.len() >= 2
+            && m.types
+                .iter()
+                .any(|t| matches!(t.label, Some(Label::Attr(_))))
+            && m.types.iter().all(|t| t.primary == t.label.is_some()),
+        "vacuous: {:?}",
+        m.types
+    );
+    assert!(m.quintessential_projection.slots.subject_type.is_some());
+}
+
+#[test]
+fn the_fallback_abstains_with_no_mapped_source() {
+    use s2w_model::{ManifestInput, ManifestOutcome, ManifestProposer};
+    let empty = ManifestInput {
+        world: "w".to_owned(),
+        sources: Vec::new(),
+    };
+    assert!(matches!(
+        manifest::FallbackProposer.propose(&empty),
+        ManifestOutcome::Abstain(_)
+    ));
+}
+
+#[test]
+fn the_fallback_abstains_past_the_built_on_cap() {
+    use s2w_model::{MAX_BUILT_ON, ManifestOutcome, ManifestProposer};
+    let mut input = manifest_input(&stream(1200));
+    let one = input.sources[0].clone();
+    input.sources = (0..=MAX_BUILT_ON)
+        .map(|i| {
+            let mut s = one.clone();
+            s.source = format!("s{i}");
+            s
+        })
+        .collect();
+    assert!(matches!(
+        manifest::FallbackProposer.propose(&input),
+        ManifestOutcome::Abstain(_)
+    ));
+    input.sources.truncate(MAX_BUILT_ON);
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+}
+
+#[test]
+fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
+    use s2w_model::{DashboardManifest, Label};
+    let plain = stream(1200);
+    let obf = Obfuscate::new(&plain);
+    let hidden: Vec<Value> = plain.iter().map(|v| obf.value(v)).collect();
+    let (input_a, input_b) = (manifest_input(&plain), manifest_input(&hidden));
+    let (a, mut b) = (fallback_manifest(&input_a), fallback_manifest(&input_b));
+    let (map_a, map_b) = (&input_a.sources[0].mapping, &input_b.sources[0].mapping);
+    let mut labels: BTreeMap<String, String> = BTreeMap::new();
+    let mut names: BTreeMap<String, String> = BTreeMap::new();
+    for rule in &map_a.entities {
+        let id = rule_id(&obf.path(&rule.key[0]));
+        let twin = map_b
+            .entities
+            .iter()
+            .find(|r| r.id == id)
+            .expect("twin rule");
+        labels.insert(rule.type_label.clone(), twin.type_label.clone());
+        for attr in &rule.attrs {
+            names.insert(attr.name.clone(), rule_id(&obf.path(&attr.path)));
+        }
+    }
+    let mut expected: DashboardManifest = a.clone();
+    expected.built_on[0]
+        .mapping
+        .clone_from(&input_b.sources[0].mapping_identity);
+    let relabel = |s: &mut Option<String>| {
+        if let Some(label) = s {
+            *label = labels[label.as_str()].clone();
+        }
+    };
+    relabel(&mut expected.quintessential_projection.slots.subject_type);
+    relabel(&mut expected.roles[0].projection.slots.subject_type);
+    for row in &mut expected.types {
+        row.type_label = labels[row.type_label.as_str()].clone();
+        if let Some(Label::Attr(attr)) = &mut row.label {
+            attr.attr = names[attr.attr.as_str()].clone();
+        }
+    }
+    expected
+        .types
+        .sort_by(|x, y| x.type_label.cmp(&y.type_label));
+    b.types.sort_by(|x, y| x.type_label.cmp(&y.type_label));
+    assert!(
+        a.types
+            .iter()
+            .any(|t| matches!(t.label, Some(Label::Attr(_))))
+    );
+    assert_eq!(b, expected);
+}

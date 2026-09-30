@@ -234,8 +234,16 @@ not decode, or whose manifest is null, is refused the same way.
 dashboard manifest: its proposal, author and identity, whether the current mappings still carry
 everything it names (`stale`), and which dashboard rows resolution excludes. `--json` prints the
 same bytes as `GET /worlds/{world}/dashboard` and MCP `dashboard`. A manifest is a
-`dashboard-manifest` proposal resolved per world by 0023's rule; nothing proposes one yet
+`dashboard-manifest` proposal resolved per world by 0023's rule
 ([decision 0029](docs/decisions/0029-dashboard-manifest-v0.md)).
+
+`s2w dashboard propose --log-dir DIR [--world NAME] [--dry-run] [--json]` builds the proposer
+input from each mapped member source's newest 2000 logged events and files the deterministic
+proposer's manifest (actor `dashboard-fallback/1`) with a `dashboard-auto-apply/1` policy
+decision: accept when it validates, reject (a null-manifest row) when it does not. A second run
+on the same log writes nothing. `--dry-run` writes nothing, and with `--json` prints the
+envelope it would file. It takes the proposal store's writer lock for its appends only, so it
+can run beside `s2w serve`; a held lock exits 1 with `store_locked`.
 
 ## Planned interface
 

@@ -22,6 +22,9 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   exit 1 with the HTTP/MCP `{"error", "message"}` body; usage errors exit 2.
 - `dashboard show` (decision 0029) only parses and renders `s2w_app::query::read_dashboard`;
   `--json` prints the query API's exact bytes. It never creates the proposal store.
+- `dashboard propose` (s2w#301) only parses and renders `s2w_app::dashboard::propose_fallback`;
+  it needs an explicit `--log-dir` because it writes. The proposer lives in `s2w-discover`,
+  which this crate does not depend on: the entry point in `s2w-app` names it.
 - `serve --snapshot-every <n>` (n > 0) and `--no-snapshot` (decision 0024) are mutually
   exclusive; passing both is a usage error. `serve` stops on SIGINT or SIGTERM.
 - Errors say what to try next.

@@ -14,8 +14,9 @@ pub use dashboard::{
     AcceptedMapping, AttrLabel, BuiltOn, DASHBOARD_FORMAT, DashboardError, DashboardManifest,
     DeltaField, Domain, EventSentence, KeyLabel, Kind, Label, MAX_BUILT_ON, MAX_EVENTS,
     MAX_QUESTIONS, MAX_ROLES, MAX_SENTENCE_FIELDS, MAX_SLOT_ITEMS, MAX_STRING_CHARS, MAX_TYPES,
-    ManifestContext, Projection, QuintessentialProjection, Role, Sentence, SentenceField, Slots,
-    Template, TruncateField, TypeRow, When,
+    ManifestContext, ManifestInput, ManifestOutcome, ManifestProposer, PathStats, Projection,
+    ProposerId, ProposerTrace, QuintessentialProjection, Role, Sentence, SentenceField, Slots,
+    SourceInput, Template, TruncateField, TypeRow, When, fits_text,
 };
 pub use event::{AttrValue, WorldEvent};
 pub use hash::{Fnv64, fnv1a64, fnv1a64_hex, is_hex16};

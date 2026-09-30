@@ -11,8 +11,9 @@ type and event type reads. The record lives in `proposals.sqlite3` (0019): no ne
 schema bump. A `world_presentation` row was rejected: that table is latest-row-wins with no
 decisions, so a manifest there could not be graded by actor or revoked by identity.
 
-This PR ships the record, its validation, resolution and the read surfaces. Nothing proposes a
-manifest yet; the proposers land in #301 and the viewer in #302. The plan is the `## Plan
+This PR ships the record, its validation, resolution and the read surfaces. #301 PR 1 adds the
+deterministic proposer and its filer (`### The proposer`, below); the System 2 proposer follows
+in #301's second PR and the viewer in #302. The plan is the `## Plan
 (s2w#288)` comment on #288 and the two comments after it that amend it; where they differ, the
 later comment wins.
 
@@ -43,6 +44,38 @@ every level:
   new mapping changes it. Proposal id = `fnv1a64_hex` over length-prefixed (actor model, actor
   version, world, input_hash, attempt), in the shape of 0025. Attempt = 1 + this actor's
   null-manifest proposals for (world, input_hash); at most 3. The writer of these is #301.
+
+### The proposer (#301)
+
+`s2w dashboard propose --log-dir D [--world W] [--dry-run] [--json]` runs
+`s2w_app::dashboard::propose` with a `ManifestProposer` (trait and input DTOs in `s2w-model`).
+PR 1 ships one proposer, `FallbackProposer` in `s2w-discover` (actor `dashboard-fallback/1`):
+the `feed` projection, one default role, a label per type where the statistics support one.
+It abstains with no mapped source, with no type label a manifest can hold, and with more
+mapped sources than `built_on`'s cap of 32.
+
+- **Input.** The member sources (0025's membership; every source when the log has no
+  membership rows) that have an accepted `stream-mapping`, sorted by id. Per source: its
+  newest 2000 logged events (the tail), read backwards from the log's head in a window that
+  starts at 4000 positions and doubles until every source has 2000 or the window covers the
+  log; the profiler's per-path statistics over the tail (`count`, `distinct`, `str_count`,
+  `str_len_mean`) and its event-type path; and a sample, the newest 40 events of the tail as
+  JSON, root fields the profiler decodes parsed in place, strings cut to 200 characters. A
+  mapped source with no events is left out. The proposal's `snapshot_offset` is the newest
+  position the tails read.
+- **Replay.** The filer reads the store first, and again under the writer lock before it
+  appends. For this actor's rows on (world, input_hash): an undecided row gets its policy
+  decision (the process stopped between two appends); any manifest row means nothing to do;
+  3 null-manifest rows mean nothing to do; otherwise it asks the proposer (outside the lock)
+  and files attempt n + 1. The same log therefore files nothing the second time.
+- **Policy `dashboard-auto-apply/1`.** A manifest that passes `validate()` against the input's
+  mappings and paths is accepted with basis `policy=dashboard-auto-apply/1 proposer=M/V
+  world=W built_on=s:id,… types=n events=n roles=n`. An `Invalid` answer, or a manifest the
+  validator refuses (error `validator: …`, the manifest kept in `raw`), is a null-manifest
+  row rejected with basis `invalid: <error>`. An `Abstain` writes nothing.
+- `EventLog::head()` and `LogReader::read_head()` give the tail its start. They are named
+  apart for the same reason as `replay` and `read_after`: both traits are in scope in the
+  same files, so one name would be ambiguous.
 
 ### Format 1: required and optional
 
@@ -149,8 +182,7 @@ worlds; create the proposal store on a read.
   manifest in effect now.
 - **Automatic re-proposal.** A stale manifest is flagged, not replaced; triggers are a later
   #116 slice.
-- **The proposers and the exec path** (#301): the deterministic fallback and the System 2
-  proposer, the `dashboard-auto-apply/1` policy (accept every manifest that validates, reject
-  every null-manifest row with basis `invalid: <error>`), and the operator's responsibility
-  that the configured command is tool-less.
+- **The System 2 proposer and the exec path** (#301's second PR): the prompt, the configured
+  command and the operator's responsibility that it is tool-less, and replay of recorded
+  replies.
 - **The viewer** (#302).

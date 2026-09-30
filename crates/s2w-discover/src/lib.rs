@@ -15,6 +15,7 @@
 mod assemble;
 mod contain;
 mod flatten;
+pub mod manifest;
 mod roles;
 
 use s2w_model::{FieldPath, Segment, StreamMapping};
@@ -118,6 +119,10 @@ pub struct PathProfile {
     pub count: usize,
     /// Distinct keyable values.
     pub distinct: usize,
+    /// Values that were strings. A statistic only: no rule reads it (decision 0029).
+    pub str_count: usize,
+    /// The mean length of those strings in bytes, rounded down; 0 when there are none.
+    pub str_len_mean: usize,
     /// What the profiler decided it is.
     pub role: Role,
 }
@@ -168,6 +173,8 @@ pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
             path: path.clone(),
             count: column.cells.len(),
             distinct: column.texts.len(),
+            str_count: column.strs,
+            str_len_mean: column.str_bytes.checked_div(column.strs).unwrap_or(0),
             role: *role,
         })
         .collect();

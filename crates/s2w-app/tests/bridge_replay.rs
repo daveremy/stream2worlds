@@ -301,6 +301,10 @@ impl LogReader for FailsOnce {
             LogError::Io("disk hiccup".into()),
         )))))
     }
+
+    fn read_head(&self) -> Result<Option<LogPosition>, LogError> {
+        self.log.read_head()
+    }
 }
 
 #[test]
