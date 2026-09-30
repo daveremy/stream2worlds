@@ -21,23 +21,23 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **The demo page opens on a world.** It opens on entity types (6 KB, first paint in about 3 s)
+  instead of a 370 MB graph, and every type is a labelled node; set a Focus entity to see a
+  neighbourhood.
+  [#263](https://github.com/daveremy/stream2worlds/pull/263)
 - **The demo world loads whole.** `/world` responses were cut off at about 4 MiB while the
   bridge appended, which blanked the page; the bridge now waits for in-flight responses before
   its next write.
   [#260](https://github.com/daveremy/stream2worlds/pull/260)
-- **The web view never asks for the whole graph.** Above 5,000 entities it opens on entity
-  types (5.9 KB instead of 370 MB on the demo world); set a Focus entity to see a
-  neighbourhood.
-  [#263](https://github.com/daveremy/stream2worlds/pull/263)
+- **A mapping can say two values name one entity.** `StreamMapping` gains `links` (format
+  version 2); routing refuses a linked mapping until the engine emits merges.
+  [#274](https://github.com/daveremy/stream2worlds/pull/274)
 - **H-lite finds editors.** A second entity test keys Wikipedia's `user`; on a held-out span
   opened after the predictions, identity F1 rose from 0.2920 to 0.4431 and every prediction hit.
   [#261](https://github.com/daveremy/stream2worlds/pull/261)
-- **The bridge's peak memory is lower.** Batch 250 takes its measured peak from 577 to
-  520–538 MiB at a history cap of 2; at the new 50,000-event default cap it is 548–563 MiB,
-  against 589 before.
-  [#255](https://github.com/daveremy/stream2worlds/pull/255)
-- **In progress:** deploying the bounded view and checking that the demo page renders in a
-  browser, and measuring the `/world` lock ([#243](https://github.com/daveremy/stream2worlds/issues/243)).
+- **In progress:** an owned projection and single-flight `/world`, so a slow reader cannot
+  stall the fold ([#270](https://github.com/daveremy/stream2worlds/issues/270),
+  [#272](https://github.com/daveremy/stream2worlds/issues/272)).
 
 ## Demos
 
@@ -110,6 +110,7 @@ curl http://localhost:4310/worlds/default/world
 # add ?at=<offset> to the URL to pin a moment.
 # Above 5,000 entities the page shows entity types instead of every entity; set a
 # Focus entity (and Hops) to see its neighbourhood (#262).
+# The Detail selector reads Types while the page shows types.
 curl http://localhost:4310/worlds/default/sources
 # serve snapshots the world every 1,000,000 raw events and on Ctrl-C/SIGTERM, and restarts
 # from the newest valid snapshot; tune or disable with --snapshot-every <n> / --no-snapshot

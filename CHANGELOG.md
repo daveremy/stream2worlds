@@ -13,6 +13,55 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The page renders — #262, #265, #269, #243, #245 PR 1 and #235 PR 3, and #244 just after (2026-09-29)
+
+**Shipped:** a person opening the demo now sees a world. The page opens on the type view (about
+6 KB, first paint in about 3 s on the live demo) instead of downloading a 370 MB graph, and
+entities load only on worlds of 5,000 entities or fewer, or around a focus entity; API callers
+see no change ([#263](https://github.com/daveremy/stream2worlds/pull/263)). Every entity type
+is a labelled node: node area is proportional to count, the radius is capped at 8% of the
+canvas, and the type view fits the canvas, so the three types that drew as circles larger than
+the canvas no longer hide the rest ([#266](https://github.com/daveremy/stream2worlds/pull/266)).
+The Detail selector reads "Types" when a huge world falls back, and adding a Focus still asks
+for the entity neighbourhood ([#273](https://github.com/daveremy/stream2worlds/pull/273)). The
+`/world` lock is measured: an opt-in timing hook splits each read into lock wait, build and
+write ([#268](https://github.com/daveremy/stream2worlds/pull/268)). Two format steps landed for
+the plans that follow. A `StreamMapping` can now carry `links`, which say two values name one
+entity (format version 2; mappings without links keep version 1 and their identity, and routing
+refuses a linked mapping until the engine emits merges,
+[decision 0027](docs/decisions/0027-stream-mapping-links.md),
+[#274](https://github.com/daveremy/stream2worlds/pull/274)). `World.entities` now holds
+`Arc<EntityState>`, so a write copies only the entity it changes and a write that changes
+nothing copies nothing ([decision 0028](docs/decisions/0028-shared-entity-states.md),
+[#275](https://github.com/daveremy/stream2worlds/pull/275)). Containment (stage 5b, `PROFILER_VERSION` 5) merged just after
+([#244](https://github.com/daveremy/stream2worlds/issues/244),
+[#276](https://github.com/daveremy/stream2worlds/pull/276)): scored on `reserved`, F1 rose from
+0.4447 to 0.5334 and recall from 0.2866 to 0.3646, and every prediction (P1 to P6 and the
+control) hit.
+
+**Learned:** the demo check had passed all of Sprint 83 without loading the page, so the sprint
+made it load the page: it now needs a rendered world twice, 1.5 s apart, and saves a
+screenshot. The first render showed a second problem the numbers had not: three types drew
+larger than the canvas. The lock measurement decided #235: building the response is 37–39% of
+the time the lock is held during backfill, so the fix is an owned projection, shared
+entity states and single-flight (option d). Cloning the maps per request (option c) would copy
+221.5 MiB and take 0.62 s, so it is ruled out. Shared states cost 2.5% more memory per entity,
+recorded with a `Baseline-growth:` trailer; the bytes are unchanged (golden, snapshots, fold
+hash).
+
+**Changed course:** #235 goes with option (d), planned as three parts. Part A landed in #275;
+single-flight and the owned projection are filed as
+[#270](https://github.com/daveremy/stream2worlds/issues/270) and
+[#272](https://github.com/daveremy/stream2worlds/issues/272). The mapping-links plan's version
+bump to 2 was narrowed: only mappings that use links take version 2, because bumping every
+mapping would have changed the identity of each newly written one.
+
+**Next:** single-flight `/world` and the owned projection
+([#270](https://github.com/daveremy/stream2worlds/issues/270),
+[#272](https://github.com/daveremy/stream2worlds/issues/272)). For gate 3,
+[#245](https://github.com/daveremy/stream2worlds/issues/245) PR 2, which makes the engine emit
+merges from links.
+
 ## World loads finish, the viewer stays bounded, and H-lite finds editors — #259, #250 PR 2, #220 PR A and B, and #262 just after (2026-09-29)
 
 **Shipped:** the demo world, now titled "Living Wikipedia", loads whole. Its page had been
