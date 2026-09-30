@@ -13,6 +13,26 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The demo reads as Wikipedia, scoring keys get a prefix form, and the binary moves to mimalloc — [#350](https://github.com/daveremy/stream2worlds/pull/350), [#348](https://github.com/daveremy/stream2worlds/pull/348), [#354](https://github.com/daveremy/stream2worlds/pull/354), [#353](https://github.com/daveremy/stream2worlds/pull/353), [#289](https://github.com/daveremy/stream2worlds/issues/289), [#224](https://github.com/daveremy/stream2worlds/issues/224), [#283](https://github.com/daveremy/stream2worlds/issues/283) (2026-09-30)
+
+**Shipped:** the viewer now shows what the manifest knows ([#350](https://github.com/daveremy/stream2worlds/pull/350), deployed to the demo box at 14:04). `/sentences` entities carry a `label`; the graph and legend show each type's name, noun and kind icon; a **Live changes** feed lists the newest events as sentences; and **Active now** reads `<icon> <label> (<n> changes)`, for example `👤 1isall (22 changes)` in the README's new screenshot ([`docs/assets/demo-live.jpg`](docs/assets/demo-live.jpg), taken from the live demo after the deploy). Separately, `h-measure` key format 2 adds a prefix form for `unscored` paths ([#348](https://github.com/daveremy/stream2worlds/pull/348), closing [#224](https://github.com/daveremy/stream2worlds/issues/224)): `{"prefix": ["data", "log_params"]}` leaves that path and every path under it unscored, in any corpus, where the v1 keys list 84 exact `log_params` paths from the dev corpus. New `dev-key-v2*.json` files use it; the v0 and v1 key files are unchanged, and a v2 key grades only mappings frozen after it. Review follow-ups landed in [#354](https://github.com/daveremy/stream2worlds/pull/354) ([#349](https://github.com/daveremy/stream2worlds/issues/349)). Last, the `s2w` binary now allocates through mimalloc ([#353](https://github.com/daveremy/stream2worlds/pull/353), [decision 0031](docs/decisions/0031-mimalloc-global-allocator.md), [#283](https://github.com/daveremy/stream2worlds/issues/283)), deployed to the demo box at 14:35: on the recorded load at history cap 50,000 the backfill's resident peak drops from 774 to 689 MiB on the main thread and from 1,122 to 1,053 MiB with a viewer connected. SQLite's C heap stays on glibc malloc.
+
+**Learned:** the screenshot shows the gap honestly. Types that have no manifest row still show raw key text in the graph and legend (for example `editor/first_edit_dt+performer/first_edit_dt · keys`), because the viewer only names what the manifest names ([#351](https://github.com/daveremy/stream2worlds/issues/351)).
+
+**Changed course:** none. The "changes, not edits" wording the feed shipped with was ruled in Sprint 93 (below).
+
+**Next:** name the unnamed types in the graph and legend ([#351](https://github.com/daveremy/stream2worlds/issues/351)), then the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)). The live-demo label share ([#342](https://github.com/daveremy/stream2worlds/issues/342)) is still open.
+
+## The demo's display work gets a first leg, with no merge — [#289](https://github.com/daveremy/stream2worlds/issues/289) (2026-09-30)
+
+**Shipped:** no merge. Leg A of [#289](https://github.com/daveremy/stream2worlds/issues/289) cleaned the server-side sentence text (`display_text` strips `/* ... */` section markers, spaces underscored titles and drops a trailing separator) so sentences stop carrying raw wiki markup. The viewer work (names, kind icons, the sentence feed) was still owed and merged in the next sprint ([#350](https://github.com/daveremy/stream2worlds/pull/350)).
+
+**Learned:** plan review blocked twice on the viewer design, and both points were folded into the plan: one renderer per mode, so live rows cannot repaint the old table over the sentence list, and an explicit `<tbody>`.
+
+**Changed course:** the brief promised "Live edits" wording, but manifest v0 has an entity noun and no event noun, and hard-coding "edits" would break decision 0018 (no compiled domain vocabulary). The page says "Live changes"; the manifest noun is [#347](https://github.com/daveremy/stream2worlds/issues/347).
+
+**Next:** the viewer work, then the README screenshot from the live demo.
+
 ## A System 2 manifest names the demo's world, and the fallback label needs a floor — [#344](https://github.com/daveremy/stream2worlds/pull/344), [#288](https://github.com/daveremy/stream2worlds/issues/288) (2026-09-30)
 
 **Shipped:** the demo box now serves a manifest written by System 2 (proposal
