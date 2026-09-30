@@ -2151,6 +2151,9 @@ name = "s2w-system2"
 version = "0.0.0"
 dependencies = [
  "s2w-model",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
