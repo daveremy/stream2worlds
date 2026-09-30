@@ -31,6 +31,11 @@ Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §
 > with one `event: error` frame carrying `stale_epoch` if the served history is replaced under
 > it. A malformed epoch is `bad_parameter`. Pinned URLs that should survive a restart only
 > while the history is unchanged should carry `epoch`.
+>
+> **Amended (2026-09-29, s2w#294):** `/events?last=N` (1 to 1000) replays the latest N events
+> through the current head and closes; it is its own anchor (`from`, `at` and `Last-Event-ID`
+> with it answer `400`) and is clamped to `replay_base`. Every `/events` response carries the
+> epoch and head it resolved as `S2W-Epoch` and `S2W-Head` headers.
 
 ## Decision
 

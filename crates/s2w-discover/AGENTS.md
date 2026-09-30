@@ -21,6 +21,9 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `cargo xtask check` 12 does on the recorded fixture (`testdata/recorded.raw.sse`, a link to the
   s2w-sources fixture), comparing roles as well. No tie is ever broken by a name. A new format
   is a new decision record, never a quiet addition to `stamp.rs`.
+- The second entity test carries a churn guard and a leaf cap (decision 0022, `PROFILER_VERSION`
+  6): a key whose values move on and never return fails it, and a type only it admits relates
+  once. Both read stream order and equality only; no counter is named anywhere.
 - Type labels and attribute names are built from the stream's own key names, as data.
 - Abstaining is a first-class answer: every role that cannot be decided says so in `Profile`,
   and no mapping is emitted without an entity type or below `min_events`.
@@ -28,5 +31,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - `PROFILER_MODEL` (`h-min`) and `PROFILER_VERSION` are recorded on every proposal `serve`
   files from this crate (decision 0025). Bump the version with any change to
   `Config::default()` or to a rule; the model name is not a rule.
+- `manifest` (decision 0029, s2w#301) holds `path_stats` (the profiler's numbers copied into
+  `s2w_model::PathStats`) and `FallbackProposer` (actor `dashboard-fallback/1`): the `feed`
+  projection, one default role, a label per type only where the statistics pick one uniquely.
+  The same name-blindness rule applies; `tests.rs` asserts it under the obfuscation. Bump
+  `FALLBACK_VERSION` with any change to what it proposes. `PathProfile`'s `str_count` and
+  `str_len_mean` feed it; they change no rule, so `PROFILER_VERSION` did not move.
 - Unit tests use synthetic streams with neutral names; no domain knowledge in this crate
   (decision 0018).

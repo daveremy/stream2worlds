@@ -40,6 +40,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   canonical JSON (declaration order, `None` skipped) and is pinned for a full and a
   domain-level-only manifest. Every string is untrusted model output: capped, and free of `<`
   and `>`. The envelope around it lives in `s2w-app`.
+- `ManifestProposer` and its DTOs (`ManifestInput`, `SourceInput`, `PathStats`, `ProposerId`,
+  `ProposerTrace`, `ManifestOutcome`) live here because three crates share them (s2w#301).
+  `ManifestInput`'s serialized JSON is hashed into the envelope's `input_hash`: adding,
+  renaming or reordering a field moves every hash, so do it only with a format change.
 - FNV-1a 64 (`Fnv64`, `fnv1a64`, `fnv1a64_hex`) lives here once. Its values are persisted
   (source ids, log content hashes, snapshot checksums, fixture hashes): never change it.
 - No domain knowledge in this crate; see decision 0018.

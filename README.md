@@ -21,28 +21,29 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **The demo page opens on a world.** It opens on entity types (6 KB, first paint in about 3 s)
-  instead of a 370 MB graph, and every type is a labelled node; set a Focus entity to see a
-  neighbourhood.
-  [#263](https://github.com/daveremy/stream2worlds/pull/263)
+- **The world is a third smaller.** The profiler stops treating edit counters as entity types:
+  on the recorded fixture the head world falls from 887 to 597 MiB with `user` recall unchanged.
+  [#306](https://github.com/daveremy/stream2worlds/pull/306)
+- **The page can paint before the graph arrives.** `/events?last=N` serves the latest N events, and
+  the viewer shows the evidence table from them while `/world` loads.
+  [#305](https://github.com/daveremy/stream2worlds/pull/305)
+- **A world can have a dashboard manifest.** `s2w dashboard show`, `GET /worlds/{world}/dashboard`
+  and the MCP `dashboard` tool read the accepted one; nothing proposes one yet.
+  [#307](https://github.com/daveremy/stream2worlds/pull/307)
 - **A mapping can now merge entities.** When a link's two rules match with different keys, the
-  engine emits a merge, so two names for one wiki become one entity; mappings without links are
-  unchanged.
+  engine emits a merge, so two names for one wiki become one entity.
   [#279](https://github.com/daveremy/stream2worlds/pull/279)
-- **Containment lifts H-lite on held-out data.** Identity F1 rose from 0.44 to 0.53 and every
-  pre-registered prediction hit.
-  [#276](https://github.com/daveremy/stream2worlds/pull/276)
-- **Source lag is reported per partition.** Kafka shows lag for each partition; SSE and stdin say
-  "not reported" rather than 0.
-  [#286](https://github.com/daveremy/stream2worlds/pull/286)
-- **In progress:** single-flight `/world` and progressive rendering, so first paint stays fast as
-  the world grows ([#270](https://github.com/daveremy/stream2worlds/issues/270), [#292](https://github.com/daveremy/stream2worlds/issues/292)).
+- **In progress:** single-flight `/world` and the rest of progressive rendering, so first paint stays
+  fast as the world grows ([#270](https://github.com/daveremy/stream2worlds/issues/270), [#292](https://github.com/daveremy/stream2worlds/issues/292)).
 
 ## Demos
 
 One command each after `cargo build --release`, no other configuration. Newest first — see
 [`demos/`](demos/) for what each one shows and a captured real run.
 
+- **[local-routed-world](demos/local-routed-world/)**: `./demos/local-routed-world/run.sh
+  [--keep]` — a local `s2w serve` whose world is routed from the first event (a human-accepted
+  mapping seeded before serve starts); `--keep` holds it up for the viewer demo check.
 - **[serve-wikipedia](demos/serve-wikipedia/)**: `./demos/serve-wikipedia/run.sh` — one process
   ingests Wikipedia's live edits and serves the resulting world over HTTP.
 - **[watch-wikipedia](demos/watch-wikipedia/)**: `./demos/watch-wikipedia/run.sh` — live stream
@@ -214,7 +215,15 @@ Humans review proposals from the command line. `s2w proposals list [--log-dir DI
 prints every stored proposal with its decisions, then which stream mapping each source runs and
 which mapping rows routing excludes, and why; `--json` prints the same view the query API and
 MCP serve. `s2w proposals grade [--log-dir DIR] [--json]` prints the grades per class and actor.
-Neither creates `proposals.sqlite3`: a missing store reads as empty. `s2w proposals decide
+Neither creates `proposals.sqlite3`: a missing store reads as empty. `s2w proposals propose
+--log-dir DIR --source ID --mapping FILE --author ID [--json]` appends one `stream-mapping`
+proposal by a human author: the StreamMapping JSON in FILE for source ID
+([decision 0021](docs/decisions/0021-stream-mapping-v0.md)), creating the store if needed. It
+decides nothing; the source routes once a human accepts it with `decide`, and from then on
+discovery leaves it alone, so a fresh log is routed from its first event instead of after the
+10,000-event window. The id comes from the author, source and mapping identity, so a re-run
+returns the stored row. A mapping that does not validate, or an unreadable file, is exit 1
+`bad_parameter` and writes nothing. `s2w proposals decide
 --log-dir DIR --proposal ID --outcome accept|reject --basis TEXT --reviewer ID` appends one
 decision with the `human` decider, the only decider whose review grades a producer. The store
 has no reviewer column, so the basis is stored as `reviewer=<id>; <text>`; this prefix is the
@@ -236,8 +245,16 @@ not decode, or whose manifest is null, is refused the same way.
 dashboard manifest: its proposal, author and identity, whether the current mappings still carry
 everything it names (`stale`), and which dashboard rows resolution excludes. `--json` prints the
 same bytes as `GET /worlds/{world}/dashboard` and MCP `dashboard`. A manifest is a
-`dashboard-manifest` proposal resolved per world by 0023's rule; nothing proposes one yet
+`dashboard-manifest` proposal resolved per world by 0023's rule
 ([decision 0029](docs/decisions/0029-dashboard-manifest-v0.md)).
+
+`s2w dashboard propose --log-dir DIR [--world NAME] [--dry-run] [--json]` builds the proposer
+input from each mapped member source's newest 2000 logged events and files the deterministic
+proposer's manifest (actor `dashboard-fallback/1`) with a `dashboard-auto-apply/1` policy
+decision: accept when it validates, reject (a null-manifest row) when it does not. A second run
+on the same log writes nothing. `--dry-run` writes nothing, and with `--json` prints the
+envelope it would file. It takes the proposal store's writer lock for its appends only, so it
+can run beside `s2w serve`; a held lock exits 1 with `store_locked`.
 
 ## Planned interface
 
@@ -283,7 +300,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
-- [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold instructions per event, whose baseline is set from the first CI run (parse and fork not yet measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
+- [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold and parse instructions per event against CI-measured baselines (fork not yet measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))

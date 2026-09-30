@@ -37,7 +37,14 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   `reviewer=<id>; <basis>`) both call `record_decision`. An unknown id or missing store never
   creates the store; an accept on an undecodable `stream-mapping` envelope is refused, and so is
   an accept on a `dashboard-manifest` row whose envelope does not decode or whose manifest is
-  null (decision 0029).
+  null (decision 0029). It is also the one human proposal-write service (#309):
+  `record_mapping_proposal` (the `s2w proposals propose` CLI) appends a `stream-mapping`
+  proposal with a `human` actor and decides nothing. Unlike a decision, it creates the store on
+  a fresh log dir, and only after the author, source and mapping validate; it stores only a
+  payload `decode_envelope` accepts. Its id is `routes::proposal_id` (shared with `discover`,
+  window = position 1), so a re-run is an identical retry. It deliberately skips discover's
+  same-(source, identity) lookup: a human row beside a producer's is harmless, since routing
+  runs the earliest accepted proposal of an identity.
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
@@ -57,12 +64,18 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   snapshot restore, because the feed fingerprint depends on the routes. The world manifest's
   engine list is historical (the defaults at creation), not the live registry. Replay reads
   stored verdicts of registered engine names only (`VerdictStore::read_range_of`).
-- `discover` (decision 0025) is the learned-mapping producer and the only `policy` decider.
+- `dashboard` (decision 0029, s2w#301) is the dashboard-manifest filer and the other `policy`
+  decider (`dashboard-auto-apply/1`). It builds the input from the log tail
+  (`LogReader::read_head` plus a doubling window), asks a `ManifestProposer` outside the
+  writer lock, re-plans under the lock, and never files twice for one (world, input hash,
+  actor): a manifest row stops it, and so do `MAX_ATTEMPTS` null-manifest rows. It runs only
+  from `s2w dashboard propose`, never from `serve`.
+- `discover` (decision 0025) is the learned-mapping producer and a `policy` decider.
   It runs between `serve`'s two route resolutions, profiles only member sources with no
   effective mapping, writes nothing when a `stream-mapping` proposal for the same (source,
   identity) exists from any actor (looked up under the writer lock), mints the proposal id from
-  (actor, source, window, identity), opens the proposal writer per run and drops it (never held
-  by `serve`), and turns every failure into a `discover:` note, never an error.
+  (actor, source, window, identity) with `routes::proposal_id`, opens the proposal writer per
+  run and drops it (never held by `serve`), and turns every failure into a `discover:` note, never an error.
   `discover::in_run` (#197 PR 4b) runs it once per source from the bridge loop, for a source
   unrouted at start that reaches the window mid-run; it notes through `Reporter::note_sink`,
   never changes routes itself (the live-rebuild watcher sees the store move), and keeps a source
@@ -73,7 +86,8 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   the oldest down to half. Never add a second resident world (a base, or one per SSE follower):
   the head alone is most of the memory budget. World queries serve from `base()` (0 while every
   event since offset 0 is retained, else the head); `/events` replays from `replay_base()` using
-  the stored deltas; anything below is `offset_before_base` (410). Index the event list only
+  the stored deltas (`?last=N` replays the latest N through the head and clamps to it, so it never
+  answers `offset_before_base`); anything below is `offset_before_base` (410). Index the event list only
   through `events_after`, never by absolute offset. Never hand out the head `Arc` itself, or the
   next append copies the whole world and the old one stays alive.
   `QueryState::replace_timeline` is the one way to install a timeline. `serve`'s startup

@@ -898,3 +898,38 @@ fn the_read_path_does_not_check_paths() {
         Err(DashboardError::UnknownPath { .. })
     ));
 }
+
+#[test]
+fn a_manifest_input_implies_its_own_validation_context() {
+    let expected = context();
+    let accepted = &expected.mappings[0];
+    let stats = |p: &FieldPath| PathStats {
+        path: p.clone(),
+        count: 1,
+        distinct: 1,
+        str_count: 0,
+        str_len_mean: 0,
+    };
+    let input = ManifestInput {
+        world: "w".to_owned(),
+        sources: vec![SourceInput {
+            source: accepted.source.clone(),
+            mapping_identity: accepted.identity.clone(),
+            mapping: accepted.mapping.clone(),
+            events: 1,
+            event_type: None,
+            paths: expected.paths[SOURCE].iter().map(stats).collect(),
+            sample: Vec::new(),
+        }],
+    };
+    assert_eq!(input.context(), expected);
+    assert_eq!(full().validate(&input.context()), Ok(()));
+}
+
+#[test]
+fn fits_text_is_the_required_string_rule() {
+    assert!(fits_text("a label"));
+    assert!(!fits_text(""));
+    assert!(!fits_text("a <b>"));
+    assert!(!fits_text(&long()));
+}

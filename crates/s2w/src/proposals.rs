@@ -1,4 +1,5 @@
-//! Argument parsing and rendering for `s2w proposals list|grade|decide` (stream2worlds#185).
+//! Argument parsing and rendering for `s2w proposals list|grade|propose|decide`
+//! (stream2worlds#185, #309).
 //!
 //! Every read and write goes through `s2w_app::proposals`, the one service MCP
 //! `decision_record` also calls; this module only parses flags and renders results.
@@ -15,6 +16,8 @@ use s2w_log::Outcome;
 
 use crate::output::{self, Format};
 use crate::{DEFAULT_LOG_DIR, usage_error};
+
+mod propose;
 
 /// Arguments accepted after `s2w proposals list` and `s2w proposals grade`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,9 +37,10 @@ struct DecideArgs {
     json: bool,
 }
 
-/// Dispatches `s2w proposals list|grade|decide`.
+/// Dispatches `s2w proposals list|grade|propose|decide`.
 pub(crate) fn dispatch(args: &[String]) -> ExitCode {
-    const TRY: &str = "Try: proposals list | proposals grade | proposals decide";
+    const TRY: &str =
+        "Try: proposals list | proposals grade | proposals propose | proposals decide";
     match args.first().map(String::as_str) {
         Some("list") => match parse_read(&args[1..]) {
             Ok(args) => run_list(&args),
@@ -44,6 +48,10 @@ pub(crate) fn dispatch(args: &[String]) -> ExitCode {
         },
         Some("grade") => match parse_read(&args[1..]) {
             Ok(args) => run_grade(&args),
+            Err(message) => usage_error(Format::Human, message),
+        },
+        Some("propose") => match propose::parse(&args[1..]) {
+            Ok(args) => propose::run(&args),
             Err(message) => usage_error(Format::Human, message),
         },
         Some("decide") => match parse_decide(&args[1..]) {

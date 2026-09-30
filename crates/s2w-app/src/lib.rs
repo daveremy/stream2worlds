@@ -2,6 +2,7 @@
 
 mod assets;
 pub mod bridge;
+pub mod dashboard;
 pub mod discover;
 mod group_commit;
 mod lag;

@@ -8,6 +8,7 @@ does not.
 | Demo | Type | Command | Shows |
 |---|---|---|---|
 | [watch-wikipedia](watch-wikipedia/) | `live` | `./demos/watch-wikipedia/run.sh` | Live stream → durable log; a progress line while healthy; resume across a restart |
+| [local-routed-world](local-routed-world/) | `live` | `./demos/local-routed-world/run.sh [--keep]` | A world routed from the first event: propose + human-accept a mapping, then serve; `--keep` holds it up for `s2w-demo-check.sh --gates` |
 | [serve-wikipedia](serve-wikipedia/) | `live` | `./demos/serve-wikipedia/run.sh` | One process ingests and serves a live, queryable world over HTTP |
 
 Build once first: `cargo build --release`. Every `run.sh` fails fast with a build instruction
