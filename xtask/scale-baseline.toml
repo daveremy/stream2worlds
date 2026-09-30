@@ -14,7 +14,7 @@
 # touches [ir] or [parse].
 
 tolerance_percent = 5
-set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29), raised by s2w#271 (2026-09-29); recorded supply s2w#174 (2026-09-29)"
+set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29), raised by s2w#271 (2026-09-29); recorded supply s2w#174 (2026-09-29); [parse] s2w#166 (2026-09-29)"
 
 # The recorded fixture, crates/s2w-app/tests/fixtures/recorded-10min.raw.sse: FNV-1a 64 of its
 # bytes, the same pin as FIXTURE_HASH in crates/s2w-app/tests/support/recorded.rs. Both runners
