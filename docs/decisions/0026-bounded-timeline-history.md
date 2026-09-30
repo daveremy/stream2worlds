@@ -157,6 +157,26 @@ slope), stays under 570 MiB (a 30 MiB margin under the asserted 600 MiB). `bridg
 includes serve's snapshot encode, HTTP server or SSE, so the demo box holding at 1 GiB is inferred
 from these runs rather than measured there. The allocator swap is #220's PR C.
 
+**2026-09-29, s2w#243 (PR 1 of s2w#235: where the `/world` hold goes).** The `viewer` child
+now runs `S2W_BACKFILL_MEMORY_VIEWERS=N` phase-staggered readers and records each body's hold on
+the server (`QueryState::with_read_timings`, opt-in): `build` (guard to `HeadView::new`) and
+`write` (serialization with the guard held). On `main` @ 156903a, 3 runs per row, loaded host
+(load average 8-22), median [min-max]:
+
+| Row | Peak | Wall | Slowest `/world` | Build share of the hold |
+|---|---|---|---|---|
+| 1 viewer, 5 s | 875 [860-888] MiB | 115 [70-140] s | 2.0 s | 0.37 [0.37-0.38] |
+| 4 viewers, 5 s | **1861 [1732-1874] MiB** | 419 [399-494] s | 8.1 s | 0.39 [0.38-0.39] |
+| 1 viewer, 1 s | 1087 [1085-1088] MiB | 592 [518-697] s | 3.5 s | 0.37 [0.37-0.37] |
+| One read of the full head, no fold | - | - | - | 0.43 [0.39-0.43] |
+
+A build share under 0.4 means releasing the guard after the projection shortens the hold about
+2.6x, so s2w#235 proceeds with an owned projection over `Arc<EntityState>` plus single-flight
+generations. Copying the four maps instead (a `World::clone` handoff) would cost 221.5 MiB (dhat)
+and about 0.62 s per generation, so that option is ruled out. Four viewers exceed 1 GiB on `main`,
+and one viewer at 1 s now does too (after the batch-250 change above). Full table:
+[s2w#235](https://github.com/daveremy/stream2worlds/issues/235).
+
 ## Alternatives considered
 
 - **Keep a base world and advance it at each drop.** Rejected: a second 403 MiB world does not
