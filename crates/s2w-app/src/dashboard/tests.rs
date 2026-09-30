@@ -28,6 +28,17 @@ fn mapped_log(name: &str) -> TestDirectory {
     dir
 }
 
+/// The proposer input `propose` builds from `dir`.
+fn built_input(dir: &Path) -> ManifestInput {
+    let log = ReadOnlySqliteEventLog::open(dir).expect("log");
+    let store = ReadOnlySqliteProposalStore::open(dir).expect("store");
+    let proposals = store.proposals().expect("proposals");
+    let decisions = store.decisions().expect("decisions");
+    let mapped = mapped_members(&log, &proposals, &decisions).expect("mapped");
+    let tails = read_tail(&log, &mapped.keys().cloned().collect(), TAIL_EVENTS).expect("tail");
+    build_input(WORLD, &tails, &mapped).0
+}
+
 /// Every `dashboard-manifest` proposal and every decision naming one.
 fn dashboard_rows(dir: &Path) -> (Vec<StoredProposal>, Vec<StoredDecision>) {
     let store = ReadOnlySqliteProposalStore::open(dir).expect("store");
@@ -148,13 +159,7 @@ fn a_failed_attempt_is_a_null_row_with_a_reject_and_the_fourth_run_is_skipped() 
 #[test]
 fn a_manifest_the_validator_refuses_is_filed_as_a_null_row_that_keeps_it() {
     let dir = mapped_log("dashboard-validator");
-    let log = ReadOnlySqliteEventLog::open(dir.path()).expect("log");
-    let store = ReadOnlySqliteProposalStore::open(dir.path()).expect("store");
-    let proposals = store.proposals().expect("proposals");
-    let decisions = store.decisions().expect("decisions");
-    let mapped = mapped_members(&log, &proposals, &decisions).expect("mapped");
-    let tails = read_tail(&log, &mapped.keys().cloned().collect(), TAIL_EVENTS).expect("tail");
-    let (input, _) = build_input(WORLD, &tails, &mapped);
+    let input = built_input(dir.path());
     let ManifestOutcome::Manifest { mut manifest, .. } = FallbackProposer.propose(&input) else {
         panic!("the fallback proposes");
     };
@@ -265,6 +270,21 @@ fn the_input_hash_is_stable_and_moves_with_the_tail_and_the_prompt() {
     assert_ne!(
         input_hash(&input, None).expect("hash"),
         input_hash(&input, Some("0123456789abcdef")).expect("hash")
+    );
+}
+
+#[test]
+fn the_input_hash_does_not_depend_on_key_order_in_a_sample() {
+    let dir = mapped_log("dashboard-key-order");
+    let input = built_input(dir.path());
+    let with = |sample: &str| {
+        let mut input = input.clone();
+        input.sources[0].sample = vec![serde_json::from_str(sample).expect("sample")];
+        input_hash(&input, None).expect("hash")
+    };
+    assert_eq!(
+        with(r#"{"x":1,"y":{"p":2,"q":3}}"#),
+        with(r#"{"y":{"q":3,"p":2},"x":1}"#)
     );
 }
 

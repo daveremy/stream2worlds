@@ -18,8 +18,8 @@ use s2w_log::{
     StoredProposal, members_at,
 };
 use s2w_model::{
-    DashboardManifest, FieldPath, ManifestInput, ManifestOutcome, ManifestProposer, ProposerId,
-    ProposerTrace, Segment, SourceId, SourceInput, StreamMapping, fnv1a64_hex,
+    DashboardManifest, FieldPath, Fnv64, ManifestInput, ManifestOutcome, ManifestProposer,
+    ProposerId, ProposerTrace, Segment, SourceId, SourceInput, StreamMapping,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -189,12 +189,11 @@ fn truncate_strings(value: &mut Value) {
 
 /// `fnv1a64_hex` over length-prefixed fields, so no two tuples share an encoding.
 fn hash_fields(fields: &[&[u8]]) -> String {
-    let mut bytes = Vec::new();
+    let mut hasher = Fnv64::new();
     for field in fields {
-        bytes.extend_from_slice(&u64::try_from(field.len()).unwrap_or(u64::MAX).to_le_bytes());
-        bytes.extend_from_slice(field);
+        hasher.write_field(field);
     }
-    fnv1a64_hex(&bytes)
+    format!("{:016x}", hasher.finish())
 }
 
 /// The input hash: the input's canonical JSON and the proposer's prompt hash (empty for none).
@@ -417,10 +416,11 @@ pub fn propose(
         Some(outcome) => Some(filing(&input, prompt_hash, outcome)),
         None => None,
     };
-    let Some(attempt) = attempt.filter(|_| dry_run) else {
+    if !dry_run {
         return write(log_dir, (world, &id, &hash), snapshot, filing, report);
-    };
-    if let Some(filing) = filing {
+    }
+    // A dry run reaches here only from `Plan::Propose`, so both are set.
+    if let (Some(attempt), Some(filing)) = (attempt, filing) {
         let envelope = filing.envelope(world, &hash, attempt);
         report.decided(
             Action::DryRun,
