@@ -120,7 +120,7 @@ curl -sf --max-time 10 "$URL/worlds/default/world?lod=type" \
 
 if [[ "$KEEP" == 1 ]]; then
   echo
-  echo "serving until Ctrl-C (log: $LOG_FILE). In another shell:"
+  echo "serving until Ctrl-C (log: $LOG_FILE). In another shell, with a LifeOS checkout:"
   echo "  S2W_DEMO_URL=$URL bash ~/lifeos/scripts/s2w-demo-check.sh --gates"
   wait "$PID" || true
   PID=""

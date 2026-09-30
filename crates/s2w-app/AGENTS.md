@@ -42,7 +42,9 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   proposal with a `human` actor and decides nothing. Unlike a decision, it creates the store on
   a fresh log dir, and only after the author, source and mapping validate; it stores only a
   payload `decode_envelope` accepts. Its id is `routes::proposal_id` (shared with `discover`,
-  window = position 1), so a re-run is an identical retry.
+  window = position 1), so a re-run is an identical retry. It deliberately skips discover's
+  same-(source, identity) lookup: a human row beside a producer's is harmless, since routing
+  runs the earliest accepted proposal of an identity.
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
@@ -72,8 +74,8 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   It runs between `serve`'s two route resolutions, profiles only member sources with no
   effective mapping, writes nothing when a `stream-mapping` proposal for the same (source,
   identity) exists from any actor (looked up under the writer lock), mints the proposal id from
-  (actor, source, window, identity) with `routes::proposal_id`, opens the proposal writer per run and drops it (never held
-  by `serve`), and turns every failure into a `discover:` note, never an error.
+  (actor, source, window, identity) with `routes::proposal_id`, opens the proposal writer per
+  run and drops it (never held by `serve`), and turns every failure into a `discover:` note, never an error.
   `discover::in_run` (#197 PR 4b) runs it once per source from the bridge loop, for a source
   unrouted at start that reaches the window mid-run; it notes through `Reporter::note_sink`,
   never changes routes itself (the live-rebuild watcher sees the store move), and keeps a source

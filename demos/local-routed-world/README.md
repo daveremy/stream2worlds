@@ -30,8 +30,12 @@ exit.
 S2W_DEMO_URL=http://127.0.0.1:4310 bash ~/lifeos/scripts/s2w-demo-check.sh --gates
 ```
 
+The check is not part of this repo: it is `scripts/s2w-demo-check.sh` in the LifeOS checkout
+(`~/lifeos` on the hub). Without it, `--keep` still gives you a routed world to point any
+viewer or HTTP client at.
+
 `--keep` serves on port 4310, or on `$S2W_PORT`; the script exits with an error if the port is
-taken. The demo check lives in the LifeOS repo. Its page check needs `node` and a headless
+taken. The check's page check needs `node` and a headless
 Chrome (`chrome-headless-shell` under `~/.cache/puppeteer` or `~/.cache/ms-playwright`, or
 `$S2W_BROWSER`); without one, `--gates` reports UNKNOWN instead of a timing line. A real run
 against this demo (2026-09-29):
@@ -59,3 +63,5 @@ demo: PASS (1 world(s))
 
 See `expected-output.txt` for a real run. The port, proposal ids and counts vary with the live
 feed; the proposal id and mapping identity stay the same for the same mapping file.
+`mapping.json` is a symlink to the committed test fixture
+`crates/s2w-system1/testdata/sample.mapping.json`, so a change to that fixture changes both.

@@ -219,6 +219,8 @@ pub fn record_mapping_proposal(
     source: &str,
     mapping_json: &[u8],
 ) -> Result<Proposed, QueryError> {
+    // The CLI checks this at parse time for a usage exit; the service checks again so no caller
+    // can store an author the proposals view cannot print as one token.
     check_author(author)?;
     let source = SourceId::new(source).map_err(|error| QueryError::BadParameter {
         name: "source",
@@ -248,20 +250,14 @@ pub fn record_mapping_proposal(
         LogError::Locked => QueryError::StoreLocked,
         other => other.into(),
     })?;
-    let stored = store
-        .append_proposal(&NewProposal {
-            id: id.clone(),
-            class: STREAM_MAPPING_CLASS.to_owned(),
-            actor,
-            snapshot_offset: first,
-            payload,
-            proposed_at_ms: now_ms()?,
-        })
-        .map_err(|error| match error {
-            LogError::Locked => QueryError::StoreLocked,
-            other => other.into(),
-        })?;
-    drop(store);
+    let stored = store.append_proposal(&NewProposal {
+        id: id.clone(),
+        class: STREAM_MAPPING_CLASS.to_owned(),
+        actor,
+        snapshot_offset: first,
+        payload,
+        proposed_at_ms: now_ms()?,
+    })?;
     Ok(Proposed {
         proposal: ProposalDto::from(&stored.summary()),
         identity,
