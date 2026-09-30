@@ -951,6 +951,7 @@ mod backfill {
     #[test]
     #[ignore = "folds 1.5x10^5 events in five children; run by hand with --release"]
     fn backfill_memory_breakdown() {
+        refuse_mimalloc_options();
         let events = load().unwrap();
         let discovered = mapping(events);
         let id = discovered.identity().unwrap();
@@ -968,7 +969,6 @@ mod backfill {
         .unwrap();
         std::fs::write(directory.join(SOURCE_FILE), events[0].source.as_str()).unwrap();
         eprintln!("log populated in {:.1} s", started.elapsed().as_secs_f64());
-        refuse_mimalloc_options();
         let only = std::env::var(VARIANTS).ok();
         let variants = variants(only.as_deref());
         // A bridge-type child stores verdicts in the shared log directory; a second one in the
