@@ -85,7 +85,7 @@ async function start(): Promise<void> {
   let proposalsTimer: ReturnType<typeof setTimeout> | undefined;
   let frame: number | undefined;
   let proposalsGeneration = 0;
-  let delay = 1000, lastFetch = 0, fetching = false, dirty = false, mounted = false;
+  let delay = 1000, lastFetch = 0, fetching = false, dirty = false, mounted = false, drawn = false;
   // The `/world` parameters actually served, which may differ from the page's (#262): every
   // refresh reuses them, so a refresh can never widen the view to the whole entity graph. Until
   // the first world view is applied they are unknown, so `guard` holds every refresh (#295).
@@ -211,14 +211,22 @@ async function start(): Promise<void> {
       reconnect(); // Includes 503: a connection slot may become available later.
     };
   }
+  function draw(): void {
+    if (drawn) renderer.update(state); else renderer.mount(graph, state);
+    drawn = true;
+  }
+  // Draws the type summary of a large world while its full type view loads (#303). The status
+  // stays "Loading world…" and `mounted` stays false until `mount` applies the full view.
+  function summary(): void { draw(); paint(); }
   // Shows the first applied world view; `bootstrap` calls it, then lets held refreshes through.
   function mount(loaded: Loaded): void {
     const { view } = loaded;
     lastFetch = Date.now(); request = loaded.request; note = loaded.note;
     // Show the level actually served: `Types` when a large world fell back to the type view.
     lodSelect.value = detail.shown = servedLod(loaded);
-    // A retried load (the seed failed after the world was shown) updates the mounted renderer.
-    if (mounted) renderer.update(state); else renderer.mount(graph, state);
+    // A retried load (the seed failed after the world was shown), or the full view after the
+    // summary, updates the drawn renderer; nodes keep their positions by id and links appear.
+    draw();
     mounted = true; paint();
     status.textContent = rebuildingStatus(state.sources) ?? note ??
       (view.nodes.length ? '' : pinned ? 'No data at this offset' :
@@ -245,8 +253,8 @@ async function start(): Promise<void> {
         sources: () => fetchSources(params, load),
         tail: stream => evidenceTail(params, load, stream),
         evidence: at => evidence(params, at, undefined, load),
-        loadWorld: () => loadWorld(params, served => snapshot(served, load)),
-        open, paintEvidence, mount, restartStale,
+        loadWorld: onSummary => loadWorld(params, served => snapshot(served, load), onSummary),
+        open, paintEvidence, summary, mount, restartStale,
       });
     } catch (error) {
       attempt.abort();

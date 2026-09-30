@@ -76,11 +76,16 @@ export type BootDeps = {
   tail(stream: EvidenceStream): Promise<Evidence>;
   /// Pinned: the 500 events through `at` (`api.evidence`); never a `last` request.
   evidence(at: number): Promise<Evidence>;
-  loadWorld(): Promise<Loaded>;
+  /// Resolves with the world view to show (full type or entity view); on a large world it first
+  /// hands the type summary to `onSummary` (#303).
+  loadWorld(onSummary: (summary: WorldView) => void): Promise<Loaded>;
   /// Opens the live stream from `state.lastAppliedOffset` under `state.epoch`.
   open(): void;
   /// The evidence table, Active now and the position line (throttled by the page).
   paintEvidence(): void;
+  /// Draws the type summary (renderer, legend) while the full type view loads. Leaves the status
+  /// at "Loading world…" and the served request unknown: the summary is not the loaded view (#303).
+  summary(view: WorldView): void;
   /// Shows the applied world view: renderer, legend, status, the served request.
   mount(loaded: Loaded): void;
   restartStale(): void;
@@ -123,7 +128,13 @@ export async function bootstrap(d: BootDeps): Promise<void> {
   const sources = live
     ? d.sources().then(list => { if (!gone()) d.state.sources = list; }, () => { /* non-essential */ })
     : Promise.resolve();
-  const world = d.loadWorld();
+  // The summary is drawn as soon as it lands, but `loaded`, `ready()` and the status wait for the
+  // full view: #293's time-to-graph measures the full view, not the summary.
+  const world = d.loadWorld(summary => {
+    if (!sameHistory(summary.epoch)) return;
+    d.state.snapshot(summary);
+    d.summary(summary);
+  });
   const seed = live
     ? d.tail({ onHead: (_head, epoch) => { sameHistory(epoch); }, onRows: rows }).then(tail => {
       if (!sameHistory(tail.epoch)) return;
