@@ -470,9 +470,13 @@ fn ids_and_labels_escape_their_separators() {
     assert_eq!(clash, vec!["p/q/r", "s/q/r"]);
 }
 
-/// Renames every key (reversing their sort order) and hashes every string, inside the decoded
-/// string too: the obfuscation `cargo xtask check` 12 applies to the recorded fixture.
+/// Renames every key (reversing their sort order), shifts every RFC 3339 date-time by [`SHIFT`]
+/// and hashes every other string, inside the decoded string too: the obfuscation `cargo xtask
+/// check` 12 applies to the recorded fixture (decision 0030).
 struct Obfuscate(BTreeMap<String, String>);
+
+/// The constant timestamp shift, the same as `cargo xtask check` 12's.
+const SHIFT: i64 = crate::stamp::REPLAY_SHIFT;
 
 impl Obfuscate {
     fn new(events: &[Value]) -> Self {
@@ -508,6 +512,9 @@ impl Obfuscate {
             ),
             Value::String(s) => match serde_json::from_str::<Value>(s) {
                 Ok(inner @ Value::Object(_)) => Value::String(self.value(&inner).to_string()),
+                _ if crate::stamp::shaped(s) => Value::String(
+                    crate::stamp::shift(s, SHIFT).expect("a fixture date-time shifts"),
+                ),
                 _ => Value::String(format!("h{:016x}", fnv(s))),
             },
             other => other.clone(),
@@ -966,6 +973,87 @@ fn renaming_is_invariant_with_a_leaf() {
     assert_eq!(role(&pa, &["q"]), Role::Entity);
     let a = mapping(a);
     assert_eq!(canonical(mapping(b)), obf.mapping(&a));
+}
+
+/// The base stream plus `s`, a date-time shared by each run of four values of `a` (when that
+/// group joined), and `sn`, a function of `s`. With `opaque`, `s` holds the same values hashed
+/// to strings with no shape; with `spaced`, a space replaces the `T` (not RFC 3339).
+fn stamped(n: u64, opaque: bool, spaced: bool) -> Vec<Value> {
+    let mut events = stream(n);
+    for event in &mut events {
+        let a: u64 = event["a"].as_str().expect("a is a string")[1..]
+            .parse()
+            .expect("a is a{n}");
+        let joined = a / 4;
+        let sep = if spaced { ' ' } else { 'T' };
+        let text = format!(
+            "2024-{:02}-{:02}{sep}{:02}:{:02}:07Z",
+            1 + joined % 12,
+            1 + joined % 28,
+            joined % 24,
+            joined % 60
+        );
+        event["s"] = json!(if opaque {
+            format!("h{:016x}", fnv(&text))
+        } else {
+            text
+        });
+        event["sn"] = json!(format!("k{}", joined % 7));
+    }
+    events
+}
+
+#[test]
+fn a_date_time_keys_no_type_and_stays_an_attribute() {
+    let (profile, discovery) = run(&stamped(1200, false, false), &[]);
+    assert_eq!(role(&profile, &["s"]), Role::Timestamp);
+    let m = mapping(discovery);
+    assert!(m.entities.iter().all(|e| e.key[0] != path(&["s"])), "{m:?}");
+    assert!(entity(&m, "a").attrs.iter().any(|x| x.name == "s"));
+}
+
+#[test]
+fn the_same_values_without_the_shape_key_a_type() {
+    for spaced in [false, true] {
+        let (profile, discovery) = run(&stamped(1200, !spaced, spaced), &[]);
+        assert_eq!(role(&profile, &["s"]), Role::Entity, "spaced {spaced}");
+        let m = mapping(discovery);
+        assert!(entity(&m, "s").attrs.iter().any(|x| x.name == "sn"));
+    }
+}
+
+#[test]
+fn shifting_date_times_only_renames_the_mapping() {
+    let plain = stamped(1200, false, false);
+    let obf = Obfuscate::new(&plain);
+    let hidden: Vec<Value> = plain.iter().map(|v| obf.value(v)).collect();
+    let (was, now) = (&plain[0]["s"], &hidden[0][&obf.0["s"]]);
+    assert_eq!(
+        now.as_str(),
+        crate::stamp::shift(was.as_str().expect("s"), SHIFT).as_deref()
+    );
+    let (pa, a) = run(&plain, &[]);
+    let (pb, b) = run(&hidden, &[]);
+    assert_eq!(role(&pb, &[&obf.0["s"]]), Role::Timestamp);
+    let a = mapping(a);
+    assert_eq!(canonical(mapping(b)), obf.mapping(&a));
+    assert_eq!(pb.event_type, pa.event_type.as_ref().map(|p| obf.path(p)));
+}
+
+#[test]
+fn hashing_date_times_changes_the_mapping() {
+    let plain = stamped(1200, false, false);
+    let obf = Obfuscate::new(&plain);
+    let hashed: Vec<Value> = plain
+        .iter()
+        .map(|v| {
+            let mut v = v.clone();
+            v["s"] = json!(format!("h{:016x}", fnv(v["s"].as_str().expect("s"))));
+            obf.value(&v)
+        })
+        .collect();
+    let a = mapping(run(&plain, &[]).1);
+    assert_ne!(canonical(mapping(run(&hashed, &[]).1)), obf.mapping(&a));
 }
 
 #[test]

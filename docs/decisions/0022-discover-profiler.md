@@ -98,6 +98,12 @@ read through the neutral-named link `crates/s2w-discover/testdata/recorded.raw.s
 vocabulary scan stays clean, with check 11's key and value maps. It adds about 3 s to an
 unoptimized `cargo xtask check` (two profiler passes over 1,615 events).
 
+*Dated note 2026-09-29 (s2w#291 PR 2, [0030](0030-timestamps-are-a-format.md)):* the contract is
+now "rename every key, shift every RFC 3339 date-time by one constant, hash every other string",
+matching the evaluation contract, which shifts timestamps and keeps their format. Check 12 shifts
+date-times with `s2w_discover::stamp::shift` and also compares every path's role; check 11 still
+hashes every string.
+
 ## Measured on the recorded fixture
 
 `crates/s2w-sources/testdata/wikipedia-page-change.raw.sse` (1,615 events, recorded
@@ -458,6 +464,28 @@ its co-occurrence edges to pages and other types are gone (27 relationship rules
 The recorded check-12 fixture's mapping is unchanged (7 types, 19 entity rules, 69 relationships).
 Order, presence and value equality only, integer percentages, no tie broken by a name; a unit
 test covers renaming and hashing with a leaf.
+
+## Amendment 2026-09-29: RFC 3339 date-times are a format (s2w#291 PR 2, `PROFILER_VERSION` 7)
+
+Decision [0030](0030-timestamps-are-a-format.md). A path whose every value is an RFC 3339
+`date-time` (`stamp::shaped`; `Column` counts shaped string cells as it reads them) gets the role
+`Timestamp`, decided after `Constant` and `Flag` and before `EventId`. It keys no type and is no
+stage-5b candidate (5b admits only `Entity` and `EventId`); it stays a candidate dependent, so it
+can be an attribute. The invariance contract and check 12 change as the dated note above says.
+
+**Measured.** On live page-change windows at 10^4 (#291 item 5), v6 keyed one, two and one types
+by a date-time; v7 keys none. On `dev` the only role change is `data.meta.dt` (`NearUnique` to
+`Timestamp`) at both windows, and the frozen mappings are unchanged. On the held-out
+`reserved-4` span every score equals v6's under the base and `user-global` keys (`user` R 1.0000
+at both windows). On the page-change fixture at 1.5x10^5 world events (14,323,096), entities
+(213,153) and types (13) are unchanged; four attribute rules are added (`first_edit_dt` on the
+two `origin_rev_id` types) and the head world grows 596.7 to 599.0 MiB. The recorded check-12
+fixture keeps its 7 types, 19 entity rules and 69 relationship rules, but its attributes change:
+the performer's and the revision editor's `first_edit_dt` and `registration_dt` become attributes
+of the three page-key paths (12 rules; in 1,615 events most pages have one editor, so the
+dependency holds there), and `registration_dt` is no longer an attribute of the prior-state
+editor's `user_text`. A date-time was an `Entity` path in v6 and is a plain dependent now, so it
+can follow any key it depends on. Research 0009's #291 addendum has the tables.
 
 ## Out of scope
 

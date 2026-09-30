@@ -1,0 +1,739 @@
+{
+  "corpus": "dev",
+  "corpus_sha256": "53d35b1c8631cc506d762a855ea554d4ca833f5c02a6fe80c5ceeb52205ae4dd",
+  "window": 200000,
+  "profiler_version": "7",
+  "config": "Config { min_events: 1000, min_support: 20, min_groups: 5, event_id_pct: 98, grey_uniqueness_pct: 90, min_recurrence_pct: 10, fd_accept_pct: 95, fd_grey_pct: 80, type_uniqueness_pct: 90, alias_pct: 99, decode_pct: 100, category_max: 32, spread_groups_pct: 25, spread_window_pct: 10, churn_pct: 90, contain_pct: 10, carry_pct: 95, contain_cap: 250000 }",
+  "pins": {
+    "corpus dev": "Development dev.raw.sse 200000 53d35b1c8631cc506d762a855ea554d4ca833f5c02a6fe80c5ceeb52205ae4dd",
+    "corpus heldout": "Heldout heldout.raw.sse 100000 ad07885cf791b8de760a8f94aca5a45bd5d8d0476be8b0baf695807737809cf6",
+    "corpus heldout-2": "Heldout heldout-2.raw.sse 100000 4432c2a8533e0080a2a97344a2aa5ed1273aafc951faf673dcdb36b65800bc22",
+    "corpus reserved": "Heldout reserved.raw.sse 100000 b420214c92c0ac8151b2b64279cbebd9c8250349b28712dc898974dc7a56f501",
+    "corpus reserved-2": "Heldout reserved-2.raw.sse 100000 bc857dc278d835186afec68705fa2e1313b720bb8eafd99390738496afa27a5c",
+    "corpus reserved-3": "Heldout reserved-3.raw.sse 100000 32593b5564824be07dc47d7b85ba2f378c03b32d0cf19efac03b6c9fbbf84447",
+    "corpus reserved-4": "Heldout reserved-4.raw.sse 100000 dfa075fbe5b58b368e7d3d895d9e27296bd75e695bd7f2150e5b130ac0e0166f",
+    "key dev-key-v0.canonical-mention.json": "30990677e66034db8ce6db38105e00853421efe3f84665e95ece01e3ba02a799",
+    "key dev-key-v0.json": "bb117cb4718039c39f85329c17b721e8f85178ad78ee44bded479032a3cfa3da",
+    "key dev-key-v0.q1-no-wiki.json": "51a8cef868519ef78c7c7e36d2fecebecf9df0606555b108e2a574a5ccf7d8d6",
+    "key dev-key-v0.q3-rcid-scored.json": "3fb72a0aeff2b91062285199b6c20d45eec193e381f5289efca237ff89ebc87a",
+    "key dev-key-v0.q4-separate.json": "935aeb4683234964d5c47f7ff35cb57be9d3bbfdcf64088362a059bf148161ec",
+    "key dev-key-v0.user-global.json": "1eb93fba72f46c7cb1c60d458a1785717e6316651c62135163619feb500716a0",
+    "key dev-key-v1.canonical-mention.json": "82fa6b0118fb35d3c6f8f446fe78776d84d87a8e8bfe960b0bc9fb6aca1ff4b4",
+    "key dev-key-v1.json": "006c50d4a8067c620a157534cb17f5cdfcf64f58ff275184aafaaefc55a48595",
+    "key dev-key-v1.q1-no-wiki.json": "5cb8a5658054920c10f220a38dc7338ccf44c2f5a466d0993bb0ee5215542514",
+    "key dev-key-v1.q3-rcid-scored.json": "bd1ae190f4dc115d88f8755587dbacae85466ff998d3e4712c9bdf13bdd344c2",
+    "key dev-key-v1.q4-separate.json": "9f0be88923f7eebf95a9f76f1158120b64657c5e36490353da7794edec68d236",
+    "key dev-key-v1.user-global.json": "8454ec7e6ec60d21e8b714fcc8c74cfc6253e2d63d9efd541a1dcda8ebc473df"
+  },
+  "profile": {
+    "events": 200000,
+    "skipped": 0,
+    "event_type": "data.$schema",
+    "abstained": {
+      "data.log_id": "GreyUniqueness",
+      "data.log_params.accepted": "Sparse",
+      "data.log_params.cascade": "Sparse",
+      "data.log_params.changed": "Sparse",
+      "data.log_params.count.files": "Sparse",
+      "data.log_params.count.revisions": "Sparse",
+      "data.log_params.description": "Sparse",
+      "data.log_params.finalTargetCount": "Sparse",
+      "data.log_params.newmodel": "Sparse",
+      "data.log_params.oldmodel": "Sparse",
+      "data.log_params.pageMessage": "Sparse",
+      "data.log_params.previd": "FewGroups",
+      "data.log_params.revid": "Sparse",
+      "data.log_params.revision": "Sparse",
+      "data.log_params.section": "Sparse",
+      "data.log_params.subject": "Sparse",
+      "data.type": "FewGroups",
+      "data.wiki": "GreyDependency"
+    }
+  },
+  "mapping": {
+    "version": 1,
+    "decode": [
+      [
+        "data"
+      ]
+    ],
+    "entities": [
+      {
+        "id": "data.log_action",
+        "type_label": "data/log_action",
+        "key": [
+          [
+            "data",
+            "log_action"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.log_type",
+            "path": [
+              "data",
+              "log_type"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.type",
+            "path": [
+              "data",
+              "type"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.log_params.img_timestamp",
+        "type_label": "log_params/img_timestamp",
+        "key": [
+          [
+            "data",
+            "log_params",
+            "img_timestamp"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.log_type",
+            "path": [
+              "data",
+              "log_type"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.namespace",
+            "path": [
+              "data",
+              "namespace"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          },
+          {
+            "name": "data.timestamp",
+            "path": [
+              "data",
+              "timestamp"
+            ]
+          },
+          {
+            "name": "data.type",
+            "path": [
+              "data",
+              "type"
+            ]
+          },
+          {
+            "name": "data.wiki",
+            "path": [
+              "data",
+              "wiki"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.meta.domain",
+        "type_label": "data/server_name+meta/domain",
+        "key": [
+          [
+            "data",
+            "meta",
+            "domain"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          },
+          {
+            "name": "data.server_url",
+            "path": [
+              "data",
+              "server_url"
+            ]
+          },
+          {
+            "name": "data.wiki",
+            "path": [
+              "data",
+              "wiki"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.meta.uri",
+        "type_label": "data/title_url+meta/uri",
+        "key": [
+          [
+            "data",
+            "meta",
+            "uri"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.bot",
+            "path": [
+              "data",
+              "bot"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.namespace",
+            "path": [
+              "data",
+              "namespace"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          },
+          {
+            "name": "data.wiki",
+            "path": [
+              "data",
+              "wiki"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.notify_url",
+        "type_label": "data/notify_url",
+        "key": [
+          [
+            "data",
+            "notify_url"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.bot",
+            "path": [
+              "data",
+              "bot"
+            ]
+          },
+          {
+            "name": "data.meta.request_id",
+            "path": [
+              "data",
+              "meta",
+              "request_id"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          },
+          {
+            "name": "data.timestamp",
+            "path": [
+              "data",
+              "timestamp"
+            ]
+          },
+          {
+            "name": "data.wiki",
+            "path": [
+              "data",
+              "wiki"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.parsedcomment",
+        "type_label": "data/parsedcomment",
+        "key": [
+          [
+            "data",
+            "parsedcomment"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.bot",
+            "path": [
+              "data",
+              "bot"
+            ]
+          },
+          {
+            "name": "data.comment",
+            "path": [
+              "data",
+              "comment"
+            ]
+          },
+          {
+            "name": "data.log_action_comment",
+            "path": [
+              "data",
+              "log_action_comment"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.namespace",
+            "path": [
+              "data",
+              "namespace"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          },
+          {
+            "name": "data.type",
+            "path": [
+              "data",
+              "type"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.revision.new",
+        "type_label": "revision/new+revision/old",
+        "key": [
+          [
+            "data",
+            "revision",
+            "new"
+          ]
+        ],
+        "attrs": []
+      },
+      {
+        "id": "data.revision.old",
+        "type_label": "revision/new+revision/old",
+        "key": [
+          [
+            "data",
+            "revision",
+            "old"
+          ]
+        ],
+        "attrs": []
+      },
+      {
+        "id": "data.server_name",
+        "type_label": "data/server_name+meta/domain",
+        "key": [
+          [
+            "data",
+            "server_name"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          },
+          {
+            "name": "data.server_url",
+            "path": [
+              "data",
+              "server_url"
+            ]
+          },
+          {
+            "name": "data.wiki",
+            "path": [
+              "data",
+              "wiki"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.title",
+        "type_label": "data/title",
+        "key": [
+          [
+            "data",
+            "title"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.bot",
+            "path": [
+              "data",
+              "bot"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.namespace",
+            "path": [
+              "data",
+              "namespace"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.title_url",
+        "type_label": "data/title_url+meta/uri",
+        "key": [
+          [
+            "data",
+            "title_url"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.bot",
+            "path": [
+              "data",
+              "bot"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.namespace",
+            "path": [
+              "data",
+              "namespace"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          },
+          {
+            "name": "data.wiki",
+            "path": [
+              "data",
+              "wiki"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "data.user",
+        "type_label": "data/user",
+        "key": [
+          [
+            "data",
+            "user"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "data.$schema",
+            "path": [
+              "data",
+              "$schema"
+            ]
+          },
+          {
+            "name": "data.bot",
+            "path": [
+              "data",
+              "bot"
+            ]
+          },
+          {
+            "name": "data.meta.topic",
+            "path": [
+              "data",
+              "meta",
+              "topic"
+            ]
+          },
+          {
+            "name": "data.server_script_path",
+            "path": [
+              "data",
+              "server_script_path"
+            ]
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "from": "data.log_action",
+        "to": "data.log_params.img_timestamp",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.log_action",
+        "to": "data.meta.domain",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.log_action",
+        "to": "data.meta.uri",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.log_action",
+        "to": "data.title_url",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.log_params.img_timestamp",
+        "to": "data.meta.domain",
+        "kind": "n:1"
+      },
+      {
+        "from": "data.log_params.img_timestamp",
+        "to": "data.meta.uri",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.log_params.img_timestamp",
+        "to": "data.title_url",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.meta.domain",
+        "to": "data.parsedcomment",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.meta.domain",
+        "to": "data.revision.new",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.meta.domain",
+        "to": "data.user",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.meta.uri",
+        "to": "data.meta.domain",
+        "kind": "n:1"
+      },
+      {
+        "from": "data.meta.uri",
+        "to": "data.notify_url",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.notify_url",
+        "to": "data.meta.domain",
+        "kind": "n:1"
+      },
+      {
+        "from": "data.parsedcomment",
+        "to": "data.log_action",
+        "kind": "n:1"
+      },
+      {
+        "from": "data.parsedcomment",
+        "to": "data.log_params.img_timestamp",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.parsedcomment",
+        "to": "data.meta.uri",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.parsedcomment",
+        "to": "data.notify_url",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.parsedcomment",
+        "to": "data.revision.new",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.parsedcomment",
+        "to": "data.title_url",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.title_url",
+        "to": "data.meta.domain",
+        "kind": "n:1"
+      },
+      {
+        "from": "data.title_url",
+        "to": "data.notify_url",
+        "kind": "n:m"
+      },
+      {
+        "from": "data.user",
+        "to": "data.title",
+        "kind": "n:m"
+      }
+    ]
+  }
+}

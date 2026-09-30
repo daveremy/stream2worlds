@@ -209,21 +209,43 @@ fn fold_json(claims: &[WorldEvent]) -> Result<Value, Vec<String>> {
 
 // ---------- the maps ----------
 
+/// How the value map treats RFC 3339 date-times ([`s2w_discover::stamp::shaped`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Stamps {
+    /// Hash them like every other string (check 11: the engine reads no value's shape).
+    Hash,
+    /// Shift them by this many seconds, keeping the format, as the evaluation contract's
+    /// obfuscation does (check 12, decision 0030). A date-time the shift cannot move (a leap
+    /// second, or a year leaving 0000 to 9999) is a problem, never a silent hash.
+    Shift(i64),
+}
+
 /// The key map, the value map, and the raw string leaves pass B must never contain.
 pub(crate) struct Maps {
     keys: BTreeMap<String, String>,
     values: BTreeMap<String, String>,
+    /// The value map reversed, so two texts that map to one value fail closed.
     hashes: BTreeMap<String, String>,
+    stamps: Stamps,
     pub(crate) raw_leaves: BTreeSet<String>,
     problems: Vec<String>,
 }
 
 impl Maps {
     pub(crate) fn build(payloads: &[Value], mapping: &StreamMapping) -> Result<Self, Vec<String>> {
+        Self::build_with(payloads, mapping, Stamps::Hash)
+    }
+
+    pub(crate) fn build_with(
+        payloads: &[Value],
+        mapping: &StreamMapping,
+        stamps: Stamps,
+    ) -> Result<Self, Vec<String>> {
         let mut maps = Self {
             keys: BTreeMap::new(),
             values: BTreeMap::new(),
             hashes: BTreeMap::new(),
+            stamps,
             raw_leaves: BTreeSet::new(),
             problems: Vec::new(),
         };
@@ -296,10 +318,22 @@ impl Maps {
         if self.values.contains_key(text) {
             return;
         }
-        let hashed = format!("h{}", fnv1a64_hex(text.as_bytes()));
+        let hashed = match self.stamps {
+            Stamps::Shift(seconds) if s2w_discover::stamp::shaped(text) => {
+                if let Some(moved) = s2w_discover::stamp::shift(text, seconds) {
+                    moved
+                } else {
+                    self.problems.push(format!(
+                        "raw obfuscation replay: the date-time '{text}' cannot be shifted by {seconds} s (a leap second, or a year outside 0000 to 9999); it would have to be hashed, which the evaluation contract never does"
+                    ));
+                    return;
+                }
+            }
+            _ => format!("h{}", fnv1a64_hex(text.as_bytes())),
+        };
         if let Some(other) = self.hashes.get(&hashed) {
             self.problems.push(format!(
-                "raw obfuscation replay: value-hash collision: '{text}' and '{other}' both hash to '{hashed}'"
+                "raw obfuscation replay: value-map collision: '{text}' and '{other}' both map to '{hashed}'"
             ));
             return;
         }
@@ -321,7 +355,7 @@ impl Maps {
             .ok_or_else(|| format!("raw obfuscation replay: '{text}' is not in the value map"))
     }
 
-    /// Renames every object key and hashes every string leaf in `value`.
+    /// Renames every object key and maps every string leaf in `value` (hashed, or shifted).
     fn rename(&self, value: &Value) -> Value {
         match value {
             Value::Object(fields) => Value::Object(

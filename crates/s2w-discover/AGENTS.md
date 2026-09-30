@@ -15,9 +15,12 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Pure, like the core: no I/O, no async, no clock, no randomness, no `HashMap`/`HashSet`
   (this crate's `clippy.toml` enforces the same bans).
 - Every decision reads value equality, presence or stream order, never a key's name or a
-  value's text. Renaming keys and hashing strings changes the proposal only by the same
-  renaming; `tests.rs` asserts it, and `cargo xtask check` 12 does on the recorded fixture
-  (`testdata/recorded.raw.sse`, a link to the s2w-sources fixture). No tie is ever broken by a name.
+  value's text, with one exception: whether a string is an RFC 3339 date-time (`stamp.rs`, a
+  format, decision 0030). Renaming keys, shifting every date-time by one constant and hashing
+  every other string changes the proposal only by the same renaming; `tests.rs` asserts it, and
+  `cargo xtask check` 12 does on the recorded fixture (`testdata/recorded.raw.sse`, a link to the
+  s2w-sources fixture), comparing roles as well. No tie is ever broken by a name. A new format
+  is a new decision record, never a quiet addition to `stamp.rs`.
 - The second entity test carries a churn guard and a leaf cap (decision 0022, `PROFILER_VERSION`
   6): a key whose values move on and never return fails it, and a type only it admits relates
   once. Both read stream order and equality only; no counter is named anywhere.

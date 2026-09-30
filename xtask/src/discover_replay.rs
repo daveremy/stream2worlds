@@ -1,29 +1,40 @@
-//! Check 12, profiler obfuscation replay: `s2w-discover` proposes the same mapping for a
-//! recorded raw stream whether or not every object key and string value in it is renamed and
-//! hashed first, up to that renaming (decision 0022).
+//! Check 12, profiler obfuscation replay: `s2w-discover` proposes the same mapping, and gives
+//! every path the same role, for a recorded raw stream whether or not every object key in it is
+//! renamed, every RFC 3339 date-time shifted by one constant and every other string value hashed
+//! first, up to that renaming (decisions 0022 and 0030).
 //!
 //! The fixture is SSE text; each event's `data:` and `id:` lines become the stored envelope
 //! `{"data":…,"id":…}` (the bytes need not match the adapter's, only the shape). Pass A profiles
 //! the envelopes. Check 11's maps are built from them with a decode-only mapping (pass A's
-//! decode steps), so keys inside the decoded strings are renamed and their string leaves hashed.
-//! Pass B profiles the renamed envelopes. The expected mapping is pass A's with every path
-//! renamed and its rule ids, type labels and attribute names re-derived from the renamed paths
-//! by the crate's own `rule_id` and `type_labels`; both sides are sorted the same way, and must
-//! be equal, as must the event-type field.
+//! decode steps), so keys inside the decoded strings are renamed and their string leaves mapped,
+//! with one difference from check 11: a date-time is shifted by [`SHIFT`], keeping its format, as
+//! the evaluation contract's obfuscation does, instead of hashed (decision 0030; the shape test
+//! is the profiler's own [`s2w_discover::stamp::shaped`], shared by design, and check 11 still
+//! hashes every string). Pass B profiles the renamed envelopes. The expected mapping is pass A's
+//! with every path renamed and its rule ids, type labels and attribute names re-derived from the
+//! renamed paths by the crate's own `rule_id` and `type_labels`; both sides are sorted the same
+//! way, and must be equal, as must the event-type field and every path's role (a date-time that
+//! lost its shape could fold back into another type as an attribute and leave the mapping text
+//! unchanged, so the roles are compared too).
 //!
 //! Non-vacuity: pass A must propose a mapping with two or more types, a relationship, an
-//! attribute and an alias class of two or more paths; pass B's payloads and mapping must carry
-//! no original string leaf and no original key.
-
+//! attribute and an alias class of two or more paths, and give at least one path the
+//! `Timestamp` role; pass B's payloads and mapping must carry no original string leaf and no
+//! original key.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-use s2w_discover::{Config, Discovery, Profile, discover, rule_id, type_labels};
+use s2w_discover::{Config, Discovery, Profile, Role, discover, rule_id, type_labels};
 use s2w_model::{FieldPath, MAPPING_VERSION, StreamMapping};
 use serde_json::Value;
 
-use crate::obfuscation_raw::Maps;
+use crate::obfuscation_raw::{Maps, Stamps};
+
+/// The constant date-time shift, the profiler crate's [`s2w_discover::stamp::REPLAY_SHIFT`]: no
+/// shifted fixture date-time (all 2001 to 2026) equals an original one, so the leak test stays
+/// exact.
+pub(crate) const SHIFT: i64 = s2w_discover::stamp::REPLAY_SHIFT;
 
 /// The recorded stream, through a neutral-named link so no check reads a domain name.
 pub(crate) const FIXTURE: &str = "crates/s2w-discover/testdata/recorded.raw.sse";
@@ -36,6 +47,8 @@ pub(crate) struct Harness {
     /// Whether the renaming reaches inside decoded strings.
     pub(crate) descend: bool,
     pub(crate) mutate_expected: fn(&mut StreamMapping),
+    /// How the renaming treats date-times.
+    pub(crate) stamps: Stamps,
 }
 
 impl Harness {
@@ -43,6 +56,7 @@ impl Harness {
         profiler: real_profiler,
         descend: true,
         mutate_expected: keep,
+        stamps: Stamps::Shift(SHIFT),
     };
 }
 
@@ -74,7 +88,7 @@ fn replay_inner(sse: &str, harness: &Harness) -> Result<Vec<String>, Vec<String>
         relationships: Vec::new(),
         links: Vec::new(),
     };
-    let maps = Maps::build(&payloads, &decode_only)?;
+    let maps = Maps::build_with(&payloads, &decode_only, harness.stamps)?;
     let hidden = payloads
         .iter()
         .map(|p| maps.payload(p, &a.decode, harness.descend))
@@ -85,6 +99,12 @@ fn replay_inner(sse: &str, harness: &Harness) -> Result<Vec<String>, Vec<String>
     let mut expected = renamed(&maps, &a).map_err(|e| vec![e])?;
     (harness.mutate_expected)(&mut expected);
     let mut problems = non_vacuity(&a);
+    if !profile_a.paths.iter().any(|p| p.role == Role::Timestamp) {
+        problems.push(format!(
+            "profiler obfuscation replay: {FIXTURE}: pass A gave no path the Timestamp role, so the date-time shift is vacuous"
+        ));
+    }
+    problems.extend(roles(&maps, &profile_a, &profile_b));
     problems.extend(leaks(&maps, &hidden, &b));
     let event_type = profile_a
         .event_type
@@ -201,6 +221,25 @@ fn compare(expected: &StreamMapping, got: &StreamMapping) -> Vec<String> {
         got.entities.len(),
         got.relationships.len()
     )]
+}
+
+/// Paths whose role changed under renaming, or that pass B lacks, at most three.
+fn roles(maps: &Maps, a: &Profile, b: &Profile) -> Vec<String> {
+    let got: BTreeMap<&FieldPath, Role> = b.paths.iter().map(|p| (&p.path, p.role)).collect();
+    a.paths
+        .iter()
+        .filter_map(|p| match maps.path(&p.path) {
+            Err(e) => Some(format!("profiler obfuscation replay: {FIXTURE}: {e}")),
+            Ok(renamed) => match got.get(&renamed) {
+                Some(role) if *role == p.role => None,
+                role => Some(format!(
+                    "profiler obfuscation replay: {FIXTURE}: path {:?} is {:?} in pass A but {role:?} at its renamed path in pass B. A role depends on a key name or a string value's text: find it (decision 0022; a date-time's shape is the one allowed reading, decision 0030)",
+                    p.path, p.role
+                )),
+            },
+        })
+        .take(3)
+        .collect()
 }
 
 fn non_vacuity(a: &StreamMapping) -> Vec<String> {

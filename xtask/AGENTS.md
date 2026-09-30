@@ -38,8 +38,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     `s2w_model::NaturalKey::parts`, never its own copy; a key that does not read fails the check.
 - `clippy_config.rs`: check 8, every crate's effective clippy config carries the root size thresholds.
 - `discover_replay.rs`: check 12, profiler obfuscation replay of `s2w-discover` over the recorded
-  fixture (`crates/s2w-discover/testdata/recorded.raw.sse`, a link) with check 11's maps
-  (decision 0022). Self-tests live in `discover_replay/tests.rs`.
+  fixture (`crates/s2w-discover/testdata/recorded.raw.sse`, a link) with check 11's maps, except
+  that RFC 3339 date-times are shifted by one constant instead of hashed (`Stamps::Shift`,
+  decision 0030; check 11 still hashes every string), comparing the mapping, the event-type field
+  and every path's role (decision 0022). Self-tests live in `discover_replay/tests.rs`.
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.

@@ -6,7 +6,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, and reserved-3 for s2w#250 PR 2; `reserved` opened as held-out by s2w#244, the others by the PRs named): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, and reserved-4 for s2w#291 PR 2; `reserved` opened as held-out by s2w#244, the others by the PRs named): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `keys.toml` | Every answer key's sha256, pinned before any score is run, and the reading of #17 it encodes. |
 | `dev-key-v0.json` | dev-key v0: the base key (key-spec format v0, `xtask/src/h_measure/key.rs`). |
@@ -19,6 +19,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `frozen/h-lite-v4.dev-N.json`, `results/h-lite-v4.*` | H-lite `PROFILER_VERSION` 4 (s2w#250 PR 2, the second entity test): frozen on `dev` at the same windows, its `dev` profile table, and its `reserved-3` reports, with v3's reports on the same span beside them. |
 | `frozen/h-min-v5.dev-N.json`, `results/h-min-v5.*` | H-min `PROFILER_VERSION` 5 (s2w#244, stage 5b containment): frozen on `dev` after `reserved` was opened, its `dev` profile table, and its `reserved` reports. |
 | `frozen/h-lite-v4.dev-N.pins-244.json`, `results/h-lite-v4.dev-N.reserved.md` | v4 re-frozen on `dev` under the pins after `reserved` was opened (only that pin line differs from `h-lite-v4.dev-N.json`, which `score` refused for `reserved` until s2w#277), and its `reserved` reports beside v5's. *Correction 2026-09-30 (s2w#277): `score` now accepts a freeze made before its span was opened, so `h-lite-v4.dev-N.json` scores on `reserved` directly; re-scored from 455c547 plus the fix, both windows' reports differ from the committed ones only in the line naming the mapping file. These files stay as the record of what #244 scored.* |
+| `frozen/h-min-v6.dev-N.json`, `frozen/h-min-v7.dev-N.json`, `results/h-min-v{6,7}.dev-N.reserved-4.md` | H-min `PROFILER_VERSION` 6 (s2w#291 PR 1, frozen before any PR 2 change) and 7 (s2w#291 PR 2, RFC 3339 date-times are a format, decision 0030; frozen after `reserved-4` was opened), and their `reserved-4` reports under `dev-key-v1.json` and `dev-key-v1.user-global.json`. v6 was scored from a build of a280af2 plus the `reserved-4` opening. The demo's date-time types (#291 item 5) reproduce only on live page-change logs captured by `s2w watch` (21,528 + 5,232 events, 2026-09-27, kept outside the repo); the recorded page-change fixture (11,667 events) cannot show them, so research 0009's #291 addendum reads them from those logs. |
 
 ## Rules
 
