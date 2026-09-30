@@ -277,3 +277,28 @@ fn merges_that_change_nothing_are_reported() {
         "{problems:?}"
     );
 }
+
+#[test]
+fn a_shift_policy_moves_date_times_and_refuses_one_it_cannot_move() {
+    let empty = StreamMapping {
+        version: s2w_model::MAPPING_VERSION,
+        decode: Vec::new(),
+        entities: Vec::new(),
+        relationships: Vec::new(),
+        links: Vec::new(),
+    };
+    let payloads = vec![serde_json::json!({"at": "2026-09-29T23:15:00Z", "who": "x"})];
+    let hashed = Maps::build(&payloads, &empty).unwrap();
+    assert!(hashed.values["2026-09-29T23:15:00Z"].starts_with('h'));
+    let shifted = Maps::build_with(&payloads, &empty, Stamps::Shift(60)).unwrap();
+    assert_eq!(
+        shifted.values["2026-09-29T23:15:00Z"],
+        "2026-09-29T23:16:00Z"
+    );
+    assert!(shifted.values["x"].starts_with('h'));
+    let leap = vec![serde_json::json!({"at": "2016-12-31T23:59:60Z"})];
+    let problems = Maps::build_with(&leap, &empty, Stamps::Shift(60))
+        .err()
+        .unwrap();
+    assert!(problems[0].contains("cannot be shifted"), "{problems:?}");
+}

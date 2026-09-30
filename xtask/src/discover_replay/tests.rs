@@ -88,3 +88,12 @@ fn an_abstaining_profiler_fails() {
     };
     fires(&harness, "abstained");
 }
+
+#[test]
+fn a_renaming_that_hashes_date_times_fails() {
+    let harness = Harness {
+        stamps: Stamps::Hash,
+        ..Harness::REAL
+    };
+    fires(&harness, "Timestamp in pass A");
+}
