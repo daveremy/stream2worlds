@@ -29,6 +29,7 @@ use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
 use super::epoch::Epoch;
 use super::generation::{self, Generations};
+use super::projection::HeadView;
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
 use super::stream;
@@ -87,7 +88,7 @@ pub struct QueryState {
     /// The event-log directory, so presentation can be read fresh per request rather than
     /// cached at startup — a live `s2w presentation set` is visible without a restart.
     log_dir: Option<Arc<PathBuf>>,
-    /// Where each `/world` body's read-guard hold went (s2w#243); `None` unless a measurement
+    /// Where each `/world` generation's time went (s2w#243); `None` unless a measurement
     /// opts in with [`Self::with_read_timings`].
     read_timings: Option<Arc<ReadTimings>>,
     /// The single-flight gate for full `/world` bodies (s2w#270, s2w#297).
@@ -153,8 +154,9 @@ impl QueryState {
         self
     }
 
-    /// Records where each `/world` body's read-guard hold goes: the wait for the guard, the
-    /// view build, and the write with the guard held (s2w#243). A measurement hook: serve
+    /// Records where each `/world` generation's time goes: the wait for the guard, the capture
+    /// under it, then the sort and the write after it is released (s2w#243, s2w#272). A
+    /// measurement hook: serve
     /// never calls it, and it changes no response byte.
     #[must_use]
     pub fn with_read_timings(mut self) -> Self {
@@ -688,9 +690,9 @@ pub(crate) fn parse_links(raw: Option<&str>) -> Result<LinkDetail, QueryError> {
     }
 }
 
-/// `/world`: the view, streamed (#216). The projection and serialization run on a blocking
-/// thread holding the read guard, and the JSON reaches the client in bounded chunks, so neither
-/// a [`WorldView`] nor the whole body is ever resident. Answers `304` to a matching
+/// `/world`: the view, streamed (#216). The projection runs on a blocking thread: captured
+/// under the read guard, then sorted and serialized after it is released (s2w#272). The JSON
+/// reaches the client in bounded chunks, so the whole body is never resident. Answers `304` to a matching
 /// `If-None-Match` before projecting anything. Every full view (`lod=entity`, and `lod=type`
 /// since s2w#297) goes through the single-flight gate (s2w#270, [`generation`]): at most one
 /// full projection is in flight, shared by every request with the same parameters. The type
@@ -784,7 +786,7 @@ pub(super) fn resolve_offset(
 
 /// Serializes `view` into `writer`. A failed write (client gone or stalled) drops `writer`
 /// unfinished, which ends the body with an error; there is no one left to report it to.
-pub(super) fn write_view(view: &super::projection::HeadView, mut writer: stream::ChunkWriter) {
+pub(super) fn write_view(view: &HeadView, mut writer: stream::ChunkWriter) {
     if serde_json::to_writer(&mut writer, view).is_ok() {
         let _ = writer.finish();
     }

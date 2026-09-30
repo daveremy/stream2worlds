@@ -220,8 +220,8 @@ fn drive(state: &QueryState) {
     }
 }
 
-/// Serves one group from one read-guard hold: errors and `304`s first, then one projection
-/// written once to every subscriber still waiting.
+/// Serves one group: under one read-guard hold, errors and `304`s first, then the capture;
+/// after it, one projection sorted and written once to every subscriber still waiting.
 fn generate(state: &QueryState, group: Group) {
     let Group { key, waiters } = group;
     let started = Instant::now();

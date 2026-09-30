@@ -216,6 +216,15 @@ impl HubAgg {
             last_seen_offset: self.last_seen_offset,
         }
     }
+
+    /// [`Self::facts`], moving the kind counts instead of cloning them.
+    pub(super) fn into_facts(self) -> HubFacts {
+        HubFacts {
+            in_degree: u64::try_from(self.sources.len()).unwrap_or(u64::MAX),
+            by_kind: self.by_kind,
+            last_seen_offset: self.last_seen_offset,
+        }
+    }
 }
 
 /// A hub's [`Node::Hub`] fields beyond the entity's own.

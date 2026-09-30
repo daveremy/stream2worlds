@@ -38,7 +38,7 @@
 //!   `wait` for the guard, `build` under it (`Projection::capture`: `Graph::new` and the copy
 //!   out), then, with the guard released (s2w#272), `prepare` (the sorts) and `write`
 //!   (serialization of the owned view). Only `build` holds the fold's lock. `build share` is
-//!   `build / (build + write)`. `diverged` counts entity states a body kept alive after the
+//!   `build / (build + prepare + write)`. `diverged` counts entity states a body kept alive after the
 //!   fold replaced them (a second copy for the body's lifetime); `diverged_max` is the most
 //!   for one body. Since s2w#270 one generation can serve several readers' bodies: `builds`
 //!   counts generations, `bodies` what they served.

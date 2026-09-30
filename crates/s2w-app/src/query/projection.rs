@@ -116,15 +116,6 @@ impl Projection {
 }
 
 impl HeadView {
-    /// [`Projection::capture`] then [`Projection::prepare`], for a caller that holds the world
-    /// for the whole body anyway.
-    ///
-    /// # Errors
-    /// As [`world_view`].
-    pub fn new(world: &World, params: &ViewParams, epoch: Epoch) -> Result<Self, QueryError> {
-        Ok(Projection::capture(world, params, epoch)?.prepare())
-    }
-
     /// Entity states this view holds that the world no longer shares: the fold replaced them
     /// after the capture, so each is a second copy alive for as long as this view. Meaningful
     /// for a view of the head only; for a world dropped after the capture (an `at` below the
@@ -171,6 +162,7 @@ impl Entities {
             .zip(0..)
             .map(|(&kind, id)| (kind, id))
             .collect();
+        // Every kept kind is in the table by construction; `KindId::MAX` is never produced.
         let kind_id = |kind: &str| kind_ids.get(kind).copied().unwrap_or(KindId::MAX);
         let nodes = members
             .into_iter()
@@ -187,7 +179,7 @@ impl Entities {
                     .get(&id)
                     .map(|refs| refs.iter().map(|&(k, hub)| (kind_id(k), hub)).collect())
                     .unwrap_or_default(),
-                hub: hubs.remove(&id).as_ref().map(super::view::HubAgg::facts),
+                hub: hubs.remove(&id).map(super::view::HubAgg::into_facts),
             })
             .collect();
         let links = links

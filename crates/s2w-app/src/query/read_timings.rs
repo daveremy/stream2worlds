@@ -1,7 +1,8 @@
 //! Where a `/world` generation's time goes (s2w#243, PR 1 of s2w#235): the wait for the read
 //! guard, the capture under it (`Projection::capture`: `Graph::new` and the copies), and, after
 //! the guard is released (s2w#272), the sort and the write. Since s2w#270 one generation can
-//! serve several bodies, so the phases are per generation and `bodies` counts what they served. Off unless a caller opts in with
+//! serve several bodies, so the phases are per generation and `bodies` counts what they served.
+//! Off unless a caller opts in with
 //! [`QueryState::with_read_timings`](super::QueryState::with_read_timings); serve never does,
 //! and the timings never change what is written.
 
@@ -41,24 +42,25 @@ pub struct ReadTimingsSnapshot {
     /// the stall limit).
     pub write: PhaseTiming,
     /// Entity states the fold replaced while a view still held them, summed over generations
-    /// (decision 0028's divergence), counted after each write.
+    /// (decision 0028's divergence), counted after each write. Meaningful for views of the head:
+    /// a view of an `at` below it counts every state, since its world is dropped at capture.
     pub diverged: u64,
     /// The most in one generation.
     pub diverged_max: u64,
 }
 
 impl ReadTimingsSnapshot {
-    /// `build / (build + write)` over the summed times: the share of main's old hold (capture,
-    /// sort and write under the guard) that the guard still covers. `None` before the first body.
+    /// `build / (build + prepare + write)` over the summed times: the share of a generation
+    /// spent under the guard (before s2w#272 the whole of it). `None` before the first body.
     #[must_use]
     pub fn build_share(&self) -> Option<f64> {
-        share(self.build.total, self.write.total)
+        share(self.build.total, self.prepare.total + self.write.total)
     }
 
     /// The same ratio over the longest instances: the build share of the worst case.
     #[must_use]
     pub fn build_share_of_max(&self) -> Option<f64> {
-        share(self.build.max, self.write.max)
+        share(self.build.max, self.prepare.max + self.write.max)
     }
 }
 
@@ -189,7 +191,8 @@ mod tests {
             }
         );
         let close = |got: Option<f64>, want: f64| (got.unwrap() - want).abs() < 1e-9;
-        assert!(close(seen.build_share(), 0.4));
-        assert!(close(seen.build_share_of_max(), 0.5));
+        // build / (build + prepare + write).
+        assert!(close(seen.build_share(), 400.0 / 1040.0));
+        assert!(close(seen.build_share_of_max(), 300.0 / 630.0));
     }
 }
