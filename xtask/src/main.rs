@@ -21,10 +21,11 @@
 //!
 //! 7. **Module sizes** (`module_size.rs`): report-only AST spans and blocking exemption growth.
 //! 9. **Domain vocabulary** (`vocabulary.rs`, terms in `xtask/vocabulary-denylist.txt`): no
-//!    crate's `src/` tree — xtask's own included — nor the web view's TypeScript names the
-//!    retired domain's terms (decision 0018: no compiled domain code). The denylist is data read
-//!    at run time; an entry matches a contiguous run of tokens, so one term catches every
-//!    spelling, and test code plus `// vocabulary: allow` are the only exemptions.
+//!    crate's `src/` tree — xtask's own included — nor the web view's TypeScript, nor any
+//!    committed prompt file under a crate's `prompts/` tree, names the retired domain's terms
+//!    (decision 0018: no compiled domain code). The denylist is data read at run time; an entry
+//!    matches a contiguous run of tokens, so one term catches every spelling, and test code
+//!    plus `// vocabulary: allow` are the only exemptions (the opt-out never reaches prompts).
 //! 10. **Obfuscation replay** (`obfuscation.rs`): the golden fixture folds to the same world
 //!     whether or not its claim data (identifiers, attribute names, string values) is renamed
 //!     and hashed first — a regression guard against code that reads a specific name or value
