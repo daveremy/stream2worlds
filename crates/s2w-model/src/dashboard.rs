@@ -6,6 +6,7 @@
 //! Format 1 is frozen by [`DashboardManifest::identity`]'s pinned test: change a field and the
 //! pinned identities move, which needs a decision record.
 
+mod display;
 mod propose;
 mod render;
 mod validate;
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{FieldPath, Fnv64};
 
+pub use display::{display_text, is_display_space};
 pub use propose::{
     ManifestInput, ManifestOutcome, ManifestProposer, PathStats, ProposerId, ProposerTrace,
     SourceInput,
