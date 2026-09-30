@@ -21,22 +21,26 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **A large world paints its shape first.** `/world?lod=type&links=none` returns the type summary
+  in about 150 ms at 360k entities, against 2.5 s for the full type view, and the viewer draws it
+  before the links arrive. [#318](https://github.com/daveremy/stream2worlds/pull/318),
+  [#319](https://github.com/daveremy/stream2worlds/pull/319)
+- **System 2 can propose a dashboard.** `s2w dashboard propose --system2-cmd <program>` asks any
+  model CLI for the manifest, sandboxed (no shell, cleared environment, time and byte caps) and
+  replayable. [#320](https://github.com/daveremy/stream2worlds/pull/320)
 - **A world proposes its own dashboard.** `s2w dashboard propose` writes a valid default manifest
   from the newest events of each mapped source, with no model in the loop.
   [#312](https://github.com/daveremy/stream2worlds/pull/312)
+- **Four viewers share one `/world` build.** Full entity and full type requests are single-flight,
+  so concurrent viewers no longer each build their own full projection.
+  [#315](https://github.com/daveremy/stream2worlds/pull/315),
+  [#322](https://github.com/daveremy/stream2worlds/pull/322)
 - **A timestamp is never a thing.** Date-time fields no longer become entity types, and the change
   passed pre-registered scoring on a span nobody had read.
   [#314](https://github.com/daveremy/stream2worlds/pull/314)
-- **Measure the viewer on your own machine.** `demos/local-routed-world/run.sh --keep` serves a
-  routed Wikipedia world in seconds, so `s2w-demo-check.sh --gates` runs locally.
-  [#313](https://github.com/daveremy/stream2worlds/pull/313)
-- **Four viewers share one `/world` build.** Full-graph requests are single-flight, so the page no
-  longer builds four 330 MiB projections at once. [#315](https://github.com/daveremy/stream2worlds/pull/315)
-- **The world is a third smaller.** The profiler stops treating edit counters as entity types:
-  on the recorded fixture the head world falls from 887 to 597 MiB with `user` recall unchanged.
-  [#306](https://github.com/daveremy/stream2worlds/pull/306)
-- **In progress:** the type summary so the graph can meet its 3 s gate, then a System 2 dashboard
-  proposer ([#296](https://github.com/daveremy/stream2worlds/issues/296), [#311](https://github.com/daveremy/stream2worlds/issues/311)).
+- **In progress:** a cheaper full type view so the graph meets its 3 s gate (4.79 s on the demo
+  box today) ([#272](https://github.com/daveremy/stream2worlds/issues/272),
+  [#292](https://github.com/daveremy/stream2worlds/issues/292)).
 
 ## Demos
 
@@ -106,11 +110,13 @@ s2w watch wikipedia --log-dir ./s2w-data
 s2w serve wikipedia --log-dir ./s2w-data --port 4310 --world default
 # From another terminal:
 curl http://localhost:4310/worlds/default/world
-# On a large world, ask for the type view first: /world?lod=type is small by construction,
-# while the default (lod=entity) returns every entity.
+# On a large world, ask for the type summary first: /world?lod=type&links=none skips the
+# relationship pass; lod=type adds the links between types, while the default (lod=entity)
+# returns every entity.
 # Or open http://localhost:4310/ in a browser for the web view (evidence table and graph);
 # add ?at=<offset> to the URL to pin a moment.
-# Above 5,000 entities the page shows entity types instead of every entity; set a
+# The page fetches the type summary first. Above 5,000 entities it draws the summary instead
+# of every entity, then adds the links from the full type view. Set a
 # Focus entity (and Hops) to see its neighbourhood (#262).
 # The Detail selector reads Types while the page shows types.
 curl http://localhost:4310/worlds/default/sources
@@ -375,7 +381,7 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Property & snapshot testing | `proptest`, `insta` | building (gate 2) | Property tests check the fold's entity identity against an independent reference model and resume from any serialized prefix; `insta` pins the fold's output shape for human review. Test-only dependencies of `s2w-core`; `s2w-app` also uses `proptest` to check that a world restored from a snapshot plus its tail equals the full fold. |
 | Licence and advisory gate | `cargo deny check licenses advisories bans` | built (gate 2) | Dependencies must stay permissive: MIT, Apache-2.0, ISC, BSD-3-Clause or Unicode-3.0, plus two scoped exceptions (`foldhash` Zlib, never compiled for our targets; `webpki-root-certs` CDLA-Permissive-2.0, the Mozilla CA bundle), per [research 0003 §8d](research/0003-rust-substrate.md#8d-licences). RustSec advisories must not silently ship. |
 | Sources | A `Source` registry resolved by URI scheme ([decision 0008](docs/decisions/0008-generic-sse-adapter.md)): Kafka by partition assignment via `rskafka` (never a consumer group, never commits; [decision 0007](docs/decisions/0007-kafka-client.md)), a generic SSE adapter via `reqwest`/`tokio`/`tokio-stream` with named presets (e.g. `wikipedia`) as URL+settings data over it ([decision 0003](docs/decisions/0003-wikipedia-sse-client.md)), and stdin NDJSON | built (gate 2) | Three real transports plus a preset, so the source seam is not designed from one case. |
-| Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms. Measured by `gungraun` (Valgrind instruction counts), `dhat` (heap bytes) and a `rustix` statfs tmpfs check | partly measured (gate 2) | Heap bytes per entity (`cargo xtask check`) is gated against `xtask/scale-baseline.toml`. Fold instructions per event (`cargo xtask scale`, CI job `scale`) is gated against the same file, with baselines set from CI runs. Append events/s is reported, not gated. Each number is measured on two event supplies side by side ([#174](https://github.com/daveremy/stream2worlds/issues/174)): a seeded synthetic generator (100,000 events) and a recorded 10-minute Wikipedia stream (11,667 raw events, 58,335 mapped claims). Synthetic: 5,764 Ir/event and 360 bytes per entity (1.20× the 300 B planning figure). Recorded: 15,285 Ir per raw event and 346 bytes per entity (1.15×), 409 B per relationship. Bytes are dhat live heap, test profile, entities folded before relationships, before allocator overhead, under a 600 B ceiling (decision 0004's 2× line); [#172](https://github.com/daveremy/stream2worlds/issues/172) cut the synthetic figure from 830 B and [#190](https://github.com/daveremy/stream2worlds/issues/190) to 360 B; [#191](https://github.com/daveremy/stream2worlds/issues/191) works toward 300 B. Parse instructions per raw event (`cargo xtask scale`, [#166](https://github.com/daveremy/stream2worlds/issues/166)) is gated too: the recorded stream through System 1's `MappingEngine` with a mapping that also merges two site entities per event, 215,248 Ir per raw event. Fork cost is not measured yet. Per-partition source lag (records behind the Kafka high watermark) is reported on `watch`'s and `serve`'s status line ([#168](https://github.com/daveremy/stream2worlds/issues/168)); SSE and stdin report none; lag on the `sources` route, MCP and the view is [#284](https://github.com/daveremy/stream2worlds/issues/284). Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
+| Scale | One process on a 4-core, 16 GB laptop: 1,000 events/s, 10^6 live entities in 1 GB, 20 possible-world forks in under 100 ms. Measured by `gungraun` (Valgrind instruction counts), `dhat` (heap bytes) and a `rustix` statfs tmpfs check | partly measured (gate 2) | Heap bytes per entity (`cargo xtask check`) is gated against `xtask/scale-baseline.toml`. Fold instructions per event (`cargo xtask scale`, CI job `scale`) is gated against the same file, with baselines set from CI runs. Append events/s is reported, not gated. Each number is measured on two event supplies side by side ([#174](https://github.com/daveremy/stream2worlds/issues/174)): a seeded synthetic generator (100,000 events) and a recorded 10-minute Wikipedia stream (11,667 raw events, 58,335 mapped claims). Synthetic: 5,764 Ir/event and 369 bytes per entity (1.23× the 300 B planning figure). Recorded: 15,285 Ir per raw event and 349 bytes per entity (1.16×), 409 B per relationship. Bytes are dhat live heap, test profile, entities folded before relationships, before allocator overhead, under a 600 B ceiling (decision 0004's 2× line); [#172](https://github.com/daveremy/stream2worlds/issues/172) cut the synthetic figure from 830 B and [#190](https://github.com/daveremy/stream2worlds/issues/190) to 360 B, and [#271](https://github.com/daveremy/stream2worlds/issues/271)'s shared entity states raised it to 369 B; [#191](https://github.com/daveremy/stream2worlds/issues/191) works toward 300 B. Parse instructions per raw event (`cargo xtask scale`, [#166](https://github.com/daveremy/stream2worlds/issues/166)) is gated too: the recorded stream through System 1's `MappingEngine` with a mapping that also merges two site entities per event, 215,248 Ir per raw event. Fork cost is not measured yet. Per-partition source lag (records behind the Kafka high watermark) is reported on `watch`'s and `serve`'s status line ([#168](https://github.com/daveremy/stream2worlds/issues/168)); SSE and stdin report none; lag on the `sources` route, MCP and the view is [#284](https://github.com/daveremy/stream2worlds/issues/284). Not a distributed system: bigger topics use `--partitions` or `--sample 1/N by key` ([decision 0004](docs/decisions/0004-scale-envelope.md), [research 0006](research/0006-scaling.md)). |
 | Memory allocator | glibc malloc; `mimalloc` only in the `backfill_memory_mimalloc` test target | measuring (s2w#220) | On the recorded load at history cap 2, mimalloc lowers the backfill's resident peak from 1,027 to 944 MiB on the main thread and from 1,056 to 954 MiB on the blocking pool (3 runs each). glibc keeps that memory resident after the backfill's state is dropped. Switching the binary's allocator waits on a ruling in s2w#220. |
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |
