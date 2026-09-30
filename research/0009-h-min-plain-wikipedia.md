@@ -497,3 +497,63 @@ and no world event.
 nothing that `recentchange` scores: its only date-time path (`meta.dt`) was never a type. `user`
 keeps full recall. MediaWiki's 14-digit `img_timestamp` is still a type; decision 0030 names
 that as a limit.
+
+## Addendum 2026-09-30 (UTC): an integer key must come back (s2w#327, `PROFILER_VERSION` 8)
+
+**Change.** Decision 0022's s2w#327 amendment: a second-test key whose every value is an integer
+must come back under some follower (fewer than `return_pct`, 30, of its counted changes
+superseded under at least one follower with `min_support` of them). It removes the recorded
+page-change fixture's `mediainfo/content_size` type. `revision/comment` stays, as the ruling on
+#327 accepts; a floor on every kind would also drop `dev`'s `title` at 2x10^5 (the decision has
+the numbers).
+
+**Hygiene.** No corpus was left unopened, so this is a no-loss check on spans already opened, not
+a fresh held-out test. Leg A's in-sample reads (fixture and `dev` only) found no integer key on
+`dev` that passes only the second test. The predictions were posted on #327
+([comment](https://github.com/daveremy/stream2worlds/issues/327#issuecomment-5911112660), 12:15:39)
+before the rule's first run (8638bb5, 12:21). v8 was then frozen on `dev` at both windows, and
+each file differs from v7's only in `profiler_version` and the config text (the new field).
+
+**Result.** On `reserved-4`, every row of every report equals v7's under the base and
+`user-global` keys, at both windows; the reports differ only in the line naming the mapping file.
+The mappings are the same, so the other spans' scores are v7's too. v8 on every span (base key
+unless named):
+
+| span | N | base P | base R | base F1 | `page` R | `user` R | user-global R |
+|---|---|---|---|---|---|---|---|
+| `heldout` | 10^4 | 0.9881 | 0.3793 | 0.5482 | 0.2500 | 1.0000 | 0.3793 |
+| `heldout` | 2x10^5 | 0.9765 | 0.4350 | 0.6019 | 0.5000 | 1.0000 | 0.4350 |
+| `heldout-2` | 10^4 | 0.9910 | 0.3606 | 0.5288 | 0.2500 | 1.0000 | 0.3606 |
+| `heldout-2` | 2x10^5 | 0.9835 | 0.4182 | 0.5869 | 0.5000 | 1.0000 | 0.4182 |
+| `reserved` | 10^4 | 0.9933 | 0.3646 | 0.5334 | 0.2500 | 1.0000 | 0.3646 |
+| `reserved` | 2x10^5 | 0.9873 | 0.4220 | 0.5912 | 0.5000 | 1.0000 | 0.4220 |
+| `reserved-2` | 10^4 | 0.9912 | 0.3641 | 0.5326 | 0.2500 | 1.0000 | 0.3641 |
+| `reserved-2` | 2x10^5 | 0.9847 | 0.4215 | 0.5903 | 0.5000 | 1.0000 | 0.4215 |
+| `reserved-3` | 10^4 | 0.9925 | 0.3670 | 0.5358 | 0.2500 | 1.0000 | 0.3670 |
+| `reserved-3` | 2x10^5 | 0.9863 | 0.4241 | 0.5932 | 0.5000 | 1.0000 | 0.4241 |
+| `reserved-4` | 10^4 | 0.9944 | 0.3684 | 0.5376 | 0.2500 | 1.0000 | 0.3684 |
+| `reserved-4` | 2x10^5 | 0.9875 | 0.4254 | 0.5946 | 0.5000 | 1.0000 | 0.4254 |
+
+**Page-change memory** (`backfill_memory`'s `world` child, the recorded fixture cycled to
+1.5x10^5, mapping discovered at 10^4; "floor off" is this build with `return_pct` 101, v7's rule):
+
+| | world events | head world | entities | types |
+|---|---|---|---|---|
+| floor off (v7's rule) | 14,323,096 | 599.2 MiB | 213,153 | 13 |
+| v8 | 14,264,996 | 597.7 MiB | 212,633 | 12 |
+
+One pass over the fixture's 11,667 events gives 1,109,478 world events, down from 1,113,978
+(-4,500, 0.40%, the size's share).
+
+**Pre-registered predictions:**
+
+| | prediction | measured | |
+|---|---|---|---|
+| 1 | the discovered-types baseline loses exactly `mediainfo/content_size` | exactly that line | hit |
+| 2 | world events on the fixture drop by about 0.4% | -0.40% (4,500 of 1,113,978) | hit |
+| 3 | v8's `dev` freezes equal v7's except version and config text | equal, both windows | hit |
+| 4 | every score on every opened span equals v7's; no recall loss | `reserved-4` reports equal; the other spans follow from 3 | hit |
+| 5 | check 12 still passes | passes | hit |
+
+**Reading.** The rule removes the one integer-valued false type and changes nothing that
+`recentchange` scores. Free text is the open half: s2w#333.
