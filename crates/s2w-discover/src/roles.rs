@@ -229,8 +229,8 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> (Role, V
 ///   groups, and no one of its values is carried by more than half of the events carrying `k`
 ///   and it (so the constancy is not what a near-constant path gives by chance), and
 /// - no such path sees `k` churn (`churns`, s2w#291): under a follower, a key that names a thing
-///   comes back to earlier values (a user returns to a wiki), while a counter or a size of the
-///   follower's thing moves on and never returns. Every such follower counts, not the best one: a
+///   comes back to earlier values (one member of a group turns up in it again and again), while a
+///   counter or a size of the follower's thing moves on and never returns. Every such follower counts, not the best one: a
 ///   counter looks stable under a coarse follower whose groups mix many owners.
 ///
 /// Returns the paths that follow `k`, or none when `k` fails.

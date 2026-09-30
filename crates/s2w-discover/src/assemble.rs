@@ -68,8 +68,32 @@ pub(crate) fn assemble(
         }
     }
     entities.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut relationships = relationships(table, &types, followers, &linked, cfg);
+    relationships.sort_by(|a, b| (&a.from, &a.to, &a.kind).cmp(&(&b.from, &b.to, &b.kind)));
+    let mapping = StreamMapping {
+        version: MAPPING_VERSION,
+        decode: table.decode.clone(),
+        entities,
+        relationships,
+        links: Vec::new(),
+    };
+    mapping
+        .validate()
+        .map_err(|e| format!("emitted mapping is invalid: {e}"))?;
+    Ok(mapping)
+}
+
+/// Co-occurrence relationships between every two types, except that a leaf relates only to its
+/// follower types (`leaf_followers`).
+fn relationships(
+    table: &Table,
+    types: &[Type],
+    followers: &[Vec<Follower>],
+    linked: &BTreeSet<usize>,
+    cfg: &Config,
+) -> Vec<RelationshipRule> {
     let leaves: Vec<Option<BTreeSet<usize>>> = (0..types.len())
-        .map(|i| leaf_followers(&types, i, followers, &linked))
+        .map(|i| leaf_followers(types, i, followers, linked))
         .collect();
     let mut relationships = Vec::new();
     for (i, a) in types.iter().enumerate() {
@@ -86,18 +110,7 @@ pub(crate) fn assemble(
             }
         }
     }
-    relationships.sort_by(|a, b| (&a.from, &a.to, &a.kind).cmp(&(&b.from, &b.to, &b.kind)));
-    let mapping = StreamMapping {
-        version: MAPPING_VERSION,
-        decode: table.decode.clone(),
-        entities,
-        relationships,
-        links: Vec::new(),
-    };
-    mapping
-        .validate()
-        .map_err(|e| format!("emitted mapping is invalid: {e}"))?;
-    Ok(mapping)
+    relationships
 }
 
 /// Every key path of a type: its alias class and the classes merged into it.
