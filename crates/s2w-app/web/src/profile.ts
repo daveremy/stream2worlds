@@ -11,7 +11,9 @@ function hash(value: string): number {
   return result;
 }
 
-function isIdLike(value: string): boolean {
+/// Whether a label value reads as an id (hex, digits, dashes) rather than a name. Exported for
+/// `scripts/measure-labels.mjs`, which scores Active-now rows by the same test.
+export function isIdLike(value: string): boolean {
   if (value.length > 80) return true;
   if (/\s/.test(value) || value.length === 0) return false;
   if (!/[0-9-]/.test(value)) return false;
@@ -110,14 +112,14 @@ export function activeNow(
   evidence: { offset: number; kind: string; entityIds: number[]; summary: string }[],
   nodesById: Map<number, Node>, keyByType: LabelKeyMap, labels?: Map<string, string>,
   windowSize = 50,
-): { label: string; count: number }[] {
+): { id: number; label: string; count: number }[] {
   const counts = new Map<number, number>();
   for (const row of evidence.slice(-windowSize)) {
     for (const id of row.entityIds) counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   return [...counts].sort((left, right) => right[1] - left[1]).slice(0, 5).map(([id, count]) => {
     const node = nodesById.get(id);
-    return { label: node === undefined ? `#${id}` : labels?.get(node.id) ?? labelFor(node, keyByType), count };
+    return { id, label: node === undefined ? `#${id}` : labels?.get(node.id) ?? labelFor(node, keyByType), count };
   });
 }
 
