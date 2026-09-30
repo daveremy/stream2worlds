@@ -13,6 +13,60 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The world answers a cheap summary first, and System 2 can propose a dashboard — [#317](https://github.com/daveremy/stream2worlds/pull/317), [#318](https://github.com/daveremy/stream2worlds/pull/318), [#319](https://github.com/daveremy/stream2worlds/pull/319), [#320](https://github.com/daveremy/stream2worlds/pull/320), [#321](https://github.com/daveremy/stream2worlds/pull/321), [#322](https://github.com/daveremy/stream2worlds/pull/322), [#316](https://github.com/daveremy/stream2worlds/pull/316) (2026-09-30)
+
+**Shipped:** a large world can now say how big it is before it says anything expensive.
+`/world?lod=type&links=none`, and MCP `world_view { links: "none" }`, returns the type summary: the
+type nodes with their counts and the hub nodes, with no relationship pass. At 360,830 entities it
+takes about 150 ms, against about 2.5 s for the full type view, and a repeat request is served from
+memory; the ETag gains a `-nolinks` suffix and every existing tag stays byte-identical
+([#296](https://github.com/daveremy/stream2worlds/issues/296), [#318](https://github.com/daveremy/stream2worlds/pull/318)).
+The viewer asks for that summary first and decides from it whether the world is too big to draw.
+A small world goes straight to the entity view; a large one draws the summary, then the full type
+view adds the links in place with node positions kept
+([#303](https://github.com/daveremy/stream2worlds/issues/303), [#319](https://github.com/daveremy/stream2worlds/pull/319)).
+Full `lod=type` requests now join the single-flight `/world` queue, so four viewers share one
+build; the summary is served alone and never waits
+([#297](https://github.com/daveremy/stream2worlds/issues/297), [#322](https://github.com/daveremy/stream2worlds/pull/322)).
+System 2 gained its `Provider` seam: `ExecProvider` runs any model CLI with no shell, the prompt on
+stdin, a cleared environment, an empty working directory, a 180 s timeout and byte caps;
+`ReplayProvider` answers from recorded replies; `System2Proposer` makes at most two calls per
+attempt, one of them a repair, and its prompts are committed files that check 9 scans
+([#311](https://github.com/daveremy/stream2worlds/issues/311), [#317](https://github.com/daveremy/stream2worlds/pull/317)).
+`s2w dashboard propose --system2-model M/V --system2-cmd <program>` puts that proposer behind the
+manifest filer from Sprint 87, with the operator recipe in
+[decision 0029](docs/decisions/0029-dashboard-manifest-v0.md#the-system-2-proposer-311-2026-09-30)
+([#320](https://github.com/daveremy/stream2worlds/pull/320)). The flaky `bridge_replay` test now waits
+for the bridge to commit through the log's last position instead of stopping at the claim that
+moves the head, and passed 50 runs of 50
+([#258](https://github.com/daveremy/stream2worlds/issues/258), [#321](https://github.com/daveremy/stream2worlds/pull/321)).
+The Sprint 87 entry below landed as [#316](https://github.com/daveremy/stream2worlds/pull/316); its
+scrub added a dated amendment to decision 0006 for the 503 `world_queue_full` code.
+
+**Learned:** the summary's first build took 143 to 159 ms at 360k entities, over the 100 ms line
+the brief set, so it is memoized by (epoch, hub cap, offset) and a repeat costs about 0.01 ms. On
+the demo box, RTT-adjusted first paint held at 825 ms for the slowest of 4 viewers against its 1 s
+gate. The graph fell through the sprint's three deploys, from 7.66 s to 6.72 s to 4.79 s, and still
+fails its 3 s gate ([#292](https://github.com/daveremy/stream2worlds/issues/292)). The viewer's status
+line clears only when the full type view lands, so the graph gate still measures that view, and
+the full view's server build alone is about 2.5 s at this size: 3 s needs a cheaper full view,
+not a faster first paint. Plan review of [#311](https://github.com/daveremy/stream2worlds/issues/311)
+found that a raw U+2028 in stream data could forge the prompt's end-of-data marker; every untrusted
+value now goes through one single-line encoder that escapes it.
+
+**Changed course:** [#311](https://github.com/daveremy/stream2worlds/issues/311) was filed at 3 points
+and took three legs and two PRs, because it defined a new trait with a sandboxed exec path; by the
+sizing rubric it was a 5. It was split into the provider seam and the CLI wiring rather than one
+large PR. With both Codex accounts and agy walled all sprint, Claude implemented every leg and
+Fable and grok held the two review seats.
+
+**Next:** the owned `/world` projection, which sorts and serializes after the world lock is released
+([#272](https://github.com/daveremy/stream2worlds/issues/272)), as the next attempt at a cheaper full
+type view, which is what the graph gate now waits on; [#292](https://github.com/daveremy/stream2worlds/issues/292) stays open until it passes.
+The first real System 2 run on the demo world is one command, waiting on the choice of provider and
+model class ([#288](https://github.com/daveremy/stream2worlds/issues/288)). The demo box runs merged
+main through [#322](https://github.com/daveremy/stream2worlds/pull/322).
+
 ## A world proposes its own dashboard, and the page paints in under a second — [#312](https://github.com/daveremy/stream2worlds/pull/312), [#313](https://github.com/daveremy/stream2worlds/pull/313), [#314](https://github.com/daveremy/stream2worlds/pull/314), [#315](https://github.com/daveremy/stream2worlds/pull/315), [#310](https://github.com/daveremy/stream2worlds/pull/310) (2026-09-30)
 
 **Shipped:** a world can file its own dashboard manifest. `s2w dashboard propose` profiles the
