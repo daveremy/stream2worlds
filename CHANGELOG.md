@@ -13,6 +13,47 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## A world proposes its own dashboard, and the page paints in under a second — [#312](https://github.com/daveremy/stream2worlds/pull/312), [#313](https://github.com/daveremy/stream2worlds/pull/313), [#314](https://github.com/daveremy/stream2worlds/pull/314), [#315](https://github.com/daveremy/stream2worlds/pull/315), [#310](https://github.com/daveremy/stream2worlds/pull/310) (2026-09-30)
+
+**Shipped:** a world can file its own dashboard manifest. `s2w dashboard propose` profiles the
+newest 2,000 events of each mapped source and stores a proposal under the `dashboard-auto-apply/1`
+policy: a manifest that validates is accepted, an empty or invalid one is rejected with its error.
+The first proposer is deterministic (`dashboard-fallback/1`), so the command never waits on a
+model; it produces a `feed` projection with one default role. Re-running on the same log writes
+nothing, and failed attempts stop at 3 per input ([decision 0029](docs/decisions/0029-dashboard-manifest-v0.md),
+[#301](https://github.com/daveremy/stream2worlds/issues/301), [#312](https://github.com/daveremy/stream2worlds/pull/312)).
+A date-time is now a format the profiler knows: a path whose every value is an RFC 3339 date-time
+gets a `Timestamp` role, may be an attribute, and never keys an entity type; check 12 shifts
+timestamps by a constant instead of hashing them (`PROFILER_VERSION` 7,
+[decision 0030](docs/decisions/0030-timestamps-are-a-format.md), [#291](https://github.com/daveremy/stream2worlds/issues/291) PR 2, [#314](https://github.com/daveremy/stream2worlds/pull/314)).
+`s2w proposals propose` files a human-authored stream mapping, and `demos/local-routed-world/run.sh --keep`
+serves a routed Wikipedia world locally, so the viewer's paint gates run against it in seconds
+([#309](https://github.com/daveremy/stream2worlds/issues/309), [#313](https://github.com/daveremy/stream2worlds/pull/313)). At most one full `/world` projection is built at a time;
+requests with the same key share one serialized body and a full queue answers 503
+`world_queue_full` ([#270](https://github.com/daveremy/stream2worlds/issues/270), [#315](https://github.com/daveremy/stream2worlds/pull/315)). The Sprint 86 entry below landed as [#310](https://github.com/daveremy/stream2worlds/pull/310).
+
+**Learned:** on live Wikipedia windows the demo had minted `first_edit_dt` and `rev_dt` as entity
+types, because two users registering in the same second, or one user id on two wikis, made
+timestamps stop being 1:1 with users. The v7 change went from one or two timestamp types to none, and
+all four pre-registered predictions hit on the new `reserved-4` span: the same score as v6, `user`
+recall 1.0, `img_timestamp` still a type (an accepted limit), and the [#282](https://github.com/daveremy/stream2worlds/issues/282) fixture at 599 MiB against 597.
+On the demo box, RTT-adjusted first paint fell from 3.3 s for one viewer (5.1 to 5.9 s for four) at the last sprint's wrap to 1.5 s after
+the first deploy and to 825 ms (max of 4 viewers) at this one: the 1 s gate passes for the first
+time. The graph still takes 6.5 s against its 3 s gate, so the demo check fails on that alone
+([#292](https://github.com/daveremy/stream2worlds/issues/292)). The ASan panic that stalled [#270](https://github.com/daveremy/stream2worlds/issues/270) did not recur in about 2,900 builds and ASan found
+nothing; the evidence points to a single flipped bit (0x2006 is 6 plus one bit), rather than a code bug.
+Review of [#310](https://github.com/daveremy/stream2worlds/pull/310) caught two errors in the S86 entry (the parse gate is `xtask scale`, and
+there were nine child issues, not eleven).
+
+**Changed course:** [#301](https://github.com/daveremy/stream2worlds/issues/301) was filed at 5 points and took three legs for its first PR alone, because one
+issue spanned four crates, the service, the CLI and docs. Its System 2 proposer was split out as
+[#311](https://github.com/daveremy/stream2worlds/issues/311). The sprint also slowed itself: with both Codex accounts and agy walled and the
+weekly limit climbing, two freed slots stayed empty rather than burn on Claude alone.
+
+**Next:** the type summary endpoint and its client, so the graph paints from a summary first
+([#296](https://github.com/daveremy/stream2worlds/issues/296), [#303](https://github.com/daveremy/stream2worlds/issues/303)), then the System 2 dashboard proposer on the same trait
+([#311](https://github.com/daveremy/stream2worlds/issues/311)). Merged main is one PR ahead of the demo box: [#315](https://github.com/daveremy/stream2worlds/pull/315) is not deployed yet.
+
 ## The world sheds a third of its memory, and the page stops waiting for it — [#299](https://github.com/daveremy/stream2worlds/pull/299), [#304](https://github.com/daveremy/stream2worlds/pull/304), [#305](https://github.com/daveremy/stream2worlds/pull/305), [#306](https://github.com/daveremy/stream2worlds/pull/306), [#307](https://github.com/daveremy/stream2worlds/pull/307) (2026-09-29)
 
 **Shipped:** the profiler no longer mints per-edit counters as entity types. A churn rule drops

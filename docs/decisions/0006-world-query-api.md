@@ -36,6 +36,12 @@ Date: 2026-09-27 · Status: accepted · Gate 2 · Issue #36 · Research [0003 §
 > through the current head and closes; it is its own anchor (`from`, `at` and `Last-Event-ID`
 > with it answer `400`) and is clamped to `replay_base`. Every `/events` response carries the
 > epoch and head it resolved as `S2W-Epoch` and `S2W-Head` headers.
+>
+> **Amended (2026-09-30, s2w#270):** at most one full `/world` (`lod=entity`) projection is built
+> at a time. Requests with the same epoch, `at`, `lod`, `focus` and `hops` share one build and
+> one serialized body; a request never joins a build already under way. Up to 32 requests may
+> queue for it, and one more answers 503 `world_queue_full` (retry shortly). `lod=type` is
+> unaffected. The 30 s wait limit and the response bytes are unchanged.
 
 ## Decision
 
@@ -56,6 +62,7 @@ I/O and is callable directly; `router` serves it over HTTP with `axum` 0.8 and a
 Errors are `{"error": <code>, "message": <text>}` with stable codes: `offset_beyond_head` and
 `unknown_entity` (404), `bad_parameter` and `hops_too_large` (400), `branch_not_yet` and
 `lod_not_yet` (501), `unavailable` (503, poisoned lock), `stream_limit` (503, event-stream cap),
+`world_queue_full` (503, full `/world` build queue; amendment 2026-09-30),
 `offset_before_base` (410, below a restored snapshot's base; decision 0024), `stale_epoch` (410,
 a supplied epoch that is not the served one; decision 0023).
 

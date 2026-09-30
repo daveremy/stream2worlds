@@ -21,20 +21,22 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **A world proposes its own dashboard.** `s2w dashboard propose` writes a valid default manifest
+  from the newest events of each mapped source, with no model in the loop.
+  [#312](https://github.com/daveremy/stream2worlds/pull/312)
+- **A timestamp is never a thing.** Date-time fields no longer become entity types, and the change
+  passed pre-registered scoring on a span nobody had read.
+  [#314](https://github.com/daveremy/stream2worlds/pull/314)
+- **Measure the viewer on your own machine.** `demos/local-routed-world/run.sh --keep` serves a
+  routed Wikipedia world in seconds, so `s2w-demo-check.sh --gates` runs locally.
+  [#313](https://github.com/daveremy/stream2worlds/pull/313)
+- **Four viewers share one `/world` build.** Full-graph requests are single-flight, so the page no
+  longer builds four 330 MiB projections at once. [#315](https://github.com/daveremy/stream2worlds/pull/315)
 - **The world is a third smaller.** The profiler stops treating edit counters as entity types:
   on the recorded fixture the head world falls from 887 to 597 MiB with `user` recall unchanged.
   [#306](https://github.com/daveremy/stream2worlds/pull/306)
-- **The page can paint before the graph arrives.** `/events?last=N` serves the latest N events, and
-  the viewer shows the evidence table from them while `/world` loads.
-  [#305](https://github.com/daveremy/stream2worlds/pull/305)
-- **A world can have a dashboard manifest.** `s2w dashboard show`, `GET /worlds/{world}/dashboard`
-  and the MCP `dashboard` tool read the accepted one; nothing proposes one yet.
-  [#307](https://github.com/daveremy/stream2worlds/pull/307)
-- **A mapping can now merge entities.** When a link's two rules match with different keys, the
-  engine emits a merge, so two names for one wiki become one entity.
-  [#279](https://github.com/daveremy/stream2worlds/pull/279)
-- **In progress:** single-flight `/world` and the rest of progressive rendering, so first paint stays
-  fast as the world grows ([#270](https://github.com/daveremy/stream2worlds/issues/270), [#292](https://github.com/daveremy/stream2worlds/issues/292)).
+- **In progress:** the type summary so the graph can meet its 3 s gate, then a System 2 dashboard
+  proposer ([#296](https://github.com/daveremy/stream2worlds/issues/296), [#311](https://github.com/daveremy/stream2worlds/issues/311)).
 
 ## Demos
 
