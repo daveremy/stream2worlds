@@ -1,6 +1,7 @@
 //! Structure discovery, H-min (decision 0022; research 0002 §6 stages 1 to 4, plus per-event
 //! value-equality aliases, inclusion dependencies between identifier paths (stage 5b) and
-//! co-occurrence relationships). `PROFILER_VERSION` 2 to 4 were H-lite: no stage 5b.
+//! co-occurrence relationships, capped for a leaf type to its follower's type). `PROFILER_VERSION` 2
+//! to 4 were H-lite: no stage 5b.
 //!
 //! [`discover`] reads a window of raw payloads, exactly as the log stores them, and proposes a
 //! [`StreamMapping`] or abstains. It reads statistics, never meaning: every decision rests on
@@ -30,7 +31,7 @@ pub const PROFILER_MODEL: &str = "h-min";
 /// PROFILER_MODEL, version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
-pub const PROFILER_VERSION: &str = "5";
+pub const PROFILER_VERSION: &str = "6";
 
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +70,10 @@ pub struct Config {
     /// How far apart, as a share of the events profiled, a repeat group's first and last events
     /// must be to count toward `spread_groups_pct`.
     pub spread_window_pct: usize,
+    /// The second entity test's churn guard (s2w#291): a key fails it when, under any path that
+    /// follows it, at least this share of its counted value changes replace a value that never
+    /// comes back in that follower's group (a counter or a size, not a thing that recurs).
+    pub churn_pct: usize,
     /// Stage 5b: share of a path's distinct values that must also appear at another identifier
     /// path before the two can share one value domain (research 0002 §3's "about 10%").
     pub contain_pct: usize,
@@ -96,6 +101,7 @@ impl Default for Config {
             category_max: 32,
             spread_groups_pct: 25,
             spread_window_pct: 10,
+            churn_pct: 90,
             contain_pct: 10,
             carry_pct: 95,
             contain_cap: 250_000,
@@ -147,12 +153,12 @@ pub enum Discovery {
 #[must_use]
 pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
     let table = flatten::Table::build(payloads, cfg);
-    let roles: Vec<Role> = (0..table.paths.len())
-        .map(|p| {
-            roles::single_column(&table.columns[p], cfg)
-                .unwrap_or_else(|| roles::dependency_role(&table, p, cfg))
+    let (roles, followers): (Vec<Role>, Vec<Vec<roles::Follower>>) = (0..table.paths.len())
+        .map(|p| match roles::single_column(&table.columns[p], cfg) {
+            Some(role) => (role, Vec::new()),
+            None => roles::dependency_role(&table, p, cfg),
         })
-        .collect();
+        .unzip();
     let mut paths: Vec<PathProfile> = table
         .paths
         .iter()
@@ -181,7 +187,7 @@ pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
             table.events, cfg.min_events
         ))
     } else {
-        match assemble::assemble(&table, &roles, &links, cfg) {
+        match assemble::assemble(&table, &roles, &followers, &links, cfg) {
             Ok(mapping) => Discovery::Mapping(mapping),
             Err(reason) => Discovery::Abstain(reason),
         }

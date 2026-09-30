@@ -5,7 +5,7 @@
 //! `hn`, and passes the entity test but is too unique to key a type), `r` repeats with
 //! nothing depending on it, `k` explains when `o` is present.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use s2w_model::{EntityRule, FieldPath, Segment, StreamMapping};
 use serde_json::{Value, json};
@@ -766,4 +766,204 @@ fn renaming_is_invariant_with_containment() {
     assert_eq!(canonical(mapping(b)), obf.mapping(&a));
     let accepted = |p: &Profile| p.contained.iter().filter(|c| c.accepted).count();
     assert_eq!(accepted(&pa), accepted(&pb));
+}
+
+/// How `q` moves under its owner in `owned`.
+#[derive(Clone, Copy)]
+enum Own {
+    /// Counts up: each value is left for good.
+    Counter,
+    /// Cycles through three values: each value comes back.
+    Cycling,
+}
+
+/// `u` (eight owners, named by `un`), and with `pair` also `v` (eight more, named by `vn`), at
+/// random per event; `p` (40 values, named by `pn`) at random. `q` belongs to one owner (one
+/// `(u, v)` pair) and moves on after every `period` of that owner's events, as `mode` says. `q`
+/// has no informative dependent (its followers have eight values over many more groups), so only
+/// the second entity test can pass it; each value spans many owners' interleaved events.
+fn owned(n: u64, mode: Own, period: u64, pair: bool) -> Vec<Value> {
+    let mut rng = Lcg(29);
+    let mut seen = [0_u64; 64];
+    (0..n)
+        .map(|_| {
+            let u = rng.below(8);
+            let v = if pair { rng.below(8) } else { 0 };
+            let owner = usize::try_from(u * 8 + v).unwrap();
+            let step = seen[owner] / period;
+            seen[owner] += 1;
+            let q = 1000 * u64::try_from(owner).unwrap()
+                + match mode {
+                    Own::Counter => step,
+                    Own::Cycling => step % 3,
+                };
+            let p = rng.below(40);
+            let mut event = json!({
+                "u": format!("u{u}"),
+                "un": format!("name{u}"),
+                "q": q,
+                "p": format!("p{p}"),
+                "pn": format!("title{p}"),
+            });
+            if pair {
+                event["v"] = json!(format!("v{v}"));
+                event["vn"] = json!(format!("label{v}"));
+            }
+            event
+        })
+        .collect()
+}
+
+/// The other end of every relationship that names `id`.
+fn related<'m>(m: &'m StreamMapping, id: &str) -> BTreeSet<&'m str> {
+    m.relationships
+        .iter()
+        .filter_map(|r| {
+            if r.from == id {
+                Some(r.to.as_str())
+            } else if r.to == id {
+                Some(r.from.as_str())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_that_moves_on_under_its_follower_and_never_returns_is_no_entity() {
+    let (profile, _) = run(&owned(3000, Own::Counter, 50, false), &[]);
+    assert_eq!(role(&profile, &["u"]), Role::Entity);
+    assert_eq!(role(&profile, &["q"]), Role::NoDependents);
+}
+
+#[test]
+fn a_key_that_comes_back_under_its_follower_is_an_entity() {
+    let (profile, _) = run(&owned(3000, Own::Cycling, 50, false), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::Entity);
+}
+
+/// 32 owners `u` in eight groups `g` (`u / 4`), at random per event; `q` counts up under its
+/// owner, moving on every 50 of the owner's events. Every eighth value of `q` opens with one event
+/// whose `u` is wrong, so `u` follows `q` in about seven eighths of its groups, below
+/// `fd_accept_pct`; `g` follows it in all of them. Under `g`, four owners interleave and `q`'s
+/// values come back; under `u` they never do.
+fn two_followers() -> Vec<Value> {
+    let mut rng = Lcg(31);
+    let mut seen = [0_u64; 32];
+    (0..12_000)
+        .map(|_| {
+            let u = rng.below(32);
+            let owner = usize::try_from(u).unwrap();
+            let step = seen[owner] / 50;
+            let wrong = seen[owner] % 50 == 0 && step % 8 == 0;
+            seen[owner] += 1;
+            let shown = if wrong { (u + 1) % 32 } else { u };
+            json!({"u": format!("u{shown}"), "g": format!("g{}", u / 4), "q": 1000 * u + step})
+        })
+        .collect()
+}
+
+#[test]
+fn a_key_churning_under_any_follower_fails_even_when_a_stronger_one_sees_no_churn() {
+    let events = two_followers();
+    let cfg = Config::default();
+    let bytes: Vec<Vec<u8>> = events.iter().map(|v| v.to_string().into_bytes()).collect();
+    let refs: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
+    let table = flatten::Table::build(&refs, &cfg);
+    let at = |keys: &[&str]| table.paths.iter().position(|p| *p == path(keys)).unwrap();
+    let groups = roles::repeat_groups(&table.columns[at(&["q"])]);
+    let share = |keys: &[&str]| roles::Dependency::measure(&table, &groups, at(keys)).share();
+    // The premise: `g` is the stronger follower, `u` a weaker one that still qualifies.
+    assert_eq!(share(&["g"]), 100);
+    assert!(
+        (cfg.fd_grey_pct..cfg.fd_accept_pct).contains(&share(&["u"])),
+        "{}",
+        share(&["u"])
+    );
+    let (profile, _) = run(&events, &[]);
+    assert_eq!(role(&profile, &["q"]), Role::NoDependents);
+    let lenient = Config {
+        churn_pct: 101,
+        ..Config::default()
+    };
+    assert_eq!(
+        role(&run_with(&events, &[], &lenient).0, &["q"]),
+        Role::Entity
+    );
+}
+
+#[test]
+fn too_few_changes_are_no_evidence_of_churn() {
+    // About 375 events per owner in three steps: two counted changes per owner, 16 in all,
+    // below `min_support`.
+    let (profile, _) = run(&owned(3000, Own::Counter, 130, false), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::Entity);
+}
+
+#[test]
+fn the_churn_threshold_is_inclusive() {
+    let events = owned(3000, Own::Counter, 50, false);
+    let at = Config {
+        churn_pct: 100,
+        ..Config::default()
+    };
+    let above = Config {
+        churn_pct: 101,
+        ..Config::default()
+    };
+    assert_eq!(
+        role(&run_with(&events, &[], &at).0, &["q"]),
+        Role::NoDependents
+    );
+    assert_eq!(
+        role(&run_with(&events, &[], &above).0, &["q"]),
+        Role::Entity
+    );
+}
+
+#[test]
+fn a_second_test_type_relates_only_to_the_type_that_follows_it() {
+    let (profile, discovery) = run(&owned(3000, Own::Cycling, 50, false), &[]);
+    assert_eq!(role(&profile, &["p"]), Role::Entity);
+    let m = mapping(discovery);
+    let q = related(&m, "q");
+    assert!(!q.is_empty(), "no relationship for q: {m:?}");
+    assert!(q.iter().all(|o| ["u", "un"].contains(o)), "{q:?}");
+    // Not a leaf: `u` still relates to `p`, which co-occurs with it as `q` does.
+    assert!(
+        related(&m, "p").iter().any(|o| ["u", "un"].contains(o)),
+        "{m:?}"
+    );
+}
+
+#[test]
+fn a_leaf_keeps_every_type_tied_as_its_best_follower() {
+    let (_, discovery) = run(&owned(6000, Own::Cycling, 20, true), &[]);
+    let m = mapping(discovery);
+    let q = related(&m, "q");
+    assert!(q.iter().any(|o| ["u", "un"].contains(o)), "{q:?}");
+    assert!(q.iter().any(|o| ["v", "vn"].contains(o)), "{q:?}");
+    assert!(
+        q.iter().all(|o| ["u", "un", "v", "vn"].contains(o)),
+        "{q:?}"
+    );
+}
+
+#[test]
+fn a_leaf_whose_follower_keys_no_type_relates_to_nothing() {
+    let m = mapping(run(&recurring(3000, Recur::Spread), &[]).1);
+    assert!(related(&m, "q").is_empty(), "{m:?}");
+}
+
+#[test]
+fn renaming_is_invariant_with_a_leaf() {
+    let plain = owned(6000, Own::Cycling, 20, true);
+    let obf = Obfuscate::new(&plain);
+    let hidden: Vec<Value> = plain.iter().map(|v| obf.value(v)).collect();
+    let (pa, a) = run(&plain, &[]);
+    let (_, b) = run(&hidden, &[]);
+    assert_eq!(role(&pa, &["q"]), Role::Entity);
+    let a = mapping(a);
+    assert_eq!(canonical(mapping(b)), obf.mapping(&a));
 }

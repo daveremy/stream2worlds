@@ -153,22 +153,36 @@ pub(crate) fn single_column(column: &Column, cfg: &Config) -> Option<Role> {
     })
 }
 
+/// A path that follows a key which passed only the second entity test (`recurs`): constant in
+/// `share` percent of the key's repeat groups, with `distinct` values across those groups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Follower {
+    pub(crate) path: usize,
+    pub(crate) share: usize,
+    pub(crate) distinct: usize,
+}
+
 /// The dependency test for a candidate key `k`: the best informative dependent decides, and a
 /// key it rejects outright may still pass the second entity test (`recurs`). A path
 /// in the grey uniqueness band gets the test too, since uniqueness falls as the window grows;
 /// it abstains as `GreyUniqueness` unless it passes. A path that passes at or above
 /// `type_uniqueness_pct` is `NearUnique`, not an entity.
-pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
+///
+/// Also returns the followers that passed `k` by the second test, and none when `k` passed the
+/// first test or neither: a type whose every key passed only the second test is a leaf in
+/// `assemble` (s2w#291).
+pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> (Role, Vec<Follower>) {
     let column = &table.columns[k];
     let unique = pct(column.texts.len(), column.cells.len());
     let grey = unique >= cfg.grey_uniqueness_pct;
     let groups = repeat_groups(column);
     if groups.len() < cfg.min_groups {
-        return if grey {
+        let role = if grey {
             Role::GreyUniqueness
         } else {
             Role::FewGroups
         };
+        return (role, Vec::new());
     }
     let dependents: Vec<(usize, Dependency)> = (0..table.paths.len())
         .filter(|&a| a != k && candidate_dependent(&table.columns[a], cfg))
@@ -181,9 +195,13 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
         .map(|(_, d)| d.share())
         .max()
         .unwrap_or(0);
-    let passes = best >= cfg.fd_accept_pct
-        || (!grey && best < cfg.fd_grey_pct && recurs(table, k, &groups, &dependents, cfg));
-    if passes {
+    let followers = if best < cfg.fd_grey_pct && !grey {
+        recurs(table, k, &groups, &dependents, cfg)
+    } else {
+        Vec::new()
+    };
+    let passes = best >= cfg.fd_accept_pct || !followers.is_empty();
+    let role = if passes {
         if unique >= cfg.type_uniqueness_pct {
             Role::NearUnique
         } else if column.texts.len() <= cfg.category_max && decides_shape(table, k, &groups, cfg) {
@@ -197,7 +215,8 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
         Role::GreyDependency
     } else {
         Role::NoDependents
-    }
+    };
+    (role, followers)
 }
 
 /// The second entity test, for a key whose best informative dependent is below `fd_grey_pct`
@@ -208,8 +227,13 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> Role {
 /// - some other path, which varies, follows it: that path is constant in at least
 ///   `fd_grey_pct` of `k`'s repeat groups, takes at least `min_groups` values across those
 ///   groups, and no one of its values is carried by more than half of the events carrying `k`
-///   and it (so the constancy is not what a near-constant path gives by chance).
+///   and it (so the constancy is not what a near-constant path gives by chance), and
+/// - no such path sees `k` churn (`churns`, s2w#291): under a follower, a key that names a thing
+///   comes back to earlier values (a user returns to a wiki), while a counter or a size of the
+///   follower's thing moves on and never returns. Every such follower counts, not the best one: a
+///   counter looks stable under a coarse follower whose groups mix many owners.
 ///
+/// Returns the paths that follow `k`, or none when `k` fails.
 /// `dependents` are the candidate dependents `dependency_role` measured under `groups`.
 /// Stream order, presence and value equality only, never a name or a value's text.
 fn recurs(
@@ -218,7 +242,7 @@ fn recurs(
     groups: &[Vec<usize>],
     dependents: &[(usize, Dependency)],
     cfg: &Config,
-) -> bool {
+) -> Vec<Follower> {
     let apart = groups
         .iter()
         .filter(|g| match g.as_slice() {
@@ -226,10 +250,46 @@ fn recurs(
             _ => false,
         })
         .count();
-    pct(apart, groups.len()) >= cfg.spread_groups_pct
-        && dependents.iter().any(|&(a, ref d)| {
+    if pct(apart, groups.len()) < cfg.spread_groups_pct {
+        return Vec::new();
+    }
+    let followers: Vec<Follower> = dependents
+        .iter()
+        .filter(|&&(a, ref d)| {
             d.share() >= cfg.fd_grey_pct && d.distinct >= cfg.min_groups && varies(table, k, a)
         })
+        .map(|&(path, ref d)| Follower {
+            path,
+            share: d.share(),
+            distinct: d.distinct,
+        })
+        .collect();
+    if followers.iter().any(|f| churns(table, k, f.path, cfg)) {
+        return Vec::new();
+    }
+    followers
+}
+
+/// Whether `k`'s values move on under `a` and do not come back: in each of `a`'s repeat groups,
+/// `k`'s values in stream order (events that do not carry `k` are skipped), each change from one
+/// value to the next that has a further value after it counts, and it is superseded when the
+/// value it replaced never appears later in that group. At least `churn_pct` of at least
+/// `min_support` counted changes, pooled over the groups, are superseded. A group's last change
+/// does not count: nothing follows it, so its old value is never seen again whatever `k` is.
+fn churns(table: &Table, k: usize, a: usize, cfg: &Config) -> bool {
+    let (mut changes, mut superseded) = (0, 0);
+    for group in repeat_groups(&table.columns[a]) {
+        let seen: Vec<u32> = group.iter().filter_map(|&e| table.rows[e][k]).collect();
+        for i in 1..seen.len().saturating_sub(1) {
+            if seen[i] != seen[i - 1] {
+                changes += 1;
+                if !seen[i + 1..].contains(&seen[i - 1]) {
+                    superseded += 1;
+                }
+            }
+        }
+    }
+    changes >= cfg.min_support && pct(superseded, changes) >= cfg.churn_pct
 }
 
 /// Whether no one value of `a` is carried by more than half of the events that carry both `k`

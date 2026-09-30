@@ -1,6 +1,7 @@
 //! Stages 5 and 6 of research 0002 §6, H-min subset: per-event value-equality aliases joined
 //! with the stage-5b inclusion dependencies (`contain.rs`), attributes by functional dependency,
-//! co-occurrence relationships, and the emitted mapping.
+//! co-occurrence relationships (a leaf type, keyed only by the second entity test, relates only to
+//! the type of the path that follows it), and the emitted mapping.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,7 +10,7 @@ use s2w_model::{
 };
 
 use crate::flatten::{BOOL, INT, STR, Table, pct};
-use crate::roles::{Dependency, Role, aliased, candidate_dependent, repeat_groups};
+use crate::roles::{Dependency, Follower, Role, aliased, candidate_dependent, repeat_groups};
 use crate::{Config, rule_id, type_labels};
 
 /// An entity type: an alias class, one representative value per event, and the key paths of
@@ -21,10 +22,12 @@ struct Type {
 }
 
 /// Builds the mapping from the entity paths in `roles` and the paths in stage 5b's `links`, or
-/// says why there is none.
+/// says why there is none. `followers` holds, per path, the paths that passed it by the second
+/// entity test (none for any other path).
 pub(crate) fn assemble(
     table: &Table,
     roles: &[Role],
+    followers: &[Vec<Follower>],
     links: &[(usize, usize)],
     cfg: &Config,
 ) -> Result<StreamMapping, String> {
@@ -65,10 +68,22 @@ pub(crate) fn assemble(
         }
     }
     entities.sort_by(|a, b| a.id.cmp(&b.id));
+    let leaves: Vec<Option<BTreeSet<usize>>> = (0..types.len())
+        .map(|i| leaf_followers(&types, i, followers, &linked))
+        .collect();
     let mut relationships = Vec::new();
     for (i, a) in types.iter().enumerate() {
-        for b in &types[i + 1..] {
-            relationships.extend(relate(table, a, b, cfg));
+        for (j, b) in types.iter().enumerate().skip(i + 1) {
+            let related = match (&leaves[i], &leaves[j]) {
+                (None, None) => true,
+                (li, lj) => {
+                    li.as_ref().is_some_and(|f| f.contains(&j))
+                        || lj.as_ref().is_some_and(|f| f.contains(&i))
+                }
+            };
+            if related {
+                relationships.extend(relate(table, a, b, cfg));
+            }
         }
     }
     relationships.sort_by(|a, b| (&a.from, &a.to, &a.kind).cmp(&(&b.from, &b.to, &b.kind)));
@@ -83,6 +98,46 @@ pub(crate) fn assemble(
         .validate()
         .map_err(|e| format!("emitted mapping is invalid: {e}"))?;
     Ok(mapping)
+}
+
+/// Every key path of a type: its alias class and the classes merged into it.
+fn key_paths(ty: &Type) -> impl Iterator<Item = usize> + '_ {
+    ty.members.iter().chain(&ty.merged).copied()
+}
+
+/// For a leaf, the types it relates to; `None` for any other type (s2w#291). A type is a leaf
+/// when every key path in it passed only the second entity test and none is a stage-5b link (a
+/// link is evidence of identity of its own). A leaf relates only to the type of the path that
+/// follows it best: among its key paths' followers that key another type, the highest share,
+/// then the most values. A tie keeps every tied type rather than pick by name; no follower that
+/// keys a type leaves the leaf with no relationship. The rule caps the co-occurrence fan-out of
+/// the types the second test admits, which include counters, sizes and free text that recur
+/// (s2w#282).
+fn leaf_followers(
+    types: &[Type],
+    i: usize,
+    followers: &[Vec<Follower>],
+    linked: &BTreeSet<usize>,
+) -> Option<BTreeSet<usize>> {
+    if !key_paths(&types[i]).all(|p| !followers[p].is_empty() && !linked.contains(&p)) {
+        return None;
+    }
+    let ranked: Vec<((usize, usize), usize)> = key_paths(&types[i])
+        .flat_map(|p| &followers[p])
+        .filter_map(|f| {
+            let j =
+                (0..types.len()).find(|&j| j != i && key_paths(&types[j]).any(|q| q == f.path))?;
+            Some(((f.share, f.distinct), j))
+        })
+        .collect();
+    let best = ranked.iter().map(|r| r.0).max();
+    Some(
+        ranked
+            .into_iter()
+            .filter(|r| Some(r.0) == best)
+            .map(|r| r.1)
+            .collect(),
+    )
 }
 
 fn attr(table: &Table, path: usize) -> AttrRule {
