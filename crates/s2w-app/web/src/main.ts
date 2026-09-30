@@ -1,12 +1,14 @@
 import { ApiError, evidence, evidenceTail, eventsUrl, kinds, presentation as fetchPresentation, refreshSnapshot, snapshot,
-  sources as fetchSources, streamStatus, proposals as fetchProposals } from './api';
+  sources as fetchSources, streamStatus, proposals as fetchProposals, dashboard as fetchDashboard,
+  sentences as fetchSentences } from './api';
 import type { Message } from './api';
 import { ViewState, isBeforeBase, isStaleEpoch, rebuildingStatus, staleEpochDelay, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
-import { renderTable } from './table';
+import { renderLive } from './live';
+import { fromDashboard, nounFor, pollRetries, withIcon } from './manifest';
+import type { Manifest } from './manifest';
 import { renderProposals } from './proposals';
 import { linkColor, typeColor } from './profile';
-import { renderActive } from './active';
 import { RefreshGuard, bootstrap, frameThrottle, liveRow } from './bootstrap';
 import { applyPresentation } from './presentation';
 import { buildUrl, parseWorldFromPath, worldPathFor } from './url';
@@ -21,6 +23,10 @@ const position = document.querySelector<HTMLElement>('#position')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
 const active = document.querySelector<HTMLElement>('#active')!;
 const proposalsPanel = document.querySelector<HTMLElement>('#proposals')!;
+const eventsHeading = document.querySelector<HTMLElement>('#events-heading')!;
+// Today's heading and label, restored on every start(): a feed replaces them only once it shows.
+const EVENTS_HEADING = eventsHeading.innerHTML;
+const EVENTS_LABEL = table.getAttribute('aria-label') ?? '';
 let dispose = () => {};
 let activeState: ViewState;
 // Consecutive `stale_epoch` restarts: reset once a restart has lasted STALE_WINDOW_MS.
@@ -41,6 +47,9 @@ const BEHIND = 'Fell behind the live stream; reloading';
 const keys = ['world', 'at', 'branch', 'lod', 'focus', 'hops'];
 // The proposal ledger changes on System 2's cadence, not per event: poll it on its own slow timer.
 const PROPOSALS_POLL_MS = 5000;
+// The sentence feed (s2w#289): the newest SENTENCES_LAST events, refetched on this timer.
+const SENTENCES_POLL_MS = 5000;
+const SENTENCES_LAST = 200;
 // At most one full `/world` refetch per this many ms while deltas keep arriving. Each one is
 // projected under the server's read lock, which blocks the fold (#216), so a busy stream must
 // not trigger one per second; deltas still apply locally between refetches.
@@ -85,6 +94,10 @@ async function start(): Promise<void> {
   let proposalsTimer: ReturnType<typeof setTimeout> | undefined;
   let frame: number | undefined;
   let proposalsGeneration = 0;
+  let sentencesTimer: ReturnType<typeof setTimeout> | undefined;
+  let sentencesGeneration = 0;
+  let manifestTimer: ReturnType<typeof setTimeout> | undefined;
+  let manifestDelay = 1000;
   let delay = 1000, lastFetch = 0, fetching = false, dirty = false, mounted = false, drawn = false;
   // The `/world` parameters actually served, which may differ from the page's (#262): every
   // refresh reuses them, so a refresh can never widen the view to the whole entity graph. Until
@@ -95,10 +108,12 @@ async function start(): Promise<void> {
   let note: string | undefined;
   dispose = () => {
     controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(reconnectTimer); clearTimeout(refresh); clearTimeout(proposalsTimer);
+    clearTimeout(sentencesTimer); clearTimeout(manifestTimer);
     if (frame !== undefined) cancelAnimationFrame(frame);
     renderer.destroy();
   };
   status.textContent = 'Connecting'; position.textContent = ''; table.replaceChildren(); proposalsPanel.replaceChildren();
+  eventsHeading.innerHTML = EVENTS_HEADING; table.setAttribute('aria-label', EVENTS_LABEL);
   for (const key of keys) (form.elements.namedItem(key) as HTMLInputElement).value =
     params.get(key) ?? ({ branch: 'actual', lod: 'entity', hops: '1' }[key] ?? '');
   detail = { asked: lodSelect.value, shown: lodSelect.value };
@@ -110,13 +125,56 @@ async function start(): Promise<void> {
   const paintEvidence = frameThrottle(() => {
     frame = undefined;
     if (signal.aborted) return;
-    renderTable(table, state); renderActive(active, state); position.textContent = placeText();
+    renderLive(table, active, state); position.textContent = placeText();
   }, run => { frame = requestAnimationFrame(run); });
   function paint(): void {
-    renderTable(table, state);
+    renderLive(table, active, state);
     renderLegend(legend, state);
-    renderActive(active, state);
     position.textContent = placeText();
+  }
+  // Best-effort, like proposals: no manifest (or no route) leaves today's view as it is. With
+  // one, names, nouns and icons apply (pinned pages too); the feed needs a live page. Loaded
+  // once per page, independent of the world load's retries; a 503 or network failure retries
+  // with backoff, any other answer (or a malformed manifest) leaves the view as it is.
+  async function loadManifest(world: string): Promise<void> {
+    let dashboard: Awaited<ReturnType<typeof fetchDashboard>>;
+    try { dashboard = await fetchDashboard(world, signal); } catch (error) {
+      if (!signal.aborted && pollRetries(error)) {
+        manifestTimer = setTimeout(() => void loadManifest(world), manifestDelay);
+        manifestDelay = Math.min(manifestDelay * 2, 30_000);
+      }
+      return;
+    }
+    let manifest: Manifest | undefined;
+    try { manifest = fromDashboard(dashboard); } catch { return; }
+    if (signal.aborted || manifest === undefined) return;
+    state.manifest = manifest; state.relabel();
+    if (drawn) renderer.update(state);
+    paint();
+    if (!pinned && manifest.sentences) void pollSentences(world, manifest);
+  }
+  // The sentence feed: the next poll is scheduled only after this one settles; a stale
+  // response is dropped; an answer that cannot change (non-503) stops the poll.
+  async function pollSentences(world: string, manifest: Manifest): Promise<void> {
+    clearTimeout(sentencesTimer);
+    const generation = ++sentencesGeneration;
+    let retry = true;
+    try {
+      const rows = await fetchSentences(world, SENTENCES_LAST, signal);
+      // An all-null answer changes nothing: before the switch today's table stays, after it the
+      // last feed with a sentence stays.
+      if (!signal.aborted && generation === sentencesGeneration && rows.some(row => row.sentence)) {
+        if (state.feed === undefined) {
+          const small = document.createElement('small'); small.textContent = manifest.domain;
+          eventsHeading.replaceChildren('Live changes ', small);
+          table.setAttribute('aria-label', 'Live changes');
+        }
+        state.feed = rows; renderLive(table, active, state);
+      }
+    } catch (error) { retry = pollRetries(error); }
+    if (retry && !signal.aborted && generation === sentencesGeneration) {
+      sentencesTimer = setTimeout(() => void pollSentences(world, manifest), SENTENCES_POLL_MS);
+    }
   }
   // Best-effort: a missing or failing proposals route must never block the graph. The next poll
   // is scheduled only after this one settles, and the generation check drops any stale response.
@@ -267,6 +325,8 @@ async function start(): Promise<void> {
       retry = setTimeout(() => void initialize(), delay); delay = Math.min(delay * 2, 30_000);
     }
   }
+  const world = params.get('world');
+  if (world) void loadManifest(world);
   await initialize();
 }
 form.addEventListener('submit', event => {
@@ -296,11 +356,15 @@ function renderLegend(element: HTMLElement, state: ViewState): void {
   const entityList = document.createElement('ul');
   for (const entityType of new Set([...state.nodes.values()].map(node => node.entity_type))) {
     const key = state.keyByType.get(entityType);
-    entityList.append(legendItem(typeColor(entityType), `${entityType} · ${key === undefined ? 'keys' : `labeled by ${key}`}`));
+    // A manifest row's icon marks the type here as on the graph; a row with a noun reads as
+    // that noun, any other type as today.
+    const text = withIcon(state.manifest, entityType, state.manifest?.rows.get(entityType)?.noun !== undefined ?
+      nounFor(state.manifest, entityType) : `${entityType} · ${key === undefined ? 'keys' : `labeled by ${key}`}`);
+    entityList.append(legendItem(typeColor(entityType), text));
   }
   const linkList = document.createElement('ul');
   for (const kind of new Set([...state.links.values()].map(link => link.kind))) linkList.append(legendItem(linkColor(kind), kind));
-  const entityHeading = document.createElement('h3'); entityHeading.textContent = 'Entity types';
+  const entityHeading = document.createElement('h3'); entityHeading.textContent = 'Types';
   const linkHeading = document.createElement('h3'); linkHeading.textContent = 'Link kinds';
   element.replaceChildren(entityHeading, entityList, linkHeading, linkList);
 }

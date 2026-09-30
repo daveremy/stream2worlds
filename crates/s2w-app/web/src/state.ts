@@ -3,6 +3,9 @@ import type { Message, Node, Link, WorldView, SourceInfo } from './api';
 // TypeScript stripping (state.test.mjs importing this file directly) requires it.
 import { degreeById, labelMap, nodeById, pickLabelKeys, topHubs } from './profile.ts';
 import type { LabelKeyMap } from './profile';
+// @ts-expect-error see above
+import { manifestLabel, typeNodeLabel } from './manifest.ts';
+import type { Manifest, SentenceRow } from './manifest';
 export type EvidenceRow = { offset: number; kind: string; entityIds: number[]; summary: string; message: Message; ts?: string };
 
 /// Names the empty-graph state for issue #143: distinguishes "nothing has arrived" from
@@ -70,16 +73,30 @@ export class ViewState {
   // The epoch the page's offsets belong to; set by the first snapshot (main.ts).
   epoch = '';
   params: URLSearchParams;
+  // The effective dashboard manifest, once /dashboard answered with one (s2w#289): names,
+  // nouns and icons. `feed` holds the last /sentences rows, live pages only.
+  manifest: Manifest | undefined;
+  feed: SentenceRow[] | undefined;
+  private viewNodes: Node[] = [];
+  private viewLinks: Link[] = [];
   constructor(params: URLSearchParams) { this.params = params; }
   snapshot(view: WorldView): void {
     this.offset = view.offset;
     this.nodes = new Map(view.nodes.map(node => [node.id, node]));
     this.links = new Map(view.links.map(link => [JSON.stringify([link.source, link.target, link.kind]), link]));
-    this.keyByType = pickLabelKeys(view.nodes);
-    this.labels = labelMap(view.nodes, this.keyByType);
+    this.viewNodes = view.nodes; this.viewLinks = view.links;
     this.nodesById = nodeById(view.nodes);
     this.degreeMap = degreeById(view.nodes, view.links);
-    this.hubs = topHubs(view.nodes, view.links, this.keyByType, 5, this.labels);
+    this.relabel();
+  }
+  /// Recomputes every label from the last snapshot: the manifest's label for a type with a
+  /// row, today's heuristic otherwise. Called again when the manifest arrives.
+  relabel(): void {
+    this.keyByType = pickLabelKeys(this.viewNodes);
+    const manifest = this.manifest;
+    this.labels = labelMap(this.viewNodes, this.keyByType, manifest === undefined ? undefined :
+      node => node.kind === 'type' ? typeNodeLabel(node, manifest) : manifestLabel(node, manifest));
+    this.hubs = topHubs(this.viewNodes, this.viewLinks, this.keyByType, 5, this.labels);
   }
   apply(message: Message): boolean {
     if (message.offset <= this.lastAppliedOffset) return false;

@@ -236,6 +236,7 @@ mod tests {
         )?;
         accept(&mut store, "m")?;
         let mut with_sentence = manifest(&identity);
+        with_sentence["types"][0]["label"] = json!({ "key": 0 });
         with_sentence["events"] = json!([{
             "source": SOURCE,
             "sentence": { "text": "item {0} changed", "fields": [["id"]] }
@@ -327,6 +328,7 @@ mod tests {
             assert_eq!(rows[1]["entities"], json!([]));
             let entity = &rows[2]["entities"][0];
             assert_eq!(entity["type"], "item");
+            assert_eq!(entity["label"], "a1", "the type row labels by key part 0");
             assert!(
                 entity.get("entity").is_none(),
                 "the head world is empty: {entity}"
