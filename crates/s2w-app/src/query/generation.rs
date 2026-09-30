@@ -611,7 +611,7 @@ mod tests {
             let app = router(state.clone());
             let parked = response(get(&app, "", None)).await;
             assert_eq!(parked.status(), StatusCode::OK);
-            // The entity body is unread: its generation holds the read guard on a full channel.
+            // The entity body is unread: its generation is parked on a full channel.
             let started = std::time::Instant::now();
             let summary = response(get(&app, "?lod=type&links=none", None)).await;
             assert_eq!(summary.status(), StatusCode::OK);
@@ -626,6 +626,50 @@ mod tests {
                 "the entity generation is still parked"
             );
             body(parked).await.expect("the parked body is whole");
+        });
+    }
+
+    /// The guard is held for the capture only (s2w#272): a generation parked on a client that
+    /// is not reading its body never delays an append, and the parked body still describes the
+    /// offset it was captured at.
+    #[test]
+    fn an_append_does_not_wait_on_a_client_that_is_not_reading() {
+        crate::tests::run(false, async {
+            let state = big();
+            let app = router(state.clone());
+            let expected = serde_json::to_vec(
+                &state
+                    .view_at(None, None, &ViewParams::default())
+                    .expect("head view"),
+            )
+            .expect("serialize");
+            let parked = response(get(&app, "", None)).await;
+            assert_eq!(parked.status(), StatusCode::OK);
+            // The body is unread: its generation is parked on a full channel.
+            let started = std::time::Instant::now();
+            let reservation = state.reserve_write().await;
+            let event = WorldEvent::EntityObserved {
+                key: NaturalKey::new("e1"),
+                entity_type: "thing".into(),
+                attrs: BTreeMap::from([("filler".to_owned(), AttrValue::Str("new".into()))]),
+            };
+            state
+                .append(Timestamp::from_millis(9_000), event)
+                .expect("append");
+            drop(reservation);
+            assert!(
+                started.elapsed() < Duration::from_secs(2),
+                "the append waited for an unread body"
+            );
+            assert!(
+                state.generations().running(),
+                "the entity generation is still parked"
+            );
+            let parked = body(parked).await.expect("the parked body is whole");
+            assert!(
+                parked.as_ref() == expected.as_slice(),
+                "the parked body is the view before the append"
+            );
         });
     }
 

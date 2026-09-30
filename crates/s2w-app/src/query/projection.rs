@@ -326,3 +326,130 @@ impl Serialize for Links<'_> {
         seq.end()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use proptest::prelude::*;
+    use s2w_core::{NaturalKey, WorldEvent};
+    use s2w_model::{AttrValue, Timestamp};
+
+    use super::*;
+    use crate::query::http::QueryState;
+    use crate::query::timeline::Timeline;
+
+    fn observed(key: &str, entity_type: &str, value: &str) -> WorldEvent {
+        WorldEvent::EntityObserved {
+            key: NaturalKey::new(key),
+            entity_type: entity_type.into(),
+            attrs: BTreeMap::from([("v".to_owned(), AttrValue::Str(value.to_owned()))]),
+        }
+    }
+
+    fn related(from: &str, to: &str, kind: &str) -> WorldEvent {
+        WorldEvent::RelationshipObserved {
+            from: NaturalKey::new(from),
+            to: NaturalKey::new(to),
+            kind: kind.into(),
+        }
+    }
+
+    fn body(view: &impl Serialize) -> Vec<u8> {
+        serde_json::to_vec(view).expect("serialize")
+    }
+
+    /// The view the world at the head serves, labelled with the default epoch.
+    fn head_bytes(state: &QueryState, params: &ViewParams) -> Vec<u8> {
+        let world = state.world_at(None).expect("head");
+        body(&WorldView {
+            epoch: Epoch::default(),
+            ..world_view(&world, params).expect("view")
+        })
+    }
+
+    /// The copy-on-write pin: a captured view shares entity states with the world, and the
+    /// fold replaces a state rather than mutating it, so appends made after the capture (the
+    /// guard is already released) never reach the body.
+    #[test]
+    fn a_body_is_unchanged_by_appends_made_after_its_capture() {
+        let mut timeline = Timeline::new(3);
+        let events = (0..12)
+            .map(|n| observed(&format!("e{n}"), "thing", "before"))
+            .chain((0..11).map(|n| related(&format!("e{n}"), &format!("e{}", n + 1), "next")))
+            .chain([related("e0", "e11", "loop")]);
+        for (n, event) in (0_i64..).zip(events) {
+            timeline.append(Timestamp::from_millis(n), event);
+        }
+        let state = QueryState::new(timeline);
+        let params = ViewParams::default();
+        let expected = head_bytes(&state, &params);
+        let projection = state
+            .with_head(|world, _| Projection::capture(world, &params, Epoch::default()))
+            .expect("head")
+            .expect("capture");
+        let changes = [
+            observed("e1", "thing", "after"),
+            observed("e2", "other", "after"),
+            related("e3", "e9", "late"),
+            WorldEvent::EntitiesMerged {
+                survivor: NaturalKey::new("e4"),
+                absorbed: NaturalKey::new("e5"),
+            },
+            observed("e12", "thing", "new"),
+        ];
+        for (n, event) in (100_i64..).zip(changes) {
+            state
+                .append(Timestamp::from_millis(n), event)
+                .expect("append");
+        }
+        assert_ne!(
+            head_bytes(&state, &params),
+            expected,
+            "the appends change the head's view"
+        );
+        let view = projection.prepare();
+        assert!(view.diverged() > 0, "the fold replaced captured states");
+        assert_eq!(body(&view), expected, "the body is the view at its capture");
+    }
+
+    fn id(raw: u64) -> EntityId {
+        serde_json::from_value(raw.into()).expect("an id")
+    }
+
+    fn digit_order(links: &mut [CapturedLink]) {
+        links.sort_by_cached_key(|&(s, t, kind, _)| (IdDigits::new(s), IdDigits::new(t), kind));
+    }
+
+    proptest! {
+        /// The rank sort orders links exactly as the `e:<id>` string sort does, with or
+        /// without endpoints the rank table does not cover.
+        #[test]
+        fn the_rank_sort_matches_the_string_sort(
+            raw in prop::collection::btree_set(
+                prop_oneof![0_u64..10, 10_u64..100, 100_u64..1_000, 1_000_u64..20_000],
+                1..60,
+            ),
+            picks in prop::collection::vec((any::<prop::sample::Index>(),
+                any::<prop::sample::Index>(), 0_u32..3, any::<u64>()), 0..200),
+            unranked in any::<bool>(),
+        ) {
+            let ids: Vec<EntityId> = raw.iter().copied().map(id).collect();
+            let mut order = ids.clone();
+            order.sort_unstable_by_key(|&id| IdDigits::new(id));
+            // Every id below the count is ranked; `unranked` drops the largest from the table.
+            let largest = raw.iter().copied().max().unwrap_or(0);
+            let entity_count = usize::try_from(largest).expect("small") + usize::from(!unranked);
+            let mut seen = BTreeSet::new();
+            let mut links: Vec<CapturedLink> = picks
+                .iter()
+                .map(|(s, t, kind, w)| (*s.get(&ids), *t.get(&ids), *kind, *w))
+                .filter(|&(s, t, kind, _)| seen.insert((s, t, kind)))
+                .collect();
+            let mut expected = links.clone();
+            digit_order(&mut expected);
+            sort_links(&order, entity_count, &mut links);
+            prop_assert_eq!(links, expected);
+        }
+    }
+}
