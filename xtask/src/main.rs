@@ -57,7 +57,7 @@
 //! 15. **Module cycles** (`module_cycles.rs`): no dependency cycle between the modules of one
 //!     crate target. Edges run from the naming module to the module that defines the item,
 //!     through `use`/`pub use` re-exports and globs; ancestor edges are containment (s2w#67).
-//!     Report-only until s2w#240 and s2w#241.
+//!     Enforced since s2w#240 and s2w#241.
 //! 16. **Frozen contract** (`contract_frozen.rs`): everything above `## Dated notes after
 //!     sign-off` in `docs/evaluation-contract.md` matches the sha256 of the signed text pinned
 //!     in the source; changes go in dated notes below that heading (s2w#59).

@@ -23,8 +23,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 `query` is the bottom of this crate: it depends on no sibling module. `query::http::generation`
 is `http`'s single-flight gate, a child so the two can share private items. `bridge`, `proposals`,
 `routes`, `snapshot`, `discover` depend on `query` (and on each other downward only); `serve` and
-`mcp` are the top and compose everything. Check 15 (`cargo xtask check`, module cycles) reports
-violations; it is report-only until s2w#240 flips `ENFORCE`.
+`mcp` are the top and compose everything. Check 15 (`cargo xtask check`, module cycles) fails the
+build on any cycle between this crate's modules (enforced since s2w#240).
 
 ## Invariants
 

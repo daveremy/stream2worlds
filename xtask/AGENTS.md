@@ -152,8 +152,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   SCCs are taken on the leaf graph and again on the graph projected onto each depth's
   ancestors, so a cycle that closes through an item defined in a `mod.rs` is seen. Test-only
   code is skipped. Paths that exist only after macro expansion are an accepted gap; macro
-  bodies that parse as comma-separated expressions are read. Report-only (`ENFORCE`) until
-  s2w#240 (`s2w_app`) and s2w#241 (`h_measure`) break their cycles. Self-tests in `module_cycles/tests.rs`.
+  bodies that parse as comma-separated expressions are read. Enforced (`ENFORCE`) since s2w#240
+  (`s2w_app`) and s2w#241 (`h_measure`) broke their cycles. Self-tests in `module_cycles/tests.rs`.
   - `module_cycles/resolve.rs`: per-module items, `use` entries and paths from the walker's
     ASTs (`module_size::walk::Scan::asts`), and name resolution through `use`/`pub use` and
     globs to the defining module. Extern crates (Cargo metadata), prelude names, primitives,
