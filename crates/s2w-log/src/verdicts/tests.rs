@@ -4,6 +4,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+use rusqlite::Connection;
+
 use super::*;
 use crate::tests::{TestDirectory, retry_until_unlocked};
 
