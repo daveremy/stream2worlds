@@ -35,8 +35,7 @@ use super::stream;
 use super::summary_memo::{SummaryKey, SummaryMemo};
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{
-    ACTUAL_BRANCH, HeadView, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary,
-    world_view,
+    ACTUAL_BRANCH, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary, world_view,
 };
 use crate::bridge::SourceStats;
 
@@ -781,7 +780,7 @@ pub(super) fn resolve_offset(
 
 /// Serializes `view` into `writer`. A failed write (client gone or stalled) drops `writer`
 /// unfinished, which ends the body with an error; there is no one left to report it to.
-pub(super) fn write_view(view: &HeadView<'_>, mut writer: stream::ChunkWriter) {
+pub(super) fn write_view(view: &super::projection::HeadView, mut writer: stream::ChunkWriter) {
     if serde_json::to_writer(&mut writer, view).is_ok() {
         let _ = writer.finish();
     }

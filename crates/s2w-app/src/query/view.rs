@@ -3,9 +3,9 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use s2w_core::{AttrMap, EntityId, World};
+use s2w_core::{AttrMap, EntityId, EntityState, World};
 use serde::Serialize;
-use serde::ser::{SerializeSeq, SerializeStruct, Serializer};
+use serde::ser::Serializer;
 
 use super::QueryError;
 use super::epoch::Epoch;
@@ -201,10 +201,77 @@ pub(crate) fn node_id(id: EntityId) -> String {
 }
 
 #[derive(Default)]
-struct HubAgg {
+pub(super) struct HubAgg {
     sources: BTreeSet<EntityId>,
     by_kind: BTreeMap<String, u64>,
     last_seen_offset: u64,
+}
+
+impl HubAgg {
+    /// What a [`Node::Hub`] shows of the aggregate: the source set is only ever counted.
+    pub(super) fn facts(&self) -> HubFacts {
+        HubFacts {
+            in_degree: u64::try_from(self.sources.len()).unwrap_or(u64::MAX),
+            by_kind: self.by_kind.clone(),
+            last_seen_offset: self.last_seen_offset,
+        }
+    }
+}
+
+/// A hub's [`Node::Hub`] fields beyond the entity's own.
+#[derive(Clone)]
+pub(super) struct HubFacts {
+    in_degree: u64,
+    by_kind: BTreeMap<String, u64>,
+    last_seen_offset: u64,
+}
+
+/// A resolved entity's parts beyond its state: the node is a [`Node::Hub`] when `hub` is given,
+/// else a [`Node::Entity`]. A missing state reads as an empty type and no attributes.
+pub(super) struct NodeParts {
+    /// Natural keys that resolve to the entity.
+    pub(super) keys: Vec<String>,
+    /// Ids merged into it, excluding itself.
+    pub(super) members: Vec<EntityId>,
+    /// Its relationships to hubs.
+    pub(super) hub_refs: Vec<HubRef>,
+    /// Present when the entity is a hub.
+    pub(super) hub: Option<HubFacts>,
+}
+
+/// A resolved entity's node from its state and graph parts.
+pub(super) fn entity_node(id: EntityId, state: Option<&EntityState>, parts: NodeParts) -> Node {
+    let NodeParts {
+        keys,
+        members,
+        hub_refs,
+        hub,
+    } = parts;
+    let entity_type = state.map(|s| s.entity_type.clone()).unwrap_or_default();
+    let attrs = state.map(|s| s.attrs.clone()).unwrap_or_default();
+    match hub {
+        Some(hub) => Node::Hub {
+            id: node_id(id),
+            entity: id,
+            entity_type,
+            keys,
+            attrs,
+            members,
+            in_degree: hub.in_degree,
+            by_kind: hub.by_kind,
+            last_seen_offset: hub.last_seen_offset,
+            hub_refs,
+        },
+        None => Node::Entity {
+            id: node_id(id),
+            entity: id,
+            entity_type,
+            keys,
+            attrs,
+            members,
+            hub_refs,
+        },
+    }
 }
 
 /// Every hub's aggregate, keyed by the resolved hub id. Reads `hub_counters` only (one entry per
@@ -241,22 +308,23 @@ fn hub_aggregates(world: &World) -> BTreeMap<EntityId, HubAgg> {
 }
 
 /// The resolved entity graph: merges applied at read time (decision 0005, two histories).
-struct Graph<'w> {
+pub(super) struct Graph<'w> {
     world: &'w World,
-    members: BTreeMap<EntityId, Vec<EntityId>>,
-    // Key and kind strings borrow from the world: at the head these maps are built under the
-    // read guard for every `/world`, and cloning each string doubled their size (#216).
-    keys: BTreeMap<EntityId, Vec<&'w str>>,
-    hubs: BTreeMap<EntityId, HubAgg>,
-    links: BTreeMap<(EntityId, EntityId, &'w str), u64>,
+    pub(super) members: BTreeMap<EntityId, Vec<EntityId>>,
+    // Key and kind strings borrow from the world: the whole map is built under the read guard,
+    // and cloning every string doubled its size (#216). A streamed `/world` copies only what
+    // it keeps before releasing the guard (`super::projection`).
+    pub(super) keys: BTreeMap<EntityId, Vec<&'w str>>,
+    pub(super) hubs: BTreeMap<EntityId, HubAgg>,
+    pub(super) links: BTreeMap<(EntityId, EntityId, &'w str), u64>,
     hub_edges: BTreeSet<(EntityId, EntityId, &'w str)>,
     /// `hub_edges` grouped by source as (kind, hub), in `hub_edges` order, so a node's
     /// `hub_refs` is one lookup, not a scan.
-    hub_refs: BTreeMap<EntityId, Vec<(&'w str, EntityId)>>,
+    pub(super) hub_refs: BTreeMap<EntityId, Vec<(&'w str, EntityId)>>,
 }
 
 impl<'w> Graph<'w> {
-    fn new(world: &'w World) -> Self {
+    pub(super) fn new(world: &'w World) -> Self {
         let mut members: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
         for (id, _) in world.entities() {
             let r = world.resolve(id);
@@ -359,7 +427,10 @@ impl<'w> Graph<'w> {
     }
 
     /// The focus neighbourhood, or `None` for the whole world.
-    fn subset(&self, params: &ViewParams) -> Result<Option<BTreeSet<EntityId>>, QueryError> {
+    pub(super) fn subset(
+        &self,
+        params: &ViewParams,
+    ) -> Result<Option<BTreeSet<EntityId>>, QueryError> {
         let Some(raw) = params.focus else {
             return Ok(None);
         };
@@ -411,9 +482,6 @@ impl<'w> Graph<'w> {
     }
 
     fn entity_node(&self, id: EntityId, members: &[EntityId]) -> Node {
-        let state = self.world.entity(id);
-        let entity_type = state.map(|s| s.entity_type.clone()).unwrap_or_default();
-        let attrs = state.map(|s| s.attrs.clone()).unwrap_or_default();
         let keys = self
             .keys
             .get(&id)
@@ -431,29 +499,13 @@ impl<'w> Graph<'w> {
                     .collect()
             })
             .unwrap_or_default();
-        match self.hubs.get(&id) {
-            Some(agg) => Node::Hub {
-                id: node_id(id),
-                entity: id,
-                entity_type,
-                keys,
-                attrs,
-                members: members.to_vec(),
-                in_degree: u64::try_from(agg.sources.len()).unwrap_or(u64::MAX),
-                by_kind: agg.by_kind.clone(),
-                last_seen_offset: agg.last_seen_offset,
-                hub_refs,
-            },
-            None => Node::Entity {
-                id: node_id(id),
-                entity: id,
-                entity_type,
-                keys,
-                attrs,
-                members: members.to_vec(),
-                hub_refs,
-            },
-        }
+        let parts = NodeParts {
+            keys,
+            members: members.to_vec(),
+            hub_refs,
+            hub: self.hubs.get(&id).map(HubAgg::facts),
+        };
+        entity_node(id, self.world.entity(id), parts)
     }
 }
 
@@ -600,13 +652,13 @@ pub fn type_summary(world: &World) -> WorldView {
 /// sorts before `e:2`. [`world_view`] orders nodes and links by those strings; a streamed view
 /// walking `EntityId` order instead would serve different bytes (#216).
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct IdDigits {
+pub(super) struct IdDigits {
     digits: [u8; 20],
     len: usize,
 }
 
 impl IdDigits {
-    fn new(id: EntityId) -> Self {
+    pub(super) fn new(id: EntityId) -> Self {
         let mut rev = [0u8; 20];
         let mut n = id.get();
         let mut len = 0;
@@ -643,7 +695,7 @@ impl PartialOrd for IdDigits {
 }
 
 /// An `e:<id>` node id, written straight into the serializer with no owned string.
-struct NodeIdRef(EntityId);
+pub(super) struct NodeIdRef(pub(super) EntityId);
 
 impl Serialize for NodeIdRef {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -653,146 +705,9 @@ impl Serialize for NodeIdRef {
 
 /// [`Link`]'s wire shape over borrowed parts.
 #[derive(Serialize)]
-struct LinkRef<'a> {
-    source: NodeIdRef,
-    target: NodeIdRef,
-    kind: &'a str,
-    weight: u64,
-}
-
-/// The view of a borrowed world (the head, or an older world folded for `at`), serialized
-/// without building [`WorldView`] (#216): nodes and links are written one at a time, each
-/// [`Node`] built for its own element and dropped. Its bytes equal `serde_json::to_vec` of
-/// [`world_view`] with the same epoch; the resident cost is the graph index and one id per node
-/// and link, not a copy of every entity's attributes.
-///
-/// `lod=type` is small by construction (one node per type or hub), so it holds the owned
-/// [`WorldView`].
-pub struct HeadView<'w> {
-    inner: HeadInner<'w>,
-}
-
-enum HeadInner<'w> {
-    Owned(WorldView),
-    Entities(EntityStream<'w>),
-}
-
-struct EntityStream<'w> {
-    graph: Graph<'w>,
-    epoch: Epoch,
-    focus: Option<u64>,
-    /// Resolved entity ids in `e:<id>` string order.
-    nodes: Vec<EntityId>,
-    /// (source, target, kind, weight) in (source, target) string order, then kind.
-    links: Vec<(EntityId, EntityId, &'w str, u64)>,
-}
-
-impl<'w> HeadView<'w> {
-    /// A view already projected, such as a memoised type summary.
-    pub(crate) const fn from_view(view: WorldView) -> Self {
-        Self {
-            inner: HeadInner::Owned(view),
-        }
-    }
-
-    /// Prepares the view of `world` at `params`, labelled `epoch`. Every error surfaces here,
-    /// before a byte is written, so a caller can still answer with an error status.
-    ///
-    /// # Errors
-    /// As [`world_view`].
-    pub fn new(world: &'w World, params: &ViewParams, epoch: Epoch) -> Result<Self, QueryError> {
-        check_links(params)?;
-        let inner = match params.lod {
-            Lod::Type => HeadInner::Owned(WorldView {
-                epoch,
-                ..world_view(world, params)?
-            }),
-            Lod::Entity => {
-                let graph = Graph::new(world);
-                let subset = graph.subset(params)?;
-                let keep = |id: &EntityId| subset.as_ref().is_none_or(|s| s.contains(id));
-                let mut nodes: Vec<EntityId> = graph
-                    .members
-                    .keys()
-                    .copied()
-                    .filter(|id| keep(id))
-                    .collect();
-                nodes.sort_by_cached_key(|&id| IdDigits::new(id));
-                let mut links: Vec<(EntityId, EntityId, &'w str, u64)> = graph
-                    .links
-                    .iter()
-                    .filter(|((s, t, _), _)| keep(s) && keep(t))
-                    .map(|(&(s, t, kind), &w)| (s, t, kind, w))
-                    .collect();
-                links.sort_by_cached_key(|&(s, t, kind, _)| {
-                    (IdDigits::new(s), IdDigits::new(t), kind)
-                });
-                HeadInner::Entities(EntityStream {
-                    graph,
-                    epoch,
-                    focus: params.focus,
-                    nodes,
-                    links,
-                })
-            }
-        };
-        Ok(Self { inner })
-    }
-}
-
-impl Serialize for HeadView<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match &self.inner {
-            HeadInner::Owned(view) => view.serialize(serializer),
-            HeadInner::Entities(stream) => stream.serialize(serializer),
-        }
-    }
-}
-
-struct StreamNodes<'a, 'w>(&'a EntityStream<'w>);
-struct StreamLinks<'a, 'w>(&'a EntityStream<'w>);
-
-impl Serialize for EntityStream<'_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // Field for field, in `WorldView`'s declaration order.
-        let world = self.graph.world;
-        let mut s = serializer.serialize_struct("WorldView", 9)?;
-        s.serialize_field("offset", &world.offset())?;
-        s.serialize_field("epoch", &self.epoch)?;
-        s.serialize_field("branch", ACTUAL_BRANCH)?;
-        s.serialize_field("fold_version", &world.fold_version())?;
-        s.serialize_field("hub_in_degree_cap", &world.hub_in_degree_cap())?;
-        s.serialize_field("lod", &Lod::Entity)?;
-        s.serialize_field("focus", &self.focus)?;
-        s.serialize_field("nodes", &StreamNodes(self))?;
-        s.serialize_field("links", &StreamLinks(self))?;
-        s.end()
-    }
-}
-
-impl Serialize for StreamNodes<'_, '_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let graph = &self.0.graph;
-        let mut seq = serializer.serialize_seq(Some(self.0.nodes.len()))?;
-        for &id in &self.0.nodes {
-            let members = graph.members.get(&id).map_or(&[][..], Vec::as_slice);
-            seq.serialize_element(&graph.entity_node(id, members))?;
-        }
-        seq.end()
-    }
-}
-
-impl Serialize for StreamLinks<'_, '_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut seq = serializer.serialize_seq(Some(self.0.links.len()))?;
-        for &(s, t, kind, weight) in &self.0.links {
-            seq.serialize_element(&LinkRef {
-                source: NodeIdRef(s),
-                target: NodeIdRef(t),
-                kind,
-                weight,
-            })?;
-        }
-        seq.end()
-    }
+pub(super) struct LinkRef<'a> {
+    pub(super) source: NodeIdRef,
+    pub(super) target: NodeIdRef,
+    pub(super) kind: &'a str,
+    pub(super) weight: u64,
 }

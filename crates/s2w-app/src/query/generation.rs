@@ -36,8 +36,10 @@ use tokio::sync::oneshot;
 use super::QueryError;
 use super::epoch::Epoch;
 use super::http::{QueryState, WorldAnswer, etag_matches, resolve_offset, write_view};
+use super::projection::Projection;
+use super::read_timings::Phases;
 use super::stream;
-use super::view::{HeadView, LinkDetail, ViewParams};
+use super::view::{LinkDetail, ViewParams};
 
 /// The most requests queued for a generation at once; one more answers `503`. The same bound
 /// as the concurrent `/events` streams.
@@ -217,53 +219,20 @@ fn drive(state: &QueryState) {
 /// written once to every subscriber still waiting.
 fn generate(state: &QueryState, group: Group) {
     let Group { key, waiters } = group;
-    let answer_all = |waiters: Vec<Waiter>, error: &QueryError| {
-        for waiter in waiters {
-            waiter.answer(Err(error.clone()));
-        }
-    };
     let started = Instant::now();
-    // Stops waiting for the guard once every client has left.
-    let timeline = match state.read_for_body(|| waiters.iter().any(Waiter::waiting)) {
-        Ok(timeline) => timeline,
-        Err(error) => return answer_all(waiters, &error),
-    };
-    let guarded = Instant::now();
-    let (tag, offset) = match resolve_offset(&timeline, key.epoch, key.at, &key.params) {
-        Ok(resolved) => resolved,
-        Err(error) => return answer_all(waiters, &error),
-    };
-    // 304 before anything is built; a client that left while the guard was awaited is dropped.
-    let mut fresh = Vec::with_capacity(waiters.len());
-    for waiter in waiters.into_iter().filter(Waiter::waiting) {
-        if waiter.has(&tag) {
-            waiter.answer(Ok(WorldAnswer::NotModified(tag.clone())));
-        } else {
-            fresh.push(waiter);
-        }
-    }
-    if fresh.is_empty() {
+    let Some(Captured {
+        tag,
+        projection,
+        fresh,
+        guarded,
+        built,
+    }) = capture(state, &key, waiters)
+    else {
         return;
-    }
-    // Declared out here so the borrowed world outlives the entity view built from it.
-    let world;
-    let view = if key.params.links == LinkDetail::None {
-        // The type summary (s2w#296) comes from the memo when the offset has not moved.
-        match state.summary_at(&timeline, offset) {
-            Ok(view) => HeadView::from_view(view),
-            Err(error) => return answer_all(fresh, &error),
-        }
-    } else {
-        world = match timeline.world_at(offset) {
-            Ok(world) => world,
-            Err(error) => return answer_all(fresh, &error),
-        };
-        match HeadView::new(&world, &key.params, timeline.epoch()) {
-            Ok(view) => view,
-            Err(error) => return answer_all(fresh, &error),
-        }
     };
-    let built = Instant::now();
+    // The guard is released: the fold appends while this view is sorted and written.
+    let view = projection.prepare();
+    let prepared = Instant::now();
     let (writer, bodies) = stream::fan_out(fresh.len());
     let mut served = 0;
     for (waiter, body) in fresh.into_iter().zip(bodies) {
@@ -279,7 +248,86 @@ fn generate(state: &QueryState, group: Group) {
     write_view(&view, writer);
     // Recorded only when a measurement opted in (s2w#243).
     if let Some(timings) = state.timings() {
-        timings.record(served, guarded - started, built - guarded, built.elapsed());
+        timings.record(
+            served,
+            Phases {
+                wait: guarded - started,
+                build: built - guarded,
+                prepare: prepared - built,
+                write: prepared.elapsed(),
+            },
+            view.diverged(),
+        );
+    }
+}
+
+/// What one read-guard hold hands to the rest of a generation.
+struct Captured {
+    tag: axum::http::HeaderValue,
+    projection: Projection,
+    fresh: Vec<Waiter>,
+    guarded: Instant,
+    built: Instant,
+}
+
+/// The guarded part of a generation, and the only one: errors and `304`s are answered here,
+/// and the view is captured. The guard is released when this returns, before any sort or write.
+fn capture(state: &QueryState, key: &Key, waiters: Vec<Waiter>) -> Option<Captured> {
+    let answer_all = |waiters: Vec<Waiter>, error: &QueryError| {
+        for waiter in waiters {
+            waiter.answer(Err(error.clone()));
+        }
+    };
+    // Stops waiting for the guard once every client has left.
+    let timeline = match state.read_for_body(|| waiters.iter().any(Waiter::waiting)) {
+        Ok(timeline) => timeline,
+        Err(error) => {
+            answer_all(waiters, &error);
+            return None;
+        }
+    };
+    let guarded = Instant::now();
+    let (tag, offset) = match resolve_offset(&timeline, key.epoch, key.at, &key.params) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            answer_all(waiters, &error);
+            return None;
+        }
+    };
+    // 304 before anything is built; a client that left while the guard was awaited is dropped.
+    let mut fresh = Vec::with_capacity(waiters.len());
+    for waiter in waiters.into_iter().filter(Waiter::waiting) {
+        if waiter.has(&tag) {
+            waiter.answer(Ok(WorldAnswer::NotModified(tag.clone())));
+        } else {
+            fresh.push(waiter);
+        }
+    }
+    if fresh.is_empty() {
+        return None;
+    }
+    let projection = if key.params.links == LinkDetail::None {
+        // The type summary (s2w#296) comes from the memo when the offset has not moved.
+        state
+            .summary_at(&timeline, offset)
+            .map(Projection::from_view)
+    } else {
+        timeline
+            .world_at(offset)
+            .and_then(|world| Projection::capture(&world, &key.params, timeline.epoch()))
+    };
+    match projection {
+        Ok(projection) => Some(Captured {
+            tag,
+            projection,
+            fresh,
+            guarded,
+            built: Instant::now(),
+        }),
+        Err(error) => {
+            answer_all(fresh, &error);
+            None
+        }
     }
 }
 

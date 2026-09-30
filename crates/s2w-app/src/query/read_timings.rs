@@ -1,8 +1,7 @@
-//! Where a `/world` body's read-guard hold goes (s2w#243, PR 1 of s2w#235): the wait for the
-//! guard, building the view under it (`HeadView::new`, which runs `Graph::new` and the sorts),
-//! and writing the body with the guard still held. Since s2w#270 one hold can serve several
-//! bodies (a single-flight generation), so the phases are per hold and `bodies` counts what
-//! the holds served. Off unless a caller opts in with
+//! Where a `/world` generation's time goes (s2w#243, PR 1 of s2w#235): the wait for the read
+//! guard, the capture under it (`Projection::capture`: `Graph::new` and the copies), and, after
+//! the guard is released (s2w#272), the sort and the write. Since s2w#270 one generation can
+//! serve several bodies, so the phases are per generation and `bodies` counts what they served. Off unless a caller opts in with
 //! [`QueryState::with_read_timings`](super::QueryState::with_read_timings); serve never does,
 //! and the timings never change what is written.
 
@@ -32,18 +31,25 @@ pub struct ReadTimingsSnapshot {
     /// From the hold starting on its blocking thread to the read guard taken: queueing behind
     /// a writer. Time waiting for a blocking thread, or queued for a generation, is not in it.
     pub wait: PhaseTiming,
-    /// From the guard taken to the view built: offset resolution, `Graph::new` and the sorts.
+    /// From the guard taken to the view captured: offset resolution, `Graph::new` and the
+    /// copies. The whole time the guard is held.
     pub build: PhaseTiming,
-    /// From the view built to the last chunk handed over, guard still held: serialization,
-    /// which still reads each node's type and attributes out of the world, plus any time the
-    /// channel was full because the client read slower than it was written (up to the stall
-    /// limit).
+    /// The sorts, after the guard is released (s2w#272).
+    pub prepare: PhaseTiming,
+    /// From the view sorted to the last chunk handed over, no guard held: serialization, plus
+    /// any time the channel was full because the client read slower than it was written (up to
+    /// the stall limit).
     pub write: PhaseTiming,
+    /// Entity states the fold replaced while a view still held them, summed over generations
+    /// (decision 0028's divergence), counted after each write.
+    pub diverged: u64,
+    /// The most in one generation.
+    pub diverged_max: u64,
 }
 
 impl ReadTimingsSnapshot {
-    /// `build / (build + write)` over the summed times: the share of the hold a handoff that
-    /// releases the guard after the build would keep. `None` before the first body.
+    /// `build / (build + write)` over the summed times: the share of main's old hold (capture,
+    /// sort and write under the guard) that the guard still covers. `None` before the first body.
     #[must_use]
     pub fn build_share(&self) -> Option<f64> {
         share(self.build.total, self.write.total)
@@ -90,17 +96,31 @@ pub(crate) struct ReadTimings {
     bodies: AtomicU64,
     wait: Phase,
     build: Phase,
+    prepare: Phase,
     write: Phase,
+    diverged: AtomicU64,
+    diverged_max: AtomicU64,
+}
+
+/// One generation's phases, as [`ReadTimingsSnapshot`] names them.
+pub(crate) struct Phases {
+    pub(crate) wait: Duration,
+    pub(crate) build: Duration,
+    pub(crate) prepare: Duration,
+    pub(crate) write: Duration,
 }
 
 impl ReadTimings {
-    /// Records one hold that built a view and served `bodies` bodies from it.
-    pub(crate) fn record(&self, bodies: u64, wait: Duration, build: Duration, write: Duration) {
+    /// Records one generation that built a view and served `bodies` bodies from it.
+    pub(crate) fn record(&self, bodies: u64, phases: Phases, diverged: u64) {
         self.builds.fetch_add(1, Ordering::Relaxed);
         self.bodies.fetch_add(bodies, Ordering::Relaxed);
-        self.wait.record(wait);
-        self.build.record(build);
-        self.write.record(write);
+        self.wait.record(phases.wait);
+        self.build.record(phases.build);
+        self.prepare.record(phases.prepare);
+        self.write.record(phases.write);
+        self.diverged.fetch_add(diverged, Ordering::Relaxed);
+        self.diverged_max.fetch_max(diverged, Ordering::Relaxed);
     }
 
     /// The counters so far. Each field is read on its own, so a snapshot taken while a body is
@@ -111,7 +131,10 @@ impl ReadTimings {
             bodies: self.bodies.load(Ordering::Relaxed),
             wait: self.wait.get(),
             build: self.build.get(),
+            prepare: self.prepare.get(),
             write: self.write.get(),
+            diverged: self.diverged.load(Ordering::Relaxed),
+            diverged_max: self.diverged_max.load(Ordering::Relaxed),
         }
     }
 }
@@ -125,8 +148,14 @@ mod tests {
         let timings = ReadTimings::default();
         assert_eq!(timings.snapshot().build_share(), None);
         let ms = Duration::from_millis;
-        timings.record(1, ms(1), ms(100), ms(300));
-        timings.record(3, ms(5), ms(300), ms(300));
+        let phases = |wait, build, write| Phases {
+            wait: ms(wait),
+            build: ms(build),
+            prepare: ms(build / 10),
+            write: ms(write),
+        };
+        timings.record(1, phases(1, 100, 300), 7);
+        timings.record(3, phases(5, 300, 300), 2);
         let seen = timings.snapshot();
         assert_eq!(seen.builds, 2);
         assert_eq!(seen.bodies, 4);
@@ -144,6 +173,14 @@ mod tests {
                 max: ms(300)
             }
         );
+        assert_eq!(
+            seen.prepare,
+            PhaseTiming {
+                total: ms(40),
+                max: ms(30)
+            }
+        );
+        assert_eq!((seen.diverged, seen.diverged_max), (9, 7));
         assert_eq!(
             seen.write,
             PhaseTiming {
