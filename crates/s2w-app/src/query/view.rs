@@ -574,7 +574,7 @@ fn graph_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryErro
 /// costs one pass over entities (and over keys when there is a hub) instead of a map over every
 /// relationship. Its node set and counts equal [`world_view`]'s at `lod=type`, and each hub node
 /// is the same except `hub_refs`, which is always empty here: filling it needs the
-/// relationships. The full type view, [`type_view`], starts from these nodes and fills it.
+/// relationships. The full type view, `type_view`, starts from these nodes and fills it.
 #[must_use]
 pub fn type_summary(world: &World) -> WorldView {
     let (graph, counts) = Graph::summary(world);
