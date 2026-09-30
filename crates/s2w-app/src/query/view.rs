@@ -574,7 +574,7 @@ fn graph_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryErro
 /// costs one pass over entities (and over keys when there is a hub) instead of a map over every
 /// relationship. Its node set and counts equal [`world_view`]'s at `lod=type`, and each hub node
 /// is the same except `hub_refs`, which is always empty here: filling it needs the
-/// relationships.
+/// relationships. The full type view, [`type_view`], starts from these nodes and fills it.
 #[must_use]
 pub fn type_summary(world: &World) -> WorldView {
     let (graph, counts) = Graph::summary(world);
@@ -690,6 +690,7 @@ impl<'w> TypeGroups<'w> {
         match self.hubs.get(group) {
             Some(&hub) => node_id(hub),
             None => {
+                debug_assert!(group < self.hubs.len() + self.types.len(), "unknown group");
                 let entity_type = self
                     .types
                     .get(group - self.hubs.len())
@@ -702,20 +703,32 @@ impl<'w> TypeGroups<'w> {
 }
 
 /// Link weights by source group, then target group, then kind. A pair holds a few kinds, so
-/// a scan beats hashing each link's kind string (s2w#325: hashing was most of the pass).
-#[derive(Default)]
-struct GroupWeights<'w>(Vec<Vec<Vec<(&'w str, u64)>>>);
+/// a scan beats hashing each link's kind string (s2w#325: hashing was most of the pass). A
+/// target is never a hub here, so a row starts at the first type group, `offset`, and holds
+/// no slots for the hubs.
+struct GroupWeights<'w> {
+    offset: usize,
+    rows: Vec<Vec<Vec<(&'w str, u64)>>>,
+}
 
 impl<'w> GroupWeights<'w> {
+    const fn new(offset: usize) -> Self {
+        Self {
+            offset,
+            rows: Vec::new(),
+        }
+    }
+
     fn add(&mut self, source: usize, target: usize, kind: &'w str, weight: u64) {
-        if self.0.len() <= source {
-            self.0.resize_with(source + 1, Vec::new);
+        let column = target.saturating_sub(self.offset);
+        if self.rows.len() <= source {
+            self.rows.resize_with(source + 1, Vec::new);
         }
-        let row = &mut self.0[source];
-        if row.len() <= target {
-            row.resize_with(target + 1, Vec::new);
+        let row = &mut self.rows[source];
+        if row.len() <= column {
+            row.resize_with(column + 1, Vec::new);
         }
-        let kinds = &mut row[target];
+        let kinds = &mut row[column];
         match kinds.iter_mut().find(|(k, _)| *k == kind) {
             Some((_, total)) => *total = total.saturating_add(weight),
             None => kinds.push((kind, weight)),
@@ -724,15 +737,20 @@ impl<'w> GroupWeights<'w> {
 
     /// Every `((source, target, kind), weight)`, in no particular order.
     fn into_links(self) -> impl Iterator<Item = ((usize, usize, &'w str), u64)> {
-        self.0.into_iter().enumerate().flat_map(|(source, row)| {
-            row.into_iter()
-                .enumerate()
-                .flat_map(move |(target, kinds)| {
-                    kinds
-                        .into_iter()
-                        .map(move |(kind, weight)| ((source, target, kind), weight))
-                })
-        })
+        let offset = self.offset;
+        self.rows
+            .into_iter()
+            .enumerate()
+            .flat_map(move |(source, row)| {
+                row.into_iter()
+                    .enumerate()
+                    .flat_map(move |(column, kinds)| {
+                        let target = column + offset;
+                        kinds
+                            .into_iter()
+                            .map(move |(kind, weight)| ((source, target, kind), weight))
+                    })
+            })
     }
 }
 
@@ -740,11 +758,11 @@ impl<'w> GroupWeights<'w> {
 /// `(source, hub, kind)` sorted and deduplicated: the set [`Graph::new`] builds as `hub_edges`.
 type GroupLinks<'w> = (GroupWeights<'w>, Vec<(EntityId, EntityId, &'w str)>);
 
-/// One pass over the relationships and one over the entities' hub refs, with no allocation
-/// per link. Summing each resolved (source, target, kind) and then each group, both
+/// One pass over the relationships and one over the entities' hub refs, with no string
+/// allocation per link. Summing each resolved (source, target, kind) and then each group, both
 /// saturating, equals summing each group saturating: the weights are unsigned.
 fn group_links<'w>(world: &'w World, groups: &mut TypeGroups<'w>) -> GroupLinks<'w> {
-    let mut links = GroupWeights::default();
+    let mut links = GroupWeights::new(groups.hubs.len());
     let mut hub_edges = Vec::new();
     for (rel, &weight) in world.relationships() {
         let target = groups.of(rel.to);
@@ -770,9 +788,8 @@ fn group_links<'w>(world: &'w World, groups: &mut TypeGroups<'w>) -> GroupLinks<
 
 /// The full type view (`lod=type` with links and no focus) without the per-entity [`Graph`]
 /// (s2w#325): the type summary's nodes, each hub's `hub_refs`, and the links grouped over
-/// interned groups, with strings built once per output key. At the recorded backfill the
-/// per-link `format!` grouping was ~1 s of a ~1.5 s build. Byte-identical to [`graph_view`]
-/// at the same parameters.
+/// interned groups, with strings built once per output key instead of a `format!` per link.
+/// Byte-identical to [`graph_view`] at the same parameters.
 fn type_view(world: &World) -> WorldView {
     let (mut graph, counts) = Graph::summary(world);
     let mut groups = TypeGroups::new(world, graph.hubs.keys().copied().collect());
@@ -784,11 +801,10 @@ fn type_view(world: &World) -> WorldView {
     let mut hub_sources: BTreeMap<(usize, EntityId, &str), u64> = BTreeMap::new();
     for &(source, hub, kind) in &hub_edges {
         // The edges are distinct, so a count per key is its count of distinct sources.
-        let n = hub_sources
-            .entry((groups.of(source), hub, kind))
-            .or_insert(0);
+        let group = groups.of(source);
+        let n = hub_sources.entry((group, hub, kind)).or_insert(0);
         *n = n.saturating_add(1);
-        if graph.hubs.contains_key(&source) {
+        if group < groups.hubs.len() {
             graph.hub_refs.entry(source).or_default().push((kind, hub));
         }
     }
