@@ -10,6 +10,7 @@ mod dashboard;
 mod delta;
 mod diff;
 mod epoch;
+mod generation;
 mod http;
 mod proposal_store;
 mod proposals;
@@ -153,6 +154,10 @@ pub enum QueryError {
     /// panicked" message for an ordinary "too many tabs open" condition).
     #[error("too many concurrent event streams; retry shortly")]
     StreamLimit,
+    /// Too many `/world` requests are already queued for a single-flight generation (s2w#270);
+    /// transient, the client should retry.
+    #[error("too many /world requests are waiting; retry shortly")]
+    WorldQueueFull,
     /// The log directory could not be opened or read while serving a fresh-per-request value
     /// (presentation, proposals). Distinct from [`Self::Unavailable`], which means the in-memory timeline
     /// lock was poisoned by a panicking writer — this is a storage-layer failure instead.
@@ -191,6 +196,7 @@ impl QueryError {
             Self::HopsTooLarge { .. } => "hops_too_large",
             Self::Unavailable => "unavailable",
             Self::StreamLimit => "stream_limit",
+            Self::WorldQueueFull => "world_queue_full",
             Self::Storage(_) => "storage",
             Self::UnknownProposal { .. } => "unknown_proposal",
             Self::StoreLocked => "store_locked",
