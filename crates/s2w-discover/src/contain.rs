@@ -5,6 +5,7 @@
 //!
 //! Every decision reads value equality, counts and stream order, never a name.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use s2w_model::FieldPath;
@@ -49,38 +50,32 @@ pub(crate) fn measure(
     let mut measured = Vec::new();
     let mut links = Vec::new();
     for (i, &a) in candidates.iter().enumerate() {
-        for (j, &b) in candidates.iter().enumerate() {
-            if i == j {
-                continue;
-            }
-            let (from, to) = (&firsts[i], &firsts[j]);
-            let mut shared = 0;
-            let mut carried = 0;
-            for (value, &at_a) in from {
-                if let Some(&at_b) = to.get(value) {
-                    shared += 1;
-                    if at_b < at_a {
-                        carried += 1;
-                    }
-                }
-            }
+        for (j, &b) in candidates.iter().enumerate().skip(i + 1) {
+            let (shared, a_first, b_first) = overlap(&firsts[i], &firsts[j]);
             if shared < cfg.min_support {
                 continue;
             }
-            let coverage_pct = pct(shared, from.len());
-            let carry_pct = pct(carried, shared);
-            let accepted = coverage_pct >= cfg.contain_pct && carry_pct >= cfg.carry_pct;
-            if accepted {
-                links.push((a.min(b), a.max(b)));
+            // Both directions share `shared`; each takes its own coverage denominator and counts
+            // the values the other path carried first.
+            for (referrer, referenced, distinct, carried) in [
+                (a, b, firsts[i].len(), b_first),
+                (b, a, firsts[j].len(), a_first),
+            ] {
+                let coverage_pct = pct(shared, distinct);
+                let carry_pct = pct(carried, shared);
+                let accepted = coverage_pct >= cfg.contain_pct && carry_pct >= cfg.carry_pct;
+                if accepted {
+                    links.push((a, b));
+                }
+                measured.push(Containment {
+                    referrer: table.paths[referrer].clone(),
+                    referenced: table.paths[referenced].clone(),
+                    shared,
+                    coverage_pct,
+                    carry_pct,
+                    accepted,
+                });
             }
-            measured.push(Containment {
-                referrer: table.paths[a].clone(),
-                referenced: table.paths[b].clone(),
-                shared,
-                coverage_pct,
-                carry_pct,
-                accepted,
-            });
         }
     }
     measured.sort_by(|x, y| (&x.referrer, &x.referenced).cmp(&(&y.referrer, &y.referenced)));
@@ -89,17 +84,47 @@ pub(crate) fn measure(
     (measured, links)
 }
 
+/// Values two first-event maps share, and how many of them each side carried in a strictly
+/// earlier event: `(shared, x_first, y_first)`. One merge walk over the two sorted maps.
+fn overlap(x: &BTreeMap<&str, usize>, y: &BTreeMap<&str, usize>) -> (usize, usize, usize) {
+    let (mut xs, mut ys) = (x.iter().peekable(), y.iter().peekable());
+    let (mut shared, mut x_first, mut y_first) = (0, 0, 0);
+    while let (Some(&(vx, &ex)), Some(&(vy, &ey))) = (xs.peek(), ys.peek()) {
+        match vx.cmp(vy) {
+            Ordering::Less => {
+                xs.next();
+            }
+            Ordering::Greater => {
+                ys.next();
+            }
+            Ordering::Equal => {
+                shared += 1;
+                match ex.cmp(&ey) {
+                    Ordering::Less => x_first += 1,
+                    Ordering::Greater => y_first += 1,
+                    Ordering::Equal => {}
+                }
+                xs.next();
+                ys.next();
+            }
+        }
+    }
+    (shared, x_first, y_first)
+}
+
 /// Each distinct value of path `p` mapped to the first event carrying it, for the first
-/// `contain_cap` distinct values in stream order (value ids are assigned in that order).
+/// `contain_cap` distinct values in stream order. Value ids are assigned in that order, so the
+/// first id at the cap means every id below it has been seen.
 fn first_events<'t>(table: &'t Table, p: usize, cfg: &Config) -> BTreeMap<&'t str, usize> {
     let column = &table.columns[p];
     let mut firsts = BTreeMap::new();
     for &(event, id) in &column.cells {
         let Some(id) = id else { continue };
         let id = id as usize;
-        if id < cfg.contain_cap {
-            firsts.entry(column.texts[id].as_str()).or_insert(event);
+        if id >= cfg.contain_cap {
+            break;
         }
+        firsts.entry(column.texts[id].as_str()).or_insert(event);
     }
     firsts
 }
