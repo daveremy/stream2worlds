@@ -180,7 +180,7 @@ it: its keys, their keys and array indexes, at any depth. Rules:
 - Paths compare as mention path ids (`s2w_discover::rule_id`), as exact entries always did, so
   `["a", 1]` and `["a", "1"]` are one path. A prefix covers only whole segments: the prefix
   `["data", "p"]` covers `data.p.x` but not the key `px`, nor the one key `p.x`.
-- A prefix is allowed only in a `"version": 2` spec. An entry listed twice, or at or under
+- A prefix is allowed only in a spec of `"version"` 2 or later. An entry listed twice, or at or under
   another entry's prefix, is refused: the prefix already covers it. A mention path at or under
   a prefix is refused, as a mention path that is also unscored always was.
 - An exact entry in a format-2 file behaves as in format 0: it covers itself only.
@@ -191,7 +191,7 @@ it: its keys, their keys and array indexes, at any depth. Rules:
 `log_params` entries replaced by one `{"prefix": ["data", "log_params"]}` entry; nothing else
 differs (`diff` them). On the dev corpus, v1 and v2 give the same thing: for each of the six
 pairs, the key executor's partition and the grade of `frozen/h-min-v8.dev-200000.json` are
-equal (checked 2026-09-30 by a one-off test on this change's build, not kept: it needs the
+equal (checked 2026-09-30 by a one-off test at commit 896fc12d, not kept: it needs the
 uncommitted corpus). A v2 key differs from v1 only on a corpus
 that holds a `log_params` path the dev corpus does not. `score` refuses a key that the freeze
 did not record, so a v2 key grades mappings frozen after these pins, not the files already in

@@ -2,7 +2,7 @@
 //! prefix form that covers a path and everything under it (s2w#224), so a path that occurs only
 //! in a corpus the key's author never read is still unscored.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use s2w_discover::rule_id;
 use s2w_model::FieldPath;
@@ -21,7 +21,8 @@ pub(crate) enum UnscoredPath {
     Prefix(UnscoredPrefix),
 }
 
-/// The body of [`UnscoredPath::Prefix`].
+/// The body of [`UnscoredPath::Prefix`]. A struct of its own because `deny_unknown_fields` has
+/// no effect on a variant of an `untagged` enum, only on a struct.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct UnscoredPrefix {
@@ -73,34 +74,43 @@ impl Unscored {
     /// prefix (it would be listed twice). Compared as the executors' mention ids, so `["a", 1]`
     /// and `["a", "1"]` are one path.
     pub(super) fn validated(entries: &[UnscoredPath], version: u32) -> Result<Self, String> {
-        let mut ids = BTreeSet::new();
+        let mut unscored = Self::default();
+        let mut seen: BTreeMap<String, &FieldPath> = BTreeMap::new();
         for entry in entries {
             let path = entry.path();
             if !well_formed(path) {
                 return Err("an unscored path is empty or has an empty or U+001F key".to_owned());
             }
-            if matches!(entry, UnscoredPath::Prefix(_)) && version < 2 {
+            let is_prefix = matches!(entry, UnscoredPath::Prefix(_));
+            if is_prefix && version < 2 {
                 return Err(format!(
                     "unscored prefix {path:?} needs key format 2: format {version} matches unscored paths exactly"
                 ));
             }
-            if !ids.insert(rule_id(path)) {
+            let id = rule_id(path);
+            if seen.contains_key(&id) {
                 return Err(format!("unscored path {path:?} is listed twice"));
             }
-        }
-        let unscored = Self::of(entries);
-        for entry in entries {
-            let id = rule_id(entry.path());
-            if let Some(prefix) = unscored
-                .prefixes
-                .iter()
-                .find(|prefix| **prefix != id && under(&id, prefix))
-            {
+            // No id repeats, so a match below is never the entry itself.
+            let nested = match unscored.prefixes.iter().find(|prefix| under(&id, prefix)) {
+                Some(prefix) => Some((path, prefix.clone())),
+                None if is_prefix => seen
+                    .iter()
+                    .find(|(inner, _)| under(inner, &id))
+                    .map(|(_, inner)| (*inner, id.clone())),
+                None => None,
+            };
+            if let Some((inner, prefix)) = nested {
                 return Err(format!(
-                    "unscored path {:?} is under unscored prefix {prefix:?}: drop the entry, the prefix covers it",
-                    entry.path()
+                    "unscored path {inner:?} is under unscored prefix {prefix:?}: drop the entry, the prefix covers it"
                 ));
             }
+            if is_prefix {
+                unscored.prefixes.insert(id.clone());
+            } else {
+                unscored.exact.insert(id.clone());
+            }
+            seen.insert(id, path);
         }
         Ok(unscored)
     }

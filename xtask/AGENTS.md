@@ -64,10 +64,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/key.rs`: the answer-key spec, format versions 0, 1 and 2 (`decode`, `types` with
     mention rules `{path, identity}`, `unscored`; format 1 adds an optional `no_identity` list of
     sentinel values on a mention rule whose path is an identity path: a record holding one there
-    has no mention, compared as key parts; format 2 adds the `unscored` prefix form, s2w#224), its fail-closed validation, `from_mapping` (writes
-    the newest format), and
-    `oracle`: the oracle-v0 mapping for the key, a reference not a proven best (one rule per mention rule whose path is an
-    identity path, mention path last; alias mentions get no rule, and two mention rules on one
+    has no mention, compared as key parts; format 2 adds the `unscored` prefix form, s2w#224),
+    its fail-closed validation, `from_mapping` (writes the newest format), and `oracle`: the
+    oracle-v0 mapping for the key, a reference not a proven best (one rule per mention rule
+    whose path is an identity path, mention path last; alias mentions get no rule, and two mention rules on one
     multi-path identity are split by the reordering), graded as the ceiling row.
     Domain knowledge lives in the spec file, never here.
     - `h_measure/key/unscored.rs`: `unscored` entries, an exact path (every format) or
