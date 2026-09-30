@@ -701,29 +701,57 @@ impl<'w> TypeGroups<'w> {
     }
 }
 
+/// Link weights by source group, then target group, then kind. A pair holds a few kinds, so
+/// a scan beats hashing each link's kind string (s2w#325: hashing was most of the pass).
+#[derive(Default)]
+struct GroupWeights<'w>(Vec<Vec<Vec<(&'w str, u64)>>>);
+
+impl<'w> GroupWeights<'w> {
+    fn add(&mut self, source: usize, target: usize, kind: &'w str, weight: u64) {
+        if self.0.len() <= source {
+            self.0.resize_with(source + 1, Vec::new);
+        }
+        let row = &mut self.0[source];
+        if row.len() <= target {
+            row.resize_with(target + 1, Vec::new);
+        }
+        let kinds = &mut row[target];
+        match kinds.iter_mut().find(|(k, _)| *k == kind) {
+            Some((_, total)) => *total = total.saturating_add(weight),
+            None => kinds.push((kind, weight)),
+        }
+    }
+
+    /// Every `((source, target, kind), weight)`, in no particular order.
+    fn into_links(self) -> impl Iterator<Item = ((usize, usize, &'w str), u64)> {
+        self.0.into_iter().enumerate().flat_map(|(source, row)| {
+            row.into_iter()
+                .enumerate()
+                .flat_map(move |(target, kinds)| {
+                    kinds
+                        .into_iter()
+                        .map(move |(kind, weight)| ((source, target, kind), weight))
+                })
+        })
+    }
+}
+
 /// Link weights between groups (non-hub targets), and the resolved hub edges
 /// `(source, hub, kind)` sorted and deduplicated: the set [`Graph::new`] builds as `hub_edges`.
-type GroupLinks<'w> = (
-    HashMap<(usize, usize, &'w str), u64>,
-    Vec<(EntityId, EntityId, &'w str)>,
-);
+type GroupLinks<'w> = (GroupWeights<'w>, Vec<(EntityId, EntityId, &'w str)>);
 
 /// One pass over the relationships and one over the entities' hub refs, with no allocation
 /// per link. Summing each resolved (source, target, kind) and then each group, both
 /// saturating, equals summing each group saturating: the weights are unsigned.
 fn group_links<'w>(world: &'w World, groups: &mut TypeGroups<'w>) -> GroupLinks<'w> {
-    let mut links: HashMap<(usize, usize, &'w str), u64> = HashMap::new();
+    let mut links = GroupWeights::default();
     let mut hub_edges = Vec::new();
     for (rel, &weight) in world.relationships() {
         let target = groups.of(rel.to);
         if let Some(&hub) = groups.hubs.get(target) {
             hub_edges.push((world.resolve(rel.from), hub, rel.kind.as_str()));
         } else {
-            let source = groups.of(rel.from);
-            let total = links
-                .entry((source, target, rel.kind.as_str()))
-                .or_insert(0);
-            *total = total.saturating_add(weight);
+            links.add(groups.of(rel.from), target, rel.kind.as_str(), weight);
         }
     }
     for (id, state) in world.entities() {
@@ -750,7 +778,7 @@ fn type_view(world: &World) -> WorldView {
     let mut groups = TypeGroups::new(world, graph.hubs.keys().copied().collect());
     let (links, hub_edges) = group_links(world, &mut groups);
     let mut out: BTreeMap<(String, String, String), u64> = links
-        .into_iter()
+        .into_links()
         .map(|((s, t, kind), w)| ((groups.name(s), groups.name(t), kind.to_owned()), w))
         .collect();
     let mut hub_sources: BTreeMap<(usize, EntityId, &str), u64> = BTreeMap::new();
