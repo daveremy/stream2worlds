@@ -70,8 +70,10 @@ test('a world that grows past the limit between the probe and the entity fetch s
   const sent = [];
   const fetchView = async request => { sent.push(String(request));
     return request.get('lod') === 'type' ? typeView(SMALL) : entityView(ENTITY_VIEW_LIMIT + 1); };
-  const loaded = await loadWorld(new URLSearchParams(), fetchView);
+  const drawn = [];
+  const loaded = await loadWorld(new URLSearchParams(), fetchView, view => drawn.push(view));
   assert.deepEqual(sent, ['lod=type&links=none', 'lod=entity', 'lod=type']);
+  assert.equal(drawn.length, 0, 'the small summary is not drawn');
   assert.equal(String(loaded.request), 'lod=type');
   assert.equal(loaded.view.lod, 'type');
   assert.equal(loaded.request.get('lod'), 'type');

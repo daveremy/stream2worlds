@@ -284,7 +284,8 @@ test('a pinned world view never refreshes', async () => {
 });
 
 // #303: the summary is drawn first, but the page is not loaded, and the status not cleared,
-// until the full type view lands.
+// until the full type view lands. `status` is the fake's copy of main.ts's rule (only `mount`
+// sets it); these tests pin that bootstrap never mounts before the full view.
 const summaryView = (offset, epoch, count = LARGE) => ({ ...typeView(offset, epoch, count), links: [] });
 
 test('a large world draws the summary under "Loading world…", then mounts the full type view', async () => {
@@ -304,7 +305,7 @@ test('a large world draws the summary under "Loading world…", then mounts the 
   await p.run;
   assert.equal(p.guard.loaded, true);
   assert.match(p.status(), /too many to draw/);
-  assert.deepEqual(p.log.filter(line => line.startsWith('summary')).length, 1);
+  assert.equal(p.log.filter(line => line.startsWith('summary')).length, 1);
   assert.ok(p.log.findIndex(line => line.startsWith('summary')) < p.log.indexOf('mount world=w&lod=type'));
   // Refreshes use the full type view, never the summary.
   assert.deepEqual(p.log.filter(line => line.startsWith('refresh')), ['refresh world=w&lod=type']);
@@ -319,6 +320,7 @@ test('a small world goes summary then entity, draws no summary, and clears the s
   p.worldAt(1, { offset: 500, epoch: EPOCH, lod: 'entity', focus: null, links: [], nodes: [] });
   await p.run;
   assert.ok(!p.log.some(line => line.startsWith('summary')));
+  assert.equal(p.guard.loaded, true);
   assert.equal(p.status(), '');
   assert.ok(p.log.includes('mount world=w&lod=entity'));
 });
