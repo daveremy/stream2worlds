@@ -1,14 +1,17 @@
-import { ApiError, evidence, eventsUrl, kinds, presentation as fetchPresentation, refreshSnapshot, snapshot,
+import { ApiError, evidence, evidenceTail, eventsUrl, kinds, presentation as fetchPresentation, refreshSnapshot, snapshot,
   sources as fetchSources, streamStatus, proposals as fetchProposals } from './api';
 import type { Message } from './api';
 import { ViewState, isBeforeBase, isStaleEpoch, rebuildingStatus, staleEpochDelay, unroutedStatus } from './state';
 import { Force2D } from './renderers/force2d';
 import { renderTable } from './table';
 import { renderProposals } from './proposals';
-import { activeNow, linkColor, typeColor } from './profile';
+import { linkColor, typeColor } from './profile';
+import { renderActive } from './active';
+import { RefreshGuard, bootstrap, frameThrottle, liveRow } from './bootstrap';
 import { applyPresentation } from './presentation';
 import { buildUrl, parseWorldFromPath, worldPathFor } from './url';
 import { loadWorld, outgrown, servedLod, submittedLod } from './lod';
+import type { Loaded } from './lod';
 const status = document.querySelector<HTMLElement>('#status')!;
 const graph = document.querySelector<HTMLElement>('#graph')!;
 const table = document.querySelector<HTMLTableElement>('#evidence')!;
@@ -70,29 +73,47 @@ async function start(): Promise<void> {
   const controller = new AbortController();
   const { signal } = controller;
   const params = currentParams();
+  const pinned = params.has('at');
   const state = new ViewState(params); activeState = state;
   const renderer = new Force2D();
   let source: EventSource | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let refresh: ReturnType<typeof setTimeout> | undefined;
   let proposalsTimer: ReturnType<typeof setTimeout> | undefined;
+  let frame: number | undefined;
   let proposalsGeneration = 0;
-  let delay = 1000, lastFetch = 0, fetching = false, dirty = false;
+  let delay = 1000, lastFetch = 0, fetching = false, dirty = false, mounted = false;
   // The `/world` parameters actually served, which may differ from the page's (#262): every
-  // refresh reuses them, so a refresh can never widen the view to the whole entity graph.
+  // refresh reuses them, so a refresh can never widen the view to the whole entity graph. Until
+  // the first world view is applied they are unknown, so `guard` holds every refresh (#295).
   let request = params;
+  const guard = new RefreshGuard(scheduleRefresh);
   // Why the page shows less than it asked for, if it does; kept while live deltas arrive.
   let note: string | undefined;
-  dispose = () => { controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(refresh); clearTimeout(proposalsTimer); renderer.destroy(); };
+  dispose = () => {
+    controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(refresh); clearTimeout(proposalsTimer);
+    if (frame !== undefined) cancelAnimationFrame(frame);
+    renderer.destroy();
+  };
   status.textContent = 'Connecting'; position.textContent = ''; table.replaceChildren(); proposalsPanel.replaceChildren();
   for (const key of keys) (form.elements.namedItem(key) as HTMLInputElement).value =
     params.get(key) ?? ({ branch: 'actual', lod: 'entity', hops: '1' }[key] ?? '');
   detail = { asked: lodSelect.value, shown: lodSelect.value };
+  function placeText(): string {
+    return `${pinned ? 'Pinned' : 'Live'} · ` + (mounted ? `graph at ${state.offset} · evidence through ${state.lastAppliedOffset}` :
+      `evidence through ${state.lastAppliedOffset} · graph loading`);
+  }
+  // The tail's chunks and bursts of live rows: at most one table render per animation frame.
+  const paintEvidence = frameThrottle(() => {
+    frame = undefined;
+    if (signal.aborted) return;
+    renderTable(table, state); renderActive(active, state); position.textContent = placeText();
+  }, run => { frame = requestAnimationFrame(run); });
   function paint(): void {
     renderTable(table, state);
     renderLegend(legend, state);
     renderActive(active, state);
-    position.textContent = `${params.has('at') ? 'Pinned' : 'Live'} · graph at ${state.offset} · evidence through ${state.lastAppliedOffset}`;
+    position.textContent = placeText();
   }
   // Best-effort: a missing or failing proposals route must never block the graph. The next poll
   // is scheduled only after this one settles, and the generation check drops any stale response.
@@ -105,6 +126,7 @@ async function start(): Promise<void> {
     } catch { /* non-essential */ }
     if (!signal.aborted && generation === proposalsGeneration) proposalsTimer = setTimeout(() => void pollProposals(), PROPOSALS_POLL_MS);
   }
+  // Only `guard` calls this before the first world view; after it, `guard.request()` passes through.
   function scheduleRefresh(): void {
     dirty = true;
     if (refresh !== undefined || fetching || signal.aborted) return;
@@ -153,9 +175,9 @@ async function start(): Promise<void> {
       if (signal.aborted || source !== current) return;
       try {
         const message = JSON.parse((event as MessageEvent<string>).data) as Message;
-        if (!state.apply(message)) return;
-        delay = 1000; status.textContent = rebuildingStatus(state.sources) ?? note ?? ''; paint();
-        if (message.type !== 'noop') scheduleRefresh();
+        if (!liveRow(state, guard, message, paintEvidence)) return;
+        delay = 1000;
+        status.textContent = mounted ? rebuildingStatus(state.sources) ?? note ?? '' : 'Loading world…';
       } catch (error) { current.close(); status.textContent = describe(error); }
     });
     current.onerror = async event => {
@@ -180,43 +202,48 @@ async function start(): Promise<void> {
       reconnect(); // Includes 503: a connection slot may become available later.
     };
   }
+  // Shows the first applied world view; `bootstrap` calls it, then lets held refreshes through.
+  function mount(loaded: Loaded): void {
+    const { view } = loaded;
+    lastFetch = Date.now(); request = loaded.request; note = loaded.note; mounted = true;
+    // Show the level actually served: `Types` when a large world fell back to the type view.
+    lodSelect.value = detail.shown = servedLod(loaded);
+    renderer.mount(graph, state); paint();
+    status.textContent = rebuildingStatus(state.sources) ?? note ??
+      (view.nodes.length ? '' : pinned ? 'No data at this offset' :
+        (unroutedStatus(state.sources) ?? 'Waiting for events'));
+    // Held until `guard.ready()`, which follows immediately.
+    if (!pinned && rebuildingStatus(state.sources) !== undefined) guard.request();
+  }
   async function initialize(): Promise<void> {
+    // A world-less page load (a stray `/index.html`) has nothing to show: send it to the home page.
+    const world = params.get('world');
+    if (!world) { location.replace('/'); return; }
+    // One load attempt: a failed one is aborted before the retry, so its late responses land nowhere.
+    const attempt = new AbortController();
+    const load = AbortSignal.any([signal, attempt.signal]);
+    // A large world takes seconds to build: name the wait instead of an empty canvas.
+    status.textContent = 'Loading world…';
     try {
-      // A world-less page load (a stray `/index.html`) has nothing to show: send it to the home page.
-      if (!params.get('world')) { location.replace('/'); return; }
-      // Best-effort: presentation absence/failure must never block the graph itself (same
-      // posture as the sources fetch below).
-      try {
-        const p = await fetchPresentation(params.get('world')!, signal);
-        if (!signal.aborted) applyPresentation(p, renderer);
-      } catch { /* non-essential */ }
-      if (signal.aborted) return;
-      // A large world takes seconds to build: name the wait instead of an empty canvas.
-      status.textContent = 'Loading world…';
-      const loaded = await loadWorld(params, served => snapshot(served, signal)); lastFetch = Date.now();
-      const { view } = loaded; request = loaded.request; note = loaded.note;
-      // Show the level actually served: `Types` when a large world fell back to the type view.
-      lodSelect.value = detail.shown = servedLod(loaded);
-      const seed = await evidence(params, view.offset, view.epoch, signal);
-      if (signal.aborted) return;
-      state.epoch = view.epoch;
-      state.snapshot(view); seed.messages.forEach(message => state.apply(message));
-      state.lastAppliedOffset = view.offset;
-      // Live view only: learn whether a rebuild is in progress (#184) or the log has unrouted
-      // traffic (#143), so the page can name that state instead of reading as broken.
-      // Best-effort — a failed fetch here must not block the graph itself.
-      if (!params.has('at')) {
-        try { state.sources = await fetchSources(params, signal); } catch { /* non-essential */ }
-        if (signal.aborted) return;
-      }
-      renderer.mount(graph, state); paint(); void pollProposals();
-      status.textContent = rebuildingStatus(state.sources) ?? note ??
-        (view.nodes.length ? '' : params.has('at') ? 'No data at this offset' :
-          (unroutedStatus(state.sources) ?? 'Waiting for events'));
-      if (!params.has('at')) { open(); if (rebuildingStatus(state.sources) !== undefined) scheduleRefresh(); }
+      await bootstrap({
+        at: pinned ? Number(params.get('at')) : undefined, state, guard,
+        aborted: () => load.aborted,
+        presentation: async () => {
+          const p = await fetchPresentation(world, load);
+          if (!load.aborted) applyPresentation(p, renderer);
+        },
+        proposals: () => void pollProposals(),
+        sources: () => fetchSources(params, load),
+        tail: stream => evidenceTail(params, load, stream),
+        evidence: at => evidence(params, at, undefined, load),
+        loadWorld: () => loadWorld(params, served => snapshot(served, load)),
+        open, paintEvidence, mount, restartStale: () => restartStale(),
+      });
     } catch (error) {
+      attempt.abort();
       if (signal.aborted) return;
-      // The history was replaced between the snapshot and the evidence read: start over.
+      source?.close(); source = undefined; clearTimeout(retry);
+      // The history was replaced between two reads: start over.
       if (isStaleEpoch(error)) { restartStale(); return; }
       if (error instanceof ApiError && error.status !== 503) { status.textContent = describe(error); return; }
       status.textContent = `Reconnecting: ${describe(error)}`;
@@ -266,21 +293,4 @@ function legendItem(color: string, text: string): HTMLLIElement {
   const swatch = document.createElement('span'); swatch.className = 'swatch'; swatch.style.backgroundColor = color;
   item.append(swatch, document.createTextNode(text));
   return item;
-}
-
-function renderActive(element: HTMLElement, state: ViewState): void {
-  const recent = activeNow(state.evidence, state.nodesById, state.keyByType, state.labels);
-  const recentHeading = document.createElement('h3'); recentHeading.textContent = 'Active now';
-  const hubHeading = document.createElement('h3'); hubHeading.textContent = 'Hubs';
-  const recentList = metricList(recent.map(item => `${item.label} (${item.count})`));
-  const hubList = metricList(state.hubs.map(item => `${item.label} (${item.degree})`));
-  element.replaceChildren(recentHeading, recentList, hubHeading, hubList);
-}
-
-function metricList(values: string[]): HTMLUListElement {
-  const list = document.createElement('ul');
-  for (const value of values.length ? values : ['None']) {
-    const item = document.createElement('li'); item.textContent = value; list.append(item);
-  }
-  return list;
 }

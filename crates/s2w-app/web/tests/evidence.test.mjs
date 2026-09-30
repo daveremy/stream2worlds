@@ -60,3 +60,28 @@ test('a non-numeric S2W-Head fails rather than reading as NaN or 0', async () =>
     await assert.rejects(evidenceTail(new URLSearchParams('world=w'), new AbortController().signal), /non-numeric S2W-Head/);
   }
 });
+
+// s2w#295: the page paints on the first parsed rows, not when the 68 KB body closes.
+test('evidenceTail hands over the head, then each chunk\'s rows, before the body closes', async () => {
+  globalThis.location = { origin: 'http://s2w.test' };
+  const { evidenceTail } = await import('../src/api.ts');
+  let push, close;
+  const body = new ReadableStream({ start(controller) {
+    push = text => controller.enqueue(new TextEncoder().encode(text)); close = () => controller.close();
+  } });
+  globalThis.fetch = async () => new Response(body, { status: 200, headers: { 'S2W-Head': '43', 'S2W-Epoch': '00000000000000aa' } });
+  const seen = [];
+  const done = evidenceTail(new URLSearchParams('world=w'), new AbortController().signal, {
+    onHead: (head, epoch) => seen.push(`head ${head} ${epoch}`),
+    onRows: rows => seen.push(`rows ${rows.map(m => m.offset).join(',')}`),
+  });
+  let closed = false; done.then(() => { closed = true; });
+  push(frame(41) + frame(42).slice(0, 20));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(seen, ['head 43 00000000000000aa', 'rows 41']);
+  assert.equal(closed, false);
+  push(frame(42).slice(20) + frame(43)); close();
+  const got = await done;
+  assert.deepEqual(seen, ['head 43 00000000000000aa', 'rows 41', 'rows 42,43']);
+  assert.deepEqual(got.messages.map(m => m.offset), [41, 42, 43]);
+});
