@@ -53,8 +53,8 @@ fn the_example_spec_is_valid() {
 #[test]
 fn another_version_is_rejected() {
     let mut value = example();
-    value["version"] = json!(2);
-    rejects(&value, "version 2");
+    value["version"] = json!(3);
+    rejects(&value, "version 3");
 }
 
 #[test]

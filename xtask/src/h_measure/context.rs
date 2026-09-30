@@ -18,7 +18,7 @@ use s2w_discover::rule_id;
 use s2w_model::{KeyPart, NaturalKey};
 use serde::Serialize;
 
-use super::key::KeySpec;
+use super::key::{KeySpec, Unscored};
 use super::mentions::{Mention, Partition};
 use super::score::{Bcubed, score};
 
@@ -157,7 +157,7 @@ pub(crate) fn rows(
 ) -> Result<BTreeMap<String, ContextRow>, String> {
     // The restricted set holds gold mentions only, and a mention path is never also unscored
     // (`KeySpec::validate`), so no unscored path can reach this scorer.
-    let unscored = BTreeSet::new();
+    let unscored = Unscored::default();
     Ok(collisions(spec, gold)?
         .into_iter()
         .map(|(name, found)| {

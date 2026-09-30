@@ -43,7 +43,7 @@ pub(crate) fn grade(
 ) -> Result<Grade, String> {
     let corpus = Decoded::new(payloads, &spec.decode);
     let gold = key_mentions(spec, &corpus)?;
-    let unscored = spec.unscored_ids();
+    let unscored = spec.unscored();
     let other;
     let mapping_corpus = if mapping.decode == corpus.steps() {
         &corpus

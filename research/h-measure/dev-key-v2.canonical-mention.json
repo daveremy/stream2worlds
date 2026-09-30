@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "decode": [["data"]],
+  "types": [
+    { "type": "wiki", "mentions": [
+      { "path": ["data", "wiki"], "identity": [["data", "wiki"]] }
+    ] },
+    { "type": "page", "mentions": [
+      { "path": ["data", "title"], "identity": [["data", "wiki"], ["data", "namespace"], ["data", "title"]] }
+    ] },
+    { "type": "user", "mentions": [
+      { "path": ["data", "user"], "identity": [["data", "wiki"], ["data", "user"]] }
+    ] },
+    { "type": "revision", "mentions": [
+      { "path": ["data", "revision", "new"], "identity": [["data", "wiki"], ["data", "revision", "new"]] },
+      { "path": ["data", "revision", "old"], "identity": [["data", "wiki"], ["data", "revision", "old"]] }
+    ] },
+    { "type": "event", "mentions": [
+      { "path": ["data", "meta", "id"], "identity": [["data", "meta", "id"]] }
+    ] },
+    { "type": "log", "mentions": [
+      { "path": ["data", "log_id"], "identity": [["data", "wiki"], ["data", "log_id"]], "no_identity": [0] }
+    ] }
+  ],
+  "unscored": [
+    ["data", "meta", "uri"],
+    ["data", "id"],
+    ["data", "meta", "request_id"],
+    ["data", "meta", "topic"],
+    ["data", "meta", "partition"],
+    ["data", "meta", "offset"],
+    ["data", "notify_url"],
+    ["data", "server_script_path"],
+    ["data", "comment"],
+    ["data", "parsedcomment"],
+    ["data", "server_name"],
+    ["data", "server_url"],
+    ["data", "meta", "domain"],
+    ["data", "title_url"],
+    { "prefix": ["data", "log_params"] }
+  ]
+}

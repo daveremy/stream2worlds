@@ -21,6 +21,7 @@ use s2w_system1::{Engine, MappingEngine, Verdict};
 // The committed sample the self-test grades: 20 stored envelopes and a hand-written mapping
 // with a composite key (decision 0021), the same pair check 11 replays.
 use crate::obfuscation_raw::{MAPPING as SAMPLE_MAPPING, RAW as SAMPLE};
+use key::Unscored;
 use serde_json::Value;
 
 mod context;
@@ -215,7 +216,7 @@ fn reference_fixtures() -> Result<String, String> {
     let exact = |got: Option<f64>| ninths(got, 4.0);
     let mut table = "fixture         P       R       F1      false-merge  recovery".to_owned();
     for (name, key, prediction) in score::frozen_fixtures() {
-        let row = score::score(&key, &prediction, &BTreeSet::new());
+        let row = score::score(&key, &prediction, &Unscored::default());
         let b = row.micro;
         let holds = match name {
             "4/9" => {

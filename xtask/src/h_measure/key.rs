@@ -12,12 +12,18 @@ use s2w_system1::decode::key_part;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod unscored;
+
+pub(crate) use unscored::{Unscored, UnscoredPath};
+
 /// The newest key-spec version, the one [`KeySpec::from_mapping`] writes. Version 1 adds
-/// [`MentionRule::no_identity`]; a version-0 spec reads exactly as it always did.
-pub(crate) const KEY_VERSION: u32 = 1;
+/// [`MentionRule::no_identity`]; version 2 adds the prefix form of an unscored entry
+/// ([`UnscoredPath::Prefix`], s2w#224). A version-0 or version-1 spec reads exactly as it
+/// always did.
+pub(crate) const KEY_VERSION: u32 = 2;
 
 /// Every key-spec version this harness reads.
-pub(crate) const KEY_VERSIONS: [u32; 2] = [0, KEY_VERSION];
+pub(crate) const KEY_VERSIONS: [u32; 3] = [0, 1, KEY_VERSION];
 
 /// A key spec. Every mention rule's path names where a mention sits; its identity paths name the
 /// values that identify the entity. Two mention rules of one type whose identity values are equal
@@ -35,9 +41,10 @@ pub(crate) struct KeySpec {
     /// Entity types, each with its mention rules.
     pub types: Vec<KeyType>,
     /// Paths whose mentions are not scored on either side: ambiguous or unobservable parts of the
-    /// stream (contract B3).
+    /// stream (contract B3). Each entry is one exact path or, from format 2, a prefix that
+    /// covers itself and every path under it.
     #[serde(default)]
-    pub unscored: Vec<FieldPath>,
+    pub unscored: Vec<UnscoredPath>,
 }
 
 /// One key entity type.
@@ -161,9 +168,9 @@ impl KeySpec {
         Ok(mapping)
     }
 
-    /// The unscored paths as mention path ids.
-    pub(crate) fn unscored_ids(&self) -> BTreeSet<String> {
-        self.unscored.iter().map(rule_id).collect()
+    /// The unscored entries as mention path ids.
+    pub(crate) fn unscored(&self) -> Unscored {
+        Unscored::of(&self.unscored)
     }
 
     /// Fails closed on anything that would make the key partition ambiguous.
@@ -180,16 +187,7 @@ impl KeySpec {
         if !self.decode.iter().all(well_formed) {
             return Err("a decode path is empty or has an empty or U+001F key".to_owned());
         }
-        let mut unscored = BTreeSet::new();
-        for path in &self.unscored {
-            if !well_formed(path) {
-                return Err("an unscored path is empty or has an empty or U+001F key".to_owned());
-            }
-            // Compared as the executors' mention id, so `["a", 1]` and `["a", "1"]` are one path.
-            if !unscored.insert(rule_id(path)) {
-                return Err(format!("unscored path {path:?} is listed twice"));
-            }
-        }
+        let unscored = Unscored::validated(&self.unscored, self.version)?;
         let mut labels = BTreeSet::new();
         let mut paths = BTreeSet::new();
         for kind in &self.types {
@@ -222,7 +220,7 @@ impl KeySpec {
                         rule.path
                     ));
                 }
-                if unscored.contains(&id) {
+                if unscored.covers(&id) {
                     return Err(format!("mention path {:?} is also unscored", rule.path));
                 }
                 self.validate_rule_identity(&kind.label, rule)?;
@@ -247,7 +245,7 @@ fn distinct_identity(label: &str, rule: &MentionRule) -> Result<(), String> {
 }
 
 impl KeySpec {
-    /// A rule's identity paths, each listed once, and its `no_identity` list: format 1 only, on
+    /// A rule's identity paths, each listed once, and its `no_identity` list: from format 1, on
     /// an identity path, every value a key part (string, integer or boolean) listed once.
     /// Anything else could never match, or would match ambiguously, so it fails closed.
     fn validate_rule_identity(&self, label: &str, rule: &MentionRule) -> Result<(), String> {
@@ -257,7 +255,7 @@ impl KeySpec {
         }
         if self.version == 0 {
             return Err(format!(
-                "type {label:?}: mention path {:?} has no_identity, which needs key format 1",
+                "type {label:?}: mention path {:?} has no_identity, which needs key format 1 or later",
                 rule.path
             ));
         }
