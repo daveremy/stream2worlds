@@ -5,9 +5,11 @@
 //!
 //! [`discover`] reads a window of raw payloads, exactly as the log stores them, and proposes a
 //! [`StreamMapping`] or abstains. It reads statistics, never meaning: every decision rests on
-//! value equality, presence and stream order, so renaming every key and hashing every string
-//! yields the same mapping under the renamed paths (`cargo xtask check` 12). Type labels and
-//! attribute names are built from the key names the stream carries, as data.
+//! value equality, presence and stream order, plus one format, the RFC 3339 date-time
+//! ([`stamp`], decision 0030), so renaming every key, hashing every other string and shifting
+//! every date-time by one constant yields the same mapping under the renamed paths
+//! (`cargo xtask check` 12). Type labels and attribute names are built from the key names the
+//! stream carries, as data.
 //!
 //! Pure: no I/O, no clock, no randomness, no hash-order iteration.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
@@ -16,6 +18,7 @@ mod assemble;
 mod contain;
 mod flatten;
 mod roles;
+pub mod stamp;
 
 use s2w_model::{FieldPath, Segment, StreamMapping};
 
@@ -31,7 +34,7 @@ pub const PROFILER_MODEL: &str = "h-min";
 /// PROFILER_MODEL, version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
-pub const PROFILER_VERSION: &str = "6";
+pub const PROFILER_VERSION: &str = "7";
 
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]

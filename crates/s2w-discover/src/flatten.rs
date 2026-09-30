@@ -24,6 +24,8 @@ pub(crate) struct Column {
     pub(crate) texts: Vec<String>,
     ids: BTreeMap<String, u32>,
     pub(crate) kinds: u8,
+    /// How many of `texts` are RFC 3339 date-times (`stamp::shaped`, decision 0030).
+    stamps: usize,
 }
 
 impl Column {
@@ -43,6 +45,11 @@ impl Column {
         let next = u32::try_from(self.texts.len()).unwrap_or(u32::MAX);
         let id = *self.ids.entry(text.clone()).or_insert(next);
         if id == next {
+            if let Value::String(s) = value
+                && crate::stamp::shaped(s)
+            {
+                self.stamps += 1;
+            }
             self.texts.push(text);
         }
         self.cells.push((event, Some(id)));
@@ -51,6 +58,11 @@ impl Column {
     /// Whether every value is one keyable kind: a string, an `i64` or a bool.
     pub(crate) fn keyable(&self) -> bool {
         matches!(self.kinds, STR | INT | BOOL)
+    }
+
+    /// Whether every value is an RFC 3339 date-time: a moment, never a thing (decision 0030).
+    pub(crate) fn timestamp(&self) -> bool {
+        self.kinds == STR && !self.texts.is_empty() && self.stamps == self.texts.len()
     }
 }
 

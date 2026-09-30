@@ -18,6 +18,9 @@ pub enum Role {
     Constant,
     /// Two values.
     Flag,
+    /// Every value is an RFC 3339 date-time, a format (decision 0030): a moment, never a thing.
+    /// It keys no type and is no stage-5b candidate; it may still be another type's attribute.
+    Timestamp,
     /// Unique per event: names the event, never an entity (research 0002 §3).
     EventId,
     /// Uniqueness in the grey band between an entity id and an event id: abstain.
@@ -142,6 +145,8 @@ pub(crate) fn single_column(column: &Column, cfg: &Config) -> Option<Role> {
         Role::Constant
     } else if distinct == 2 {
         Role::Flag
+    } else if column.timestamp() {
+        Role::Timestamp
     } else if pct(distinct, count) >= cfg.event_id_pct {
         Role::EventId
     } else if pct(distinct, count) < cfg.grey_uniqueness_pct
