@@ -13,7 +13,7 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
-## World loads finish, the viewer stays bounded, and H-lite finds editors — #259, #262, #250 PR 2, #220 PR A and B (2026-09-29)
+## World loads finish, the viewer stays bounded, and H-lite finds editors — #259, #250 PR 2, #220 PR A and B, and #262 just after (2026-09-29)
 
 **Shipped:** the demo world, now titled "Living Wikipedia", loads whole. Its page had been
 blank, looping "Reconnecting: Failed to fetch", because the server cut every `/world` response
@@ -29,8 +29,9 @@ another varying path stays constant within them, so Wikipedia's `user` becomes a
 (`PROFILER_VERSION` 4, [#261](https://github.com/daveremy/stream2worlds/pull/261)). The bridge
 memory work merged: the measurement harness now refuses any tuned-allocator variable
 (`MALLOC_*`, `GLIBC_TUNABLES`, `LD_PRELOAD`) in its default sweep rather than a fixed list of
-names ([#253](https://github.com/daveremy/stream2worlds/pull/253)), and batch 250 with a
-50,000-event history cap lowers the bridge's cap-2 peak from 577 to 520–538 MiB
+names ([#253](https://github.com/daveremy/stream2worlds/pull/253)), batch 250 lowers the
+bridge's peak at a history cap of 2 from 577 to 520–538 MiB, and at the new 50,000-event default
+cap the peak is 548–563 MiB, against 589 at the old default
 ([#255](https://github.com/daveremy/stream2worlds/pull/255)). Rustdoc errors are fixed and CI
 now runs `cargo doc -D warnings`
 ([#257](https://github.com/daveremy/stream2worlds/pull/257)). The Sprint 82 entry landed in

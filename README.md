@@ -32,8 +32,9 @@
 - **H-lite finds editors.** A second entity test keys Wikipedia's `user`; on a held-out span
   opened after the predictions, identity F1 rose from 0.2920 to 0.4431 and every prediction hit.
   [#261](https://github.com/daveremy/stream2worlds/pull/261)
-- **The bridge's peak memory is lower.** Batch 250 and a 50,000-event history cap take its
-  peak from 577 to 520–538 MiB.
+- **The bridge's peak memory is lower.** Batch 250 takes its measured peak from 577 to
+  520–538 MiB at a history cap of 2; at the new 50,000-event default cap it is 548–563 MiB,
+  against 589 before.
   [#255](https://github.com/daveremy/stream2worlds/pull/255)
 - **In progress:** deploying the bounded view and checking that the demo page renders in a
   browser, and measuring the `/world` lock ([#243](https://github.com/daveremy/stream2worlds/issues/243)).
