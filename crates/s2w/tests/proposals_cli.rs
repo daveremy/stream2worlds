@@ -1,4 +1,4 @@
-//! `s2w proposals list|grade|decide` end to end (stream2worlds#185): the reads never create the
+//! `s2w proposals list|grade|propose|decide` end to end (stream2worlds#185, #309): the reads never create the
 //! store, a human decision moves only the human tally, data errors exit 1 with the same JSON body
 //! HTTP and MCP serve, and usage errors exit 2 before anything is opened.
 
@@ -273,6 +273,94 @@ fn a_human_reject_of_the_running_mapping_reports_the_source_unrouted() -> TestRe
         out.contains("source 'test.mapped' is now unrouted"),
         "{out}"
     );
+    Ok(())
+}
+
+#[test]
+fn a_proposed_mapping_routes_only_once_a_human_accepts_it() -> TestResult {
+    let dir = TestDirectory::new("propose")?;
+    let path = dir.path();
+    let mapping = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../s2w-system1/testdata/sample.mapping.json")
+        .display()
+        .to_string();
+    let propose_args = [
+        "proposals",
+        "propose",
+        "--log-dir",
+        &path,
+        "--source",
+        "test.mapped",
+        "--mapping",
+        &mapping,
+        "--author",
+        "dave",
+        "--json",
+    ];
+    let first = s2w(&propose_args)?;
+    assert!(first.status.success(), "{}", text(&first.stderr));
+    let body: Value = serde_json::from_slice(&first.stdout)?;
+    let id = body["proposal"]["id"].as_str().ok_or("id")?.to_owned();
+    let identity = body["identity"].as_str().ok_or("identity")?.to_owned();
+    assert_eq!(body["proposal"]["class"], json!(STREAM_MAPPING_CLASS));
+    assert_eq!(
+        body["proposal"]["actor"],
+        json!({"kind": "human", "id": "dave"})
+    );
+
+    // A re-run is an identical retry: the same row, still one proposal, nothing routed yet.
+    let again = s2w(&propose_args)?;
+    assert!(again.status.success(), "{}", text(&again.stderr));
+    let again: Value = serde_json::from_slice(&again.stdout)?;
+    assert_eq!(again["proposal"], body["proposal"]);
+    let listed = text(&s2w(&["proposals", "list", "--log-dir", &path])?.stdout);
+    assert_eq!(listed.matches("proposal ").count(), 1, "{listed}");
+    assert!(
+        !listed.contains("route: source 'test.mapped' runs"),
+        "{listed}"
+    );
+
+    let run = s2w(&decide_args(&path, &id, "accept"))?;
+    assert!(run.status.success(), "{}", text(&run.stderr));
+    let out = text(&run.stdout);
+    assert!(
+        out.contains(&format!(
+            "source 'test.mapped' now runs mapping {identity} from proposal {id}"
+        )),
+        "{out}"
+    );
+    Ok(())
+}
+
+#[test]
+fn an_invalid_mapping_exits_1_and_creates_nothing() -> TestResult {
+    let dir = TestDirectory::new("propose-bad")?;
+    let path = dir.path();
+    let bad = dir.0.with_extension("bad.json");
+    std::fs::write(&bad, b"{\"version\": 1}")?;
+    let bad = bad.display().to_string();
+    for mapping in [bad.as_str(), "/nonexistent/mapping.json"] {
+        let run = s2w(&[
+            "proposals",
+            "propose",
+            "--log-dir",
+            &path,
+            "--source",
+            "test.mapped",
+            "--mapping",
+            mapping,
+            "--author",
+            "dave",
+        ])?;
+        assert_eq!(run.status.code(), Some(1), "{mapping}");
+        assert!(
+            text(&run.stderr).starts_with("s2w: bad_parameter: "),
+            "{}",
+            text(&run.stderr)
+        );
+    }
+    std::fs::remove_file(&bad)?;
+    assert!(!dir.0.exists() || entries(&dir.0)? == 0);
     Ok(())
 }
 
