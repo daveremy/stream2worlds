@@ -967,3 +967,22 @@ fn renaming_is_invariant_with_a_leaf() {
     let a = mapping(a);
     assert_eq!(canonical(mapping(b)), obf.mapping(&a));
 }
+
+#[test]
+fn path_profiles_count_strings_and_their_mean_length() {
+    let events = vec![
+        json!({"s": "ab", "n": 1, "m": "abcd"}),
+        json!({"s": "abcde", "n": 2, "m": 3}),
+        json!({"s": "abcdef", "n": 3}),
+    ];
+    let (profile, _) = run(&events, &[]);
+    let stats = |keys: &[&str]| {
+        let p = path(keys);
+        let found = profile.paths.iter().find(|x| x.path == p).expect("path profiled");
+        (found.count, found.str_count, found.str_len_mean)
+    };
+    // 2 + 5 + 6 = 13 bytes over 3 strings: the mean rounds down to 4.
+    assert_eq!(stats(&["s"]), (3, 3, 4));
+    assert_eq!(stats(&["n"]), (3, 0, 0));
+    assert_eq!(stats(&["m"]), (2, 1, 4));
+}

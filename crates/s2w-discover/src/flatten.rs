@@ -24,10 +24,18 @@ pub(crate) struct Column {
     pub(crate) texts: Vec<String>,
     ids: BTreeMap<String, u32>,
     pub(crate) kinds: u8,
+    /// Values that were strings, and their total length in bytes (the dashboard proposer's
+    /// statistics; no rule reads them).
+    pub(crate) strs: usize,
+    pub(crate) str_bytes: usize,
 }
 
 impl Column {
     fn push(&mut self, event: usize, value: &Value) {
+        if let Value::String(text) = value {
+            self.strs += 1;
+            self.str_bytes = self.str_bytes.saturating_add(text.len());
+        }
         let kind = match value {
             Value::String(_) => STR,
             Value::Bool(_) => BOOL,
