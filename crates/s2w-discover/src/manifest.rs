@@ -88,8 +88,9 @@ struct TypeEvidence<'a> {
     /// Whether some rule's first key part is mostly strings and not a date-time.
     string_key: bool,
     /// Candidate label attributes: name, then the best statistics seen under that name. Like
-    /// `count`, a merged maximum: an attribute's statistics may come from another rule with the
-    /// same label than the one whose key set `count`.
+    /// `count`, a merged maximum: an attribute's statistics may come from a rule with the same
+    /// label other than the one whose key set `count`. The coverage test compares an attribute
+    /// with its own rule's key; the share test in `type_row` compares it with the merged `count`.
     attrs: BTreeMap<&'a str, &'a PathStats>,
 }
 
@@ -173,7 +174,7 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
             }
             let evidence = types.entry(&rule.type_label).or_default();
             // With no profiled key, how often the rule's entities occur cannot be judged, so
-            // none of its attributes may name them.
+            // none of its attributes may name them. The type keeps its (unlabeled) row.
             let Some(first) = rule.key.first().and_then(|p| stats.get(p)) else {
                 continue;
             };
@@ -207,7 +208,8 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
 }
 
 /// A type's row: its label is the attribute with the most distinct values, the shorter mean
-/// string length breaking a tie (a unique best), among attributes with at least
+/// string length breaking a tie (a unique best), among the attributes `evidence` admitted
+/// (see its coverage test) with at least
 /// `MIN_LABEL_DISTINCT` distinct values and at least half as many as the type has entities,
 /// else its first key part when that is mostly strings and not a date-time, else none;
 /// primary when it has one. Its noun is its type label.

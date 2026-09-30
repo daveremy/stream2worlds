@@ -1363,24 +1363,31 @@ fn the_fallback_never_labels_a_type_by_a_date_time() {
 #[test]
 fn the_fallback_never_labels_a_type_by_a_category() {
     use s2w_model::Label;
-    // `who` names 400 entities; `kind` takes three values. `kind` is the only attribute of
-    // `who`'s rule, so it is the most distinct candidate, and it still names a category.
+    // `who` names 400 entities; `kind` takes twenty values. `kind` is the only attribute of
+    // the `actor` rule keyed by `who`, so it is the most distinct candidate. It clears the
+    // floor (20 >= 8) and coverage (1200 <= 2 * 1200), and fails only the half share
+    // (40 < 400): a category.
     let events: Vec<Value> = stream(1200)
         .into_iter()
         .enumerate()
         .map(|(i, mut event)| {
             event["who"] = json!(format!("user{}", i % 400));
-            event["kind"] = json!(["edit", "new", "log"][i % 3]);
+            event["kind"] = json!(format!("k{}", i % 20));
             event
         })
         .collect();
     let mut input = manifest_input(&events);
-    add_rule(&mut input, "who", "who", "kind");
-    stats_of(&input, "kind");
+    add_rule(&mut input, "actor", "who", "kind");
+    let kind = stats_of(&input, "kind");
+    assert_eq!(
+        (kind.count, kind.distinct),
+        (1200, 20),
+        "vacuous: `kind` is not the share case"
+    );
     let m = fallback_manifest(&input);
     assert_eq!(m.validate(&input.context()), Ok(()));
     assert_eq!(
-        row_label(&m, "who"),
+        row_label(&m, "actor"),
         Some(Label::Key(s2w_model::KeyLabel { key: 0 }))
     );
 }

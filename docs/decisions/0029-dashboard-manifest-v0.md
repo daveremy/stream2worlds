@@ -252,7 +252,8 @@ re-proposal of the manifest carries all of it; a manifest filed before it still 
   when it is on at most twice as many events as the rule's first key path, and a rule with no
   profiled key offers none. **Floor:** a candidate needs at least 8 distinct values as well as
   the half share. Measured cause: on the demo, the two rare `redirect_page_link/wikibase_*`
-  types have their key on 40 of 2,000 tail events (16 distinct), while the content-model
+  types have their key on 40 of 2,000 tail events (16 distinct in the measured window, 8 or
+  fewer in others), while the content-model
   attribute is on all 2,000 with 4 values. The share compared a count over 2,000 events with
   one over 40; when the rare key had 8 or fewer values in the window, 4 cleared half and the
   category became the label. Coverage is the root-cause rule. The floor is a sample-size
