@@ -21,27 +21,21 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **Events read as sentences, and entities carry names.** The dashboard manifest now names
-  each type's label, noun and kind and gives each event type a sentence; `/sentences` and MCP
-  `sentences` render the last N events that way. The deterministic proposer's labels skip
-  date-times and categories, so an editor shows its user name, not "edit".
+- **The demo names what it shows.** A System 2 manifest is stored on the demo box, and 20 of 20
+  sampled `/sentences` rows read clearly and match their events, for example "Llewee edited
+  Saint_David's_Day: /* School celebrations */ added link".
+  [#288](https://github.com/daveremy/stream2worlds/issues/288)
+- **A cold restart of the demo passes both gates.** All 10 cold restarts on the box load first
+  paint under 1 s and the graph under 3 s with 4 viewers.
+  [#331](https://github.com/daveremy/stream2worlds/issues/331)
+- **Events read as sentences.** `/sentences` and MCP `sentences` render the last N events from the
+  manifest's per-type sentence, each with the entities it names.
   [#302](https://github.com/daveremy/stream2worlds/issues/302)
-- **The demo check now fails loudly.** It asserts the first-paint and graph gates on every run
-  (`--no-gates` opts out); 11 of 12 acceptance runs passed across 1 and 4 viewers.
-  [#292](https://github.com/daveremy/stream2worlds/issues/292)
-- **A restart stalls the page far less.** Replay yields to HTTP between 20 ms batches: mean
-  `/main.js` latency during catch-up fell from 144 ms to 29 ms on the hub.
-  [#338](https://github.com/daveremy/stream2worlds/pull/338)
-- **Byte sizes are no longer entity types.** An integer churn floor (`PROFILER_VERSION` 8) drops
-  `mediainfo/content_size`, going from 13 to 12 types with no recall loss.
-  [#336](https://github.com/daveremy/stream2worlds/pull/336)
-- **The graph gate passes on the demo box.** The full type view builds in 274 ms instead of
-  1,488 ms at 213k entities, and the demo box measured first paint 960 ms and graph 1,813 ms
-  with 4 viewers, against gates of 1 s and 3 s.
-  [#329](https://github.com/daveremy/stream2worlds/pull/329)
-- **In progress:** the first run after a restart still misses first paint by 36 ms
-  ([#331](https://github.com/daveremy/stream2worlds/issues/331)), the cold-load case of the demo check ([#292](https://github.com/daveremy/stream2worlds/issues/292)), and the Living
-  Wikipedia direction ([#337](https://github.com/daveremy/stream2worlds/issues/337)).
+- **The fallback no longer labels editors "edit".** A label needs coverage and at least 8
+  distinct values (`dashboard-fallback/3`).
+  [#344](https://github.com/daveremy/stream2worlds/pull/344)
+- **In progress:** the live-demo label share ([#342](https://github.com/daveremy/stream2worlds/issues/342)) and the viewer showing names, icons and
+  sentences ([#289](https://github.com/daveremy/stream2worlds/issues/289)).
 
 ## Demos
 

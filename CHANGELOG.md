@@ -13,6 +13,50 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## A System 2 manifest names the demo's world, and the fallback label needs a floor — [#344](https://github.com/daveremy/stream2worlds/pull/344), [#288](https://github.com/daveremy/stream2worlds/issues/288) (2026-09-30)
+
+**Shipped:** the demo box now serves a manifest written by System 2 (proposal
+`f2dcaa8c5ffe5c07`, `claude-sonnet-5-5/cli`, through the headless model CLI), stored under the
+accept policy. A spot check of `/sentences?last=20` scored 20 of 20 readable and 20 of 20 faithful
+to the raw events, against a target of 18 of 20. One live row reads "Llewee edited
+Saint_David's_Day: /* School celebrations */ added link". The fallback proposer is now
+`dashboard-fallback/3`: an attribute can label a type only when it is present on about as many
+events as the rule's key and has at least 8 distinct values ([#344](https://github.com/daveremy/stream2worlds/pull/344)).
+
+**Learned:** the dry run on the box found the case the half-share rule missed. The redirect types'
+key appears on 40 of 2,000 tail events (16 distinct values), while `content_model` appears on all
+2,000 (4 distinct), so the rule compared two different populations and labelled links by a
+category word. A coverage test plus a distinct-value floor fixes it, with a test for each half that
+fails on version 2. The fallback still writes "type + key" sentences by design, so readable
+sentences need a System 2 manifest; the deterministic path alone scored 0 of 20.
+
+**Next:** the live-demo label share, which needs a bounded world read in the measurement script
+([#342](https://github.com/daveremy/stream2worlds/issues/342)), then the display work: names, kind icons and "Live edits" sentences
+in the viewer ([#289](https://github.com/daveremy/stream2worlds/issues/289)).
+
+## Cold restarts pass on the demo box, and the world starts naming itself — [#343](https://github.com/daveremy/stream2worlds/pull/343), [#340](https://github.com/daveremy/stream2worlds/pull/340), [#331](https://github.com/daveremy/stream2worlds/issues/331), [#292](https://github.com/daveremy/stream2worlds/issues/292) (2026-09-30)
+
+**Shipped:** all 10 cold restarts on the demo box pass both gates (first paint 1 s, graph 3 s),
+so [#331](https://github.com/daveremy/stream2worlds/issues/331) and [#292](https://github.com/daveremy/stream2worlds/issues/292) are closed with no new code. Worst case over 4 viewers: first paint 875 ms and
+graph 1,819 ms with the file cache cleared, and 776 ms and 1,584 ms on a real deploy checked at
+23 s. The manifest's labels, nouns and sentences ([#343](https://github.com/daveremy/stream2worlds/pull/343)) went live with `/sentences`; with the
+manifest label, 25 of 25 primary Active-now rows had a human name, against 13 of 60 for the old
+viewer. The Sprint 90 entry and README refresh landed as [#340](https://github.com/daveremy/stream2worlds/pull/340).
+
+**Learned:** Sprint 90's 36 ms miss was gone once we measured it properly. CPU sampled once a
+second from the service's start shows replay ends about 11 s after start, not the ~30 s assumed, so
+by 22 s the catch-up budget no longer matters. First paint is mostly network: about 450 ms of the
+~800 ms is round trips to the box. The real remaining worst case is replay length: at about
+100k events since the last snapshot (roughly 8 h), the graph gate fails until replay finishes near
+26 s ([#341](https://github.com/daveremy/stream2worlds/issues/341)). The 20 sampled sentences matched their raw events 20 of 20 but read well for a
+person 0 of 20, because the box's stored manifest predated the fallback that writes sentences.
+
+**Changed course:** the plan was to tune the replay batch budget on the box. The measurement made
+that unnecessary, and the work moved to the labels.
+
+**Next:** re-propose the demo world's manifest with System 2 and check the sentences by eye
+([#288](https://github.com/daveremy/stream2worlds/issues/288)).
+
 ## Events read as sentences, and the fallback stops labelling editors "edit" — [#302](https://github.com/daveremy/stream2worlds/issues/302) (2026-09-30)
 
 **Shipped:** the dashboard manifest names each type's noun, label and kind, and gives each event
