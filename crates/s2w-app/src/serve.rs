@@ -380,9 +380,13 @@ async fn local_bridge(
             // A full poll means a catch-up: size the next one to the budget, so HTTP gets a
             // turn about every POLL_BUDGET instead of every batch (s2w#331). The reader and the
             // bridge must agree on the batch, or a short read would look like the end of the log.
-            let batch = next_batch(bridge.batch(), config.batch, polled, POLL_BUDGET);
+            // The reader copies the bridge's value, so the bridge's own clamp applies to both.
+            // A small batch after catch-up is fine: a later burst fills it and it doubles back.
+            // The snapshot capture after the poll is outside the budget on purpose: it runs
+            // only at its own interval, not per batch.
+            let batch = next_batch(bridge.batch(), config.batch.max(1), polled, POLL_BUDGET);
             bridge.set_batch(batch);
-            bridge.reader().batch.set(batch);
+            bridge.reader().batch.set(bridge.batch());
             delay = config.poll;
             tokio::task::yield_now().await;
             continue;
