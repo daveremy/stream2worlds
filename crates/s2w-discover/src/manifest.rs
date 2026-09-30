@@ -200,11 +200,12 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
 /// strings and not a date-time, else none; primary when it has one. Its noun is its type label.
 fn type_row(label: &str, evidence: &TypeEvidence) -> TypeRow {
     // An attribute with fewer distinct values than half the type's entities names a category
-    // (an edit kind, a content model), not an entity.
+    // (an edit kind, a content model), not an entity. With no profiled key the share cannot be
+    // judged, so no attribute qualifies.
     let naming: BTreeMap<_, _> = evidence
         .attrs
         .iter()
-        .filter(|(_, s)| s.distinct.saturating_mul(2) >= evidence.count)
+        .filter(|(_, s)| evidence.count > 0 && s.distinct.saturating_mul(2) >= evidence.count)
         .map(|(name, s)| (*name, *s))
         .collect();
     let choice = unique_max(&naming)
@@ -298,7 +299,7 @@ fn sentences(input: &ManifestInput, types: &[TypeRow]) -> Option<Vec<EventSenten
 }
 
 /// The source's primary type whose rule has the most distinct first-key values, with that key
-/// path; `None` when two types tie or no primary type's key was profiled. A type label that holds a
+/// path; `None` when two types tie or no primary type's key was profiled as a non-date-time. A type label that holds a
 /// brace or does not fit a sentence's text is skipped.
 fn busiest<'a>(
     source: &'a SourceInput,
@@ -318,7 +319,8 @@ fn busiest<'a>(
         let Some(key) = rule.key.first() else {
             continue;
         };
-        let Some(stats) = source.paths.iter().find(|s| &s.path == key) else {
+        // A date-time key would make the sentence read "type 2026-09-30T…".
+        let Some(stats) = source.paths.iter().find(|s| &s.path == key && !s.timestamp) else {
             continue;
         };
         match best {

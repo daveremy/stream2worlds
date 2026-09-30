@@ -239,12 +239,14 @@ re-proposal of the manifest carries all of it; a manifest filed before it still 
   non-integer `delta` operand, fails that entry.
 - **Fallback v2** (`dashboard-fallback/2`). A type's label is its attribute with the most
   distinct values, the shorter mean string length breaking a tie, among attributes with at
-  least half as many distinct values as the type has entities; else its first key part when
+  least half as many distinct values as the type has entities (no attribute qualifies when
+  the type's key was not profiled); else its first key part when
   that is mostly strings and not a date-time; else none, and the type is not primary. The
   half-share rule came from the demo's mapping, where an editor's only attributes were its
   edit kind and content model: without it every editor was labelled "edit". The noun is the
-  type label. Per source, one sentence for its busiest primary type: `"{0}: <type> {1}"`
-  over the event type and the first key when the event type is profiled, then `"<type> {0}"`.
+  type label. Per source, one or two entries for its busiest primary type (a date-time key
+  never counts): `"{0}: <type> {1}"` over the event type and the first key when the event type
+  is profiled, then `"<type> {0}"`.
 - **Surfaces.** `GET /worlds/{world}/sentences?last=N` (`last` required, 1 to 200) returns
   `{rows}`, newest last, each `{position, source, sentence, entities}`; an entity carries
   `type`, `key`, and `entity` when the head world holds the key. MCP `sentences` is byte-equal
