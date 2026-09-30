@@ -3,6 +3,8 @@
 //! overhead into heap and non-heap. `S2W_BACKFILL_MEMORY_VARIANTS=queries` instead prints the
 //! exact heap bytes of each `World` clone (s2w#243). Ignored; run with
 //! `cargo test --release -p s2w-app --test backfill_memory_heap -- --ignored --nocapture`.
+//! One invocation per target at a time: concurrent runs share the target's `CARGO_TARGET_TMPDIR`
+//! log directory and silently corrupt both runs' results (s2w#283).
 //! Only its `max_bytes` is a measurement: dhat's own bookkeeping inflates this target's resident
 //! figures. The measurement itself lives in `backfill_memory.rs` (its module doc).
 
