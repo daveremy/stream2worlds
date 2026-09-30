@@ -195,6 +195,44 @@ and about 0.62 s per generation, so that option is ruled out. Four viewers excee
 and one viewer at 1 s now does too (after the batch-250 change above). Full table:
 [s2w#235](https://github.com/daveremy/stream2worlds/issues/235).
 
+**2026-09-30, s2w#282 (the budget re-derived from the post-#291 world).** s2w#282 bisected the
+head world's growth from 403 to 887 MiB across #255..#280 on the recorded load. #261
+(`PROFILER_VERSION` 4) added 6.11M world events and 347 MiB by promoting edit counters, a byte
+size and edit-summary text to entity types: a regression, fixed by #291. #276 (version 5) added
+2.67M and 136 MiB for the revision entity, which research 0009 scores (`revision` recall 0 → 1.0):
+expected. Per-commit table: [s2w#282](https://github.com/daveremy/stream2worlds/issues/282).
+Re-measured on `main` @ 9a672f0 (`PROFILER_VERSION` 7), history cap 50,000, batch 250, glibc,
+release build, loaded host (load average 4-8, a workspace build running alongside); median
+[min-max]:
+
+| Part | #255 (the 600 MiB budget) | #280 | **9a672f0 (post-#291)** |
+|---|---|---|---|
+| World events | 11,266,766 | 20,040,997 | **14,323,096** (213,153 entities) |
+| Head world alone | 403 MiB | 887 MiB | **598.9 MiB** (postcard 141.4 MiB) |
+| World plus the capped timeline | 427 MiB | 913 MiB | **623.5 MiB** |
+| `bridge`, whole-process peak | 548.5 MiB | 1,131.9 MiB | **780.7 [780.6-780.8] MiB** (4 runs) |
+| `viewer` (1 viewer, 5 s tick), whole-process peak | 851 MiB | not reached | **1,280.0 [1,270.8-1,297.1] MiB** (3 runs) |
+| One `/world` projection at the head (`queries`) | | | 1,248 MiB peak; body 292 MiB |
+
+The bridge's overhead above the head world is now 182 MiB (145 MiB at #255). The budget follows
+the world, so both limits in `tests/backfill_memory.rs` move to the measured peak plus a margin:
+**`SERVE_PEAK_LIMIT` 810 MiB** (the worst run, 780.8 MiB, plus 29 MiB; the 600 MiB figure had 30 MiB over its predicted 570 MiB) and
+**`VIEWER_PEAK_LIMIT` 1,340 MiB** (the worst run, 1,297.1 MiB, plus 43 MiB; the viewer
+spread was 26 MiB here and 28 MiB in #243). The history cap stays 50,000: at #255 cap 2 saved at most 28 MiB against cap 50,000, so no cap
+buys back a 180 MiB step in the world. The viewer limit is now above the demo box's `MemoryMax=1G`, so the
+box cannot run this `main`; it stays on b207c74f until its `MemoryMax` is raised (lifeos
+`deploy/demo-box`, proposed in s2w#282's PR). Neither child covers serve's snapshot encode (the
+world encodes to 141 MiB), the HTTP server or SSE, and four viewers measured 2.1x one viewer's
+peak in #243, so the box needs headroom above 1,340 MiB. With these limits the default sweep passes on
+9a672f0 (both tests, 398 s).
+
+`tests/discovered_types.rs` now reports each discovered entity type's share of world events on
+every PR and fails when the set of types changes, and `.github/workflows/nightly-memory.yml` runs
+this test's default sweep nightly on the hub runner, so a doubling can no longer land unseen.
+Its first run on 9a672f0 shows two types the #282 ruling calls attributes still discovered:
+`revision/comment` (edit-summary text, 5.2% of world events) and `mediainfo/content_size` (a byte
+size, 0.4%).
+
 ## Alternatives considered
 
 - **Keep a base world and advance it at each drop.** Rejected: a second 403 MiB world does not
@@ -205,7 +243,8 @@ and one viewer at 1 s now does too (after the batch-250 change above). Full tabl
 
 ## Revisit when
 
-The serve-side peak on the recorded load crosses 600 MiB again, older history from disk lands,
+The serve-side peak on the recorded load crosses `SERVE_PEAK_LIMIT` (810 MiB since s2w#282)
+again, the nightly `nightly-memory` run fails, older history from disk lands,
 or a stream's world events are much larger than the fixture's (~560 B with their delta).
 
 verify: `cargo test -p s2w-app --lib query::timeline && cargo test -p s2w-app --test snapshot_golden --test snapshot_base` passes, and `cargo test --release -p s2w-app --test backfill_memory -- --ignored` passes.
