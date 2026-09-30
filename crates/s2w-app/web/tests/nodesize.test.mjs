@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHAR_WIDTH, LINE_HEIGHT, MIN_TYPE_RADIUS, REL_SIZE, collideForce, fitView, labelBox, labelLines, maxRadius, maxTypeCount, nodeRadius } from '../src/nodesize.ts';
+import { CHAR_WIDTH, LINE_HEIGHT, MIN_TYPE_RADIUS, REL_SIZE, collideForce, fitView, isTypeView, labelBox, labelLines, maxRadius, maxTypeCount, nodeRadius } from '../src/nodesize.ts';
 
 // s2w#265: type nodes were sized by raw count; on the demo world (~320k entities) three types
 // covered the canvas and the rest were not visible at all.
@@ -97,4 +97,12 @@ test('fitView keeps every node and its label inside the canvas, never zooming pa
   }
   assert.equal(fitView([], 100, 100), undefined);
   assert.equal(fitView([{ x: 0, y: 0, radius: 4, lines: ['a'] }], 0, 0), undefined);
+});
+
+test('only a type view gets the small-view layout; a small entity view keeps the defaults', () => {
+  assert.equal(isTypeView(DEMO), true);
+  assert.equal(isTypeView([...DEMO, { kind: 'hub', id: 'e:1', in_degree: 9 }]), true);
+  assert.equal(isTypeView([{ kind: 'entity', id: 'e:1' }, { kind: 'entity', id: 'e:2' }]), false);
+  assert.equal(isTypeView(Array.from({ length: 201 }, (_, i) => type(i + 1))), false);
+  assert.equal(isTypeView([]), false);
 });

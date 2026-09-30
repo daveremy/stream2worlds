@@ -6,9 +6,15 @@ import type { Node } from './api';
 export const REL_SIZE = 4;
 /** The smallest type still reads as a node, not a speck. */
 export const MIN_TYPE_RADIUS = 6;
-/** Canvas share bounding the largest node, and the view size that gets collide + fit. */
+/** Canvas share bounding the largest node. */
 export const CANVAS_SHARE = 0.08;
+/** A type view at most this large gets the collide force, a stronger charge and the fit. */
 export const SMALL_VIEW = 200;
+
+/** The type view (lod=type): its nodes are types (and hubs), and there are few of them. */
+export function isTypeView(nodes: readonly Node[]): boolean {
+  return nodes.length <= SMALL_VIEW && nodes.some(node => node.kind === 'type');
+}
 
 /** The largest radius any node may have on a canvas of this size. */
 export function maxRadius(width: number, height: number): number {
@@ -57,7 +63,7 @@ type Box = { halfW: number; halfH: number };
 /**
  * A d3-style collision force for small views: boxes (node plus label) that overlap, with
  * `padding` between them, are pushed apart along the line between their centres. O(n²), so force2d
- * installs it only at SMALL_VIEW nodes or fewer. `box` is read every tick, so a canvas resize
+ * installs it only on a type view (isTypeView). `box` is read every tick, so a canvas resize
  * reaches the layout.
  */
 export function collideForce<N extends Body>(box: (node: N) => Box, padding = 6) {
