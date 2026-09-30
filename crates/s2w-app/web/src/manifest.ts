@@ -79,12 +79,23 @@ export function displayText(raw: string): string {
   return words.join(' ');
 }
 
+/// One encoded key part as text: a JSON string as its value, any other JSON as its text.
+function partText(part: string): string {
+  try { const value = JSON.parse(part) as unknown; return typeof value === 'string' ? value : String(value); }
+  catch { return part; }
+}
+
 /// Key part `index` (counted after the type label) of the node's first key, as text.
 export function keyPart(node: Extract<Node, { kind: 'entity' | 'hub' }>, index: number): string | undefined {
   const part = node.keys[0]?.split('\u001f')[index + 1];
-  if (part === undefined) return undefined;
-  try { const value = JSON.parse(part) as unknown; return typeof value === 'string' ? value : String(value); }
-  catch { return part; }
+  return part === undefined ? undefined : partText(part);
+}
+
+/// A natural key as a reader sees it: the parts after the type label, each as display text,
+/// joined by spaces; the raw key when nothing is left.
+export function keyText(key: string): string {
+  const text = key.split('\u001f').slice(1).map(part => displayText(partText(part))).filter(Boolean).join(' ');
+  return text || key;
 }
 
 /// The label the type row names for a node, as display text; undefined when the row names none
@@ -127,7 +138,7 @@ export function feedSentences(rows: SentenceRow[]): string[] {
 
 /// Active now from the feed: the primary types' entities named by the most events, one count
 /// per event per entity, ties to the most recent. Labels: the row's own label, else the node's
-/// label, else `#<entity>`, else the key.
+/// label, else `#<entity>`, else the key as display text.
 export function sentenceActive(
   rows: SentenceRow[], manifest: Manifest | undefined, labelOf: (entity: number) => string | undefined, limit = 5,
 ): { type: string; label: string; count: number }[] {
@@ -142,7 +153,7 @@ export function sentenceActive(
       const item = counts.get(id);
       if (item !== undefined) { item.count++; continue; }
       const label = entity.label ??
-        (entity.entity === undefined ? entity.key : labelOf(entity.entity) ?? `#${entity.entity}`);
+        (entity.entity === undefined ? keyText(entity.key) : labelOf(entity.entity) ?? `#${entity.entity}`);
       counts.set(id, { type: entity.type, label, count: 1 });
     }
   }

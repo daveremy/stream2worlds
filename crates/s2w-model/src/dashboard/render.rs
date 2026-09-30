@@ -44,6 +44,9 @@ pub fn sentence_for(events: &[EventSentence], source: &str, payload: &Value) -> 
 pub fn render_sentence(sentence: &Sentence, payload: &Value) -> Option<String> {
     let mut out = String::with_capacity(sentence.text.len());
     let mut chars = sentence.text.chars();
+    // Where the template's literal text since the last shown field starts: a dropped last
+    // field trims separators back to here and never into a shown value.
+    let mut literal_start = 0;
     while let Some(c) = chars.next() {
         match c {
             '{' => {
@@ -61,11 +64,14 @@ pub fn render_sentence(sentence: &Sentence, payload: &Value) -> Option<String> {
                     if !chars.as_str().chars().all(is_display_space) {
                         return None;
                     }
-                    let kept = out.trim_end_matches(is_trailing_separator).len();
-                    out.truncate(kept);
+                    let kept = out[literal_start..]
+                        .trim_end_matches(is_trailing_separator)
+                        .len();
+                    out.truncate(literal_start + kept);
                     return (!out.is_empty()).then_some(out);
                 }
                 out.push_str(&value);
+                literal_start = out.len();
             }
             '}' => return None,
             c => out.push(c),
@@ -332,6 +338,32 @@ mod tests {
         );
         let only = s("{0}", vec![SentenceField::Path(p(&["a"]))]);
         assert_eq!(render_sentence(&only, &json!({"a": ""})), None);
+    }
+
+    #[test]
+    fn a_dropped_last_field_never_trims_into_the_shown_value_before_it() {
+        let pair = s(
+            "{0} {1}",
+            vec![
+                SentenceField::Path(p(&["a"])),
+                SentenceField::Path(p(&["b"])),
+            ],
+        );
+        assert_eq!(
+            render_sentence(&pair, &json!({"a": "Ada:", "b": ""})).as_deref(),
+            Some("Ada:")
+        );
+        let adjacent = s(
+            "{0}{1}",
+            vec![
+                SentenceField::Path(p(&["a"])),
+                SentenceField::Path(p(&["b"])),
+            ],
+        );
+        assert_eq!(
+            render_sentence(&adjacent, &json!({"a": "x —", "b": ""})).as_deref(),
+            Some("x —")
+        );
     }
 
     #[test]

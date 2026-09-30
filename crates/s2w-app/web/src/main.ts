@@ -96,6 +96,8 @@ async function start(): Promise<void> {
   let proposalsGeneration = 0;
   let sentencesTimer: ReturnType<typeof setTimeout> | undefined;
   let sentencesGeneration = 0;
+  let manifestTimer: ReturnType<typeof setTimeout> | undefined;
+  let manifestDelay = 1000;
   let delay = 1000, lastFetch = 0, fetching = false, dirty = false, mounted = false, drawn = false;
   // The `/world` parameters actually served, which may differ from the page's (#262): every
   // refresh reuses them, so a refresh can never widen the view to the whole entity graph. Until
@@ -106,7 +108,7 @@ async function start(): Promise<void> {
   let note: string | undefined;
   dispose = () => {
     controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(reconnectTimer); clearTimeout(refresh); clearTimeout(proposalsTimer);
-    clearTimeout(sentencesTimer);
+    clearTimeout(sentencesTimer); clearTimeout(manifestTimer);
     if (frame !== undefined) cancelAnimationFrame(frame);
     renderer.destroy();
   };
@@ -131,11 +133,21 @@ async function start(): Promise<void> {
     position.textContent = placeText();
   }
   // Best-effort, like proposals: no manifest (or no route) leaves today's view as it is. With
-  // one, names, nouns and icons apply (pinned pages too); the feed needs a live page.
-  async function loadManifest(world: string, load: AbortSignal): Promise<void> {
+  // one, names, nouns and icons apply (pinned pages too); the feed needs a live page. Loaded
+  // once per page, independent of the world load's retries; a 503 or network failure retries
+  // with backoff, any other answer (or a malformed manifest) leaves the view as it is.
+  async function loadManifest(world: string): Promise<void> {
+    let dashboard: Awaited<ReturnType<typeof fetchDashboard>>;
+    try { dashboard = await fetchDashboard(world, signal); } catch (error) {
+      if (!signal.aborted && pollRetries(error)) {
+        manifestTimer = setTimeout(() => void loadManifest(world), manifestDelay);
+        manifestDelay = Math.min(manifestDelay * 2, 30_000);
+      }
+      return;
+    }
     let manifest: Manifest | undefined;
-    try { manifest = fromDashboard(await fetchDashboard(world, load)); } catch { return; }
-    if (load.aborted || manifest === undefined) return;
+    try { manifest = fromDashboard(dashboard); } catch { return; }
+    if (signal.aborted || manifest === undefined) return;
     state.manifest = manifest; state.relabel();
     if (drawn) renderer.update(state);
     paint();
@@ -285,7 +297,6 @@ async function start(): Promise<void> {
     const load = AbortSignal.any([signal, attempt.signal]);
     // A large world takes seconds to build: name the wait instead of an empty canvas.
     status.textContent = 'Loading world…';
-    void loadManifest(world, load);
     try {
       await bootstrap({
         at: pinned ? Number(params.get('at')) : undefined, state, guard,
@@ -312,6 +323,8 @@ async function start(): Promise<void> {
       retry = setTimeout(() => void initialize(), delay); delay = Math.min(delay * 2, 30_000);
     }
   }
+  const world = params.get('world');
+  if (world) void loadManifest(world);
   await initialize();
 }
 form.addEventListener('submit', event => {
@@ -341,10 +354,10 @@ function renderLegend(element: HTMLElement, state: ViewState): void {
   const entityList = document.createElement('ul');
   for (const entityType of new Set([...state.nodes.values()].map(node => node.entity_type))) {
     const key = state.keyByType.get(entityType);
-    // A manifest row with a noun reads as that noun; any other type as today.
-    const text = state.manifest?.rows.get(entityType)?.noun !== undefined ?
-      withIcon(state.manifest, entityType, nounFor(state.manifest, entityType)) :
-      `${entityType} · ${key === undefined ? 'keys' : `labeled by ${key}`}`;
+    // A manifest row's icon marks the type here as on the graph; a row with a noun reads as
+    // that noun, any other type as today.
+    const text = withIcon(state.manifest, entityType, state.manifest?.rows.get(entityType)?.noun !== undefined ?
+      nounFor(state.manifest, entityType) : `${entityType} · ${key === undefined ? 'keys' : `labeled by ${key}`}`);
     entityList.append(legendItem(typeColor(entityType), text));
   }
   const linkList = document.createElement('ul');

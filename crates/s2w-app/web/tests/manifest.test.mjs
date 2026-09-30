@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KIND_ICON, changesText, displayText, feedSentences, fromDashboard, manifestLabel, pollRetries,
+import { KIND_ICON, changesText, displayText, keyText, feedSentences, fromDashboard, manifestLabel, pollRetries,
   sentenceActive, typeNodeLabel, withIcon } from '../src/manifest.ts';
 import { ViewState } from '../src/state.ts';
 import { renderLive } from '../src/live.ts';
@@ -132,4 +132,28 @@ test('only a retryable failure keeps the sentence poll alive', () => {
   assert.equal(pollRetries(new TypeError('network')), true);
   assert.equal(pollRetries({ status: 404 }), false);
   assert.equal(pollRetries({ status: 400 }), false);
+});
+
+test('a key with no label reads as its display text, not its encoding', () => {
+  assert.equal(keyText('page\u001f"Tucson,_Arizona"'), 'Tucson, Arizona');
+  assert.equal(keyText('edit\u001f"en"\u001f42'), 'en 42');
+  assert.equal(keyText('bare'), 'bare');
+  const items = sentenceActive([{ position: 1, source: 's', sentence: 'x', entities: [{ type: 'user', key: 'user\u001f"Ada_L"' }] }],
+    manifest, () => undefined);
+  assert.deepEqual(items, [{ type: 'user', label: 'Ada L', count: 1 }]);
+});
+
+test('Active now from the feed recounts when the labels change', () => {
+  const state = new ViewState(new URLSearchParams());
+  state.manifest = manifest;
+  state.feed = rows;
+  const table = new Element('table'), active = new Element('div');
+  renderLive(table, active, state);
+  const before = active.children[1].children.map(li => li.textContent);
+  renderLive(table, active, state);
+  assert.deepEqual(active.children[1].children.map(li => li.textContent), before, 'same feed + labels: same rows');
+  state.nodesById = new Map([[2, { kind: 'entity', id: 'n2', entity_type: 'user', keys: [], attrs: {} }]]);
+  state.labels = new Map([['n2', 'Two']]);
+  renderLive(table, active, state);
+  assert.equal(active.children[1].children[1].textContent, `${KIND_ICON.person} Two (1 change)`);
 });

@@ -3,7 +3,7 @@ import type { ViewState } from './state';
 // TypeScript stripping (tests/*.test.mjs importing this file directly) requires it.
 import { renderTable } from './table.ts';
 // @ts-expect-error see above
-import { renderActive, metricList } from './active.ts';
+import { renderActive } from './active.ts';
 // @ts-expect-error see above
 import { changesText, feedSentences, sentenceActive, withIcon } from './manifest.ts';
 import type { SentenceRow } from './manifest';
@@ -21,7 +21,7 @@ export function renderLive(table: HTMLTableElement, active: HTMLElement, state: 
     return;
   }
   renderFeed(table, state.feed);
-  renderSentenceActive(active, state, state.feed);
+  renderActive(active, state, sentenceRecent(state, state.feed));
 }
 
 /// One row per sentence, newest first, under an explicit `tbody`.
@@ -35,16 +35,18 @@ export function renderFeed(table: HTMLTableElement, rows: SentenceRow[]): void {
   renderedFeeds.set(table, rows);
 }
 
-/// Active now from the feed (`<icon> <label> (<n> changes)`), then Hubs as today.
-export function renderSentenceActive(element: HTMLElement, state: ViewState, rows: SentenceRow[]): void {
+// Active now from the feed, per feed array: recounted only when the feed or the labels change
+// (`relabel` replaces the label map whenever nodes or the manifest change), not every frame.
+const activeCache = new WeakMap<SentenceRow[], { labels: ViewState['labels']; rows: string[] }>();
+
+/// Active now from the feed: `<icon> <label> (<n> changes)`.
+function sentenceRecent(state: ViewState, rows: SentenceRow[]): string[] {
+  const cached = activeCache.get(rows);
+  if (cached !== undefined && cached.labels === state.labels) return cached.rows;
   const recent = sentenceActive(rows, state.manifest, entity => {
     const node = state.nodesById.get(entity);
     return node === undefined ? undefined : state.labels.get(node.id);
-  });
-  const recentHeading = document.createElement('h3'); recentHeading.textContent = 'Active now';
-  const hubHeading = document.createElement('h3'); hubHeading.textContent = 'Hubs';
-  const recentList = metricList(recent.map(item =>
-    `${withIcon(state.manifest, item.type, item.label)} (${changesText(item.count)})`));
-  const hubList = metricList(state.hubs.map(item => `${item.label} (${item.degree})`));
-  element.replaceChildren(recentHeading, recentList, hubHeading, hubList);
+  }).map(item => `${withIcon(state.manifest, item.type, item.label)} (${changesText(item.count)})`);
+  activeCache.set(rows, { labels: state.labels, rows: recent });
+  return recent;
 }
