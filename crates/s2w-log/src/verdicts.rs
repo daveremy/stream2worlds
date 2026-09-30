@@ -178,8 +178,6 @@ impl VerdictStore for InMemoryVerdictStore {
 
 mod sqlite;
 
-#[cfg(test)]
-use sqlite::{DATABASE_FILE, SCHEMA_VERSION};
 pub use sqlite::{ReadOnlySqliteVerdictStore, SqliteVerdictStore};
 
 #[cfg(test)]

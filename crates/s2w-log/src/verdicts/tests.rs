@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 
 use rusqlite::Connection;
 
+use super::sqlite::{DATABASE_FILE, SCHEMA_VERSION};
 use super::*;
 use crate::tests::{TestDirectory, retry_until_unlocked};
 

@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug, Default)]
 pub struct InMemoryEventLog {
     pub(crate) events: Vec<StoredEvent>,
-    pub(crate) cursors: HashMap<SourceId, (Cursor, LogPosition)>,
+    cursors: HashMap<SourceId, (Cursor, LogPosition)>,
     pub(crate) seen: HashMap<(SourceId, i64), LogPosition>,
 }
 

@@ -83,7 +83,7 @@ pub(crate) fn map_fs_error(error: std::io::Error) -> LogError {
     LogError::Io(error.to_string())
 }
 
-/// Maps a failed [`File::try_lock`] to a [`LogError`]: only [`std::fs::TryLockError::WouldBlock`]
+/// Maps a failed [`std::fs::File::try_lock`] to a [`LogError`]: only [`std::fs::TryLockError::WouldBlock`]
 /// means another handle holds the lock. Any other error is a real I/O failure and must not be
 /// mistaken for [`LogError::Locked`].
 pub(crate) fn map_try_lock_error(error: std::fs::TryLockError) -> LogError {
