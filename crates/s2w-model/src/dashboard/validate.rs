@@ -38,7 +38,7 @@ impl DashboardManifest {
     /// `ctx`.
     ///
     /// # Errors
-    /// The first fault, in field order.
+    /// The first fault: shape faults (in field order) before reference faults.
     pub fn validate(&self, ctx: &ManifestContext) -> Result<(), DashboardError> {
         self.validate_shape()?;
         let mut faults = Vec::new();

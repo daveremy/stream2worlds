@@ -36,7 +36,7 @@ every level:
   lowercase hex digits. `attempt` is 1 to 3. `raw` is at most 1 MiB (bytes).
 - **`manifest` is null exactly when `provenance.error` is set**: an invalid reply, non-JSON
   output, a timeout or an exec failure. Either both or neither is a refusal.
-- **`identity()` hashes `manifest` only.** Latency, tokens and `raw` never move it. A
+- **`identity()` hashes the `manifest` (and the format number) only.** Latency, tokens and `raw` never move it. A
   null-manifest row has no identity: resolution excludes it and every read reports it.
 - `input_hash` = `fnv1a64_hex` over length-prefixed (the canonical JSON of the proposer's
   input, the prompt hash or `""`). The input includes the `built_on` mapping identities, so a
@@ -77,17 +77,18 @@ Unknown slot names are refused when decoding; a slot outside the template's row 
 | | `actor_type` | no | a type label ≠ `subject_type` |
 | | `links` | no | 1 to 8 `[from type, to type]` pairs, each a relationship in an accepted mapping |
 | `feed` | `subject_type` | no | a type label |
-| | `actor_type` | no | a type label |
+| | `actor_type` | no | a type label ≠ `subject_type` |
 | `graph` | `types` | yes | 1 to 8 distinct type labels |
 | `table` | `type` | yes | a type label |
-| | `columns` | no | at most 8 attribute names of that type |
+| | `columns` | no | 1 to 8 attribute names of that type (omit the slot for none) |
 | `map` | `lat`, `lon` | yes | paths present in the input profile |
 | | `subject_type` | no | a type label |
 | `ladder` | `price`, `quantity` | yes | paths present in the input profile |
 | | `side` | no | a path present in the input profile |
 
 A type label is the `type_label` of an entity rule in an accepted mapping of a `built_on`
-source. **`document.links` is a list of pairs**, not the plan's single pair: a document view
+source. (The write-path check looks in every accepted mapping it is given, not only the
+`built_on` ones; `stale_entries` catches a type that later disappears.) **`document.links` is a list of pairs**, not the plan's single pair: a document view
 of an article with both an author and a category links more than one relationship, and a list
 of one expresses the single case.
 
@@ -97,7 +98,7 @@ of one expresses the single case.
   world's member sources and the input profile's paths per source. It runs `validate_shape`
   (everything above that needs no context) and then every reference: each `built_on` pair
   names that source's accepted mapping; every type, attribute, key part and relationship exists
-  in those mappings; every path is in the profile. It returns the first fault, in field order.
+  in those mappings; every path is in the profile. It returns the first fault: shape faults (in field order) before reference faults.
 - **The read path is `stale_entries(&current)`**, against the mappings in effect now only
   (the read has no profile, so paths are not checked). A manifest built on mapping A goes
   stale when mapping B lands: it is served with `stale: true` and a list of the entries the
