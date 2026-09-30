@@ -115,7 +115,7 @@ measured yet" sentence above predates this.
 `xtask/scale-baseline.toml`, gated at the same 5% by `cargo xtask scale`: every raw event of the
 recorded fixture through System 1's `MappingEngine` with the committed linked mapping (the fold
 supply's mapping plus a second site entity and a link merging it into the first, so link merges
-are inside the measured region), divided by the 11,667 raw events. First figure 215,237 Ir per raw
+are inside the measured region), divided by the 11,667 raw events. First figure 215,248 Ir per raw
 event, about 14 times the recorded fold's 15,285. `serde_json` parsing inside `evaluate` (the
 ~2.9 KB envelope, then its decoded `data`) is about 92% of that in the Callgrind profile.
 `JsonClaimsEngine` is not measured: it is the bare-claim engine for the planned stdin bridge

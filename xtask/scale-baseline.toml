@@ -43,7 +43,7 @@ events = 11667 # frames with id and data in the fixture; xtask counts them and c
 # evaluate per event in file order (s2w-app bench parse_ir_per_event), divided by the raw
 # events. Same image, rustc and profile as [ir].
 [parse]
-parse_ir_per_event = 215237 # measured locally on the self-hosted runner's host, same rustc; CI job scale replaces it
+parse_ir_per_event = 215248 # measured by CI run 36667578506 (job scale), 2026-09-29
 events = 11667 # the same fixture's frames; xtask checks it against the count too
 
 # Heap bytes per entity after folding entity-observed events, counted by dhat (test profile).
