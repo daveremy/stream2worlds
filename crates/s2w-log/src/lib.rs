@@ -326,6 +326,12 @@ pub trait EventLog {
         &self,
         from: Option<LogPosition>,
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError>;
+
+    /// The largest stored position, or `None` when the log is empty.
+    ///
+    /// # Errors
+    /// Returns an error when storage cannot be read or the stored position is invalid.
+    fn head(&self) -> Result<Option<LogPosition>, LogError>;
 }
 
 /// An append-only in-memory event log.
@@ -428,6 +434,10 @@ impl EventLog for InMemoryEventLog {
                 .map(Ok),
         ))
     }
+
+    fn head(&self) -> Result<Option<LogPosition>, LogError> {
+        Ok(self.events.last().map(|stored| stored.position))
+    }
 }
 
 /// A durable SQLite-backed event log.
@@ -476,6 +486,10 @@ impl LogReader for ReadOnlySqliteEventLog {
         from: Option<LogPosition>,
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
         replay_from(&self.connection, from)
+    }
+
+    fn read_head(&self) -> Result<Option<LogPosition>, LogError> {
+        head_of(&self.connection)
     }
 }
 
@@ -570,6 +584,18 @@ impl EventLog for SqliteEventLog {
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
         replay_from(&self.connection, from)
     }
+
+    fn head(&self) -> Result<Option<LogPosition>, LogError> {
+        head_of(&self.connection)
+    }
+}
+
+/// The largest stored position: one `max(position)` query, `None` for an empty log.
+fn head_of(connection: &Connection) -> Result<Option<LogPosition>, LogError> {
+    let head: Option<i64> = connection
+        .query_row("SELECT MAX(position) FROM events", [], |row| row.get(0))
+        .map_err(map_sqlite)?;
+    head.map(LogPosition::from_sql).transpose()
 }
 
 fn replay_from(
@@ -1478,6 +1504,32 @@ mod tests {
 
         stopped.store(true, Ordering::Release);
         writer.join().map_err(|_| "writer thread panicked")??;
+        Ok(())
+    }
+
+    #[test]
+    fn head_is_none_when_empty_and_the_last_position_after_appends() -> TestResult {
+        let mut memory = InMemoryEventLog::default();
+        assert_eq!(memory.head()?, None);
+        assert_eq!(memory.read_head()?, None);
+        let directory = TestDirectory::new("head")?;
+        let mut sqlite = SqliteEventLog::open(directory.path())?;
+        assert_eq!(sqlite.head()?, None);
+        assert_eq!(ReadOnlySqliteEventLog::open(directory.path())?.read_head()?, None);
+        for index in 1_u8..=3 {
+            memory.append(event(index)?)?;
+            sqlite.append(event(index)?)?;
+        }
+        // A duplicate stores nothing, so the head does not move.
+        memory.append(event(3)?)?;
+        sqlite.append(event(3)?)?;
+        let last = memory.read_after(None)?.last().transpose()?.map(|s| s.position);
+        assert_eq!(memory.head()?, last);
+        assert_eq!(memory.head()?.map(LogPosition::as_u64), Some(3));
+        assert_eq!(sqlite.head()?.map(LogPosition::as_u64), Some(3));
+        assert_eq!(sqlite.read_head()?, sqlite.head()?);
+        let reader = ReadOnlySqliteEventLog::open(directory.path())?;
+        assert_eq!(reader.read_head()?.map(LogPosition::as_u64), Some(3));
         Ok(())
     }
 

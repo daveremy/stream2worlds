@@ -258,6 +258,10 @@ impl LogReader for SharedLogReader {
         let events: Vec<_> = self.log.borrow().replay(from)?.take(self.batch).collect();
         Ok(Box::new(events.into_iter()))
     }
+
+    fn read_head(&self) -> Result<Option<LogPosition>, LogError> {
+        self.log.borrow().head()
+    }
 }
 
 struct SharedLogWriter(Rc<RefCell<SqliteEventLog>>);
@@ -282,6 +286,10 @@ impl EventLog for SharedLogWriter {
         // Required by EventLog, but the ingestion pump only calls append_batch.
         let events: Vec<_> = self.0.borrow().replay(from)?.collect();
         Ok(Box::new(events.into_iter()))
+    }
+
+    fn head(&self) -> Result<Option<LogPosition>, LogError> {
+        self.0.borrow().head()
     }
 }
 

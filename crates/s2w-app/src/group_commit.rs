@@ -461,6 +461,10 @@ mod tests {
         {
             self.inner.replay(from)
         }
+
+        fn head(&self) -> Result<Option<LogPosition>, LogError> {
+            self.inner.head()
+        }
     }
 
     fn counting_log() -> (CountingLog, Arc<Mutex<Vec<usize>>>) {

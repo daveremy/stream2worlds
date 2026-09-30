@@ -20,6 +20,13 @@ pub trait LogReader {
         &self,
         from: Option<LogPosition>,
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError>;
+
+    /// Same as [`EventLog::head`]: the largest stored position, or `None` when the log is
+    /// empty. Named apart from `head` for the same reason `read_after` is.
+    ///
+    /// # Errors
+    /// Returns an error when storage cannot be read.
+    fn read_head(&self) -> Result<Option<LogPosition>, LogError>;
 }
 
 // `EventLog::replay` already takes `&self`, so this delegates exactly.
@@ -29,5 +36,9 @@ impl<T: EventLog> LogReader for T {
         from: Option<LogPosition>,
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
         EventLog::replay(self, from)
+    }
+
+    fn read_head(&self) -> Result<Option<LogPosition>, LogError> {
+        EventLog::head(self)
     }
 }
