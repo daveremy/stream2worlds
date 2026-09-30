@@ -9,8 +9,8 @@
 //! subscriber.
 //!
 //! Requests are grouped by exactly what the `ETag` and the body depend on: the requested epoch,
-//! `at`, `lod`, `focus`, `hops` and `links` ([`Key`]); equal keys produce equal bytes. The key is the
-//! literal request, so `?at=<head>` and no `at` build separately: that loses sharing, never
+//! `at`, `lod`, `focus`, `hops` and `links` ([`Key`]); equal keys produce equal bytes. The key is
+//! the literal request, so `?at=<head>` and no `at` build separately: that loses sharing, never
 //! correctness. A request arriving while a generation runs joins the queued group with its
 //! key, or starts one; it never joins the generation already under way, so it never gets half
 //! a body. When a generation ends the driver serves the group whose oldest waiter has waited
@@ -379,47 +379,35 @@ mod tests {
         blocker
     }
 
+    /// Two concurrent requests for `query` queue behind a parked blocker and share one build.
+    async fn two_identical_requests_share_one_build(query: &str) {
+        let state = state(200, 16);
+        let app = router(state.clone());
+        let reservation = state.reserve_write().await;
+        let blocker = park(&state, &app).await;
+        let (b, c) = (get(&app, query, None), get(&app, query, None));
+        // Both queue behind the blocker: neither is served alone.
+        until(|| state.generations().queued() == 2).await;
+        drop(reservation);
+        assert_eq!(response(blocker).await.status(), StatusCode::OK);
+        let (b, c) = (response(b).await, response(c).await);
+        assert_eq!((b.status(), c.status()), (StatusCode::OK, StatusCode::OK));
+        assert_eq!(etag(&b), etag(&c));
+        let (b, c) = (body(b).await.expect("whole"), body(c).await.expect("whole"));
+        assert_eq!(b, c, "one generation, one set of bytes");
+        // The blocker's generation and one shared generation for both.
+        assert_eq!(builds(&state).await, (2, 3));
+    }
+
     #[test]
     fn identical_requests_share_one_build_and_get_identical_bytes() {
-        crate::tests::run(false, async {
-            let state = state(200, 16);
-            let app = router(state.clone());
-            let reservation = state.reserve_write().await;
-            let blocker = park(&state, &app).await;
-            let (b, c) = (get(&app, "", None), get(&app, "", None));
-            until(|| state.generations().queued() == 2).await;
-            drop(reservation);
-            assert_eq!(response(blocker).await.status(), StatusCode::OK);
-            let (b, c) = (response(b).await, response(c).await);
-            assert_eq!((b.status(), c.status()), (StatusCode::OK, StatusCode::OK));
-            assert_eq!(etag(&b), etag(&c));
-            let (b, c) = (body(b).await.expect("whole"), body(c).await.expect("whole"));
-            assert_eq!(b, c, "one generation, one set of bytes");
-            // The blocker's generation and one shared generation for both.
-            assert_eq!(builds(&state).await, (2, 3));
-        });
+        crate::tests::run(false, two_identical_requests_share_one_build(""));
     }
 
     #[test]
     fn identical_full_type_requests_share_one_build() {
-        crate::tests::run(false, async {
-            let state = state(200, 16);
-            let app = router(state.clone());
-            let reservation = state.reserve_write().await;
-            let blocker = park(&state, &app).await;
-            let (b, c) = (get(&app, "?lod=type", None), get(&app, "?lod=type", None));
-            // Both full type requests queue behind the blocker (s2w#297): neither is served alone.
-            until(|| state.generations().queued() == 2).await;
-            drop(reservation);
-            assert_eq!(response(blocker).await.status(), StatusCode::OK);
-            let (b, c) = (response(b).await, response(c).await);
-            assert_eq!((b.status(), c.status()), (StatusCode::OK, StatusCode::OK));
-            assert_eq!(etag(&b), etag(&c));
-            let (b, c) = (body(b).await.expect("whole"), body(c).await.expect("whole"));
-            assert_eq!(b, c, "one generation, one set of bytes");
-            // The blocker's generation and one shared type generation for both.
-            assert_eq!(builds(&state).await, (2, 3));
-        });
+        // Full `lod=type` joins the queue (s2w#297).
+        crate::tests::run(false, two_identical_requests_share_one_build("?lod=type"));
     }
 
     #[test]
@@ -580,6 +568,7 @@ mod tests {
             let summary = response(get(&app, "?lod=type&links=none", None)).await;
             assert_eq!(summary.status(), StatusCode::OK);
             body(summary).await.expect("whole");
+            assert_eq!(state.generations().queued(), 0, "the summary never queued");
             assert!(
                 started.elapsed() < crate::query::stream::STALL,
                 "the type summary waited for the entity generation"
