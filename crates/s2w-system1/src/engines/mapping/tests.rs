@@ -271,29 +271,120 @@ fn an_invalid_mapping_is_refused() {
     ));
 }
 
-/// Until the engine executes links (s2w#245 PR 2) a linked mapping is refused, never run with
-/// its links dropped. A version-2 mapping without links runs, under its own name.
-#[test]
-fn a_linked_mapping_is_refused_and_an_unlinked_version_2_mapping_runs() -> TestResult {
+/// `mapping()` at version 2 with an alias rule for `ta` at `a.alias`, linked `ra` ← `ra-alias`
+/// (decision 0027).
+fn linked() -> StreamMapping {
     let mut linked = mapping();
     linked.version = MAPPING_VERSION_LINKS;
     linked
         .entities
         .push(rule("ra-alias", "ta", &[&["body", "a", "alias"]]));
     linked.links = vec![LinkRule {
-        survivor: linked.entities[0].id.clone(),
+        survivor: "ra".to_owned(),
         absorbed: "ra-alias".to_owned(),
     }];
-    assert_eq!(linked.validate(), Ok(()));
-    assert!(matches!(
-        MappingEngine::new(linked.clone()),
-        Err(MappingEngineError::LinksNotExecuted(1))
-    ));
+    linked
+}
 
-    linked.links.clear();
-    let v2 = MappingEngine::new(linked.clone())?;
-    linked.version = MAPPING_VERSION;
-    assert_ne!(v2.name(), MappingEngine::new(linked)?.name());
+fn claims_of(verdict: Verdict) -> Vec<WorldEvent> {
+    match verdict {
+        Verdict::Propose { claims, .. } => claims,
+        Verdict::Abstain { .. } => Vec::new(),
+    }
+}
+
+/// A link whose two rules match with different keys claims one merge, after every entity and
+/// before every relationship (decision 0027, semantics 3), so this payload's edge binds to the
+/// survivor's entity.
+#[test]
+fn a_link_claims_a_merge_between_the_entities_and_the_relationships() -> TestResult {
+    let engine = MappingEngine::new(linked())?;
+    let payload = enveloped(r#"{"a":{"id":"x","alias":"y"},"b":{"ns":"n1","id":42}}"#)?;
+    let a = key(&["ta", r#""x""#]);
+    let alias = key(&["ta", r#""y""#]);
+    let b = key(&["tb", r#""n1""#, "42"]);
+    let observed = |key: &NaturalKey, label: &str| WorldEvent::EntityObserved {
+        key: key.clone(),
+        entity_type: label.to_owned(),
+        attrs: BTreeMap::new(),
+    };
+    let expected = vec![
+        observed(&a, "ta"),
+        observed(&b, "tb"),
+        observed(&alias, "ta"),
+        WorldEvent::EntitiesMerged {
+            survivor: a.clone(),
+            absorbed: alias,
+        },
+        WorldEvent::RelationshipObserved {
+            from: a,
+            to: b,
+            kind: "k".to_owned(),
+        },
+    ];
+    assert_eq!(
+        engine.evaluate(&raw(&payload)?),
+        Verdict::Propose {
+            claims: expected,
+            confidence: Confidence::CERTAIN,
+        }
+    );
+    Ok(())
+}
+
+/// A link claims nothing when its two keys are equal or when either rule did not match.
+#[test]
+fn a_link_claims_nothing_on_equal_keys_or_a_missing_side() -> TestResult {
+    let engine = MappingEngine::new(linked())?;
+    let is_merge = |claim: &WorldEvent| matches!(claim, WorldEvent::EntitiesMerged { .. });
+    for inner in [
+        r#"{"a":{"id":"x","alias":"x"}}"#,
+        r#"{"a":{"id":"x"}}"#,
+        r#"{"a":{"alias":"y"}}"#,
+        r#"{"a":{"id":"x","alias":1.5}}"#,
+    ] {
+        let claims = claims_of(engine.evaluate(&raw(&enveloped(inner)?)?));
+        assert!(!claims.is_empty(), "{inner}");
+        assert!(!claims.iter().any(is_merge), "{inner}: {claims:?}");
+    }
+    Ok(())
+}
+
+/// Several links claim their merges in link order, not rule order.
+#[test]
+fn merges_are_claimed_in_link_order() -> TestResult {
+    let mut mapping = linked();
+    mapping
+        .entities
+        .insert(1, rule("ra-other", "ta", &[&["body", "a", "other"]]));
+    mapping.links.push(LinkRule {
+        survivor: "ra".to_owned(),
+        absorbed: "ra-other".to_owned(),
+    });
+    let engine = MappingEngine::new(mapping)?;
+    let payload = enveloped(r#"{"a":{"id":"x","alias":"y","other":"z"}}"#)?;
+    let merges: Vec<NaturalKey> = claims_of(engine.evaluate(&raw(&payload)?))
+        .into_iter()
+        .filter_map(|claim| match claim {
+            WorldEvent::EntitiesMerged { absorbed, .. } => Some(absorbed),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        merges,
+        vec![key(&["ta", r#""y""#]), key(&["ta", r#""z""#])]
+    );
+    Ok(())
+}
+
+/// A version-2 mapping without links runs, under its own name: the identity names the version.
+#[test]
+fn an_unlinked_version_2_mapping_runs_under_its_own_name() -> TestResult {
+    let mut unlinked = linked();
+    unlinked.links.clear();
+    let v2 = MappingEngine::new(unlinked.clone())?;
+    unlinked.version = MAPPING_VERSION;
+    assert_ne!(v2.name(), MappingEngine::new(unlinked)?.name());
     Ok(())
 }
 
@@ -341,5 +432,30 @@ fn an_identity_over_escaped_and_non_ascii_labels_is_pinned() -> TestResult {
         MappingEngine::new(mapping)?.name(),
         "mapping-8b7f79bf35a70060"
     );
+    Ok(())
+}
+
+/// The linked fixture (check 11's second pair, decision 0027) proposes on every sample line and
+/// claims a merge on every line: `wiki_id` and `meta.domain` are two encodings of one site
+/// that never share text. Its identity is pinned for the same reason as the first fixture's,
+/// and was reproduced by an FNV-1a computation outside this codebase.
+#[test]
+fn the_committed_linked_fixture_merges_on_every_line_and_its_identity_is_pinned() -> TestResult {
+    let mapping: StreamMapping =
+        serde_json::from_str(include_str!("../../../testdata/sample-links.mapping.json"))?;
+    assert_eq!(mapping.version, MAPPING_VERSION_LINKS);
+    let engine = MappingEngine::new(mapping)?;
+    let lines = include_str!("../../../testdata/raw-sample.jsonl");
+    let mut merges = 0;
+    for line in lines.lines() {
+        let claims = claims_of(engine.evaluate(&raw(line.as_bytes())?));
+        assert!(!claims.is_empty(), "{line}");
+        merges += claims
+            .iter()
+            .filter(|claim| matches!(claim, WorldEvent::EntitiesMerged { .. }))
+            .count();
+    }
+    assert_eq!(merges, 20);
+    assert_eq!(engine.name(), "mapping-25768f1123cac8c0");
     Ok(())
 }
