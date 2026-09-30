@@ -121,10 +121,16 @@ async function readEvidence(response: Response, stream: EvidenceStream = {}): Pr
   const take = (rows: Message[]) => { if (rows.length) { messages.push(...rows); stream.onRows?.(rows); } };
   if (response.body) {
     const reader = response.body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      take(parser.push(value));
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        take(parser.push(value));
+      }
+    } catch (error) {
+      // A bad frame or an error frame: stop reading instead of leaving the body locked.
+      reader.cancel().catch(() => { /* already failed */ });
+      throw error;
     }
   }
   take(parser.end());

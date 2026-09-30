@@ -248,3 +248,28 @@ test('frameThrottle runs at most once per scheduled frame', () => {
   paint();
   assert.equal(frames.length, 1);
 });
+
+test('a world view below the tail head gets one refresh even on a quiet log, in either order', async () => {
+  const tailFirst = page();
+  await tailed(tailFirst, 1, 500);
+  tailFirst.world(typeView(420, EPOCH));
+  await tailFirst.run;
+  assert.deepEqual(tailFirst.log.filter(line => line.startsWith('refresh')), ['refresh world=w&lod=type']);
+
+  const worldFirst = page();
+  worldFirst.world(typeView(420, EPOCH));
+  await tick();
+  assert.ok(worldFirst.log.some(line => line.startsWith('mount')));
+  assert.ok(!worldFirst.log.some(line => line.startsWith('refresh')));
+  await tailed(worldFirst, 1, 500);
+  await worldFirst.run;
+  assert.deepEqual(worldFirst.log.filter(line => line.startsWith('refresh')), ['refresh world=w&lod=type']);
+});
+
+test('a pinned world view never refreshes', async () => {
+  const p = page({ at: 40 });
+  p.seed(rows(1, 40), 90);
+  p.world(typeView(30, EPOCH));
+  await p.run;
+  assert.ok(!p.log.some(line => line.startsWith('refresh')));
+});

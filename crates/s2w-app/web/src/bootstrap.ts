@@ -1,5 +1,8 @@
 import type { Evidence, EvidenceStream, Message, SourceInfo, WorldView } from './api';
 import type { Loaded } from './lod';
+// @ts-expect-error tsconfig's Bundler resolution forbids the extension; Node's native
+// TypeScript stripping (tests/*.test.mjs importing this file directly) requires it.
+import { rebuildingStatus } from './state.ts';
 
 /// The viewer's load order (s2w#295), pure so tests drive it with recording fakes (lod.test.mjs
 /// style). At t=0, in parallel: presentation, the evidence seed, proposals, sources (live only)
@@ -10,6 +13,7 @@ import type { Loaded } from './lod';
 /// The part of `ViewState` the load order touches (the real one on the page).
 export interface BootState {
   epoch: string;
+  offset: number;
   lastAppliedOffset: number;
   sources: SourceInfo[];
   apply(message: Message): boolean;
@@ -99,6 +103,14 @@ export async function bootstrap(d: BootDeps): Promise<void> {
     d.restartStale();
     return false;
   };
+  let shown = false;
+  // A live world view older than the evidence, or one mid-rebuild, needs a refresh even on a quiet
+  // log (no live row will ask for one). Held by the guard until the view is shown.
+  const catchUp = (): void => {
+    if (live && shown && (d.state.offset < d.state.lastAppliedOffset || rebuildingStatus(d.state.sources) !== undefined)) {
+      d.guard.request();
+    }
+  };
   const rows = (messages: Message[]): void => {
     if (gone()) return;
     let applied = false;
@@ -120,6 +132,7 @@ export async function bootstrap(d: BootDeps): Promise<void> {
       d.state.lastAppliedOffset = Math.max(d.state.lastAppliedOffset, tail.head);
       d.paintEvidence();
       d.open();
+      catchUp();
     })
     : d.evidence(d.at!).then(pinned => {
       if (!sameHistory(pinned.epoch)) return;
@@ -135,6 +148,8 @@ export async function bootstrap(d: BootDeps): Promise<void> {
     await sources;
     if (gone()) return;
     d.mount(loaded);
+    shown = true;
+    catchUp();
     d.guard.ready();
   });
   await Promise.all([seed, graph]);

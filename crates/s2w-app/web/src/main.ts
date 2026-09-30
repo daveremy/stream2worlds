@@ -77,7 +77,10 @@ async function start(): Promise<void> {
   const state = new ViewState(params); activeState = state;
   const renderer = new Force2D();
   let source: EventSource | undefined;
-  let retry: ReturnType<typeof setTimeout> | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined; // the next load attempt
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined; // the next live-stream open
+  // Bumped by every open() and closeStream(): a stream's late error handler sees it moved on.
+  let streamGeneration = 0;
   let refresh: ReturnType<typeof setTimeout> | undefined;
   let proposalsTimer: ReturnType<typeof setTimeout> | undefined;
   let frame: number | undefined;
@@ -91,7 +94,7 @@ async function start(): Promise<void> {
   // Why the page shows less than it asked for, if it does; kept while live deltas arrive.
   let note: string | undefined;
   dispose = () => {
-    controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(refresh); clearTimeout(proposalsTimer);
+    controller.abort(); source?.close(); clearTimeout(retry); clearTimeout(reconnectTimer); clearTimeout(refresh); clearTimeout(proposalsTimer);
     if (frame !== undefined) cancelAnimationFrame(frame);
     renderer.destroy();
   };
@@ -165,11 +168,15 @@ async function start(): Promise<void> {
   function reconnect(): void {
     if (signal.aborted) return;
     status.textContent = 'Reconnecting';
-    retry = setTimeout(open, delay); delay = Math.min(delay * 2, 30_000);
+    reconnectTimer = setTimeout(open, delay); delay = Math.min(delay * 2, 30_000);
+  }
+  function closeStream(): void {
+    streamGeneration++; source?.close(); source = undefined; clearTimeout(reconnectTimer);
   }
   function open(): void {
     if (signal.aborted) return;
-    source?.close();
+    closeStream();
+    const generation = ++streamGeneration;
     const current = new EventSource(eventsUrl(params, state.lastAppliedOffset, undefined, state.epoch)); source = current;
     for (const kind of kinds) current.addEventListener(kind, event => {
       if (signal.aborted || source !== current) return;
@@ -192,28 +199,30 @@ async function start(): Promise<void> {
       status.textContent = readyState === EventSource.CLOSED ? 'Disconnected' : 'Reconnecting';
       try { await streamStatus(params, state.lastAppliedOffset, state.epoch, AbortSignal.any([signal, AbortSignal.timeout(10_000)])); }
       catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || generation !== streamGeneration) return;
         if (isStaleEpoch(error)) { restartStale(); return; }
         if (isBeforeBase(error)) { restartStale(BEHIND); return; }
         if (error instanceof ApiError && error.status === 403) {
           status.textContent = `Connection rejected: ${error.message}`; return;
         }
       }
+      // A failed load attempt closed the stream meanwhile: its retry reopens it.
+      if (signal.aborted || generation !== streamGeneration) return;
       reconnect(); // Includes 503: a connection slot may become available later.
     };
   }
   // Shows the first applied world view; `bootstrap` calls it, then lets held refreshes through.
   function mount(loaded: Loaded): void {
     const { view } = loaded;
-    lastFetch = Date.now(); request = loaded.request; note = loaded.note; mounted = true;
+    lastFetch = Date.now(); request = loaded.request; note = loaded.note;
     // Show the level actually served: `Types` when a large world fell back to the type view.
     lodSelect.value = detail.shown = servedLod(loaded);
-    renderer.mount(graph, state); paint();
+    // A retried load (the seed failed after the world was shown) updates the mounted renderer.
+    if (mounted) renderer.update(state); else renderer.mount(graph, state);
+    mounted = true; paint();
     status.textContent = rebuildingStatus(state.sources) ?? note ??
       (view.nodes.length ? '' : pinned ? 'No data at this offset' :
         (unroutedStatus(state.sources) ?? 'Waiting for events'));
-    // Held until `guard.ready()`, which follows immediately.
-    if (!pinned && rebuildingStatus(state.sources) !== undefined) guard.request();
   }
   async function initialize(): Promise<void> {
     // A world-less page load (a stray `/index.html`) has nothing to show: send it to the home page.
@@ -237,12 +246,12 @@ async function start(): Promise<void> {
         tail: stream => evidenceTail(params, load, stream),
         evidence: at => evidence(params, at, undefined, load),
         loadWorld: () => loadWorld(params, served => snapshot(served, load)),
-        open, paintEvidence, mount, restartStale: () => restartStale(),
+        open, paintEvidence, mount, restartStale,
       });
     } catch (error) {
       attempt.abort();
       if (signal.aborted) return;
-      source?.close(); source = undefined; clearTimeout(retry);
+      closeStream(); clearTimeout(retry);
       // The history was replaced between two reads: start over.
       if (isStaleEpoch(error)) { restartStale(); return; }
       if (error instanceof ApiError && error.status !== 503) { status.textContent = describe(error); return; }
