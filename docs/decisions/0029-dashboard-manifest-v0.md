@@ -82,14 +82,14 @@ mapped sources than `built_on`'s cap of 32.
 `s2w dashboard propose ... --system2-model M/V [--system2-env NAME]... --system2-cmd <program>
 [<arg>...] [--]` runs `s2w_app::dashboard::propose_system2`: the same filer and policy as
 above, with `System2Proposer` (`s2w-system2`) over an `ExecProvider` in place of the fallback.
-Without the three flags the fallback runs, as before.
+Without `--system2-cmd` and `--system2-model` the fallback runs, as before.
 
 - **One attempt, at most two calls.** The prompt (`crates/s2w-system2/prompts/manifest.txt`,
   scanned by check 9) carries the input as one line of JSON between two marker lines. A reply
   that is not JSON, does not decode, or fails `validate()` gets one repair call carrying the
   reply and the fault; its answer is final. A provider failure (timeout, exit status, output
   over the cap) is not repaired. Tokens and latency are summed over the calls; `raw` is the last
-  reply. The prompt files' hash is the envelope's `prompt_hash` and is folded into the input
+  reply (or the output a failed repair call captured). The prompt files' hash is the envelope's `prompt_hash` and is folded into the input
   hash, so a prompt edit is a new input.
 - **The command.** Run without a shell, `argv` as given, in a fresh empty directory, with an
   empty environment plus the `--system2-env` variables (each must be set, or the run stops with
@@ -116,8 +116,9 @@ Without the three flags the fallback runs, as before.
    --system2-env PATH` plus its API-key variable.
 4. Put `--system2-cmd` last, or end it with `--`: every token after it up to a standalone `--`
    is the command's, so the command cannot receive a literal `--`.
-5. Try it with `--dry-run --json`: the command runs (and costs what a call costs), nothing is
-   written, and the report shows the envelope and the decision it would get.
+5. Try it with `--dry-run --json`: when the run would file, the command runs (and costs what a
+   call costs), nothing is written, and the report shows the envelope and the decision it would
+   get. A log that already has this actor's row for the input runs nothing.
 
 ```sh
 s2w dashboard propose --log-dir ./s2w-data --json \

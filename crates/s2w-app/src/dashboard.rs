@@ -25,6 +25,7 @@ use s2w_system2::{ExecProvider, ExecSetupError, System2Proposer};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::proposals::check_identity;
 use crate::query::{
     DASHBOARD_ENVELOPE_FORMAT, DASHBOARD_MANIFEST_CLASS, DashboardEnvelope, MAX_ATTEMPTS,
     MAX_RAW_BYTES, Provenance, QueryError, STREAM_MAPPING_CLASS, decode_envelope as decode_mapping,
@@ -576,11 +577,12 @@ pub struct System2Command {
 }
 
 /// [`propose`] with a System 2 proposer that runs `command` once per model call (at most two
-/// per attempt: the first reply and one repair). The command runs even on a dry run: a dry
-/// run writes nothing, but it shows what this model would file.
+/// per attempt: the first reply and one repair). A dry run that would file still runs the
+/// command: it writes nothing, but it shows what this model would file.
 ///
 /// # Errors
-/// [`QueryError::BadParameter`] (`system2-cmd` or `system2-env`) for an empty command, a bad
+/// [`QueryError::BadParameter`] (`system2-model`, `system2-cmd` or `system2-env`) for a model
+/// or version holding whitespace, a control character or `;`, an empty command, a bad
 /// variable name, or a named variable that is not set here, before the log is opened;
 /// otherwise as [`propose`].
 pub fn propose_system2(
@@ -589,10 +591,12 @@ pub fn propose_system2(
     command: &System2Command,
     dry_run: bool,
 ) -> Result<ProposeReport, QueryError> {
+    check_identity("system2-model", &command.model)?;
+    check_identity("system2-model", &command.version)?;
     let provider = ExecProvider::inherit(command.argv.clone(), &command.env).map_err(|error| {
         let name = match error {
             ExecSetupError::EmptyCommand => "system2-cmd",
-            _ => "system2-env",
+            ExecSetupError::BadName(_) | ExecSetupError::Unset(_) => "system2-env",
         };
         QueryError::BadParameter {
             name,

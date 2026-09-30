@@ -154,7 +154,11 @@ fn split_system2(args: &[String]) -> Result<(Vec<String>, Option<System2Command>
                     .get(index + 1)
                     .filter(|value| !value.trim().is_empty() && !value.starts_with("--"))
                     .ok_or_else(|| format!("{flag} needs a value: {flag} <value>"))?;
-                flags.value(flag, value)?;
+                if flag == "--system2-model" {
+                    flags.model(value)?;
+                } else {
+                    flags.env(value)?;
+                }
                 2
             }
             _ => {
@@ -185,29 +189,33 @@ impl System2Flags {
             .iter()
             .position(|arg| arg == "--")
             .unwrap_or(tail.len());
-        if end == 0 {
+        if tail.first().is_none_or(|program| program.trim().is_empty()) || end == 0 {
             return Err(
                 "--system2-cmd needs a command: --system2-cmd <program> [<arg>...] [--]".to_owned(),
             );
         }
         self.argv = Some(tail[..end].to_vec());
-        Ok(end + 2)
+        Ok(1 + end + usize::from(end < tail.len()))
     }
 
-    /// Takes `--system2-model <value>` or `--system2-env <value>`.
-    fn value(&mut self, flag: &str, value: &str) -> Result<(), String> {
-        if flag == "--system2-model" {
-            if self.model.is_some() {
-                return Err(format!("{flag} was given more than once"));
-            }
-            self.model = Some(split_model(value)?);
-            return Ok(());
+    /// Takes `--system2-model <value>`.
+    fn model(&mut self, value: &str) -> Result<(), String> {
+        if self.model.is_some() {
+            return Err("--system2-model was given more than once".to_owned());
         }
+        self.model = Some(split_model(value)?);
+        Ok(())
+    }
+
+    /// Takes `--system2-env <value>`.
+    fn env(&mut self, value: &str) -> Result<(), String> {
         if value.contains(['=', '\0']) {
-            return Err(format!("{flag} takes a variable name, not '{value}'"));
+            return Err(format!(
+                "--system2-env takes a variable name, not '{value}'"
+            ));
         }
         if self.env.iter().any(|name| name == value) {
-            return Err(format!("{flag} {value} was given more than once"));
+            return Err(format!("--system2-env {value} was given more than once"));
         }
         self.env.push(value.to_owned());
         Ok(())
@@ -522,6 +530,7 @@ mod tests {
         for (bad, expect) in [
             (&["--system2-cmd"][..], "needs a command"),
             (&["--system2-cmd", "--"][..], "needs a command"),
+            (&["--system2-cmd", " ", "x"][..], "needs a command"),
             (&["--system2-cmd", "a"][..], "needs --system2-model"),
             (&["--system2-model", "m/v"][..], "needs --system2-cmd"),
             (&["--system2-env", "HOME"][..], "needs --system2-cmd"),

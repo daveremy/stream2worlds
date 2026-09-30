@@ -93,7 +93,7 @@ pub fn check_author(author: &str) -> Result<(), QueryError> {
     check_identity("author", author)
 }
 
-fn check_identity(name: &'static str, value: &str) -> Result<(), QueryError> {
+pub(crate) fn check_identity(name: &'static str, value: &str) -> Result<(), QueryError> {
     if value.is_empty() {
         return Err(QueryError::BadParameter {
             name,

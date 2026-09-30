@@ -546,7 +546,21 @@ fn a_system2_command_that_cannot_be_set_up_is_a_bad_parameter_before_the_log_ope
         env: vec!["S2W_TEST_SURELY_UNSET_VARIABLE".to_owned()],
         ..empty.clone()
     };
-    for (command, name) in [(empty, "system2-cmd"), (unset, "system2-env")] {
+    let spaced = System2Command {
+        argv: vec!["/bin/true".to_owned()],
+        model: "my model".to_owned(),
+        ..empty.clone()
+    };
+    let semicolon = System2Command {
+        version: "v;x".to_owned(),
+        ..spaced.clone()
+    };
+    for (command, name) in [
+        (empty, "system2-cmd"),
+        (unset, "system2-env"),
+        (spaced, "system2-model"),
+        (semicolon, "system2-model"),
+    ] {
         match propose_system2(&missing, WORLD, &command, false) {
             Err(QueryError::BadParameter { name: got, .. }) => assert_eq!(got, name),
             other => panic!("{command:?}: {other:?}"),
