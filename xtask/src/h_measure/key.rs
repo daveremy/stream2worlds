@@ -168,8 +168,19 @@ impl KeySpec {
         Ok(mapping)
     }
 
-    /// The unscored entries as mention path ids.
+    /// The unscored entries as mention path ids. Callers validate the spec first; the debug
+    /// assertion catches one that did not and holds a prefix in a format-0 or format-1 spec,
+    /// which would otherwise silently get prefix semantics.
     pub(crate) fn unscored(&self) -> Unscored {
+        debug_assert!(
+            self.version >= 2
+                || self
+                    .unscored
+                    .iter()
+                    .all(|entry| matches!(entry, UnscoredPath::Exact(_))),
+            "key spec version {} holds an unscored prefix: validate the spec first",
+            self.version
+        );
         Unscored::of(&self.unscored)
     }
 
