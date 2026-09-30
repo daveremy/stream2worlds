@@ -475,9 +475,8 @@ fn ids_and_labels_escape_their_separators() {
 /// check` 12 applies to the recorded fixture (decision 0030).
 struct Obfuscate(BTreeMap<String, String>);
 
-/// The constant timestamp shift: 100 years (of 365.25 days) and 12,345 seconds, the same as
-/// `cargo xtask check` 12's.
-const SHIFT: i64 = 3_155_760_000 + 12_345;
+/// The constant timestamp shift, the same as `cargo xtask check` 12's.
+const SHIFT: i64 = crate::stamp::REPLAY_SHIFT;
 
 impl Obfuscate {
     fn new(events: &[Value]) -> Self {
@@ -513,9 +512,10 @@ impl Obfuscate {
             ),
             Value::String(s) => match serde_json::from_str::<Value>(s) {
                 Ok(inner @ Value::Object(_)) => Value::String(self.value(&inner).to_string()),
-                _ => Value::String(
-                    crate::stamp::shift(s, SHIFT).unwrap_or_else(|| format!("h{:016x}", fnv(s))),
+                _ if crate::stamp::shaped(s) => Value::String(
+                    crate::stamp::shift(s, SHIFT).expect("a fixture date-time shifts"),
                 ),
+                _ => Value::String(format!("h{:016x}", fnv(s))),
             },
             other => other.clone(),
         }
@@ -991,7 +991,7 @@ fn stamped(n: u64, opaque: bool, spaced: bool) -> Vec<Value> {
             1 + joined % 12,
             1 + joined % 28,
             joined % 24,
-            joined
+            joined % 60
         );
         event["s"] = json!(if opaque {
             format!("h{:016x}", fnv(&text))

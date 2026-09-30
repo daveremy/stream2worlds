@@ -15,7 +15,7 @@ range and the day valid for its month and year. A space separator, a date alone,
 offset and MediaWiki's 14-digit `YYYYMMDDHHMMSS` are not date-times. A path is `Timestamp` when
 it holds only strings, at least one, and every distinct string value has the shape; the role is
 decided after `Sparse`, `Other`, `Constant` and `Flag` and before every uniqueness role
-(`EventId` included).
+(`EventId` included), so a `Timestamp` path has at least three distinct values.
 
 **`cargo xtask check` 12 shifts date-times instead of hashing them.** Its renaming now moves every
 shaped string by one constant (`SHIFT`, 100 years of 365.25 days plus 12,345 s) with

@@ -61,6 +61,8 @@ impl Column {
     }
 
     /// Whether every value is an RFC 3339 date-time: a moment, never a thing (decision 0030).
+    /// `kinds == STR` is redundant with the count (only strings are counted), kept so the role
+    /// never depends on how a number or boolean prints.
     pub(crate) fn timestamp(&self) -> bool {
         self.kinds == STR && !self.texts.is_empty() && self.stamps == self.texts.len()
     }

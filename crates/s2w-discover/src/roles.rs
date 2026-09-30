@@ -20,6 +20,7 @@ pub enum Role {
     Flag,
     /// Every value is an RFC 3339 date-time, a format (decision 0030): a moment, never a thing.
     /// It keys no type and is no stage-5b candidate; it may still be another type's attribute.
+    /// Decided after `Constant` and `Flag`, so it needs at least three distinct values.
     Timestamp,
     /// Unique per event: names the event, never an entity (research 0002 §3).
     EventId,

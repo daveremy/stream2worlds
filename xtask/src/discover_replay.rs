@@ -31,9 +31,10 @@ use serde_json::Value;
 
 use crate::obfuscation_raw::{Maps, Stamps};
 
-/// The constant date-time shift: 100 years of 365.25 days and 12,345 seconds, so no shifted
-/// fixture date-time (all 2001 to 2026) equals an original one and the leak test stays exact.
-pub(crate) const SHIFT: i64 = 3_155_760_000 + 12_345;
+/// The constant date-time shift, the profiler crate's [`s2w_discover::stamp::REPLAY_SHIFT`]: no
+/// shifted fixture date-time (all 2001 to 2026) equals an original one, so the leak test stays
+/// exact.
+pub(crate) const SHIFT: i64 = s2w_discover::stamp::REPLAY_SHIFT;
 
 /// The recorded stream, through a neutral-named link so no check reads a domain name.
 pub(crate) const FIXTURE: &str = "crates/s2w-discover/testdata/recorded.raw.sse";

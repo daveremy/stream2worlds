@@ -4,6 +4,11 @@
 //! contract's timestamp obfuscation (one constant shift that keeps the format), for obfuscation
 //! replays such as `cargo xtask check` 12 and the unit tests; the profiler never calls it.
 
+/// The constant shift obfuscation replays use: 100 years of 365.25 days and 12,345 seconds, so
+/// no shifted date-time from 2001 to 2026 (the recorded fixture's span) equals an original one.
+/// `cargo xtask check` 12 and the unit tests share it; the profiler never reads it.
+pub const REPLAY_SHIFT: i64 = 3_155_760_000 + 12_345;
+
 /// The fields of one RFC 3339 `date-time` (§5.6). `rest` is the fraction and offset, verbatim.
 struct Stamp<'a> {
     year: i64,
@@ -79,6 +84,7 @@ fn parse(text: &str) -> Option<Stamp<'_>> {
         || day > days_in_month(year, month)
         || hour > 23
         || minute > 59
+        // 60 is accepted at any minute: `shaped` is a shape test, not a leap-second table.
         || second > 60
     {
         return None;
@@ -225,7 +231,7 @@ mod tests {
 
     #[test]
     fn shift_keeps_order_and_is_one_to_one() {
-        let c = 3_155_760_000 + 12_345;
+        let c = super::REPLAY_SHIFT;
         let mut stamps: Vec<String> = (0..2_000_i64)
             .map(|i| {
                 let t = i * 7_919_993 - 3_000_000_000;
