@@ -314,6 +314,8 @@ impl<'w> Graph<'w> {
     /// refs, so [`Self::entity_node`] gives each hub `hub_refs: []`.
     fn summary(world: &'w World) -> (Self, BTreeMap<&'w str, u64>) {
         let hubs = hub_aggregates(world);
+        // A hub is a resolved relationship target, always a minted entity, so seeding from
+        // the hubs gives the same hub nodes `Graph::new` finds among the entities.
         let mut members: BTreeMap<EntityId, Vec<EntityId>> =
             hubs.keys().map(|&hub| (hub, Vec::new())).collect();
         let mut counts: BTreeMap<&'w str, u64> = BTreeMap::new();

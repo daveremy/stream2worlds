@@ -244,6 +244,7 @@ fn generate(state: &QueryState, group: Group) {
     if fresh.is_empty() {
         return;
     }
+    // Declared out here so the borrowed world outlives the entity view built from it.
     let world;
     let view = if key.params.links == LinkDetail::None {
         // The type summary (s2w#296) comes from the memo when the offset has not moved.

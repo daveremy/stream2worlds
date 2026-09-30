@@ -49,7 +49,14 @@ impl SummaryMemo {
             return Ok(view.clone());
         }
         let view = build()?;
-        *self.lock() = Some((key, view.clone()));
+        let mut last = self.lock();
+        // A slow build of an older offset never evicts a newer one of the same history.
+        let newer = last.as_ref().is_some_and(|(k, _)| {
+            k.epoch == key.epoch && k.hub_cap == key.hub_cap && k.offset > key.offset
+        });
+        if !newer {
+            *last = Some((key, view.clone()));
+        }
         Ok(view)
     }
 }
@@ -102,6 +109,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(builds.get(), 4);
+    }
+
+    #[test]
+    fn an_older_build_never_evicts_a_newer_offset() {
+        let memo = SummaryMemo::default();
+        let builds = Cell::new(0);
+        let build = || {
+            builds.set(builds.get() + 1);
+            Ok(type_summary(&World::with_hub_cap(3)))
+        };
+        memo.get_or_build(key(5), build).unwrap();
+        memo.get_or_build(key(4), build).unwrap();
+        memo.get_or_build(key(5), build).unwrap();
+        assert_eq!(builds.get(), 2);
     }
 
     #[test]
