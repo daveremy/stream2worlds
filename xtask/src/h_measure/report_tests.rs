@@ -265,15 +265,12 @@ fn score_accepts_a_corpus_opened_since_the_freeze() {
 #[test]
 fn score_refuses_an_opened_corpus_whose_pin_also_changed() {
     let (root, dir, out) = frozen("opened-sha");
-    let path = root.join(DATA).join("corpora.toml");
-    let text = fs::read_to_string(&path).unwrap();
     let hash = sha256(fs::read(dir.join("c.sse")).unwrap().as_slice());
     let res = format!("{RES}\nsha256 = \"{hash}\"");
-    assert!(text.contains(&res), "{text}");
     let opened = res
         .replace("reserved", "heldout")
         .replace(&hash, &"0".repeat(64));
-    fs::write(&path, text.replace(&res, &opened)).unwrap();
+    edit_corpus(&root, &res, &opened);
     refused(
         score(&root, &dir, &out, "res", &[KEY]),
         "corpus res: its row in keys.toml or corpora.toml changed or was removed since",

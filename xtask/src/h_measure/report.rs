@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use super::freeze::{Frozen, derive};
 use super::grade::{Grade, grade};
-use super::pins::{Pins, Role, sha256};
+use super::pins::{Pins, Role, opened, sha256};
 use super::score::{Bcubed, Score, shown};
 
 /// The report's first paragraph: the mapping format's alias limit (ruling on s2w#56,
@@ -156,7 +156,7 @@ fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), 
                     "{name} was not pinned when {file} was frozen; a scored key and the freeze corpus are pinned before the freeze"
                 ));
             }
-            (Some(then), Some(now)) if then != now && opened(&name, then, now) => {}
+            (Some(then), Some(now)) if opened(&name, then, now) => {}
             (Some(then), now) if Some(then) != now => {
                 return Err(format!(
                     "{name}: its row in keys.toml or corpora.toml changed or was removed since {file} was frozen; freeze again under the current pins"
@@ -166,22 +166,6 @@ fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), 
         }
     }
     Ok(())
-}
-
-/// True when a corpus pin (`"{role:?} {file} {events} {sha256}"`, as `Pins::all` writes it)
-/// differs from its recorded value only by the role going from `Reserved` to `Heldout`.
-fn opened(name: &str, then: &str, now: &str) -> bool {
-    if !name.starts_with("corpus ") {
-        return false;
-    }
-    match (then.split_once(' '), now.split_once(' ')) {
-        (Some((was, same)), Some((is, now))) => {
-            same == now
-                && was == format!("{:?}", Role::Reserved)
-                && is == format!("{:?}", Role::Heldout)
-        }
-        _ => false,
-    }
 }
 
 /// Re-runs the freeze on the file's recorded corpus and window and refuses unless the file
