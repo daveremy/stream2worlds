@@ -8,11 +8,11 @@ use super::graph::Graph;
 use super::{ACTUAL_BRANCH, Link, Lod, Node, WorldView, node_id};
 use crate::query::epoch::Epoch;
 
-/// The type summary (s2w#296, `lod=type&links=none`): the type view's nodes, one per entity
-/// type with its count plus one per hub, and no links. It skips the relationship pass, so it
-/// costs one pass over entities (and over keys when there is a hub) instead of a map over every
-/// relationship. Its node set and counts equal [`world_view`](super::world_view)'s at `lod=type`, and each hub node
-/// is the same except `hub_refs`, which is always empty here: filling it needs the
+/// The type summary (s2w#296, `lod=type&links=none`): the type view's nodes, one per entity type
+/// with its count plus one per hub, and no links. It skips the relationship pass, so it costs one
+/// pass over entities (and over keys when there is a hub) instead of a map over every relationship.
+/// Its node set and counts equal [`world_view`](super::world_view)'s at `lod=type`, and each hub
+/// node is the same except `hub_refs`, which is always empty here: filling it needs the
 /// relationships. The full type view, `type_view`, starts from these nodes and fills it.
 #[must_use]
 pub fn type_summary(world: &World) -> WorldView {

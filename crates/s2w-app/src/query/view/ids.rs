@@ -6,9 +6,9 @@ use s2w_core::EntityId;
 use serde::Serialize;
 use serde::ser::Serializer;
 
-/// The decimal digits of an entity id, ordered as its `e:<id>` node id string is: `e:10`
-/// sorts before `e:2`. [`world_view`](super::world_view) orders nodes and links by those strings; a streamed view
-/// walking `EntityId` order instead would serve different bytes (#216).
+/// The decimal digits of an entity id, ordered as its `e:<id>` node id string is: `e:10` sorts
+/// before `e:2`. [`world_view`](super::world_view) orders nodes and links by those strings; a
+/// streamed view walking `EntityId` order instead would serve different bytes (#216).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::query) struct IdDigits {
     digits: [u8; 20],

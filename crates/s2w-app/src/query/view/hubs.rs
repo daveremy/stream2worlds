@@ -1,4 +1,4 @@
-//! Hub aggregates and the entity-node builder both the graph and type paths share.
+//! Hub aggregates and the entity-node builder shared by the graph, type and streamed paths.
 
 use std::collections::{BTreeMap, BTreeSet};
 

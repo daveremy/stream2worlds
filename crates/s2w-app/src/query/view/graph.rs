@@ -145,7 +145,7 @@ impl<'w> Graph<'w> {
         Ok(Some(self.neighbourhood(start, params.hops)))
     }
 
-    pub(super) fn find(&self, raw: u64) -> Option<EntityId> {
+    fn find(&self, raw: u64) -> Option<EntityId> {
         self.world.minted_id(raw).map(|e| self.world.resolve(e))
     }
 
@@ -211,8 +211,9 @@ impl<'w> Graph<'w> {
     }
 }
 
-/// [`world_view`](super::world_view) over the whole resolved [`Graph`]: `lod=entity`, and `lod=type` with a
-/// focus. Without a focus its `lod=type` equals [`type_view`](super::type_view), byte for byte.
+/// [`world_view`](super::world_view) over the whole resolved [`Graph`]: `lod=entity`, and
+/// `lod=type` with a focus. Without a focus its `lod=type` equals [`type_view`](super::type_view),
+/// byte for byte.
 #[expect(
     clippy::too_many_lines,
     reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
