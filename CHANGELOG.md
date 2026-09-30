@@ -58,7 +58,7 @@ and Fable and grok held the review seats.
 
 **Next:** [#292](https://github.com/daveremy/stream2worlds/issues/292) owes its full acceptance table
 (1 and 4 viewers, 3 runs each, quiet and mid-backfill) before it closes, and first paint passes by
-only 40 ms, so watch it. The demo-box build time for #325 follows the deploy. Then
+only 40 ms, so watch it. The demo box has no build-time figure for #325 yet, only the 274 ms on the recorded backfill. Then
 [#327](https://github.com/daveremy/stream2worlds/issues/327), the two attribute-shaped types, and a
 mechanical README-versus-baseline check ([#324](https://github.com/daveremy/stream2worlds/issues/324)).
 The demo box runs merged main through [#329](https://github.com/daveremy/stream2worlds/pull/329).

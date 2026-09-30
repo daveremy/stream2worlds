@@ -33,8 +33,9 @@ pub struct ReadTimingsSnapshot {
     /// a writer. Time waiting for a blocking thread, or queued for a generation, is not in it.
     pub wait: PhaseTiming,
     /// From the guard taken to the view captured: offset resolution and the view's build
-    /// (the entity view's `Graph::new` and copies; the type view's own build, no `Graph::new` since
-    /// s2w#325). The whole time the guard is held.
+    /// (the entity view and a focused type view run `Graph::new` and copy; the whole-world type
+    /// view has its own build, with no `Graph::new`, since s2w#325). The whole time the guard is
+    /// held.
     pub build: PhaseTiming,
     /// The sorts, after the guard is released (s2w#272).
     pub prepare: PhaseTiming,
