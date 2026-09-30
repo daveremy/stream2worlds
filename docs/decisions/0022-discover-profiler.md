@@ -406,6 +406,59 @@ the moved-page pairs `created_redirect_page.page_id` → `page.page_id`, `meta.k
 `created_redirect_page.page_title`, `prior_state.page.page_title` → `page.page_title` (coverage
 100%, carry 100%), which join a page's ids and its titles across a move.
 
+## Amendment 2026-09-29: the second test's churn guard and leaf cap (s2w#291 PR 1, `PROFILER_VERSION` 6)
+
+s2w#282 measured #261's second entity test (v4) minting four types on the recorded page-change
+fixture: two editor edit counters, a comment and a content size. None is an identity; together
+they cost +6.1M world events and +347 MiB at 1.5x10^5 events, and relationships were about 80%
+of that growth. No equality, presence or order statistic separates a counter, a size or a comment
+from the child entity the second test exists for (`user` under `wiki` on `recentchange`), so this
+amendment does two narrower things (karpathy ruling on #291).
+
+**Churn guard (`Config::churn_pct`, 90).** Under each path that follows a second-test key, take the
+key's values in stream order within each of that follower's repeat groups. A change to a new
+value counts when another value follows it; it is superseded when the replaced value never
+appears later in that group. A key fails the second test when, under any follower, at least
+`churn_pct` of at least `min_support` counted changes are superseded. Any follower, not the best
+one: under a coarse follower (a wiki) a counter's values interleave across owners and look like
+recurrence; under the fine one (the editor) they never come back. Measured at 10^4 (the share
+under each key's highest follower):
+
+| key (second test) | stream | superseded share |
+|---|---|---|
+| `prior_state.revision.editor.edit_count` | page-change fixture | 95 (68 under the wiki id) |
+| `prior_state.revision.editor.edit_global_count` | page-change fixture | 95 (69) |
+| `revision.content_slots.mediainfo.content_size` | page-change fixture | 59 |
+| `revision.comment` | page-change fixture | 49 |
+| `log_params.filter` | `dev` | 50 |
+| `user` | `dev` | 13 |
+
+Both counters now fail; the margin is 95 against 59. First-test keys are untouched: a page under
+its editor reads 94 and must stay an entity.
+
+**Leaf cap.** A type is a leaf when every key path in it (its alias class and the classes merged
+into it) passed only the second test and none is a stage-5b link. A leaf relates only to the
+type of the path that follows it best: among its followers that key another type, the highest
+share, then the most values; a tie keeps every tied type, and no such follower means no
+relationship. Entities and attributes are unchanged. The comment and the size stay types (an
+accepted false class, with their cost capped); free text is out of scope for this profiler.
+
+**Measured** (`backfill_memory`'s `world` child, the page-change fixture cycled to 1.5x10^5; type
+and relationship-rule counts from the 10^4 mapping):
+
+| | world events | head world | entities | types | relationship rules |
+|---|---|---|---|---|---|
+| v5 (main d009241) | 20,040,997 | 887.1 MiB | 224,586 | 15 | 177 |
+| churn guard only | 15,874,687 | 729.2 MiB | 213,153 | 13 | 140 |
+| churn guard and leaf cap (v6) | 14,323,096 | 596.8 MiB | 213,153 | 13 | 116 |
+
+On `dev` the entity set is unchanged at 10^4 and 2x10^5 (in-sample dev-key-v1 scores identical to
+v5: `user` R 1.0, mapping F1 0.535 and 0.589); `user` is now a leaf related only to the wiki, so
+its co-occurrence edges to pages and other types are gone (27 relationship rules to 17 at 10^4).
+The recorded check-12 fixture's mapping is unchanged (7 types, 19 entity rules, 69 relationships).
+Order, presence and value equality only, integer percentages, no tie broken by a name; a unit
+test covers renaming and hashing with a leaf.
+
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a
