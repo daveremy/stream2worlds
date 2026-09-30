@@ -1,7 +1,7 @@
 //! The world as a d3 node/link graph at a level of detail, optionally around a focus entity.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use s2w_core::{AttrMap, EntityId, EntityState, World};
 use serde::Serialize;
@@ -524,15 +524,24 @@ impl<'w> Graph<'w> {
 /// # Errors
 /// [`QueryError::UnknownEntity`] for an unknown focus, [`QueryError::HopsTooLarge`] past
 /// [`MAX_HOPS`], [`QueryError::BadParameter`] for `links=none` with `lod=entity` or a focus.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
-)]
 pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
     check_links(params)?;
     if params.links == LinkDetail::None {
         return Ok(type_summary(world));
     }
+    if params.lod == Lod::Type && params.focus.is_none() {
+        return Ok(type_view(world));
+    }
+    graph_view(world, params)
+}
+
+/// [`world_view`] over the whole resolved [`Graph`]: `lod=entity`, and `lod=type` with a
+/// focus. Without a focus its `lod=type` equals [`type_view`], byte for byte.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
+)]
+fn graph_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
     let graph = Graph::new(world);
     let subset = graph.subset(params)?;
     let keep = |id: &EntityId| subset.as_ref().is_none_or(|s| s.contains(id));
@@ -626,10 +635,16 @@ pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, Query
 /// costs one pass over entities (and over keys when there is a hub) instead of a map over every
 /// relationship. Its node set and counts equal [`world_view`]'s at `lod=type`, and each hub node
 /// is the same except `hub_refs`, which is always empty here: filling it needs the
-/// relationships.
+/// relationships. The full type view, `type_view`, starts from these nodes and fills it.
 #[must_use]
 pub fn type_summary(world: &World) -> WorldView {
     let (graph, counts) = Graph::summary(world);
+    type_level_view(world, type_nodes(&graph, counts), BTreeMap::new())
+}
+
+/// The type-level nodes of a [`Graph::summary`]: one per hub (with whatever `hub_refs` the
+/// graph holds) and one per entity type with its count, in node id order.
+fn type_nodes(graph: &Graph<'_>, counts: BTreeMap<&str, u64>) -> Vec<Node> {
     let mut nodes: BTreeMap<String, Node> = BTreeMap::new();
     for (&id, members) in &graph.members {
         let node = graph.entity_node(id, members);
@@ -644,6 +659,15 @@ pub fn type_summary(world: &World) -> WorldView {
         };
         nodes.insert(id, node);
     }
+    nodes.into_values().collect()
+}
+
+/// A whole-world `lod=type` view of `nodes` and `links` (keyed source, target, kind).
+fn type_level_view(
+    world: &World,
+    nodes: Vec<Node>,
+    links: BTreeMap<(String, String, String), u64>,
+) -> WorldView {
     WorldView {
         offset: world.offset(),
         epoch: Epoch::default(),
@@ -652,9 +676,203 @@ pub fn type_summary(world: &World) -> WorldView {
         hub_in_degree_cap: world.hub_in_degree_cap(),
         lod: Lod::Type,
         focus: None,
-        nodes: nodes.into_values().collect(),
-        links: Vec::new(),
+        nodes,
+        links: links
+            .into_iter()
+            .map(|((source, target, kind), weight)| Link {
+                source,
+                target,
+                kind,
+                weight,
+            })
+            .collect(),
     }
+}
+
+/// The full type view's groups, interned (s2w#325): hub `i` (in id order) is group `i`, and
+/// entity types follow in the order met. `memo[i]` is the group of entity `i` after merges.
+struct TypeGroups<'w> {
+    world: &'w World,
+    hubs: Vec<EntityId>,
+    types: Vec<&'w str>,
+    by_type: HashMap<&'w str, usize>,
+    memo: Vec<usize>,
+}
+
+impl<'w> TypeGroups<'w> {
+    fn new(world: &'w World, hubs: Vec<EntityId>) -> Self {
+        let mut groups = Self {
+            world,
+            hubs,
+            types: Vec::new(),
+            by_type: HashMap::new(),
+            memo: Vec::with_capacity(world.entity_count()),
+        };
+        // `World` keeps entity `i` at index `i` and `entities()` yields them in that order,
+        // so `memo` is indexed by the raw id.
+        for (id, _) in world.entities() {
+            let group = groups.resolved(world.resolve(id));
+            groups.memo.push(group);
+        }
+        groups
+    }
+
+    /// The group of a resolved id: its hub, else its entity type, `untyped` when empty or
+    /// unknown (as [`Graph::entity_type`]).
+    fn resolved(&mut self, id: EntityId) -> usize {
+        if let Ok(hub) = self.hubs.binary_search(&id) {
+            return hub;
+        }
+        let entity_type = match self.world.entity(id) {
+            Some(state) if !state.entity_type.is_empty() => state.entity_type.as_str(),
+            _ => "untyped",
+        };
+        let next = self.hubs.len() + self.types.len();
+        let types = &mut self.types;
+        *self.by_type.entry(entity_type).or_insert_with(|| {
+            types.push(entity_type);
+            next
+        })
+    }
+
+    /// The group of a raw id, after merges.
+    fn of(&mut self, id: EntityId) -> usize {
+        match usize::try_from(id.get())
+            .ok()
+            .and_then(|index| self.memo.get(index))
+        {
+            Some(&group) => group,
+            None => self.resolved(self.world.resolve(id)),
+        }
+    }
+
+    /// The group's node id: `e:<hub>` or `type:<entity type>`.
+    fn name(&self, group: usize) -> String {
+        match self.hubs.get(group) {
+            Some(&hub) => node_id(hub),
+            None => {
+                debug_assert!(group < self.hubs.len() + self.types.len(), "unknown group");
+                let entity_type = self
+                    .types
+                    .get(group - self.hubs.len())
+                    .copied()
+                    .unwrap_or("untyped");
+                format!("type:{entity_type}")
+            }
+        }
+    }
+}
+
+/// Link weights by source group, then target group, then kind. A pair holds a few kinds, so
+/// a scan beats hashing each link's kind string (s2w#325: hashing was most of the pass). A
+/// target is never a hub here, so a row starts at the first type group, `offset`, and holds
+/// no slots for the hubs.
+struct GroupWeights<'w> {
+    offset: usize,
+    rows: Vec<Vec<Vec<(&'w str, u64)>>>,
+}
+
+impl<'w> GroupWeights<'w> {
+    const fn new(offset: usize) -> Self {
+        Self {
+            offset,
+            rows: Vec::new(),
+        }
+    }
+
+    fn add(&mut self, source: usize, target: usize, kind: &'w str, weight: u64) {
+        let column = target.saturating_sub(self.offset);
+        if self.rows.len() <= source {
+            self.rows.resize_with(source + 1, Vec::new);
+        }
+        let row = &mut self.rows[source];
+        if row.len() <= column {
+            row.resize_with(column + 1, Vec::new);
+        }
+        let kinds = &mut row[column];
+        match kinds.iter_mut().find(|(k, _)| *k == kind) {
+            Some((_, total)) => *total = total.saturating_add(weight),
+            None => kinds.push((kind, weight)),
+        }
+    }
+
+    /// Every `((source, target, kind), weight)`, in no particular order.
+    fn into_links(self) -> impl Iterator<Item = ((usize, usize, &'w str), u64)> {
+        let offset = self.offset;
+        self.rows
+            .into_iter()
+            .enumerate()
+            .flat_map(move |(source, row)| {
+                row.into_iter()
+                    .enumerate()
+                    .flat_map(move |(column, kinds)| {
+                        let target = column + offset;
+                        kinds
+                            .into_iter()
+                            .map(move |(kind, weight)| ((source, target, kind), weight))
+                    })
+            })
+    }
+}
+
+/// Link weights between groups (non-hub targets), and the resolved hub edges
+/// `(source, hub, kind)` sorted and deduplicated: the set [`Graph::new`] builds as `hub_edges`.
+type GroupLinks<'w> = (GroupWeights<'w>, Vec<(EntityId, EntityId, &'w str)>);
+
+/// One pass over the relationships and one over the entities' hub refs, with no string
+/// allocation per link. Summing each resolved (source, target, kind) and then each group, both
+/// saturating, equals summing each group saturating: the weights are unsigned.
+fn group_links<'w>(world: &'w World, groups: &mut TypeGroups<'w>) -> GroupLinks<'w> {
+    let mut links = GroupWeights::new(groups.hubs.len());
+    let mut hub_edges = Vec::new();
+    for (rel, &weight) in world.relationships() {
+        let target = groups.of(rel.to);
+        if let Some(&hub) = groups.hubs.get(target) {
+            hub_edges.push((world.resolve(rel.from), hub, rel.kind.as_str()));
+        } else {
+            links.add(groups.of(rel.from), target, rel.kind.as_str(), weight);
+        }
+    }
+    for (id, state) in world.entities() {
+        for (kind, hub) in state.hub_refs() {
+            let hub = world.resolve(hub);
+            // As in `Graph::new`: a ref a merge re-resolved off its hub has no hub node.
+            if groups.hubs.binary_search(&hub).is_ok() {
+                hub_edges.push((world.resolve(id), hub, kind));
+            }
+        }
+    }
+    hub_edges.sort_unstable();
+    hub_edges.dedup();
+    (links, hub_edges)
+}
+
+/// The full type view (`lod=type` with links and no focus) without the per-entity [`Graph`]
+/// (s2w#325): the type summary's nodes, each hub's `hub_refs`, and the links grouped over
+/// interned groups, with strings built once per output key instead of a `format!` per link.
+/// Byte-identical to [`graph_view`] at the same parameters.
+fn type_view(world: &World) -> WorldView {
+    let (mut graph, counts) = Graph::summary(world);
+    let mut groups = TypeGroups::new(world, graph.hubs.keys().copied().collect());
+    let (links, hub_edges) = group_links(world, &mut groups);
+    let mut out: BTreeMap<(String, String, String), u64> = links
+        .into_links()
+        .map(|((s, t, kind), w)| ((groups.name(s), groups.name(t), kind.to_owned()), w))
+        .collect();
+    let mut hub_sources: BTreeMap<(usize, EntityId, &str), u64> = BTreeMap::new();
+    for &(source, hub, kind) in &hub_edges {
+        // The edges are distinct, so a count per key is its count of distinct sources.
+        let group = groups.of(source);
+        let n = hub_sources.entry((group, hub, kind)).or_insert(0);
+        *n = n.saturating_add(1);
+        if group < groups.hubs.len() {
+            graph.hub_refs.entry(source).or_default().push((kind, hub));
+        }
+    }
+    for ((source, hub, kind), n) in hub_sources {
+        out.insert((groups.name(source), node_id(hub), kind.to_owned()), n);
+    }
+    type_level_view(world, type_nodes(&graph, counts), out)
 }
 
 /// The decimal digits of an entity id, ordered as its `e:<id>` node id string is: `e:10`
@@ -719,4 +937,103 @@ pub(super) struct LinkRef<'a> {
     pub(super) target: NodeIdRef,
     pub(super) kind: &'a str,
     pub(super) weight: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use s2w_core::{NaturalKey, World, WorldEvent, fold};
+
+    use super::{Lod, ViewParams, graph_view, type_view};
+
+    const GOLDEN: &str = include_str!("../../../s2w-core/tests/fixtures/golden-fold-v1.json");
+
+    fn observe(key: &str, entity_type: &str) -> WorldEvent {
+        WorldEvent::EntityObserved {
+            key: NaturalKey::new(key),
+            entity_type: entity_type.to_owned(),
+            attrs: std::collections::BTreeMap::new(),
+        }
+    }
+
+    fn relate(from: &str, to: &str, kind: &str) -> WorldEvent {
+        WorldEvent::RelationshipObserved {
+            from: NaturalKey::new(from),
+            to: NaturalKey::new(to),
+            kind: kind.to_owned(),
+        }
+    }
+
+    fn merge(survivor: &str, absorbed: &str) -> WorldEvent {
+        WorldEvent::EntitiesMerged {
+            survivor: NaturalKey::new(survivor),
+            absorbed: NaturalKey::new(absorbed),
+        }
+    }
+
+    /// Asserts the cheap full type view equals the `Graph` one, as values and as bytes.
+    fn assert_same(world: &World, at: usize) {
+        let params = ViewParams {
+            lod: Lod::Type,
+            ..ViewParams::default()
+        };
+        let (cheap, full) = (type_view(world), graph_view(world, &params).unwrap());
+        assert_eq!(cheap, full, "type view differs at {at}");
+        assert_eq!(
+            serde_json::to_string(&cheap).unwrap(),
+            serde_json::to_string(&full).unwrap(),
+            "type view bytes differ at {at}"
+        );
+    }
+
+    #[test]
+    fn the_cheap_type_view_equals_the_graph_one_at_every_golden_offset() {
+        let log: Vec<WorldEvent> = serde_json::from_str(GOLDEN).unwrap();
+        for cap in 1..=3 {
+            for at in 0..=log.len() {
+                assert_same(&fold(World::with_hub_cap(cap), &log[..at]), at);
+            }
+        }
+    }
+
+    /// Hubs as link sources and targets, a hub relating to a hub, untyped entities, merges that
+    /// collapse link endpoints, a merge that absorbs a hub (its refs re-resolve), a relationship
+    /// observed before its target trips the cap, and a revoked merge, at every prefix.
+    #[test]
+    fn the_cheap_type_view_equals_the_graph_one_through_merges_and_hubs() {
+        let log = [
+            observe("p1", "user"),
+            observe("p2", "user"),
+            observe("p4", ""),
+            observe("a", "page"),
+            observe("a2", "page"),
+            observe("c", "page"),
+            relate("p1", "a", "on"),
+            relate("p1", "c", "on"),
+            relate("p2", "a", "on"),
+            relate("p1", "b", "on"),
+            relate("p2", "b", "at"),
+            relate("a", "b", "on"),
+            relate("a", "p1", "by"),
+            relate("p3", "p1", "on"),
+            relate("p4", "c", "on"),
+            relate("p4", "b", "on"),
+            relate("p4", "a", "on"),
+            merge("a", "a2"),
+            relate("a2", "c", "on"),
+            merge("p1", "p2"),
+            relate("p2", "c", "on"),
+            merge("c", "b"),
+            relate("p3", "a2", "on"),
+            WorldEvent::MergeRevoked {
+                survivor: NaturalKey::new("p1"),
+                absorbed: NaturalKey::new("p2"),
+            },
+            relate("p2", "a", "at"),
+        ];
+        for cap in 1..=3 {
+            for at in 0..=log.len() {
+                assert_same(&fold(World::with_hub_cap(cap), &log[..at]), at);
+            }
+        }
+    }
 }
