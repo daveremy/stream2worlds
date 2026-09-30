@@ -3,6 +3,7 @@ use std::cell::Cell;
 use s2w_discover::manifest::FallbackProposer;
 use s2w_log::{EventLog, ReadOnlySqliteProposalStore, SqliteEventLog};
 use s2w_model::{Cursor, RawEvent, Timestamp};
+use s2w_system2::{ReplayProvider, Reply};
 
 use super::*;
 use crate::discover::tests::{Notes, SOURCE, append, small, stream};
@@ -372,4 +373,154 @@ fn raw_is_capped_at_a_character_boundary() {
     let capped = cap_raw(raw);
     assert!(capped.len() <= MAX_RAW_BYTES);
     assert!(capped.len() >= MAX_RAW_BYTES - 1);
+}
+
+/// A provider that keeps every prompt and answers each with `reply`: run once on a dry run to
+/// learn the prompts a replayed run will send.
+struct Capture {
+    reply: &'static str,
+    prompts: std::sync::Mutex<Vec<String>>,
+}
+
+impl Capture {
+    fn prompts(dir: &Path, reply: &'static str) -> Vec<String> {
+        let capture = Self {
+            reply,
+            prompts: std::sync::Mutex::new(Vec::new()),
+        };
+        let proposer = System2Proposer::new(capture, system2_id());
+        let report = propose(dir, WORLD, &proposer, true).expect("dry run");
+        assert_eq!(report.action, Action::DryRun);
+        proposer.provider().prompts.lock().expect("prompts").clone()
+    }
+}
+
+impl s2w_system2::Provider for Capture {
+    fn complete(&self, prompt: &str) -> Result<Reply, s2w_system2::ProviderError> {
+        self.prompts.lock().expect("prompts").push(prompt.to_owned());
+        Ok(reply(self.reply))
+    }
+}
+
+fn reply(text: &str) -> Reply {
+    Reply {
+        text: text.to_owned(),
+        input_tokens: Some(1_000),
+        output_tokens: Some(200),
+        latency_ms: Some(1_500),
+    }
+}
+
+fn system2_id() -> ProposerId {
+    ProposerId {
+        model: "test-model".to_owned(),
+        version: "2026-09".to_owned(),
+    }
+}
+
+#[test]
+fn a_replayed_system2_manifest_is_filed_accepted_with_its_prompt_hash_and_cost() {
+    let dir = mapped_log("dashboard-system2");
+    let ManifestOutcome::Manifest { manifest, .. } =
+        FallbackProposer.propose(&built_input(dir.path()))
+    else {
+        panic!("the fallback proposes");
+    };
+    let text = serde_json::to_string(&manifest).expect("manifest json");
+    let prompts = Capture::prompts(dir.path(), "unused");
+    assert_eq!(prompts.len(), 2, "a non-JSON reply is repaired once");
+    assert!(dashboard_rows(dir.path()).0.is_empty(), "the dry run wrote nothing");
+
+    let mut replay = ReplayProvider::new();
+    replay.insert(&prompts[0], reply(&format!("```json\n{text}\n```")));
+    let proposer = System2Proposer::new(replay, system2_id());
+    let report = propose(dir.path(), WORLD, &proposer, false).expect("propose");
+    assert_eq!(report.action, Action::Filed, "{report:?}");
+    assert_eq!(report.actor, "test-model/2026-09");
+    assert_eq!(report.decision.as_deref(), Some("accept"), "{report:?}");
+    assert_eq!(proposer.provider().calls().len(), 1);
+
+    let (proposals, decisions) = dashboard_rows(dir.path());
+    assert_eq!((proposals.len(), decisions.len()), (1, 1));
+    assert_eq!(
+        proposals[0].actor,
+        Actor::Agent {
+            model: "test-model".to_owned(),
+            version: "2026-09".to_owned(),
+        }
+    );
+    let envelope = parse_dashboard_envelope(&proposals[0].payload).expect("envelope");
+    assert_eq!(envelope.manifest.as_ref(), Some(manifest.as_ref()));
+    assert_eq!(envelope.provenance.prompt_hash, proposer.prompt_hash());
+    assert_eq!(
+        (
+            envelope.provenance.input_tokens,
+            envelope.provenance.output_tokens,
+            envelope.provenance.latency_ms,
+        ),
+        (Some(1_000), Some(200), Some(1_500))
+    );
+    let view = read_dashboard(dir.path(), WORLD).expect("view");
+    assert_eq!(view.proposal_id, report.proposal_id);
+
+    let again = propose(dir.path(), WORLD, &proposer, false).expect("again");
+    assert_eq!(again.action, Action::Skipped);
+    assert_eq!(proposer.provider().calls().len(), 1, "a re-run asks nothing");
+    assert_eq!(dashboard_rows(dir.path()), (proposals, decisions));
+}
+
+#[test]
+fn a_replayed_system2_reply_that_fails_its_repair_is_a_null_row_with_a_reject() {
+    let dir = mapped_log("dashboard-system2-bad");
+    let prompts = Capture::prompts(dir.path(), "not json");
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[1].contains("not json"), "the repair carries the reply");
+
+    let mut replay = ReplayProvider::new();
+    replay.insert(&prompts[0], reply("not json"));
+    replay.insert(&prompts[1], reply("still not json"));
+    let proposer = System2Proposer::new(replay, system2_id());
+    let report = propose(dir.path(), WORLD, &proposer, false).expect("propose");
+    assert_eq!(report.decision.as_deref(), Some("reject"), "{report:?}");
+    assert_eq!(report.attempt, Some(1));
+    assert_eq!(proposer.provider().calls().len(), 2);
+
+    let (proposals, decisions) = dashboard_rows(dir.path());
+    assert_eq!((proposals.len(), decisions.len()), (1, 1));
+    assert_eq!(decisions[0].outcome, Outcome::Reject);
+    let envelope = parse_dashboard_envelope(&proposals[0].payload).expect("envelope");
+    assert_eq!(envelope.manifest, None);
+    assert_eq!(envelope.provenance.raw.as_deref(), Some("still not json"));
+    assert_eq!(
+        (envelope.provenance.input_tokens, envelope.provenance.latency_ms),
+        (Some(2_000), Some(3_000)),
+        "summed over both calls"
+    );
+    assert!(
+        envelope.provenance.error.is_some_and(|e| e.starts_with("not JSON")),
+        "the last fault is kept"
+    );
+}
+
+#[test]
+fn a_system2_command_that_cannot_be_set_up_is_a_bad_parameter_before_the_log_opens() {
+    let missing = std::env::temp_dir().join("s2w-system2-no-such-log-dir");
+    let empty = System2Command {
+        argv: Vec::new(),
+        model: "m".to_owned(),
+        version: "v".to_owned(),
+        env: Vec::new(),
+    };
+    let unset = System2Command {
+        argv: vec!["/bin/true".to_owned()],
+        env: vec!["S2W_TEST_SURELY_UNSET_VARIABLE".to_owned()],
+        ..empty.clone()
+    };
+    for (command, name) in [(empty, "system2-cmd"), (unset, "system2-env")] {
+        match propose_system2(&missing, WORLD, &command, false) {
+            Err(QueryError::BadParameter { name: got, .. }) => assert_eq!(got, name),
+            other => panic!("{command:?}: {other:?}"),
+        }
+    }
+    assert!(!missing.exists());
 }

@@ -21,6 +21,7 @@ use s2w_model::{
     DashboardManifest, FieldPath, Fnv64, ManifestInput, ManifestOutcome, ManifestProposer,
     ProposerId, ProposerTrace, Segment, SourceId, SourceInput, StreamMapping,
 };
+use s2w_system2::{ExecProvider, ExecSetupError, System2Proposer};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -557,6 +558,53 @@ pub fn propose_fallback(
         &s2w_discover::manifest::FallbackProposer,
         dry_run,
     )
+}
+
+/// The model command `propose_system2` runs (decision 0029, s2w#311): the argv, which
+/// variables it may see, and the (model, version) every row it files is recorded under.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct System2Command {
+    /// The command and its arguments, run without a shell; `argv[0]` is an absolute path or
+    /// found through a `PATH` passed in `env`.
+    pub argv: Vec<String>,
+    /// The model name, recorded as given (a CLI may take an alias).
+    pub model: String,
+    /// The model version.
+    pub version: String,
+    /// Names of the variables passed through from this process; nothing else is.
+    pub env: Vec<String>,
+}
+
+/// [`propose`] with a System 2 proposer that runs `command` once per model call (at most two
+/// per attempt: the first reply and one repair). The command runs even on a dry run: a dry
+/// run writes nothing, but it shows what this model would file.
+///
+/// # Errors
+/// [`QueryError::BadParameter`] (`system2-cmd` or `system2-env`) for an empty command, a bad
+/// variable name, or a named variable that is not set here, before the log is opened;
+/// otherwise as [`propose`].
+pub fn propose_system2(
+    log_dir: &Path,
+    world: &str,
+    command: &System2Command,
+    dry_run: bool,
+) -> Result<ProposeReport, QueryError> {
+    let provider =
+        ExecProvider::inherit(command.argv.clone(), &command.env).map_err(|error| {
+            let name = match error {
+                ExecSetupError::EmptyCommand => "system2-cmd",
+                _ => "system2-env",
+            };
+            QueryError::BadParameter {
+                name,
+                reason: error.to_string(),
+            }
+        })?;
+    let id = ProposerId {
+        model: command.model.clone(),
+        version: command.version.clone(),
+    };
+    propose(log_dir, world, &System2Proposer::new(provider, id), dry_run)
 }
 
 /// A proposer's answer, checked and ready to become an envelope.

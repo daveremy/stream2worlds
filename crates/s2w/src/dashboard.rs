@@ -1,12 +1,13 @@
 //! Argument parsing and output for `s2w dashboard show` (decision 0029): the world's effective
 //! dashboard manifest, read from the proposal store without creating it; and for `s2w dashboard
-//! propose` (s2w#301): the deterministic proposer's manifest, filed with a policy decision.
+//! propose` (s2w#301): the deterministic proposer's manifest, or with `--system2-*` a model
+//! command's (s2w#311), filed with a policy decision.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use s2w_app::dashboard::{ProposeReport, propose_fallback};
+use s2w_app::dashboard::{ProposeReport, System2Command, propose_fallback, propose_system2};
 use s2w_app::query::{DashboardView, QueryError, read_dashboard};
 
 use crate::output::{self, Format};
@@ -27,6 +28,8 @@ struct ProposeArgs {
     world: String,
     json: bool,
     dry_run: bool,
+    /// The model command; `None` runs the deterministic proposer.
+    system2: Option<System2Command>,
 }
 
 pub(crate) fn dispatch(args: &[String]) -> ExitCode {
@@ -73,7 +76,11 @@ fn dispatch_propose(args: &[String]) -> ExitCode {
         Ok(args) => args,
         Err(message) => return usage_error(Format::Human, message),
     };
-    match propose_fallback(&args.log_dir, &args.world, args.dry_run) {
+    let result = match &args.system2 {
+        Some(command) => propose_system2(&args.log_dir, &args.world, command, args.dry_run),
+        None => propose_fallback(&args.log_dir, &args.world, args.dry_run),
+    };
+    match result {
         Ok(report) => {
             println!("{}", render_report(&report, args.json));
             ExitCode::SUCCESS
@@ -109,10 +116,12 @@ fn parse_show(args: &[String]) -> Result<ShowArgs, String> {
     })
 }
 
-/// Parses `--log-dir <path> [--world <name>] [--dry-run] [--json]`, each at most once. The log
-/// directory is required: this command writes.
+/// Parses `--log-dir <path> [--world <name>] [--dry-run] [--json]`, each at most once, plus the
+/// `--system2-*` flags (see [`split_system2`]). The log directory is required: this command
+/// writes.
 fn parse_propose(args: &[String]) -> Result<ProposeArgs, String> {
-    let parsed = parse_flags(args, true)?;
+    let (rest, system2) = split_system2(args)?;
+    let parsed = parse_flags(&rest, true)?;
     let log_dir = parsed
         .log_dir
         .ok_or_else(|| "--log-dir is required: --log-dir <path>".to_owned())?;
@@ -121,7 +130,96 @@ fn parse_propose(args: &[String]) -> Result<ProposeArgs, String> {
         world: parsed.world,
         json: parsed.json,
         dry_run: parsed.dry_run,
+        system2,
     })
+}
+
+/// Takes `--system2-cmd <program> [<arg>...] [--]`, `--system2-model <model>/<version>` and
+/// `--system2-env <name>` (repeatable) out of `args`, returning the other arguments.
+///
+/// `--system2-cmd` takes every token after it up to a standalone `--` or the end, so the
+/// command's own flags are never read as ours; it therefore cannot pass a literal `--`. The
+/// model is split at its last `/` (a model name may hold one). `--system2-cmd` and
+/// `--system2-model` go together, and `--system2-env` needs them.
+fn split_system2(args: &[String]) -> Result<(Vec<String>, Option<System2Command>), String> {
+    let mut rest = Vec::new();
+    let mut argv: Option<Vec<String>> = None;
+    let mut model: Option<(String, String)> = None;
+    let mut env: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        match flag {
+            "--system2-cmd" => {
+                if argv.is_some() {
+                    return Err(format!("{flag} was given more than once"));
+                }
+                let tail = &args[index + 1..];
+                let end = tail.iter().position(|arg| arg == "--").unwrap_or(tail.len());
+                if end == 0 {
+                    return Err(format!(
+                        "{flag} needs a command: {flag} <program> [<arg>...] [--]"
+                    ));
+                }
+                argv = Some(tail[..end].to_vec());
+                index += end + 2;
+            }
+            "--system2-model" | "--system2-env" => {
+                let value = args
+                    .get(index + 1)
+                    .filter(|value| !value.trim().is_empty() && !value.starts_with("--"))
+                    .ok_or_else(|| format!("{flag} needs a value: {flag} <value>"))?;
+                if flag == "--system2-model" {
+                    if model.is_some() {
+                        return Err(format!("{flag} was given more than once"));
+                    }
+                    model = Some(split_model(value)?);
+                } else {
+                    if value.contains(['=', '\0']) {
+                        return Err(format!("{flag} takes a variable name, not '{value}'"));
+                    }
+                    if env.contains(value) {
+                        return Err(format!("{flag} {value} was given more than once"));
+                    }
+                    env.push(value.clone());
+                }
+                index += 2;
+            }
+            _ => {
+                rest.push(args[index].clone());
+                index += 1;
+            }
+        }
+    }
+    let system2 = match (argv, model) {
+        (Some(argv), Some((model, version))) => Some(System2Command {
+            argv,
+            model,
+            version,
+            env,
+        }),
+        (Some(_), None) => {
+            return Err("--system2-cmd needs --system2-model <model>/<version>".to_owned());
+        }
+        (None, Some(_)) => return Err("--system2-model needs --system2-cmd".to_owned()),
+        (None, None) if !env.is_empty() => {
+            return Err("--system2-env needs --system2-cmd".to_owned());
+        }
+        (None, None) => None,
+    };
+    Ok((rest, system2))
+}
+
+/// `<model>/<version>`, split at the last `/`; both parts non-empty.
+fn split_model(value: &str) -> Result<(String, String), String> {
+    match value.rsplit_once('/') {
+        Some((model, version)) if !model.is_empty() && !version.is_empty() => {
+            Ok((model.to_owned(), version.to_owned()))
+        }
+        _ => Err(format!(
+            "--system2-model takes <model>/<version>, not '{value}'"
+        )),
+    }
 }
 
 struct Flags {
@@ -326,6 +424,7 @@ mod tests {
                 world: "default".to_owned(),
                 json: false,
                 dry_run: true,
+                system2: None,
             })
         );
         for (bad, expect) in [
@@ -341,6 +440,93 @@ mod tests {
         ] {
             let error = parse_propose(&args(bad)).expect_err(expect);
             assert!(error.contains(expect), "{bad:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn system2_cmd_takes_every_token_to_a_standalone_double_dash() {
+        let parsed = parse_propose(&args(&[
+            "--system2-env",
+            "HOME",
+            "--log-dir",
+            "d",
+            "--system2-model",
+            "vendor/model-x/2026-09",
+            "--system2-cmd",
+            "/usr/bin/cli",
+            "-p",
+            "--json",
+            "--world",
+            "x",
+            "--",
+            "--json",
+            "--system2-env",
+            "PATH",
+        ]))
+        .expect("parses");
+        assert!(parsed.json, "--json after `--` is ours");
+        assert_eq!(parsed.world, "default", "--world before `--` is the command's");
+        assert_eq!(
+            parsed.system2,
+            Some(System2Command {
+                argv: args(&["/usr/bin/cli", "-p", "--json", "--world", "x"]),
+                model: "vendor/model-x".to_owned(),
+                version: "2026-09".to_owned(),
+                env: args(&["HOME", "PATH"]),
+            })
+        );
+
+        let last = parse_propose(&args(&[
+            "--log-dir",
+            "d",
+            "--system2-model",
+            "m/v",
+            "--system2-cmd",
+            "sh",
+            "-c",
+            "cat",
+        ]))
+        .expect("parses");
+        let command = last.system2.expect("system2");
+        assert_eq!(command.argv, args(&["sh", "-c", "cat"]));
+        assert!(command.env.is_empty());
+    }
+
+    #[test]
+    fn system2_flags_refuse_bad_and_partial_arguments() {
+        for (bad, expect) in [
+            (&["--system2-cmd"][..], "needs a command"),
+            (&["--system2-cmd", "--"][..], "needs a command"),
+            (&["--system2-cmd", "a"][..], "needs --system2-model"),
+            (&["--system2-model", "m/v"][..], "needs --system2-cmd"),
+            (&["--system2-env", "HOME"][..], "needs --system2-cmd"),
+            (&["--system2-model", "m"][..], "<model>/<version>"),
+            (&["--system2-model", "m/"][..], "<model>/<version>"),
+            (&["--system2-model", "/v"][..], "<model>/<version>"),
+            (&["--system2-model"][..], "needs a value"),
+            (&["--system2-env", "--json"][..], "needs a value"),
+            (&["--system2-env", "A=B"][..], "variable name"),
+            (
+                &["--system2-env", "A", "--system2-env", "A"][..],
+                "more than once",
+            ),
+            (
+                &["--system2-model", "m/v", "--system2-model", "m/v"][..],
+                "more than once",
+            ),
+            (
+                &["--system2-model", "m/v", "--system2-cmd", "a", "--", "--system2-cmd", "b"][..],
+                "more than once",
+            ),
+            (
+                &["--system2-model", "m/v", "--system2-cmd", "a", "--", "--"][..],
+                "unexpected argument '--'",
+            ),
+        ] {
+            let mut full = args(&["--log-dir", "d"]);
+            full.extend(args(bad));
+            let error = parse_propose(&full).expect_err(expect);
+            assert!(error.contains(expect), "{full:?}: {error}");
         }
     }
 
