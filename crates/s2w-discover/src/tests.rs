@@ -1359,3 +1359,47 @@ fn the_fallback_never_labels_a_type_by_a_date_time() {
         }
     }
 }
+
+#[test]
+fn the_fallback_never_labels_a_type_by_a_category() {
+    use s2w_model::Label;
+    // `who` names 400 entities; `kind` takes three values. `kind` is the only attribute of
+    // `who`'s rule, so it is the most distinct candidate, and it still names a category.
+    let events: Vec<Value> = stream(1200)
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut event)| {
+            event["who"] = json!(format!("user{}", i % 400));
+            event["kind"] = json!(["edit", "new", "log"][i % 3]);
+            event
+        })
+        .collect();
+    let mut input = manifest_input(&events);
+    let source = &mut input.sources[0];
+    source.mapping.entities.push(s2w_model::EntityRule {
+        id: "who".to_owned(),
+        type_label: "who".to_owned(),
+        key: vec![path(&["who"])],
+        attrs: vec![s2w_model::AttrRule {
+            name: "kind".to_owned(),
+            path: path(&["kind"]),
+        }],
+    });
+    source.mapping_identity = source.mapping.identity().expect("valid mapping");
+    assert!(
+        source.paths.iter().any(|p| p.path == path(&["kind"])),
+        "vacuous: `kind` is not profiled"
+    );
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    let row = m
+        .types
+        .iter()
+        .find(|r| r.type_label == "who")
+        .expect("a `who` row");
+    assert_eq!(
+        row.label,
+        Some(Label::Key(s2w_model::KeyLabel { key: 0 })),
+        "{row:?}"
+    );
+}

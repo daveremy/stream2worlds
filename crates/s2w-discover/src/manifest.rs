@@ -195,10 +195,19 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
 }
 
 /// A type's row: its label is the attribute with the most distinct values, the shorter mean
-/// string length breaking a tie (a unique best), else its first key part when that is mostly
+/// string length breaking a tie (a unique best), among attributes with at least half as many
+/// distinct values as the type has entities, else its first key part when that is mostly
 /// strings and not a date-time, else none; primary when it has one. Its noun is its label.
 fn type_row(label: &str, evidence: &TypeEvidence) -> TypeRow {
-    let choice = unique_max(&evidence.attrs)
+    // An attribute with fewer distinct values than half the type's entities names a category
+    // (an edit kind, a content model), not an entity.
+    let naming: BTreeMap<_, _> = evidence
+        .attrs
+        .iter()
+        .filter(|(_, s)| s.distinct.saturating_mul(2) >= evidence.count)
+        .map(|(name, s)| (*name, *s))
+        .collect();
+    let choice = unique_max(&naming)
         .map(|attr| {
             Label::Attr(AttrLabel {
                 attr: attr.to_owned(),
