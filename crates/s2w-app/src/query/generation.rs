@@ -558,4 +558,78 @@ mod tests {
             body(parked).await.expect("the parked body is whole");
         });
     }
+
+    /// Many readers, prompt and late, across generations while the fold appends (s2w#270's
+    /// leg-A panic hunt): every body is whole, bodies under one `ETag` are byte-identical, and
+    /// each equals `serde_json::to_vec` of [`world_view`](super::super::view::world_view) at its
+    /// offset. Entity ids span one to four digits, so the `e:<id>` string sort sees every key
+    /// length.
+    #[test]
+    fn readers_during_appends_get_whole_bodies_equal_to_the_view() {
+        crate::tests::run(false, async {
+            const ENTITIES: u32 = 3_000;
+            let state = state(ENTITIES, 32);
+            let app = router(state.clone());
+            let writer = {
+                let state = state.clone();
+                tokio::spawn(async move {
+                    for n in 0..300u32 {
+                        let reservation = state.reserve_write().await;
+                        let event = WorldEvent::RelationshipObserved {
+                            from: NaturalKey::new(format!("e{}", n * 7 % ENTITIES)),
+                            to: NaturalKey::new(format!("e{}", n * 13 % ENTITIES)),
+                            kind: "near".into(),
+                        };
+                        let at = Timestamp::from_millis(i64::from(ENTITIES + n));
+                        state.append(at, event).expect("append");
+                        drop(reservation);
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+            };
+            let mut by_tag: BTreeMap<String, Bytes> = BTreeMap::new();
+            let mut compared = 0;
+            for _ in 0..15 {
+                let readers: Vec<_> = (0..8u64)
+                    .map(|i| {
+                        let app = app.clone();
+                        tokio::spawn(async move {
+                            let response = response(get(&app, "", None)).await;
+                            assert_eq!(response.status(), StatusCode::OK);
+                            let tag = etag(&response);
+                            // A late reader: its chunks queue while the others are written.
+                            tokio::time::sleep(Duration::from_millis(i * 3)).await;
+                            (tag, body(response).await.expect("whole"))
+                        })
+                    })
+                    .collect();
+                for reader in readers {
+                    let (tag, bytes) = reader.await.expect("reader task");
+                    if let Some(seen) = by_tag.get(&tag) {
+                        assert_eq!(seen, &bytes, "one ETag, one set of bytes");
+                        continue;
+                    }
+                    let view: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+                    let offset = view["offset"].as_u64().expect("offset");
+                    // An older offset may have left the history; the head always compares.
+                    if let Ok(expected) = state.view_at(Some(offset), None, &ViewParams::default())
+                    {
+                        let expected = serde_json::to_vec(&expected).expect("serialize");
+                        assert!(
+                            expected == bytes.as_ref(),
+                            "body at {offset} differs from the view"
+                        );
+                        compared += 1;
+                    }
+                    by_tag.insert(tag, bytes);
+                }
+            }
+            writer.await.expect("writer task");
+            assert!(by_tag.len() > 1, "the fold advanced between generations");
+            assert!(
+                compared > 0,
+                "at least one body was checked against the view"
+            );
+        });
+    }
 }
