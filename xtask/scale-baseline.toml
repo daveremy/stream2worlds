@@ -12,7 +12,7 @@
 # touches [ir].
 
 tolerance_percent = 5
-set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29); recorded supply s2w#174 (2026-09-29)"
+set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29), raised by s2w#271 (2026-09-29); recorded supply s2w#174 (2026-09-29)"
 
 # The recorded fixture, crates/s2w-app/tests/fixtures/recorded-10min.raw.sse: FNV-1a 64 of its
 # bytes, the same pin as FIXTURE_HASH in crates/s2w-app/tests/support/recorded.rs. Both runners
@@ -39,10 +39,11 @@ events = 11667 # frames with id and data in the fixture; xtask counts them and c
 # Heap bytes per entity after folding entity-observed events, counted by dhat (test profile).
 [memory]
 # Measured 830 B on 2026-09-28, 438 B after s2w#172 stored entity attributes as a sorted Vec,
-# then 360 B after s2w#190 indexed entities by dense id in a Vec (hub, rustc 1.98.1). The Vec
-# doubles, so at 100,000 entities it holds 131,072 slots: the figure steps at powers of two.
-# Baseline; > +tolerance fails.
-bytes_per_entity = 360
+# then 360 B after s2w#190 indexed entities by dense id in a Vec (hub, rustc 1.98.1), then
+# 369 B after s2w#271 put each state behind an Arc (decision 0028: 16 B count header per state,
+# 8 B Vec slot instead of 56 B). The Vec doubles, so at 100,000 entities it holds 131,072
+# slots: the figure steps at powers of two. Baseline; > +tolerance fails.
+bytes_per_entity = 369
 # Decision 0004's planning target; printed with the measured ratio, not a ceiling. Raising it
 # is growth.
 target_bytes_per_entity = 300
@@ -57,9 +58,10 @@ entities = 100000 # MEM_ENTITIES in the generator; the test's JSON line must agr
 # The recorded fixture's claims: entity-observed first, then relationship-observed (s2w-app
 # test bytes_per_entity_and_relationship_recorded). Shares [memory]'s target and budget.
 [memory.recorded]
-# Measured 346 B on 2026-09-29 (hub, rustc 1.98.1). The synthetic figure steps at powers of two
-# of its entity count, so the two supplies are not expected to match.
-bytes_per_entity = 346
+# Measured 346 B on 2026-09-29 (hub, rustc 1.98.1), 349 B after s2w#271 (Arc per state). The
+# synthetic figure steps at powers of two of its entity count, so the two supplies are not
+# expected to match.
+bytes_per_entity = 349
 bytes_per_relationship_reported = 409 # informational
 entities = 11462 # pinned; the test's JSON line must agree
 relationships = 19512 # pinned; the test's JSON line must agree

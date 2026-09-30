@@ -29,5 +29,9 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `0..len`; a world whose id counter is not its entity count mints nothing, and a snapshot
   carrying one fails `check_fold`. `keys`, `merges` and `hub_counters` in a deserialized world
   are not bounds-checked against `entities`: a write to an entity past its end is a no-op.
+- Entity states are shared, copy-on-write: `World::entities` holds `Arc<EntityState>` and the
+  fold writes only through `entity_mut` (`Arc::make_mut`). A write that would change nothing
+  must be skipped before `entity_mut`, which copies a shared state (decision 0028). Never mutate
+  a state through any other path: a reader holding an `entity_arc` relies on it not changing.
 - `fold_one` is total: an event it cannot apply is a documented no-op, never a panic or error.
 - No domain knowledge in this crate; see decision 0018.
