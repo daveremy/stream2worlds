@@ -98,6 +98,7 @@ impl ExecProvider {
         let mut env = Vec::with_capacity(names.len());
         for name in names {
             if !valid_name(name) {
+                // Checked before `var_os`, which may panic on an empty name, `=` or NUL.
                 return Err(ExecSetupError::BadName(name.clone()));
             }
             let value =
@@ -138,7 +139,13 @@ impl Provider for ExecProvider {
             .command(cwd.path())
             .spawn()
             .map_err(|e| ProviderError::Spawn(e.to_string()))?;
-        let pipes = Pipes::start(&mut child, prompt, self.limits)?;
+        let pipes = match Pipes::start(&mut child, prompt, self.limits) {
+            Ok(pipes) => pipes,
+            Err(e) => {
+                stop(&mut child);
+                return Err(e);
+            }
+        };
         let status = wait(&mut child, start, self.limits.timeout);
         let latency_ms = millis(start.elapsed());
         let (stdout, stderr) = pipes.collect(child.id());
@@ -155,18 +162,29 @@ impl Provider for ExecProvider {
 /// Waits for `child` until `timeout` after `start`. `None` means it was killed at the limit.
 fn wait(child: &mut Child, start: Instant, timeout: Duration) -> io::Result<Option<ExitStatus>> {
     loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(Some(status));
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(Some(status)),
+            Ok(None) => {}
+            Err(e) => {
+                stop(child);
+                return Err(e);
+            }
         }
         if start.elapsed() >= timeout {
-            kill_group(child.id());
-            // The child may have exited between the poll and the kill; either way it is reaped.
-            let _ = child.kill();
-            child.wait()?;
+            stop(child);
             return Ok(None);
         }
         thread::sleep(POLL);
     }
+}
+
+/// Kills the command's process group and then the command, and reaps it. The group kill comes
+/// first, while the unreaped leader still pins its id. The child may have exited between the
+/// last poll and the kill; either way it is reaped.
+fn stop(child: &mut Child) {
+    kill_group(child.id());
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Kills the command's process group, so a process it started does not outlive it. Best
@@ -222,16 +240,20 @@ impl Pipes {
     }
 
     /// The captured output. When a reader is still blocked after the grace, the command's
-    /// process group is killed and the readers get one more grace.
+    /// process group is killed and the readers get one more grace. The command has been reaped
+    /// by now, so that kill is best effort: if every process left in the group has also left
+    /// it (`setsid`), the id is free and could in principle name another group.
     fn collect(self, pid: u32) -> (Captured, Captured) {
-        let stdout = self.stdout.recv_timeout(DRAIN_GRACE).ok();
-        let stderr = self.stderr.recv_timeout(DRAIN_GRACE).ok();
+        let deadline = Instant::now() + DRAIN_GRACE;
+        let stdout = recv_by(&self.stdout, deadline);
+        let stderr = recv_by(&self.stderr, deadline);
         if stdout.is_some() && stderr.is_some() {
             return (stdout.unwrap_or_default(), stderr.unwrap_or_default());
         }
         kill_group(pid);
+        let deadline = Instant::now() + DRAIN_GRACE;
         let late = |rx: &Receiver<Captured>| {
-            rx.recv_timeout(DRAIN_GRACE).unwrap_or(Captured {
+            recv_by(rx, deadline).unwrap_or(Captured {
                 open: true,
                 ..Captured::default()
             })
@@ -240,6 +262,12 @@ impl Pipes {
         let stderr = stderr.unwrap_or_else(|| late(&self.stderr));
         (stdout, stderr)
     }
+}
+
+/// One reader's result, if it arrives before `deadline`.
+fn recv_by(rx: &Receiver<Captured>, deadline: Instant) -> Option<Captured> {
+    rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .ok()
 }
 
 /// Reads at most `cap` bytes from `pipe` on a thread, then drains the rest so the writer never
@@ -284,19 +312,20 @@ impl Run {
                 stdout: stdout_text,
             });
         };
-        if self.stdout.over {
-            return Err(ProviderError::StdoutTooLarge {
-                limit: limits.stdout_bytes,
-                latency_ms,
-                stdout: stdout_text.unwrap_or_default(),
-            });
-        }
+        // A failed exit is the more useful diagnosis, so it is reported ahead of the cap.
         if !status.success() {
             return Err(ProviderError::Exit {
                 status: status.to_string(),
                 stderr: lossy(&self.stderr.bytes).unwrap_or_default(),
                 latency_ms,
                 stdout: stdout_text,
+            });
+        }
+        if self.stdout.over {
+            return Err(ProviderError::StdoutTooLarge {
+                limit: limits.stdout_bytes,
+                latency_ms,
+                stdout: stdout_text.unwrap_or_default(),
             });
         }
         if self.stdout.open {
@@ -344,7 +373,10 @@ impl EmptyDir {
         );
         let path = std::env::temp_dir().join(name);
         // `create_dir`, not `create_dir_all`: an existing directory is an error, never reused.
-        std::fs::create_dir(&path)?;
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&path)?;
         Ok(Self(path))
     }
 

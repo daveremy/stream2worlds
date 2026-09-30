@@ -98,10 +98,13 @@ impl<P: Provider> ManifestProposer for System2Proposer<P> {
 /// The manifest in `reply`, if it decodes and validates against `input`; else the fault.
 fn accept(reply: &str, input: &ManifestInput) -> Result<DashboardManifest, String> {
     let body = unfence(reply);
-    let value: serde_json::Value =
-        serde_json::from_str(body).map_err(|e| format!("not JSON: {e}"))?;
-    let manifest: DashboardManifest =
-        serde_json::from_value(value).map_err(|e| format!("decode: {e}"))?;
+    let manifest: DashboardManifest = serde_json::from_str(body).map_err(|e| {
+        if e.is_data() {
+            format!("decode: {e}")
+        } else {
+            format!("not JSON: {e}")
+        }
+    })?;
     manifest
         .validate(&input.context())
         .map_err(|e| format!("validator: {e}"))?;

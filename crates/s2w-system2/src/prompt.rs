@@ -32,7 +32,7 @@ pub(crate) fn prompt_hash() -> String {
 /// # Errors
 ///
 /// When `value` cannot be serialized.
-pub fn data_line<T: Serialize + ?Sized>(value: &T) -> Result<String, serde_json::Error> {
+pub(crate) fn data_line<T: Serialize + ?Sized>(value: &T) -> Result<String, serde_json::Error> {
     let json = serde_json::to_string(value)?;
     let mut line = String::with_capacity(json.len());
     for ch in json.chars() {

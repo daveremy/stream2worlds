@@ -581,24 +581,24 @@ fn has_ext(path: &Path, exts: &[&str]) -> bool {
 /// is a dependency, and line-by-line keeps `file:line` reportable.
 fn ts_problems(root: &Path, denylist: &[Entry]) -> Vec<String> {
     let (files, mut problems) = ts_files(root);
-    problems.extend(text_problems(root, &files, denylist, Opt::Allowed));
+    problems.extend(text_problems(root, &files, denylist, OptOut::Honored));
     problems
 }
 
 /// Prompt files are read the same way, but the per-line opt-out does not apply: every word in
 /// a prompt reaches the model, so a comment marker is just more prompt text.
 fn prompt_problems(root: &Path, denylist: &[Entry]) -> Vec<String> {
-    text_problems(root, &prompt_files(root), denylist, Opt::Refused)
+    text_problems(root, &prompt_files(root), denylist, OptOut::Ignored)
 }
 
 /// Whether a line carrying the `vocabulary: allow` marker is exempt.
 #[derive(Clone, Copy)]
-enum Opt {
-    Allowed,
-    Refused,
+enum OptOut {
+    Honored,
+    Ignored,
 }
 
-fn text_problems(root: &Path, files: &[PathBuf], denylist: &[Entry], opt: Opt) -> Vec<String> {
+fn text_problems(root: &Path, files: &[PathBuf], denylist: &[Entry], opt: OptOut) -> Vec<String> {
     let mut problems = Vec::new();
     for file in files {
         match fs::read_to_string(file) {
@@ -612,10 +612,10 @@ fn text_problems(root: &Path, files: &[PathBuf], denylist: &[Entry], opt: Opt) -
     problems
 }
 
-fn scan_text(text: &str, rel: &Path, denylist: &[Entry], opt: Opt) -> Vec<String> {
+fn scan_text(text: &str, rel: &Path, denylist: &[Entry], opt: OptOut) -> Vec<String> {
     let mut problems = Vec::new();
     for (index, line) in text.lines().enumerate() {
-        if matches!(opt, Opt::Allowed) && line.contains(ALLOW) {
+        if matches!(opt, OptOut::Honored) && line.contains(ALLOW) {
             continue;
         }
         let tokens = tokenize(line);
@@ -769,7 +769,7 @@ mod tests {
             text,
             Path::new("crates/demo/web/src/app.ts"),
             &denylist(),
-            Opt::Allowed,
+            OptOut::Honored,
         );
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(

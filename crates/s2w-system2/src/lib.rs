@@ -15,6 +15,5 @@ mod replay;
 
 pub use exec::{ExecLimits, ExecProvider, ExecSetupError};
 pub use manifest::System2Proposer;
-pub use prompt::data_line;
 pub use provider::{Provider, ProviderError, Reply};
 pub use replay::{ReplayError, ReplayProvider};
