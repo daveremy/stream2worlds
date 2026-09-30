@@ -587,7 +587,12 @@ mod golden {
             let world = fold(World::with_hub_cap(CAP), &log[..at]);
             for lod in [Lod::Entity, Lod::Type] {
                 for (focus, hops) in focuses {
-                    let params = ViewParams { lod, focus, hops };
+                    let params = ViewParams {
+                        lod,
+                        focus,
+                        hops,
+                        ..ViewParams::default()
+                    };
                     string_order_differs |= streamed_matches(&app, &world, at, &params).await;
                 }
             }

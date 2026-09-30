@@ -12,7 +12,8 @@ use rmcp::tool_router;
 
 use crate::query::{
     Branch, DashboardView, HistoryEntry, ProposalsView, QueryError, SourceInfo, TimeResult,
-    ViewParams, WorldDiff, WorldView, check_branch, check_world, parse, parse_lod,
+    ViewParams, WorldDiff, WorldView, check_branch, check_links, check_world, parse, parse_links,
+    parse_lod,
 };
 
 use super::WorldMcp;
@@ -48,6 +49,9 @@ pub struct WorldViewArgs {
     pub focus: Option<u64>,
     /// The neighbourhood's radius in hops; 1 by default, 5 at most.
     pub hops: Option<u32>,
+    /// `all` (the default) or `none`: `none` is the type summary (type nodes with counts and
+    /// hub nodes, no links), valid only with `lod` `type` and no `focus`.
+    pub links: Option<String>,
     /// Optional `epoch` from an earlier result; another history is a `stale_epoch` error.
     pub epoch: Option<String>,
 }
@@ -147,7 +151,9 @@ impl WorldMcp {
             lod: parse_lod(args.lod.as_deref())?,
             focus: args.focus,
             hops: args.hops.unwrap_or(1),
+            links: parse_links(args.links.as_deref())?,
         };
+        check_links(&params)?;
         self.state
             .view_at(args.at, parse("epoch", args.epoch.as_deref())?, &params)
     }
@@ -278,10 +284,12 @@ impl WorldMcp {
 /// the tool methods from becoming description carriers.
 const WORLD_VIEW: &str = "Requires the world string parameter. The world as a d3 {nodes, links} \
     graph at a fold offset, at a level of detail (entity by default, or type), optionally \
-    focused on one entity's neighbourhood (at most 5 hops). Mirrors GET \
+    focused on one entity's neighbourhood (at most 5 hops); links none with lod type is the \
+    cheap type summary (counts, no links). Mirrors GET \
     /worlds/{world}/world: entities past the in-degree cap come back as one aggregate hub node, \
     and errors are {\"error\", \"message\"} objects (offset_beyond_head, offset_before_base, \
-    unknown_entity, hops_too_large, lod_not_yet, branch_not_yet, unknown_world, stale_epoch). \
+    unknown_entity, hops_too_large, lod_not_yet, branch_not_yet, unknown_world, stale_epoch, \
+    bad_parameter). \
     Call `time` first to find the offsets that exist: from time.base to time.head. The result's \
     epoch names the history its offset belongs to; pass it back as epoch with that offset, and \
     a stale_epoch error means the world was rebuilt: read it again.";

@@ -32,6 +32,9 @@ pub struct ViewParams {
     pub focus: Option<u64>,
     /// Neighbourhood radius when `focus` is set, at most [`MAX_HOPS`].
     pub hops: u32,
+    /// Whether the view carries links. [`LinkDetail::None`] is the type summary
+    /// ([`type_summary`]): valid only with [`Lod::Type`] and no `focus`.
+    pub links: LinkDetail,
 }
 
 impl Default for ViewParams {
@@ -40,8 +43,40 @@ impl Default for ViewParams {
             lod: Lod::Entity,
             focus: None,
             hops: 1,
+            links: LinkDetail::All,
         }
     }
+}
+
+/// The `links` parameter (s2w#296): every link, or none at all.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum LinkDetail {
+    /// The view with its links (the default).
+    #[default]
+    All,
+    /// No links: at `lod=type` the type summary, built without the relationship pass.
+    None,
+}
+
+/// Refuses `links=none` outside its one valid shape, `lod=type` with no `focus`.
+///
+/// # Errors
+/// [`QueryError::BadParameter`] naming `links`.
+pub(crate) fn check_links(params: &ViewParams) -> Result<(), QueryError> {
+    if params.links == LinkDetail::All {
+        return Ok(());
+    }
+    let reason = if params.lod != Lod::Type {
+        "links=none needs lod=type"
+    } else if params.focus.is_some() {
+        "links=none cannot be combined with focus"
+    } else {
+        return Ok(());
+    };
+    Err(QueryError::BadParameter {
+        name: "links",
+        reason: reason.to_owned(),
+    })
 }
 
 /// A relationship from a source to a hub, carried on the source instead of as a link.
@@ -172,6 +207,39 @@ struct HubAgg {
     last_seen_offset: u64,
 }
 
+/// Every hub's aggregate, keyed by the resolved hub id. Reads `hub_counters` only (one entry per
+/// distinct relationship target), never the relationships.
+fn hub_aggregates(world: &World) -> BTreeMap<EntityId, HubAgg> {
+    let cap = world.hub_in_degree_cap();
+    // A hub is any entity a raw target resolves to whose own counters tripped the cap.
+    // `hub_counters` stays keyed by the target resolved at observation time and a merge
+    // never rewrites it, so every entry resolving to a hub folds into that hub's aggregate,
+    // including sub-cap entries merged in later: otherwise the aggregate under-counts the
+    // edges `hub_edges` resolves into it.
+    let hub_ids: BTreeSet<EntityId> = world
+        .hub_counters()
+        .iter()
+        .filter(|(_, counters)| u64::try_from(counters.in_degree()).map_or(true, |n| n > cap))
+        .map(|(&target, _)| world.resolve(target))
+        .collect();
+    let mut hubs: BTreeMap<EntityId, HubAgg> = BTreeMap::new();
+    for (&target, counters) in world.hub_counters() {
+        let hub = world.resolve(target);
+        if !hub_ids.contains(&hub) {
+            continue;
+        }
+        let agg = hubs.entry(hub).or_default();
+        agg.sources
+            .extend(counters.sources.iter().map(|&s| world.resolve(s)));
+        for (kind, n) in &counters.by_kind {
+            let total = agg.by_kind.entry(kind.clone()).or_insert(0);
+            *total = total.saturating_add(*n);
+        }
+        agg.last_seen_offset = agg.last_seen_offset.max(counters.last_seen_offset);
+    }
+    hubs
+}
+
 /// The resolved entity graph: merges applied at read time (decision 0005, two histories).
 struct Graph<'w> {
     world: &'w World,
@@ -188,10 +256,6 @@ struct Graph<'w> {
 }
 
 impl<'w> Graph<'w> {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
-    )]
     fn new(world: &'w World) -> Self {
         let mut members: BTreeMap<EntityId, Vec<EntityId>> = BTreeMap::new();
         for (id, _) in world.entities() {
@@ -207,33 +271,7 @@ impl<'w> Graph<'w> {
                 .or_default()
                 .push(key.as_str());
         }
-        let cap = world.hub_in_degree_cap();
-        // A hub is any entity a raw target resolves to whose own counters tripped the cap.
-        // `hub_counters` stays keyed by the target resolved at observation time and a merge
-        // never rewrites it, so every entry resolving to a hub folds into that hub's aggregate,
-        // including sub-cap entries merged in later: otherwise the aggregate under-counts the
-        // edges `hub_edges` resolves into it.
-        let hub_ids: BTreeSet<EntityId> = world
-            .hub_counters()
-            .iter()
-            .filter(|(_, counters)| u64::try_from(counters.in_degree()).map_or(true, |n| n > cap))
-            .map(|(&target, _)| world.resolve(target))
-            .collect();
-        let mut hubs: BTreeMap<EntityId, HubAgg> = BTreeMap::new();
-        for (&target, counters) in world.hub_counters() {
-            let hub = world.resolve(target);
-            if !hub_ids.contains(&hub) {
-                continue;
-            }
-            let agg = hubs.entry(hub).or_default();
-            agg.sources
-                .extend(counters.sources.iter().map(|&s| world.resolve(s)));
-            for (kind, n) in &counters.by_kind {
-                let total = agg.by_kind.entry(kind.clone()).or_insert(0);
-                *total = total.saturating_add(*n);
-            }
-            agg.last_seen_offset = agg.last_seen_offset.max(counters.last_seen_offset);
-        }
+        let hubs = hub_aggregates(world);
         let mut links: BTreeMap<(EntityId, EntityId, &'w str), u64> = BTreeMap::new();
         let mut hub_edges = BTreeSet::new();
         for (rel, &weight) in world.relationships() {
@@ -268,6 +306,54 @@ impl<'w> Graph<'w> {
             hub_edges,
             hub_refs,
         }
+    }
+
+    /// The part of the graph the type summary reads (s2w#296), with its per-type counts of the
+    /// non-hub resolved entities. One pass over entities, and over keys only when there is a
+    /// hub; `members` and `keys` hold hub ids only, and there are no links, hub edges or hub
+    /// refs, so [`Self::entity_node`] gives each hub `hub_refs: []`.
+    fn summary(world: &'w World) -> (Self, BTreeMap<&'w str, u64>) {
+        let hubs = hub_aggregates(world);
+        let mut members: BTreeMap<EntityId, Vec<EntityId>> =
+            hubs.keys().map(|&hub| (hub, Vec::new())).collect();
+        let mut counts: BTreeMap<&'w str, u64> = BTreeMap::new();
+        for (id, state) in world.entities() {
+            let r = world.resolve(id);
+            if let Some(list) = members.get_mut(&r) {
+                if r != id {
+                    list.push(id);
+                }
+            } else if r == id {
+                // A merge target is always a minted entity and merges never cycle, so the
+                // resolved ids are exactly the entities that resolve to themselves.
+                let entity_type = if state.entity_type.is_empty() {
+                    "untyped"
+                } else {
+                    state.entity_type.as_str()
+                };
+                let count = counts.entry(entity_type).or_insert(0);
+                *count = count.saturating_add(1);
+            }
+        }
+        let mut keys: BTreeMap<EntityId, Vec<&'w str>> = BTreeMap::new();
+        if !hubs.is_empty() {
+            for (key, &id) in world.keys() {
+                let r = world.resolve(id);
+                if hubs.contains_key(&r) {
+                    keys.entry(r).or_default().push(key.as_str());
+                }
+            }
+        }
+        let graph = Self {
+            world,
+            members,
+            keys,
+            hubs,
+            links: BTreeMap::new(),
+            hub_edges: BTreeSet::new(),
+            hub_refs: BTreeMap::new(),
+        };
+        (graph, counts)
     }
 
     /// The focus neighbourhood, or `None` for the whole world.
@@ -374,12 +460,16 @@ impl<'w> Graph<'w> {
 ///
 /// # Errors
 /// [`QueryError::UnknownEntity`] for an unknown focus, [`QueryError::HopsTooLarge`] past
-/// [`MAX_HOPS`].
+/// [`MAX_HOPS`], [`QueryError::BadParameter`] for `links=none` with `lod=entity` or a focus.
 #[expect(
     clippy::too_many_lines,
     reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
 )]
 pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
+    check_links(params)?;
+    if params.links == LinkDetail::None {
+        return Ok(type_summary(world));
+    }
     let graph = Graph::new(world);
     let subset = graph.subset(params)?;
     let keep = |id: &EntityId| subset.as_ref().is_none_or(|s| s.contains(id));
@@ -466,6 +556,42 @@ pub fn world_view(world: &World, params: &ViewParams) -> Result<WorldView, Query
             })
             .collect(),
     })
+}
+
+/// The type summary (s2w#296, `lod=type&links=none`): the type view's nodes, one per entity
+/// type with its count plus one per hub, and no links. It skips the relationship pass, so it
+/// costs one pass over entities (and over keys when there is a hub) instead of a map over every
+/// relationship. Its node set and counts equal [`world_view`]'s at `lod=type`, and each hub node
+/// is the same except `hub_refs`, which is always empty here: filling it needs the
+/// relationships.
+#[must_use]
+pub fn type_summary(world: &World) -> WorldView {
+    let (graph, counts) = Graph::summary(world);
+    let mut nodes: BTreeMap<String, Node> = BTreeMap::new();
+    for (&id, members) in &graph.members {
+        let node = graph.entity_node(id, members);
+        nodes.insert(node.id().to_owned(), node);
+    }
+    for (entity_type, count) in counts {
+        let id = format!("type:{entity_type}");
+        let node = Node::Type {
+            id: id.clone(),
+            entity_type: entity_type.to_owned(),
+            count,
+        };
+        nodes.insert(id, node);
+    }
+    WorldView {
+        offset: world.offset(),
+        epoch: Epoch::default(),
+        branch: ACTUAL_BRANCH,
+        fold_version: world.fold_version(),
+        hub_in_degree_cap: world.hub_in_degree_cap(),
+        lod: Lod::Type,
+        focus: None,
+        nodes: nodes.into_values().collect(),
+        links: Vec::new(),
+    }
 }
 
 /// The decimal digits of an entity id, ordered as its `e:<id>` node id string is: `e:10`
@@ -566,6 +692,7 @@ impl<'w> HeadView<'w> {
     /// # Errors
     /// As [`world_view`].
     pub fn new(world: &'w World, params: &ViewParams, epoch: Epoch) -> Result<Self, QueryError> {
+        check_links(params)?;
         let inner = match params.lod {
             Lod::Type => HeadInner::Owned(WorldView {
                 epoch,
