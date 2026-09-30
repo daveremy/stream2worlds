@@ -13,6 +13,56 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The full type view builds in 274 ms, and `/world` stops making the fold wait — [#329](https://github.com/daveremy/stream2worlds/pull/329), [#328](https://github.com/daveremy/stream2worlds/pull/328), [#326](https://github.com/daveremy/stream2worlds/pull/326), [#323](https://github.com/daveremy/stream2worlds/pull/323) (2026-09-30)
+
+**Shipped:** the demo box passes every gate for the first time: first paint 960 ms (gate 1 s) and
+graph 1,813 ms (gate 3 s), the maximum over 4 viewers, at 1b6a4a9. The full type view, the one the
+graph gate times, now builds in 274 ms instead of 1,488 ms (median of 5 reads at 213k entities and
+2.09M links on the recorded backfill), with a byte-identical 29,807 B body. It reuses the type
+summary's nodes, numbers each type and hub, groups links in one pass with no string per link, and
+builds strings only for the roughly 182 output links; new tests compare the old and new paths at
+every golden-log offset
+([#325](https://github.com/daveremy/stream2worlds/issues/325), [#329](https://github.com/daveremy/stream2worlds/pull/329)).
+`/world` no longer holds the timeline's read lock while it sorts and writes. A new owned
+projection copies only what the body needs under the lock, using shared entity state, then
+releases it. Measured main against the branch on the hub, the entity view's lock hold went from
+2,899 ms (all locked) to 1,694 ms locked plus 531 ms of prepare and 1,478 ms of write after it. With
+4 viewers the backfill finished in 109 s instead of 783 s, the slowest `poll_once` fell from
+4,202 ms to 958 ms, and peak memory from 1,635 to 1,353 MiB
+([#272](https://github.com/daveremy/stream2worlds/issues/272), [#328](https://github.com/daveremy/stream2worlds/pull/328)).
+The world's memory budget is re-measured after #291: 14.32M world events, a 598.9 MiB head world,
+and a bridge peak of 780.7 MiB with no viewer and 1,280 MiB with one. Decision 0026's limits move
+to 810 and 1,340 MiB with a dated amendment. A nightly workflow runs the full `backfill_memory`
+sweep at 03:17 MST on the hub runner and files an issue on failure, and a new standing test,
+`discovered_types`, fails whenever the set of discovered entity types changes
+([#282](https://github.com/daveremy/stream2worlds/issues/282), [#326](https://github.com/daveremy/stream2worlds/pull/326)).
+The Sprint 88 entry below landed as [#323](https://github.com/daveremy/stream2worlds/pull/323).
+
+**Learned:** the plan for #272 assumed moving the write out of the lock would move the graph gate.
+Leg A's measurement showed the view was 1,524 ms of build against 0.1 ms of write, so it could
+not; the gate moved because #325 was filed mid-sprint to cheapen the build. Profiling that build
+found 69% of it in a `format!` per link, and a first replacement using a HashMap measured 480 ms
+because hashing each link's kind string was the cost; a short per-pair kind list gave 274 ms. The
+first run of `discovered_types` found two attribute-shaped types still minted as entities:
+`revision/comment` at 5.2% of world events and `mediainfo/content_size` at 0.4%
+([#327](https://github.com/daveremy/stream2worlds/issues/327)). Local gates passed while CI failed
+on `cargo doc -D warnings` in #329.
+
+**Changed course:** [#272](https://github.com/daveremy/stream2worlds/issues/272) was filed at 3 points
+and took 3 legs and an 847/301-line diff, because the owned projection is a new module with three
+new concurrency tests; by the sizing rubric it was a 5. Two of
+[#235](https://github.com/daveremy/stream2worlds/issues/235)'s targets were missed as measured: the
+lock hold is 0.58 to 0.62 of main (target at most one half), and 4 viewers peak above 1 GiB, so that
+issue stays open. With both Codex accounts and agy walled all sprint, Opus implemented every leg
+and Fable and grok held the review seats.
+
+**Next:** [#292](https://github.com/daveremy/stream2worlds/issues/292) owes its full acceptance table
+(1 and 4 viewers, 3 runs each, quiet and mid-backfill) before it closes, and first paint passes by
+only 40 ms, so watch it. The demo-box build time for #325 follows the deploy. Then
+[#327](https://github.com/daveremy/stream2worlds/issues/327), the two attribute-shaped types, and a
+mechanical README-versus-baseline check ([#324](https://github.com/daveremy/stream2worlds/issues/324)).
+The demo box runs merged main through [#329](https://github.com/daveremy/stream2worlds/pull/329).
+
 ## The world answers a cheap summary first, and System 2 can propose a dashboard — [#317](https://github.com/daveremy/stream2worlds/pull/317), [#318](https://github.com/daveremy/stream2worlds/pull/318), [#319](https://github.com/daveremy/stream2worlds/pull/319), [#320](https://github.com/daveremy/stream2worlds/pull/320), [#321](https://github.com/daveremy/stream2worlds/pull/321), [#322](https://github.com/daveremy/stream2worlds/pull/322), [#316](https://github.com/daveremy/stream2worlds/pull/316) (2026-09-30)
 
 **Shipped:** a large world can now say how big it is before it says anything expensive.
