@@ -1,5 +1,5 @@
-//! The two event supplies a scale measurement folds, and which baseline table each is judged
-//! against (s2w#174).
+//! The two event supplies a scale measurement folds, and which `[memory]` table each is judged
+//! against (s2w#174). Their `[ir]` tables are in `ir_bench.rs`.
 use super::Baseline;
 
 /// The event supply a measurement folds: the seeded generator, or the recorded fixture (s2w#174).

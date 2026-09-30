@@ -225,7 +225,7 @@ pub(super) fn judge_ir(b: &Baseline, bench: IrBench, total_ir: u64) -> Result<St
             bench.remedy()
         ));
     }
-    // Unlike [memory], nothing lowers [ir] automatically: it belongs to the CI image, so a local
+    // Unlike [memory], nothing lowers [ir] or [parse] automatically: each belongs to the CI image, so a local
     // improvement is only a hint.
     let mut line = format!(
         "{name}: {per_event:.0} Ir/event vs baseline {base} ({change:+.1}%, tolerance {tol}%)"
@@ -322,8 +322,8 @@ fn judge_memory_baseline(
     }
 }
 
-/// Guarded keys that are higher than on the base (or new, when there is no base). The two
-/// measurement sizes count too: raising either lowers the measured per-unit figure.
+/// Guarded keys that are higher than on the base (or new, when there is no base). The events
+/// and entities measurement sizes count too: raising one lowers the measured per-unit figure.
 pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'static str> {
     let keys = |b: &Baseline| {
         [
