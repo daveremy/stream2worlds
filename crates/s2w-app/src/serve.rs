@@ -256,7 +256,12 @@ impl LogReader for SharedLogReader {
         from: Option<LogPosition>,
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
         // The bridge takes exactly this many rows. Limit BEFORE collecting, not afterwards.
-        let events: Vec<_> = self.log.borrow().replay(from)?.take(self.batch.get()).collect();
+        let events: Vec<_> = self
+            .log
+            .borrow()
+            .replay(from)?
+            .take(self.batch.get())
+            .collect();
         Ok(Box::new(events.into_iter()))
     }
 
@@ -300,26 +305,32 @@ type LiveDiscover = (InRun, Rc<RefCell<SqliteEventLog>>, SinkReporter);
 
 /// How long one catch-up poll may hold the runtime that also serves HTTP (s2w#331). A full
 /// batch of 250 wikipedia events took ~60-150 ms to replay on the demo box, and every request,
-/// static files included, waited behind one or more of them.
-const POLL_BUDGET: Duration = Duration::from_millis(10);
+/// static files included, waited behind one or more of them. Measured on the hub (one core,
+/// full replay, first 30 s): mean `/main.js` latency 144 ms unbounded, 29 ms at 20 ms, for 14%
+/// less replay; 15 ms bought 21 ms for 19% less, 10 ms roughly halved replay, because each poll
+/// also pays a fixed commit and read cost.
+const POLL_BUDGET: Duration = Duration::from_millis(20);
 
 /// The smallest batch a slow poll shrinks to.
 const MIN_BATCH: usize = 8;
 
-/// The batch after a full poll of `batch` events took `elapsed`: scaled toward
-/// [`POLL_BUDGET`] when over it, doubled (up to `max`) when well under it, else unchanged.
-fn next_batch(batch: usize, max: usize, elapsed: Duration) -> usize {
-    let budget = POLL_BUDGET.as_micros();
+/// The batch after a full poll of `batch` events took `elapsed`, against `budget`. Over budget:
+/// scaled toward it, but never below half, because part of a poll's cost is fixed and a
+/// proportional cut undershoots. Under a quarter of it: doubled. Always within
+/// [`MIN_BATCH`]..=`max`.
+fn next_batch(batch: usize, max: usize, elapsed: Duration, budget: Duration) -> usize {
+    let budget = budget.as_micros().max(1);
     let took = elapsed.as_micros().max(1);
     let floor = MIN_BATCH.min(max);
-    if took > budget {
+    let next = if took > budget {
         let scaled = u128::try_from(batch).unwrap_or(u128::MAX) * budget / took;
-        usize::try_from(scaled).unwrap_or(max).clamp(floor, max)
+        usize::try_from(scaled).unwrap_or(usize::MAX).max(batch / 2)
     } else if took < budget / 4 {
-        batch.saturating_mul(2).clamp(floor, max)
+        batch.saturating_mul(2)
     } else {
-        batch.clamp(floor, max)
-    }
+        batch
+    };
+    next.clamp(floor, max)
 }
 
 // Bridge::run requires Send and moves each poll to the blocking pool. This local driver uses
@@ -367,9 +378,9 @@ async fn local_bridge(
         }
         if report.stats.consumed >= bridge.batch() as u64 && report.error.is_none() {
             // A full poll means a catch-up: size the next one to the budget, so HTTP gets a
-            // turn every ~10 ms instead of every batch (s2w#331). The reader and the bridge
-            // must agree on the batch, or a short read would look like the end of the log.
-            let batch = next_batch(bridge.batch(), config.batch, polled);
+            // turn about every POLL_BUDGET instead of every batch (s2w#331). The reader and the
+            // bridge must agree on the batch, or a short read would look like the end of the log.
+            let batch = next_batch(bridge.batch(), config.batch, polled, POLL_BUDGET);
             bridge.set_batch(batch);
             bridge.reader().batch.set(batch);
             delay = config.poll;

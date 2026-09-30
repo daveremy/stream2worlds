@@ -594,4 +594,3 @@ impl<R: LogReader + Send + 'static, V: VerdictStore + Send + 'static> Bridge<R, 
         Ok(self.stats)
     }
 }
-
