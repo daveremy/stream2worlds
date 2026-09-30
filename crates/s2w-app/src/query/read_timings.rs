@@ -1,5 +1,5 @@
 //! Where a `/world` generation's time goes (s2w#243, PR 1 of s2w#235): the wait for the read
-//! guard, the capture under it (`Projection::capture`: `Graph::new` and the copies), and, after
+//! guard, the capture under it (`Projection::capture`: the view's build and the copies), and, after
 //! the guard is released (s2w#272), the sort and the write. Since s2w#270 one generation can
 //! serve several bodies, so the phases are per generation and `bodies` counts what they served.
 //! Off unless a caller opts in with
@@ -32,8 +32,10 @@ pub struct ReadTimingsSnapshot {
     /// From the hold starting on its blocking thread to the read guard taken: queueing behind
     /// a writer. Time waiting for a blocking thread, or queued for a generation, is not in it.
     pub wait: PhaseTiming,
-    /// From the guard taken to the view captured: offset resolution, `Graph::new` and the
-    /// copies. The whole time the guard is held.
+    /// From the guard taken to the view captured: offset resolution and the view's build
+    /// (the entity view and a focused type view run `Graph::new` and copy; the whole-world type
+    /// view has its own build, with no `Graph::new`, since s2w#325). The whole time the guard is
+    /// held.
     pub build: PhaseTiming,
     /// The sorts, after the guard is released (s2w#272).
     pub prepare: PhaseTiming,
