@@ -26,13 +26,13 @@ const HEADER: &str = "# Shrink-only (s2w#156): cargo xtask check fails if any co
 ";
 
 /// Every counted lint with the `path:line` of each attribute naming it.
-pub(crate) type Counts = BTreeMap<String, Vec<String>>;
+type Counts = BTreeMap<String, Vec<String>>;
 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Baseline {
+struct Baseline {
     #[serde(default)]
-    pub(crate) lints: BTreeMap<String, usize>,
+    lints: BTreeMap<String, usize>,
 }
 
 /// Runs check 18; `tighten` lowers the baseline to the actual counts when nothing else fails.
@@ -50,7 +50,6 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
     let Some(baseline) = baseline else {
         return problems;
     };
-    let current = actuals(&counts);
     // Check growth BEFORE tightening so the repair command cannot conceal a raised baseline.
     problems.extend(baseline_growth(root, &baseline));
     let (over, under) = judge(&baseline.lints, &counts);
@@ -64,7 +63,11 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
         problems.push(format!("cannot tighten {BASELINE} over unreadable files, unauthorized baseline growth or counts above the baseline; resolve them and retry"));
         return problems;
     }
-    if let Err(e) = fs::write(&path, render(&tighten_to(&baseline.lints, &current))) {
+    let tightened = tighten_to(&baseline.lints, &actuals(&counts));
+    if tightened == baseline.lints {
+        return problems;
+    }
+    if let Err(e) = fs::write(&path, render(&tightened)) {
         problems.push(format!(
             "cannot tighten {}: {e}; check the file is writable and retry",
             path.display()
@@ -117,7 +120,7 @@ fn baseline_growth(root: &Path, baseline: &Baseline) -> Option<String> {
 
 /// Collects every `*.rs` file under `dir`, skipping `target`, `node_modules` and hidden
 /// directories.
-pub(crate) fn rust_files(dir: &Path, out: &mut BTreeSet<PathBuf>) -> Result<(), String> {
+fn rust_files(dir: &Path, out: &mut BTreeSet<PathBuf>) -> Result<(), String> {
     let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -165,7 +168,7 @@ fn count_files(root: &Path, files: &BTreeSet<PathBuf>, problems: &mut Vec<String
 }
 
 /// Every lint named by an `#[expect]` (or a `cfg_attr(.., expect(..))`) in `src`, with its line.
-pub(crate) fn count_source(src: &str) -> Result<Vec<(String, usize)>, String> {
+fn count_source(src: &str) -> Result<Vec<(String, usize)>, String> {
     let file = syn::parse_file(src).map_err(|e| e.to_string())?;
     let mut visitor = Expects::default();
     visitor.visit_file(&file);
@@ -193,13 +196,19 @@ impl Expects {
                         .filter(|m| !m.path().is_ident("reason"))
                         .map(|m| (path_text(m.path()), line)),
                 ),
-                Err(e) => self.error = Some(format!("line {line}: unreadable #[expect]: {e}")),
+                Err(e) => {
+                    self.error
+                        .get_or_insert(format!("line {line}: unreadable #[expect]: {e}"));
+                }
             }
         } else if list.path.is_ident("cfg_attr") {
             match nested() {
                 // The first entry is the predicate; the rest are attributes.
                 Ok(attrs) => attrs.iter().skip(1).for_each(|m| self.meta(m, line)),
-                Err(e) => self.error = Some(format!("line {line}: unreadable #[cfg_attr]: {e}")),
+                Err(e) => {
+                    self.error
+                        .get_or_insert(format!("line {line}: unreadable #[cfg_attr]: {e}"));
+                }
             }
         }
     }
@@ -225,10 +234,7 @@ fn actuals(counts: &Counts) -> BTreeMap<String, usize> {
 
 /// Rules 1 and 2: counts above their baseline (a lint absent from the baseline has 0), then
 /// counts below it.
-pub(crate) fn judge(
-    baseline: &BTreeMap<String, usize>,
-    counts: &Counts,
-) -> (Vec<String>, Vec<String>) {
+fn judge(baseline: &BTreeMap<String, usize>, counts: &Counts) -> (Vec<String>, Vec<String>) {
     let mut over = Vec::new();
     for (lint, sites) in counts {
         let base = baseline.get(lint).copied().unwrap_or(0);
@@ -253,10 +259,7 @@ pub(crate) fn judge(
 }
 
 /// Rule 3's input: lints whose baseline is new or higher than on the base.
-pub(crate) fn grown(
-    base: &BTreeMap<String, usize>,
-    current: &BTreeMap<String, usize>,
-) -> Vec<String> {
+fn grown(base: &BTreeMap<String, usize>, current: &BTreeMap<String, usize>) -> Vec<String> {
     current
         .iter()
         .filter(|(lint, n)| base.get(*lint).is_none_or(|b| b < *n))
@@ -265,7 +268,7 @@ pub(crate) fn grown(
 }
 
 /// Rule 3: baseline growth needs a `Baseline-growth: s2w#<N>` trailer in `origin/main..HEAD`.
-pub(crate) fn growth_finding(grew: &[String], messages: Result<String, String>) -> Option<String> {
+fn growth_finding(grew: &[String], messages: Result<String, String>) -> Option<String> {
     match messages {
         Ok(m) if trailer(&m) => None,
         result => Some(format!(
@@ -281,7 +284,7 @@ pub(crate) fn growth_finding(grew: &[String], messages: Result<String, String>) 
 
 /// The tightened baseline: each entry lowered to its actual count, never raised; entries whose
 /// count reached 0 are dropped.
-pub(crate) fn tighten_to(
+fn tighten_to(
     baseline: &BTreeMap<String, usize>,
     actual: &BTreeMap<String, usize>,
 ) -> BTreeMap<String, usize> {
@@ -293,7 +296,7 @@ pub(crate) fn tighten_to(
 }
 
 /// The baseline file's text: the fixed header, then one sorted line per lint.
-pub(crate) fn render(lints: &BTreeMap<String, usize>) -> String {
+fn render(lints: &BTreeMap<String, usize>) -> String {
     let rows: String = lints
         .iter()
         .map(|(lint, n)| format!("\"{lint}\" = {n}\n"))

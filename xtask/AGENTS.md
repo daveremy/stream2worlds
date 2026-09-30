@@ -52,7 +52,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 - `expect_count.rs`: check 18, a shrink-only per-lint count of `#[expect]` attributes in every
   workspace package's `*.rs` files, tests and benches included, against
   `xtask/expect-baseline.toml` (s2w#156). Walks the package directories itself, because
-  `module_size::walk` skips test targets; reads each file as a `syn` AST (`cfg_attr` arms
+  `module_size::walk` skips test targets and `vocabulary.rs`'s walker skips `tests/` and
+  `benches/`; reads each file as a `syn` AST (`cfg_attr` arms
   included); reuses `module_size::{git, trailer}` for the baseline-growth rule. Self-tests live
   in `expect_count/tests.rs`, whose sample sources spell the attribute `EXPECT` so a text search
   never counts them.
