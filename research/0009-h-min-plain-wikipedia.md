@@ -26,6 +26,8 @@ three references, not against 1.0 alone:
   mention rule whose path is in its identity; alias paths get no rule). It is a reference, not
   a proven upper bound: on `wiki` H-lite beats it (below). The generated reports' preamble
   calls it "the best v0 mapping for that key"; that wording is wrong and is tracked in #245.
+  *Fixed 2026-09-29 (#245): the preamble now says "the oracle-v0 mapping for that key". The
+  committed reports under `h-measure/results/` predate the fix and keep the old wording.*
 - **Canonical-mention key:** the same key with the alias-only paths (`server_name`,
   `server_url`, `meta.domain`, `title_url`) unscored, so a perfect v0 mapping can score 1.0.
 - **Without singleton-only types:** `event` (`meta.id`) and, on these corpora, `log` have one

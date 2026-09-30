@@ -13,7 +13,7 @@ use s2w_log::{
     StoredProposal,
 };
 use s2w_model::{SourceId, StreamMapping};
-use s2w_system1::MappingEngine;
+use s2w_system1::{MappingEngine, MappingEngineError};
 use serde::{Deserialize, Serialize};
 
 use crate::AppError;
@@ -108,12 +108,20 @@ fn later<'a>(slot: &mut Option<&'a StoredDecision>, decision: &'a StoredDecision
 }
 
 /// Every [`STREAM_MAPPING_CLASS`] proposal, decoded, in ascending `seq`; the unusable ones
-/// apart, in proposal order.
+/// apart, in proposal order. A mapping with links is unusable until [`MappingEngine`] executes
+/// them (decision 0027).
 fn candidates(proposals: &[StoredProposal]) -> (Vec<Candidate<'_>>, Vec<Excluded>) {
     let mut excluded = Vec::new();
     let mut candidates = Vec::new();
     for proposal in proposals.iter().filter(|p| p.class == STREAM_MAPPING_CLASS) {
         match decode_envelope(&proposal.payload) {
+            Ok((_, mapping, _)) if !mapping.links.is_empty() => excluded.push(Excluded {
+                proposal_id: proposal.id.clone(),
+                reason: format!(
+                    "mapping: {}",
+                    MappingEngineError::LinksNotExecuted(mapping.links.len())
+                ),
+            }),
             Ok((source, mapping, identity)) => candidates.push(Candidate {
                 seq: proposal.seq,
                 id: &proposal.id,

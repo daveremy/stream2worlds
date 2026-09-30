@@ -1,6 +1,9 @@
 use super::*;
 use crate::raw;
-use s2w_model::{AttrRule, FieldPath, KEY_SEPARATOR, MAPPING_VERSION, RelationshipRule, Segment};
+use s2w_model::{
+    AttrRule, FieldPath, KEY_SEPARATOR, LinkRule, MAPPING_VERSION, MAPPING_VERSION_LINKS,
+    RelationshipRule, Segment,
+};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -48,6 +51,7 @@ fn mapping() -> StreamMapping {
             to: "rb".to_owned(),
             kind: "k".to_owned(),
         }],
+        links: Vec::new(),
     }
 }
 
@@ -267,6 +271,32 @@ fn an_invalid_mapping_is_refused() {
     ));
 }
 
+/// Until the engine executes links (s2w#245 PR 2) a linked mapping is refused, never run with
+/// its links dropped. A version-2 mapping without links runs, under its own name.
+#[test]
+fn a_linked_mapping_is_refused_and_an_unlinked_version_2_mapping_runs() -> TestResult {
+    let mut linked = mapping();
+    linked.version = MAPPING_VERSION_LINKS;
+    linked
+        .entities
+        .push(rule("ra-alias", "ta", &[&["body", "a", "alias"]]));
+    linked.links = vec![LinkRule {
+        survivor: linked.entities[0].id.clone(),
+        absorbed: "ra-alias".to_owned(),
+    }];
+    assert_eq!(linked.validate(), Ok(()));
+    assert!(matches!(
+        MappingEngine::new(linked.clone()),
+        Err(MappingEngineError::LinksNotExecuted(1))
+    ));
+
+    linked.links.clear();
+    let v2 = MappingEngine::new(linked.clone())?;
+    linked.version = MAPPING_VERSION;
+    assert_ne!(v2.name(), MappingEngine::new(linked)?.name());
+    Ok(())
+}
+
 /// The committed fixture pair used by `cargo xtask check`'s raw obfuscation replay proposes
 /// entities for every line: the fixture is not vacuous at the engine layer.
 #[test]
@@ -286,7 +316,7 @@ fn the_committed_fixture_mapping_matches_every_sample_line() -> TestResult {
 }
 
 /// The fixture mapping's identity is pinned (decision 0023). It changes only with the fixture,
-/// `KEY_FORMAT` or `MAPPING_VERSION`; any of those renames the engine and orphans its stored
+/// `KEY_FORMAT` or the mapping's `version`; any of those renames the engine and orphans its stored
 /// verdicts, so a change here must be deliberate.
 #[test]
 fn the_committed_fixture_mapping_identity_is_pinned() -> TestResult {

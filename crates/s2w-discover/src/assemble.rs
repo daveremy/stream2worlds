@@ -67,6 +67,7 @@ pub(crate) fn assemble(
         decode: table.decode.clone(),
         entities,
         relationships,
+        links: Vec::new(),
     };
     mapping
         .validate()

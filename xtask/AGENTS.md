@@ -60,7 +60,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     sentinel values on a mention rule whose path is an identity path: a record holding one there
     has no mention, compared as key parts), its fail-closed validation, `from_mapping` (writes
     the newest format), and
-    `oracle`: the best v0 mapping for the key (one rule per mention rule whose path is an
+    `oracle`: the oracle-v0 mapping for the key, a reference not a proven best (one rule per mention rule whose path is an
     identity path, mention path last; alias mentions get no rule, and two mention rules on one
     multi-path identity are split by the reordering), graded as the ceiling row.
     Domain knowledge lives in the spec file, never here.

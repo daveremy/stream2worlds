@@ -121,3 +121,14 @@ Engines address entities by natural key and never see a world.
 See [0011: System 1 bridge](0011-system1-bridge.md) for the engine contract.
 
 verify: `cargo xtask check` check 6 passes with the golden fixtures untouched.
+
+### Amendment, 2026-09-29: mapping links are a second producer of merges
+
+Until now only hand-written claims (`JsonClaimsEngine`) emit `EntitiesMerged`.
+[Decision 0027](0027-stream-mapping-links.md) adds mapping links: when a link's two entity rules
+match in one payload with different keys, `MappingEngine` claims
+`EntitiesMerged{survivor_key, absorbed_key}` in-band, before the payload's relationships
+(#245 PR 2; PR 1 ships the format and refuses linked mappings until then). The fold is
+unchanged. Its existing rules are the semantics: first merge wins per absorbed id, a repeat
+is a no-op, and a merge is not retroactive, so an edge or attribute observed on an absorbed
+key before its first co-occurring payload stays on the absorbed id.
