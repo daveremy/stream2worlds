@@ -108,11 +108,11 @@ fn the_fallback_files_an_accepted_manifest_and_a_second_run_writes_nothing() {
     let basis = report.basis.clone().expect("basis");
     assert!(
         basis.starts_with(&format!(
-            "policy={POLICY} proposer=dashboard-fallback/1 world={WORLD} built_on={SOURCE}:"
+            "policy={POLICY} proposer=dashboard-fallback/2 world={WORLD} built_on={SOURCE}:"
         )),
         "{basis}"
     );
-    assert!(basis.ends_with(" events=0 roles=1"), "{basis}");
+    assert!(basis.ends_with(" events=1 roles=1"), "{basis}");
 
     let view = read_dashboard(dir.path(), WORLD).expect("view");
     assert_eq!(view.proposal_id, report.proposal_id);
