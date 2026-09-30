@@ -31,7 +31,8 @@ pub fn shaped(text: &str) -> bool {
 /// `text` moved by `seconds`, keeping its format: the fraction, the offset and the letter case
 /// are kept verbatim, so shifting the local time moves the instant by the same amount. `None`
 /// when `text` is not [`shaped`], has a leap second (60, which a shift cannot keep one-to-one),
-/// or would leave years 0000 to 9999. Otherwise one-to-one and order-preserving within one offset.
+/// or would leave years 0000 to 9999. Otherwise one-to-one, and it keeps the text order of
+/// values that share one offset, one fraction width and one letter case.
 #[must_use]
 pub fn shift(text: &str, seconds: i64) -> Option<String> {
     let s = parse(text)?;
