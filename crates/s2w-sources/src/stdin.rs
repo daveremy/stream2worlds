@@ -10,6 +10,7 @@ use tokio_stream::StreamExt;
 
 use crate::ndjson::{NdjsonEvent, NdjsonSource, NdjsonSourceError};
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
+use crate::watermark::Watermarks;
 
 /// The source id under which `s2w watch -` files its events.
 const STDIN_SOURCE: &str = "stdin";
@@ -66,6 +67,8 @@ impl Source for StdinSource {
                 stream: Box::pin(stream),
                 ends: Ending::AtEndOfInput,
                 notes: Vec::new(),
+                // A pipe has no head position to measure against.
+                watermarks: Watermarks::not_reported(),
             })
         })
     }
@@ -131,6 +134,7 @@ mod tests {
                 Err(error) => panic!("stdin should start: {error}"),
             };
             assert_eq!(started.ends, Ending::AtEndOfInput);
+            assert_eq!(started.watermarks.read(), None, "a pipe reports no lag");
             let items: Vec<_> = started.stream.collect().await;
             assert_eq!(items.len(), 3, "two events and one skipped line: {items:?}");
             let mut events = Vec::new();

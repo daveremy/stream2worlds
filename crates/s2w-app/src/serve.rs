@@ -441,7 +441,8 @@ async fn serve_live(
                             .append_batch_with_generations(events, generations)
                     },
                     started.stream,
-                    crate::status::Progress::named(name),
+                    crate::status::Progress::named(name)
+                        .with_watermarks(started.watermarks.clone()),
                     reporter,
                     &started.sources,
                     |source| Ok(shared.borrow().source_membership(source)?),

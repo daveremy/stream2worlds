@@ -11,6 +11,7 @@ use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use s2w_sources::watermark::Watermarks;
 use tokio::time::Instant;
 
 /// `statfs` magic for tmpfs (`TMPFS_MAGIC` in `linux/magic.h`).
@@ -193,10 +194,12 @@ fn human_bytes(bytes: u64) -> String {
     format!("{value:.1} {unit}")
 }
 
-/// What the periodic progress line reports on: the source's name and, when a log directory is
-/// known (`watch`), that directory's storage figures. `serve` passes a name only.
+/// What the periodic progress line reports on: the source's name, its lag when the started
+/// source carries one (s2w#168), and, when a log directory is known (`watch`), that
+/// directory's storage figures. `serve` passes no log directory.
 pub(crate) struct Progress<'a> {
     name: &'a str,
+    lag: Option<Watermarks>,
     storage: Option<StorageProbe>,
 }
 
@@ -205,8 +208,15 @@ impl<'a> Progress<'a> {
     pub(crate) const fn named(name: &'a str) -> Self {
         Self {
             name,
+            lag: None,
             storage: None,
         }
+    }
+
+    /// Adds the started source's lag per partition to the line.
+    pub(crate) fn with_watermarks(mut self, watermarks: Watermarks) -> Self {
+        self.lag = Some(watermarks);
+        self
     }
 
     /// Adds the store's size and days-to-disk-full for `log_dir` to the line.
@@ -225,6 +235,19 @@ impl<'a> Progress<'a> {
         if let Some(probe) = self.storage.as_mut() {
             probe.read(now);
         }
+    }
+
+    /// ` | lag p0 12, p1 0`, ` | lag not reported`, or empty when no watermarks were given.
+    pub(crate) fn lag_segment(&self) -> String {
+        self.lag
+            .as_ref()
+            .map(|watermarks| {
+                format!(
+                    " | {}",
+                    crate::lag::render_lag(watermarks.read().as_deref())
+                )
+            })
+            .unwrap_or_default()
     }
 
     /// ` | store 1.9 GB | disk full in 412 d`, or empty without a log directory.
