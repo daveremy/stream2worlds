@@ -2050,6 +2050,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 name = "s2w"
 version = "0.0.0"
 dependencies = [
+ "mimalloc",
  "s2w-app",
  "s2w-log",
  "s2w-model",

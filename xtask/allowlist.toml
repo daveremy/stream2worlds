@@ -30,7 +30,7 @@ dev = ["proptest", "rmcp", "rskafka", "tokio", "tower", "gungraun", "dhat", "mim
 build = ["memory-serve"]
 
 [crates.s2w]
-normal = ["s2w-app", "s2w-log", "s2w-model", "serde_json"]
+normal = ["s2w-app", "s2w-log", "s2w-model", "serde_json", "mimalloc"]
 
 [crates.s2w-testkit]
 normal = ["s2w-model", "s2w-log"]

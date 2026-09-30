@@ -16,3 +16,5 @@ s2w-app = { path = "../s2w-app" }
 s2w-log = { path = "../s2w-log" }
 s2w-model = { path = "../s2w-model" }
 serde_json = { workspace = true }
+# The global allocator (decision 0031, s2w#283).
+mimalloc = "=0.1.52"
