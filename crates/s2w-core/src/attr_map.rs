@@ -69,6 +69,16 @@ impl AttrMap {
         }
     }
 
+    /// Whether [`extend_from_map`](Self::extend_from_map) with `attrs` would change this map:
+    /// some name in `attrs` is absent here or holds a different value. Read-only, so the fold can
+    /// skip a write, and the copy of a shared entity state, that would change nothing (s2w#271).
+    #[must_use]
+    pub fn changes(&self, attrs: &BTreeMap<String, AttrValue>) -> bool {
+        attrs
+            .iter()
+            .any(|(name, value)| self.get(name) != Some(value))
+    }
+
     /// The attributes as `(name, value)`, in name order.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (&String, &AttrValue)> {
         self.0.iter().map(|(name, value)| (name, value))
