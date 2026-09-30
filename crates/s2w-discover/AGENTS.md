@@ -1,7 +1,8 @@
 # s2w-discover
 
 Structure discovery: profiles a window of raw payloads and proposes a `StreamMapping`
-(decision 0021), or abstains. The H-min heuristic profiler of decision 0022 (H-lite before `PROFILER_VERSION` 5).
+(decision 0021), or abstains. The H-min heuristic profiler of decision 0022 (H-lite before
+`PROFILER_VERSION` 5).
 
 ## Allowed dependencies
 
