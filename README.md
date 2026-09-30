@@ -25,19 +25,18 @@
   instead of a 370 MB graph, and every type is a labelled node; set a Focus entity to see a
   neighbourhood.
   [#263](https://github.com/daveremy/stream2worlds/pull/263)
-- **The demo world loads whole.** `/world` responses were cut off at about 4 MiB while the
-  bridge appended, which blanked the page; the bridge now waits for in-flight responses before
-  its next write.
-  [#260](https://github.com/daveremy/stream2worlds/pull/260)
-- **A mapping can say two values name one entity.** `StreamMapping` gains `links` (format
-  version 2); routing refuses a linked mapping until the engine emits merges.
-  [#274](https://github.com/daveremy/stream2worlds/pull/274)
-- **H-lite finds editors.** A second entity test keys Wikipedia's `user`; on a held-out span
-  opened after the predictions, identity F1 rose from 0.2920 to 0.4431 and every prediction hit.
-  [#261](https://github.com/daveremy/stream2worlds/pull/261)
-- **In progress:** an owned projection and single-flight `/world`, so a slow reader cannot
-  stall the fold ([#270](https://github.com/daveremy/stream2worlds/issues/270),
-  [#272](https://github.com/daveremy/stream2worlds/issues/272)).
+- **A mapping can now merge entities.** When a link's two rules match with different keys, the
+  engine emits a merge, so two names for one wiki become one entity; mappings without links are
+  unchanged.
+  [#279](https://github.com/daveremy/stream2worlds/pull/279)
+- **Containment lifts H-lite on held-out data.** Identity F1 rose from 0.44 to 0.53 and every
+  pre-registered prediction hit.
+  [#276](https://github.com/daveremy/stream2worlds/pull/276)
+- **Source lag is reported per partition.** Kafka shows lag for each partition; SSE and stdin say
+  "not reported" rather than 0.
+  [#286](https://github.com/daveremy/stream2worlds/pull/286)
+- **In progress:** single-flight `/world` and progressive rendering, so first paint stays fast as
+  the world grows ([#270](https://github.com/daveremy/stream2worlds/issues/270), [#292](https://github.com/daveremy/stream2worlds/issues/292)).
 
 ## Demos
 
