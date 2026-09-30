@@ -1,11 +1,11 @@
 //! One process owns ingestion, the live bridge and the loopback query API (decision 0014).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::future::{Future, IntoFuture};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Request, State};
 use axum::http::{StatusCode, Uri, header::HOST};
@@ -230,7 +230,8 @@ impl CursorLookup for ServingCursors<'_> {
 
 struct SharedLogReader {
     log: Rc<RefCell<SqliteEventLog>>,
-    batch: usize,
+    /// Shared with [`local_bridge`], which sets it and [`Bridge::set_batch`] together.
+    batch: Rc<Cell<usize>>,
 }
 
 struct ServeStorage {
@@ -255,7 +256,7 @@ impl LogReader for SharedLogReader {
         from: Option<LogPosition>,
     ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
         // The bridge takes exactly this many rows. Limit BEFORE collecting, not afterwards.
-        let events: Vec<_> = self.log.borrow().replay(from)?.take(self.batch).collect();
+        let events: Vec<_> = self.log.borrow().replay(from)?.take(self.batch.get()).collect();
         Ok(Box::new(events.into_iter()))
     }
 
@@ -297,6 +298,30 @@ impl EventLog for SharedLogWriter {
 /// the note sink it reports through (the pump holds the reporter).
 type LiveDiscover = (InRun, Rc<RefCell<SqliteEventLog>>, SinkReporter);
 
+/// How long one catch-up poll may hold the runtime that also serves HTTP (s2w#331). A full
+/// batch of 250 wikipedia events took ~60-150 ms to replay on the demo box, and every request,
+/// static files included, waited behind one or more of them.
+const POLL_BUDGET: Duration = Duration::from_millis(10);
+
+/// The smallest batch a slow poll shrinks to.
+const MIN_BATCH: usize = 8;
+
+/// The batch after a full poll of `batch` events took `elapsed`: scaled toward
+/// [`POLL_BUDGET`] when over it, doubled (up to `max`) when well under it, else unchanged.
+fn next_batch(batch: usize, max: usize, elapsed: Duration) -> usize {
+    let budget = POLL_BUDGET.as_micros();
+    let took = elapsed.as_micros().max(1);
+    let floor = MIN_BATCH.min(max);
+    if took > budget {
+        let scaled = u128::try_from(batch).unwrap_or(u128::MAX) * budget / took;
+        usize::try_from(scaled).unwrap_or(max).clamp(floor, max)
+    } else if took < budget / 4 {
+        batch.saturating_mul(2).clamp(floor, max)
+    } else {
+        batch.clamp(floor, max)
+    }
+}
+
 // Bridge::run requires Send and moves each poll to the blocking pool. This local driver uses
 // the same poll/backoff policy, yielding even after full batches so ingestion/HTTP can run.
 // Snapshot capture runs right after each poll with no await in between (decision 0024), then
@@ -316,8 +341,10 @@ async fn local_bridge(
         // yielding, for any `/world` body to release its read guard, so the write below never
         // blocks the runtime that body needs to drain (s2w#259). No await until it drops.
         let reservation = bridge.state().reserve_write().await;
+        let started = Instant::now();
         let report = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bridge.poll_once()))
             .map_err(|_| BridgeError::Task("bridge poll panicked".to_owned()))??;
+        let polled = started.elapsed();
         if let Some((snapshotter, state)) = &snapshots {
             snapshotter
                 .borrow_mut()
@@ -338,7 +365,13 @@ async fn local_bridge(
         if let Some(ready) = ready.take() {
             let _ignored = ready.send(());
         }
-        if report.stats.consumed >= config.batch as u64 && report.error.is_none() {
+        if report.stats.consumed >= bridge.batch() as u64 && report.error.is_none() {
+            // A full poll means a catch-up: size the next one to the budget, so HTTP gets a
+            // turn every ~10 ms instead of every batch (s2w#331). The reader and the bridge
+            // must agree on the batch, or a short read would look like the end of the log.
+            let batch = next_batch(bridge.batch(), config.batch, polled);
+            bridge.set_batch(batch);
+            bridge.reader().batch.set(batch);
             delay = config.poll;
             tokio::task::yield_now().await;
             continue;
@@ -376,7 +409,7 @@ async fn serve_live(
     let shared = Rc::new(RefCell::new(storage.log));
     let reader = SharedLogReader {
         log: shared.clone(),
-        batch: config.batch,
+        batch: Rc::new(Cell::new(config.batch)),
     };
     let bridge = match storage.resume {
         Some(position) => Bridge::resume(
