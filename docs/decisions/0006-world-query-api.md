@@ -62,6 +62,7 @@ I/O and is callable directly; `router` serves it over HTTP with `axum` 0.8 and a
 Errors are `{"error": <code>, "message": <text>}` with stable codes: `offset_beyond_head` and
 `unknown_entity` (404), `bad_parameter` and `hops_too_large` (400), `branch_not_yet` and
 `lod_not_yet` (501), `unavailable` (503, poisoned lock), `stream_limit` (503, event-stream cap),
+`world_queue_full` (503, full `/world` build queue; amendment 2026-09-30),
 `offset_before_base` (410, below a restored snapshot's base; decision 0024), `stale_epoch` (410,
 a supplied epoch that is not the served one; decision 0023).
 

@@ -30,10 +30,12 @@
 - **Measure the viewer on your own machine.** `demos/local-routed-world/run.sh --keep` serves a
   routed Wikipedia world in seconds, so `s2w-demo-check.sh --gates` runs locally.
   [#313](https://github.com/daveremy/stream2worlds/pull/313)
+- **Four viewers share one `/world` build.** Full-graph requests are single-flight, so the page no
+  longer builds four 330 MiB projections at once. [#315](https://github.com/daveremy/stream2worlds/pull/315)
 - **The world is a third smaller.** The profiler stops treating edit counters as entity types:
   on the recorded fixture the head world falls from 887 to 597 MiB with `user` recall unchanged.
   [#306](https://github.com/daveremy/stream2worlds/pull/306)
-- **In progress:** the type summary that lets the graph appear in 3 s, then a System 2 dashboard
+- **In progress:** the type summary so the graph can meet its 3 s gate, then a System 2 dashboard
   proposer ([#296](https://github.com/daveremy/stream2worlds/issues/296), [#311](https://github.com/daveremy/stream2worlds/issues/311)).
 
 ## Demos

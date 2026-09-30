@@ -34,14 +34,14 @@ requests with the same key share one serialized body and a full queue answers 50
 
 **Learned:** on live Wikipedia windows the demo had minted `first_edit_dt` and `rev_dt` as entity
 types, because two users registering in the same second, or one user id on two wikis, made
-timestamps stop being 1:1 with users. The v7 change went from 1 to 2 timestamp types down to 0, and
+timestamps stop being 1:1 with users. The v7 change went from one or two timestamp types to none, and
 all four pre-registered predictions hit on the new `reserved-4` span: the same score as v6, `user`
 recall 1.0, `img_timestamp` still a type (an accepted limit), and the [#282](https://github.com/daveremy/stream2worlds/issues/282) fixture at 599 MiB against 597.
-On the demo box, RTT-adjusted first paint fell from 3.3 s at the last sprint's wrap to 1.5 s after
+On the demo box, RTT-adjusted first paint fell from 3.3 s for one viewer (5.1 to 5.9 s for four) at the last sprint's wrap to 1.5 s after
 the first deploy and to 825 ms (max of 4 viewers) at this one: the 1 s gate passes for the first
 time. The graph still takes 6.5 s against its 3 s gate, so the demo check fails on that alone
 ([#292](https://github.com/daveremy/stream2worlds/issues/292)). The ASan panic that stalled [#270](https://github.com/daveremy/stream2worlds/issues/270) did not recur in about 2,900 builds and ASan found
-nothing; the evidence points to a single flipped bit (0x2006 is 6 plus one bit), not a code bug.
+nothing; the evidence points to a single flipped bit (0x2006 is 6 plus one bit), rather than a code bug.
 Review of [#310](https://github.com/daveremy/stream2worlds/pull/310) caught two errors in the S86 entry (the parse gate is `xtask scale`, and
 there were nine child issues, not eleven).
 
