@@ -116,7 +116,8 @@ measured yet" sentence above predates this.
 recorded fixture through System 1's `MappingEngine` with the committed linked mapping (the fold
 supply's mapping plus a second site entity and a link merging it into the first, so link merges
 are inside the measured region), divided by the 11,667 raw events. First figure 215,237 Ir per raw
-event, about 14 times the recorded fold's 15,285; the engine's per-event `serde_json` parse of a
-~2.9 KB envelope dominates. `JsonClaimsEngine` is not measured: it only deserializes
-already-formed events on the stdin bridge, not a raw stream. Fork cost (#167) is still not
+event, about 14 times the recorded fold's 15,285. `serde_json` parsing inside `evaluate` (the
+~2.9 KB envelope, then its decoded `data`) is about 92% of that in the Callgrind profile.
+`JsonClaimsEngine` is not measured: it is the bare-claim engine for the planned stdin bridge
+(#10), not a raw-stream parser, and no `s2w-app` path runs it yet. Fork cost (#167) is still not
 measured.
