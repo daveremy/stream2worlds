@@ -5,8 +5,8 @@ Date: 2026-09-30 · Status: accepted · Gate 2 · Issue #283 · Builds on [0026]
 ## Decision
 
 **The `s2w` binary allocates through mimalloc.** `crates/s2w/src/main.rs` sets
-`#[global_allocator] static GLOBAL: mimalloc::MiMalloc`, with `mimalloc = "=0.1.52"` pinned in
-`crates/s2w/Cargo.toml`. There is one binary, so the allocator covers every subcommand (`serve`,
+`#[global_allocator] static GLOBAL: mimalloc::MiMalloc`, with `mimalloc = "=0.1.52"` pinned once in
+`[workspace.dependencies]`, shared with the measurement target. There is one binary, so the allocator covers every subcommand (`serve`,
 `watch`, `mcp`, `proposals`, `presentation`, `dashboard`). No library crate sets an allocator.
 The crate's default features are used, without `override`, so SQLite's C heap (rusqlite
 `bundled`) stays on glibc malloc. The measurement target below makes the same split.
@@ -34,7 +34,9 @@ Rust leg building alongside. The targets alternated round by round. Whole-proces
 | `viewer` (one reader, 5 s tick), 2 runs | 1,121.9 [1,118.9-1,125.0] | | | **1,053.3 [1,044.4-1,062.3]** | −69 MiB |
 
 `+trim` sets `MALLOC_TRIM_THRESHOLD_=131072` and `MALLOC_TOP_PAD_=0`, and `+arena2` sets
-`MALLOC_ARENA_MAX=2`, on the child only (`ALLOCATORS` in `tests/backfill_memory.rs`).
+`MALLOC_ARENA_MAX=2`, on the child only (`ALLOCATORS` in `tests/backfill_memory.rs`). Its other
+two tunings, `mmap64k` and `notcache`, were not run: they target a fixed mmap threshold and
+the per-thread cache, not the retained arenas that trim and arena tuning address.
 
 Seven other runs were discarded, not averaged in: a second invocation ran alongside the first
 batch, and two invocations of one target share its `CARGO_TARGET_TMPDIR` log directory, so
@@ -62,9 +64,10 @@ it happens.
 
 **Ruling rule, applied.** Adopt only if (1) mimalloc's median peak is below glibc's on
 `bridge`, `bridge-run` and `viewer`, with non-overlapping ranges, and (2) mimalloc's median
-`rss_after_drop` on `bridge-run` is below glibc's, and no glibc tuning also meets both. (1)
-holds on all three topologies. (2) holds: 80.2 MiB against 743.9 MiB. Neither tuning meets
-(1): both `bridge-run` ranges (770-799 MiB) sit above mimalloc's worst run (712 MiB).
+`rss_after_drop` on `bridge-run` is below glibc's, and (3) no glibc tuning's `bridge-run` range
+reaches mimalloc's. (1)
+holds on all three topologies. (2) holds: 80.2 MiB against 743.9 MiB. (3) holds:
+both `bridge-run` ranges (770-799 MiB) sit above mimalloc's worst run (712 MiB).
 
 ## Dependency cost
 
@@ -87,8 +90,8 @@ holds on all three topologies. (2) holds: 80.2 MiB against 743.9 MiB. Neither tu
   equivalents above already failed to match mimalloc.
 - **jemalloc.** Not measured. mimalloc cleared the bar with a dependency the workspace already
   locks, so there was no reason to add a second allocator to compare.
-- **Keep glibc.** Rejected: it gives up about 85-100 MiB of peak on the load that decides the
-  demo box's `MemoryMax` (0026, s2w#282).
+- **Keep glibc.** Rejected: it gives up 69-106 MiB of peak, 69 MiB of it under a viewer, the
+  load that decides the demo box's `MemoryMax` (0026, s2w#282).
 
 ## Limits, accepted
 
@@ -110,4 +113,4 @@ A box measurement after deploy shows mimalloc resident above what `backfill_memo
 predicts, a mimalloc release changes its default purge behaviour, or SQLite's C heap becomes
 a large share of serve's peak.
 
-verify: grep -q '^static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;' crates/s2w/src/main.rs && grep -q '^mimalloc = "=0.1.52"' crates/s2w/Cargo.toml
+verify: grep -q '^static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;' crates/s2w/src/main.rs && grep -q '^mimalloc = { workspace = true }' crates/s2w/Cargo.toml && grep -q '^mimalloc = "=0.1.52"' Cargo.toml

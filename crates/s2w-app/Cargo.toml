@@ -44,8 +44,9 @@ rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 proptest = "1"
 # Heap profiling for the ignored `scale_mem` test (s2w#32).
 dhat = "=0.3.3"
-# The global allocator of the `backfill_memory_mimalloc` measurement target (s2w#220).
-mimalloc = "=0.1.52"
+# The global allocator of the `backfill_memory_mimalloc` measurement target (s2w#220), the
+# same pin as the `s2w` binary (decision 0031).
+mimalloc = { workspace = true }
 # Instruction-count benchmark `scale_ir`, run under valgrind by `cargo xtask scale` (s2w#32).
 gungraun = "=0.20.0"
 # `client` turns rmcp into an in-process MCP client for the stdio round-trip test.
