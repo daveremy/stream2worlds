@@ -59,6 +59,7 @@ mod tests {
                 names,
                 [
                     "branches",
+                    "dashboard",
                     "entity_history",
                     "proposals_list",
                     "sources",
@@ -151,6 +152,7 @@ mod tests {
                 names,
                 [
                     "branches",
+                    "dashboard",
                     "decision_record",
                     "entity_history",
                     "proposals_list",

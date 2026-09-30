@@ -20,6 +20,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `s2w_app::proposals`, the service MCP `decision_record` also uses. Reads never create the
   store; `decide` needs an explicit `--log-dir` and writes only the `human` decider. Data errors
   exit 1 with the HTTP/MCP `{"error", "message"}` body; usage errors exit 2.
+- `dashboard show` (decision 0029) only parses and renders `s2w_app::query::read_dashboard`;
+  `--json` prints the query API's exact bytes. It never creates the proposal store.
 - `serve --snapshot-every <n>` (n > 0) and `--no-snapshot` (decision 0024) are mutually
   exclusive; passing both is a usage error. `serve` stops on SIGINT or SIGTERM.
 - Errors say what to try next.

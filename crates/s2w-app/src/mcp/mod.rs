@@ -1,4 +1,4 @@
-//! The MCP server (decisions 0009, 0020): `s2w mcp` serves the query API's seven read-only
+//! The MCP server (decisions 0009, 0020): `s2w mcp` serves the query API's eight read-only
 //! tools over stdio, one per HTTP route, each returning the route's exact JSON bytes as its
 //! text. It is read-only except the opt-in `decision_record` append, registered only with
 //! `--allow-decisions` ([`WorldMcp::with_decisions`]).
