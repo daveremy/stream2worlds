@@ -432,7 +432,9 @@ mod backfill {
         let copy = clone();
         let elapsed = started.elapsed();
         let resident = status("VmRSS:").saturating_sub(before);
-        let heap_bytes = heap().zip(heap_before).map(|(after, b)| after - b);
+        let heap_bytes = heap()
+            .zip(heap_before)
+            .map(|(after, b)| after.saturating_sub(b));
         eprintln!(
             "clone {part}: {} ms, resident {}{}",
             elapsed.as_millis(),
