@@ -378,9 +378,9 @@ v4 freeze only in that pin line. Reports:
 
 *Note 2026-09-30 (s2w#277):* the re-freeze is no longer needed. `score` now accepts a corpus pin
 whose role went from `reserved` to `heldout` with the same file, events and sha256, and still
-refuses every other change. The original `frozen/h-lite-v4.dev-10000.json`, scored on `reserved`
-from 455c547 plus that fix, gives a report that differs from the committed one only in the line
-naming the mapping file and its sha256. No number above moves.
+refuses every other change. The original `frozen/h-lite-v4.dev-{10000,200000}.json`, scored on
+`reserved` from 455c547 plus that fix, give reports that differ from the committed ones only in the
+line naming the mapping file and its sha256. No number above moves.
 
 **Result** on `reserved`, base key `dev-key-v1.json`:
 
