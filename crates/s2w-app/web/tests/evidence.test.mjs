@@ -51,3 +51,12 @@ test('a response without the headers fails rather than reading as head 0', async
   globalThis.fetch = async () => new Response('', { status: 200 });
   await assert.rejects(evidenceTail(new URLSearchParams('world=w'), new AbortController().signal), /S2W-Head/);
 });
+
+test('a non-numeric S2W-Head fails rather than reading as NaN or 0', async () => {
+  globalThis.location = { origin: 'http://s2w.test' };
+  const { evidenceTail } = await import('../src/api.ts');
+  for (const head of ['', 'x', '-1', '1.5']) {
+    globalThis.fetch = async () => new Response('', { status: 200, headers: { 'S2W-Head': head, 'S2W-Epoch': '00000000000000aa' } });
+    await assert.rejects(evidenceTail(new URLSearchParams('world=w'), new AbortController().signal), /non-numeric S2W-Head/);
+  }
+});

@@ -106,6 +106,7 @@ async function readEvidence(response: Response): Promise<Evidence> {
   const rawHead = response.headers.get('S2W-Head'), epoch = response.headers.get('S2W-Epoch');
   // A proxy that strips them must fail loudly, never read as an empty world at offset 0.
   if (rawHead === null || epoch === null) throw new Error('/events response without S2W-Head/S2W-Epoch');
+  if (!/^\d+$/.test(rawHead)) throw new Error(`/events response with a non-numeric S2W-Head: ${rawHead}`);
   const head = Number(rawHead);
   const text = await response.text();
   const messages = text.split(/\r?\n\r?\n/).flatMap(block => {
