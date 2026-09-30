@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 
 use s2w_log::{LogError, LogPosition, LogReader, ReadOnlySqliteEventLog, StoredEvent, members_at};
-use s2w_model::{SourceId, WorldEvent, sentence_for};
+use s2w_model::{AttrValue, KeyPart, Label, SourceId, WorldEvent, display_text, sentence_for};
 use s2w_system1::{Engine, MappingEngine, Verdict};
 use serde::Serialize;
 use serde_json::Value;
@@ -53,6 +53,11 @@ pub struct SentenceEntity {
     /// does not hold the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entity: Option<u64>,
+    /// The entity's display label from the effective manifest's type row (a key part or one
+    /// of the attributes this event observes), as display text (decision 0029); absent when
+    /// the type has no row or no label, or the value is missing or empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// Checks `last` against `1..=MAX_SENTENCES`.
@@ -93,8 +98,18 @@ pub fn read_sentences(
         members_at(&history, u64::MAX).into_iter().collect()
     };
     let tail = read_last(&log, &targets, last)?;
-    let events = super::read_dashboard(log_dir, world)?
-        .manifest
+    let manifest = super::read_dashboard(log_dir, world)?.manifest;
+    let labels: BTreeMap<String, Label> = manifest
+        .as_ref()
+        .map(|manifest| {
+            manifest
+                .types
+                .iter()
+                .filter_map(|row| Some((row.type_label.clone(), row.label.clone()?)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let events = manifest
         .and_then(|manifest| manifest.events)
         .unwrap_or_default();
     // A mapping the engine refuses routes nothing in `serve` either, so it observes nothing.
@@ -117,7 +132,7 @@ pub fn read_sentences(
                     .as_ref()
                     .and_then(|payload| sentence_for(&events, source, payload)),
                 entities: engine
-                    .map(|engine| observed(engine, &stored))
+                    .map(|engine| observed(engine, &stored, &labels))
                     .unwrap_or_default(),
             }
         })
@@ -135,8 +150,13 @@ fn decoded(payload: &[u8], decode: &[s2w_model::FieldPath]) -> Option<Value> {
     Some(value)
 }
 
-/// The entities the engine observes in the event, in claim order, each (type, key) once.
-fn observed(engine: &MappingEngine, stored: &StoredEvent) -> Vec<SentenceEntity> {
+/// The entities the engine observes in the event, in claim order, each (type, key) once, the
+/// first claim of a pair giving its label.
+fn observed(
+    engine: &MappingEngine,
+    stored: &StoredEvent,
+    labels: &BTreeMap<String, Label>,
+) -> Vec<SentenceEntity> {
     let Verdict::Propose { claims, .. } = engine.evaluate(&stored.event) else {
         return Vec::new();
     };
@@ -145,17 +165,59 @@ fn observed(engine: &MappingEngine, stored: &StoredEvent) -> Vec<SentenceEntity>
         .into_iter()
         .filter_map(|claim| match claim {
             WorldEvent::EntityObserved {
-                key, entity_type, ..
-            } => Some((entity_type, key.as_str().to_owned())),
+                key,
+                entity_type,
+                attrs,
+            } => {
+                let label = labels
+                    .get(&entity_type)
+                    .and_then(|label| entity_label(label, &key, &attrs));
+                Some((entity_type, key.as_str().to_owned(), label))
+            }
             _ => None,
         })
-        .filter(|pair| seen.insert(pair.clone()))
-        .map(|(entity_type, key)| SentenceEntity {
+        .filter(|(entity_type, key, _)| seen.insert((entity_type.clone(), key.clone())))
+        .map(|(entity_type, key, label)| SentenceEntity {
             entity_type,
             key,
             entity: None,
+            label,
         })
         .collect()
+}
+
+/// The display text of the label a type row names for one observation; `None` when the
+/// part or attribute is missing or its display text is empty.
+fn entity_label(
+    label: &Label,
+    key: &s2w_model::NaturalKey,
+    attrs: &BTreeMap<String, AttrValue>,
+) -> Option<String> {
+    let raw = match label {
+        Label::Key(k) => key_text(key, k.key)?,
+        Label::Attr(a) => attr_text(attrs.get(&a.attr)?),
+    };
+    Some(display_text(&raw)).filter(|text| !text.is_empty())
+}
+
+/// Key part `index` (counted after the type label) as text; `None` if the key has no such part
+/// or does not parse.
+fn key_text(key: &s2w_model::NaturalKey, index: usize) -> Option<String> {
+    let (_, parts) = key.parts().ok()?;
+    Some(match parts.into_iter().nth(index)? {
+        KeyPart::Str(text) => text,
+        KeyPart::Int(n) => n.to_string(),
+        KeyPart::Bool(b) => b.to_string(),
+    })
+}
+
+/// An attribute value as text.
+fn attr_text(value: &AttrValue) -> String {
+    match value {
+        AttrValue::Str(text) => text.clone(),
+        AttrValue::Int(n) => n.to_string(),
+        AttrValue::Bool(b) => b.to_string(),
+    }
 }
 
 /// The newest `n` events of the sources in `targets` together, oldest first. It reads a window
@@ -202,5 +264,61 @@ pub fn read_last(
             return Ok(tail.into());
         }
         window = window.saturating_mul(2);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use s2w_model::{AttrLabel, AttrValue, KeyLabel, KeyPart, Label, NaturalKey};
+
+    use super::entity_label;
+
+    fn key() -> NaturalKey {
+        NaturalKey::from_parts(
+            "t",
+            &[
+                KeyPart::Str("Tucson,_Arizona".to_owned()),
+                KeyPart::Int(42),
+                KeyPart::Bool(true),
+                KeyPart::Str(" ".to_owned()),
+            ],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_key_label_takes_the_part_as_display_text() {
+        let attrs = BTreeMap::new();
+        let part = |i| entity_label(&Label::Key(KeyLabel { key: i }), &key(), &attrs);
+        assert_eq!(part(0).as_deref(), Some("Tucson, Arizona"));
+        assert_eq!(part(1).as_deref(), Some("42"));
+        assert_eq!(part(2).as_deref(), Some("true"));
+        assert_eq!(part(3), None, "empty display text is no label");
+        assert_eq!(part(4), None, "no such part");
+    }
+
+    #[test]
+    fn an_attr_label_takes_this_observations_attribute() {
+        let attrs = BTreeMap::from([
+            (
+                "title".to_owned(),
+                AttrValue::Str("A  /* x */ b".to_owned()),
+            ),
+            ("n".to_owned(), AttrValue::Int(-3)),
+        ]);
+        let attr = |name: &str| {
+            entity_label(
+                &Label::Attr(AttrLabel {
+                    attr: name.to_owned(),
+                }),
+                &key(),
+                &attrs,
+            )
+        };
+        assert_eq!(attr("title").as_deref(), Some("A b"));
+        assert_eq!(attr("n").as_deref(), Some("-3"));
+        assert_eq!(attr("missing"), None);
     }
 }
