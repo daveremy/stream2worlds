@@ -65,4 +65,5 @@ fan-out writer. `If-None-Match` is answered under the guard before any build.
   subscribers wait. With many distinct keys (per-focus views) the FIFO can push a waiter past
   the 30 s limit, and it gets 503.
 - The no-op check costs one type compare and one binary search per incoming attribute before a
-  write; `[ir]` measures it (CI job `scale`).
+  write. A local `cargo xtask scale` on hub measured 5770 Ir per event against the 5764
+  baseline (+0.1%) and 15340 against 15285 recorded (+0.4%); CI job `scale` owns the number.
