@@ -21,21 +21,22 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **The demo reads as Wikipedia.** The viewer shows each type's name, noun and icon, a **Live
+  changes** sentence feed, and Active now as `👤 1isall (22 changes)`. Types with no manifest row
+  still show raw key text ([#351](https://github.com/daveremy/stream2worlds/issues/351)).
+  [#350](https://github.com/daveremy/stream2worlds/pull/350)
 - **The demo names what it shows.** A System 2 manifest is stored on the demo box, and 20 of 20
-  sampled `/sentences` rows read clearly and match their events, for example "Llewee edited
-  Saint_David's_Day: /* School celebrations */ added link".
+  sampled `/sentences` rows read clearly and match their events.
   [#288](https://github.com/daveremy/stream2worlds/issues/288)
 - **A cold restart of the demo passes both gates.** All 10 cold restarts on the box load first
   paint under 1 s and the graph under 3 s with 4 viewers.
   [#331](https://github.com/daveremy/stream2worlds/issues/331)
-- **Events read as sentences.** `/sentences` and MCP `sentences` render the last N events from the
-  manifest's per-type sentence, each with the entities it names.
-  [#302](https://github.com/daveremy/stream2worlds/issues/302)
-- **The fallback no longer labels links by a category word.** A label needs coverage and at
-  least 8 distinct values (`dashboard-fallback/3`).
-  [#344](https://github.com/daveremy/stream2worlds/pull/344)
-- **In progress:** the live-demo label share ([#342](https://github.com/daveremy/stream2worlds/issues/342)) and the viewer showing names, icons and
-  sentences ([#289](https://github.com/daveremy/stream2worlds/issues/289)).
+- **Scoring keys can exclude a whole path.** `h-measure` key format 2 takes a prefix, so one
+  entry covers `data.log_params` and everything under it.
+  [#348](https://github.com/daveremy/stream2worlds/pull/348)
+- **In progress:** naming the unnamed types ([#351](https://github.com/daveremy/stream2worlds/issues/351)),
+  the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)) and the live-demo label share
+  ([#342](https://github.com/daveremy/stream2worlds/issues/342)).
 
 ## Demos
 
@@ -48,6 +49,10 @@ changes** lists the newest 200 events as the manifest's sentences, and **Active 
 the entities they name, for example `📄 Tucson, Arizona (22 changes)`. A pinned moment
 (`?at=`) keeps names and icons but shows the evidence list, since sentences are live only.
 With no manifest the page shows today's evidence view.
+
+![The live demo: a type graph, a legend and Active now, with names and icons](docs/assets/demo-live.jpg)
+
+*The live demo on 2026-09-30, after #289. Types with no manifest row still show raw key text (#351).*
 
 - **[local-routed-world](demos/local-routed-world/)**: `./demos/local-routed-world/run.sh
   [--keep]` — a local `s2w serve` whose world is routed from the first event (a human-accepted

@@ -13,6 +13,26 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The demo reads as Wikipedia, and scoring learns prefix paths — [#350](https://github.com/daveremy/stream2worlds/pull/350), [#348](https://github.com/daveremy/stream2worlds/pull/348), [#289](https://github.com/daveremy/stream2worlds/issues/289), [#224](https://github.com/daveremy/stream2worlds/issues/224) (2026-09-30)
+
+**Shipped:** the viewer now shows what the manifest knows ([#350](https://github.com/daveremy/stream2worlds/pull/350), deployed to the demo box at 14:04). `/sentences` entities carry a `label`; the graph and legend show each type's name, noun and kind icon; a **Live changes** feed lists the newest events as sentences; and **Active now** reads `<icon> <label> (<n> changes)`, for example `👤 1isall (22 changes)` in the README's new screenshot ([`docs/assets/demo-live.jpg`](docs/assets/demo-live.jpg), taken from the live demo after the deploy). Separately, `h-measure` key format 2 adds a prefix form for `unscored` paths ([#348](https://github.com/daveremy/stream2worlds/pull/348)), so one entry covers a path and everything under it instead of 84 exact `log_params` entries. The pinned v1 keys are untouched; v2 applies to future freezes.
+
+**Learned:** the screenshot shows the gap honestly. Types that have no manifest row still show raw key text in the graph and legend (for example `editor/first_edit_dt+performer/first_edit_dt · keys`), because the viewer only names what the manifest names ([#351](https://github.com/daveremy/stream2worlds/issues/351)).
+
+**Changed course:** the wording ruling is that the UI says "changes", not "edits". The manifest-driven noun, so a world can say "edits" where that is true, is follow-up [#347](https://github.com/daveremy/stream2worlds/issues/347). The plan for [#289](https://github.com/daveremy/stream2worlds/issues/289) called the feed "Live edits"; it shipped as "Live changes".
+
+**Next:** name the unnamed types in the graph and legend ([#351](https://github.com/daveremy/stream2worlds/issues/351)), then the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)). The live-demo label share ([#342](https://github.com/daveremy/stream2worlds/issues/342)) is still open.
+
+## The demo's display work gets a first leg, with no merge — [#289](https://github.com/daveremy/stream2worlds/issues/289) (2026-09-30)
+
+**Shipped:** no merge. Only the first leg of [#289](https://github.com/daveremy/stream2worlds/issues/289) (names, kind icons and a sentence feed in the viewer) ran this sprint. The change merged in the next sprint ([#350](https://github.com/daveremy/stream2worlds/pull/350)).
+
+**Learned:** nothing measured this sprint.
+
+**Changed course:** none.
+
+**Next:** finish and deploy [#289](https://github.com/daveremy/stream2worlds/issues/289), then capture the README screenshot from the live demo.
+
 ## A System 2 manifest names the demo's world, and the fallback label needs a floor — [#344](https://github.com/daveremy/stream2worlds/pull/344), [#288](https://github.com/daveremy/stream2worlds/issues/288) (2026-09-30)
 
 **Shipped:** the demo box now serves a manifest written by System 2 (proposal
@@ -912,7 +932,7 @@ the bridge registry (`s2w-app::Bridge`/`EngineRegistry`) remains a documented ga
 **Shipped:** retired the Wikimedia-bound compiled engines (`WikimediaPageChangeEngine`, the
 local-embeddings engine and its `model2vec-rs` dependency), the `Wikimedia` SSE dialect, and
 the `--wiki` flag; the `wikipedia` preset is now URL+settings data over the generic `sse`
-transport, with no domain-named dialect behind it (decision 0018). Two new `cargo xtask check`
+transport, with no domain-named dialect behind it. Two new `cargo xtask check`
 fitness functions enforce the rule going forward: a vocabulary scan (`xtask/src/vocabulary.rs`)
 that denylists domain terms across every crate's `src/` tree and the web view's TypeScript, and
 an obfuscation-replay check (`xtask/src/obfuscation.rs`) that folds the golden event log twice —
