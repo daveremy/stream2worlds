@@ -154,6 +154,8 @@ fn growth_needs_a_trailer() {
     assert_eq!(grown(&BTreeMap::new(), &base).len(), 2);
 
     assert!(growth_finding(&grew, Ok("fix: x\n\nBaseline-growth: s2w#156\n".into())).is_none());
+    let bare = growth_finding(&grew, Ok("fix: x\n\nno trailer here\n".into())).unwrap();
+    assert!(bare.starts_with("expect baseline grew"), "{bare}");
     let refused = growth_finding(&grew, Ok("fix: x\n\nBaseline-growth: s2w#\n".into())).unwrap();
     assert!(
         refused.starts_with("expect baseline grew (clippy::box_collection, dead_code)"),
@@ -198,7 +200,7 @@ fn the_committed_baseline_is_in_rendered_form() {
 }
 
 #[test]
-fn the_walk_finds_nested_files_and_skips_build_and_hidden_dirs() {
+fn the_walk_keeps_build_rs_and_skips_target_node_modules_and_hidden_dirs() {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let dir = std::env::temp_dir().join(format!(
         "s2w-expects-{}-{}",
