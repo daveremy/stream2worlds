@@ -13,6 +13,45 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## The world sheds a third of its memory, and the page stops waiting for it — [#299](https://github.com/daveremy/stream2worlds/pull/299), [#304](https://github.com/daveremy/stream2worlds/pull/304), [#305](https://github.com/daveremy/stream2worlds/pull/305), [#306](https://github.com/daveremy/stream2worlds/pull/306), [#307](https://github.com/daveremy/stream2worlds/pull/307) (2026-09-29)
+
+**Shipped:** the profiler no longer mints per-edit counters as entity types. A churn rule drops
+a key whose values move on and never come back under any key that follows it, and a type that only
+the second entity test admits becomes a leaf with one relationship (`PROFILER_VERSION` 6,
+[decision 0022](docs/decisions/0022-discover-profiler.md), [#291](https://github.com/daveremy/stream2worlds/issues/291) PR 1, [#306](https://github.com/daveremy/stream2worlds/pull/306)). On [#282](https://github.com/daveremy/stream2worlds/issues/282)'s
+fixture the head world falls from 887.1 to 596.8 MiB and world events from 20.0M to 14.3M, with
+`user` recall unchanged at 1.0. The demo page now asks for its first rows at load: `/events?last=N`
+serves the latest N events up to the server's head, every `/events` response carries `S2W-Epoch`
+and `S2W-Head`, and the viewer paints the evidence table and Active now from the first parsed
+chunk while `/world` is still loading ([#304](https://github.com/daveremy/stream2worlds/pull/304), [#305](https://github.com/daveremy/stream2worlds/pull/305), [#294](https://github.com/daveremy/stream2worlds/issues/294), [#295](https://github.com/daveremy/stream2worlds/issues/295)). A world can now
+have a dashboard manifest: [decision 0029](docs/decisions/0029-dashboard-manifest-v0.md) and
+`DashboardManifest` format 1 name the world's projection, roles and primary types, with an
+optional label, kind and noun per type. It is a `dashboard-manifest` proposal resolved per world
+by 0023's rule, readable at `GET /worlds/{world}/dashboard`, `s2w dashboard show` and the MCP
+`dashboard` tool; nothing proposes one yet ([#307](https://github.com/daveremy/stream2worlds/pull/307), [#300](https://github.com/daveremy/stream2worlds/issues/300)). `cargo xtask check` also holds
+parse instructions per event to a CI-measured baseline of 215,248 Ir/event ([#299](https://github.com/daveremy/stream2worlds/pull/299), [#166](https://github.com/daveremy/stream2worlds/issues/166)).
+
+**Learned:** the memory doubling had a cause we could name and remove: [#261](https://github.com/daveremy/stream2worlds/pull/261)'s second test
+admitted counters, sizes and comment text that no equality, presence or order statistic separates
+from a real child entity such as `user`, so the fix had to be a rule about values that never come
+back. The brief for [#291](https://github.com/daveremy/stream2worlds/issues/291) assumed a name-free separating rule existed before anyone had shown
+one, and the first leg spent itself finding out; plans now get a plan-only leg first. The demo
+check's new timing line is a baseline: RTT-adjusted first paint of 3.1 to 3.4 s for one viewer and
+5.1 to 5.9 s for four, on a browser RTT of about 160 ms, not the 0.48 s the plan assumed from curl.
+The wrap run passed again (S85 failed at 8.66 s), but that reflects a quieter box, not this
+sprint's code.
+
+**Changed course:** [#291](https://github.com/daveremy/stream2worlds/issues/291) ended as a churn rule for counters plus a narrow timestamp-format
+change (check 12 shifts timestamps instead of hashing them, still owed as PR 2) plus a leaf cap;
+free-text shape stays out of System 1. Two plans cleared review and became eleven sized child
+issues: progressive render ([#292](https://github.com/daveremy/stream2worlds/issues/292), children [#293](https://github.com/daveremy/stream2worlds/issues/293) to [#297](https://github.com/daveremy/stream2worlds/issues/297) and [#303](https://github.com/daveremy/stream2worlds/issues/303)) and the
+dashboard manifest ([#288](https://github.com/daveremy/stream2worlds/issues/288), children [#300](https://github.com/daveremy/stream2worlds/issues/300) to [#302](https://github.com/daveremy/stream2worlds/issues/302)). Merged main is not deployed; the demo
+box stays on b207c74f by the [#282](https://github.com/daveremy/stream2worlds/issues/282) ruling until the deploy below.
+
+**Next:** deploy [#305](https://github.com/daveremy/stream2worlds/pull/305) and [#306](https://github.com/daveremy/stream2worlds/pull/306) to the demo box and re-run the check with `--gates`, then
+single-flight `/world` ([#270](https://github.com/daveremy/stream2worlds/issues/270), in review), [#291](https://github.com/daveremy/stream2worlds/issues/291) PR 2, and the dashboard proposer and labels
+([#301](https://github.com/daveremy/stream2worlds/issues/301), [#302](https://github.com/daveremy/stream2worlds/issues/302)).
+
 ## Mappings merge entities, and the box's memory is explained — [#276](https://github.com/daveremy/stream2worlds/pull/276), [#279](https://github.com/daveremy/stream2worlds/pull/279), [#280](https://github.com/daveremy/stream2worlds/pull/280), [#281](https://github.com/daveremy/stream2worlds/pull/281), [#285](https://github.com/daveremy/stream2worlds/pull/285), [#286](https://github.com/daveremy/stream2worlds/pull/286), [#287](https://github.com/daveremy/stream2worlds/pull/287) (2026-09-29)
 
 **Shipped:** a mapping's `links` now do something. When both rules of a link match with

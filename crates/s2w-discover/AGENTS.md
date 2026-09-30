@@ -18,6 +18,9 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   value's text. Renaming keys and hashing strings changes the proposal only by the same
   renaming; `tests.rs` asserts it, and `cargo xtask check` 12 does on the recorded fixture
   (`testdata/recorded.raw.sse`, a link to the s2w-sources fixture). No tie is ever broken by a name.
+- The second entity test carries a churn guard and a leaf cap (decision 0022, `PROFILER_VERSION`
+  6): a key whose values move on and never return fails it, and a type only it admits relates
+  once. Both read stream order and equality only; no counter is named anywhere.
 - Type labels and attribute names are built from the stream's own key names, as data.
 - Abstaining is a first-class answer: every role that cannot be decided says so in `Profile`,
   and no mapping is emitted without an entity type or below `min_events`.

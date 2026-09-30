@@ -73,7 +73,8 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   the oldest down to half. Never add a second resident world (a base, or one per SSE follower):
   the head alone is most of the memory budget. World queries serve from `base()` (0 while every
   event since offset 0 is retained, else the head); `/events` replays from `replay_base()` using
-  the stored deltas; anything below is `offset_before_base` (410). Index the event list only
+  the stored deltas (`?last=N` replays the latest N through the head and clamps to it, so it never
+  answers `offset_before_base`); anything below is `offset_before_base` (410). Index the event list only
   through `events_after`, never by absolute offset. Never hand out the head `Arc` itself, or the
   next append copies the whole world and the old one stays alive.
   `QueryState::replace_timeline` is the one way to install a timeline. `serve`'s startup
