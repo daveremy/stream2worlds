@@ -21,9 +21,12 @@ const typeView = (offset, epoch, count = LARGE) => ({ offset, epoch, lod: 'type'
   nodes: [{ kind: 'type', id: 'type:page', entity_type: 'page', count }] });
 
 // One page load against fakes. `log` records every request and effect in order; `/world`
-// requests stay pending in `worlds` until the test resolves them.
+// requests stay pending in `worlds` until the test resolves them. `world(view)` answers every
+// `/world` request, pending and later (the summary and the full view), with `view`. `status`
+// follows main.ts's rule (#303): "Loading world…" until `mount`, which sets the note or ''.
 function page({ at, paintEvidence } = {}) {
   const log = [], worlds = [];
+  let answer, status = 'Loading world…';
   const params = new URLSearchParams(at === undefined ? 'world=w' : `world=w&at=${at}`);
   const state = new ViewState(params);
   const tail = deferred(), seed = deferred();
@@ -36,13 +39,16 @@ function page({ at, paintEvidence } = {}) {
     sources: async () => { log.push('sources'); return []; },
     tail: s => { log.push('tail'); stream = s; return tail.promise; },
     evidence: offset => { log.push(`evidence at=${offset}`); return seed.promise; },
-    loadWorld: () => loadWorld(params, request => {
+    loadWorld: onSummary => loadWorld(params, request => {
       const d = deferred(); worlds.push({ request: new URLSearchParams(request), d });
-      log.push(`world ${request}`); return d.promise;
-    }),
+      log.push(`world ${request}`);
+      if (answer) d.resolve(answer);
+      return d.promise;
+    }, onSummary),
     open: () => log.push(`open from=${state.lastAppliedOffset} epoch=${state.epoch}`),
     paintEvidence: paintEvidence ? () => { paintEvidence(state); log.push('paint'); } : () => log.push(`paint ${state.evidence.length}`),
-    mount: l => { loaded = l; log.push(`mount ${l.request}`); },
+    summary: view => log.push(`summary ${view.lod} status=${status}`),
+    mount: l => { loaded = l; status = l.note ?? ''; log.push(`mount ${l.request}`); },
     restartStale: () => { aborted = true; log.push('restart'); },
   };
   const run = bootstrap(deps);
@@ -53,7 +59,10 @@ function page({ at, paintEvidence } = {}) {
     chunk: messages => stream.onRows(messages),
     close: (head, epoch = EPOCH, messages = []) => tail.resolve({ messages, head, epoch }),
     seed: (messages, head, epoch = EPOCH) => seed.resolve({ messages, head, epoch }),
-    world: (view, i = worlds.length - 1) => worlds[i].d.resolve(view),
+    world: view => { answer = view; for (const { d } of worlds) d.resolve(view); },
+    // Answers only the `/world` request `i`, leaving later ones pending.
+    worldAt: (i, view) => worlds[i].d.resolve(view),
+    status: () => status,
     live: message => liveRow(state, guard, message, deps.paintEvidence),
   };
 }
@@ -272,4 +281,53 @@ test('a pinned world view never refreshes', async () => {
   p.world(typeView(30, EPOCH));
   await p.run;
   assert.ok(!p.log.some(line => line.startsWith('refresh')));
+});
+
+// #303: the summary is drawn first, but the page is not loaded, and the status not cleared,
+// until the full type view lands.
+const summaryView = (offset, epoch, count = LARGE) => ({ ...typeView(offset, epoch, count), links: [] });
+
+test('a large world draws the summary under "Loading world…", then mounts the full type view', async () => {
+  const p = page();
+  await tailed(p, 1, 500);
+  p.live(row(501));
+  assert.equal(String(p.worlds[0].request), 'world=w&lod=type&links=none');
+  p.worldAt(0, summaryView(480, EPOCH));
+  await tick();
+  assert.deepEqual(p.log.filter(line => line.startsWith('summary')), ['summary type status=Loading world…']);
+  assert.equal(p.status(), 'Loading world…');
+  assert.equal(p.guard.loaded, false, 'the summary does not make the page loaded');
+  assert.ok(!p.log.some(line => line.startsWith('mount') || line.startsWith('refresh')));
+  assert.equal(p.worlds.length, 2);
+  assert.equal(String(p.worlds[1].request), 'world=w&lod=type');
+  p.worldAt(1, typeView(480, EPOCH));
+  await p.run;
+  assert.equal(p.guard.loaded, true);
+  assert.match(p.status(), /too many to draw/);
+  assert.deepEqual(p.log.filter(line => line.startsWith('summary')).length, 1);
+  assert.ok(p.log.findIndex(line => line.startsWith('summary')) < p.log.indexOf('mount world=w&lod=type'));
+  // Refreshes use the full type view, never the summary.
+  assert.deepEqual(p.log.filter(line => line.startsWith('refresh')), ['refresh world=w&lod=type']);
+});
+
+test('a small world goes summary then entity, draws no summary, and clears the status', async () => {
+  const p = page();
+  await tailed(p, 1, 500);
+  p.worldAt(0, summaryView(500, EPOCH, 40));
+  await tick();
+  assert.deepEqual(p.worlds.map(w => String(w.request)), ['world=w&lod=type&links=none', 'world=w&lod=entity']);
+  p.worldAt(1, { offset: 500, epoch: EPOCH, lod: 'entity', focus: null, links: [], nodes: [] });
+  await p.run;
+  assert.ok(!p.log.some(line => line.startsWith('summary')));
+  assert.equal(p.status(), '');
+  assert.ok(p.log.includes('mount world=w&lod=entity'));
+});
+
+test('a summary from another history restarts the page and draws nothing', async () => {
+  const p = page();
+  await tailed(p, 1, 500, EPOCH);
+  p.worldAt(0, summaryView(480, OTHER));
+  await tick();
+  assert.ok(p.log.includes('restart'));
+  assert.ok(!p.log.some(line => line.startsWith('summary')));
 });

@@ -47,6 +47,7 @@ test('a small world keeps the entity view by default, after a type probe', async
   const { sent, fetchView } = server(SMALL);
   const loaded = await loadWorld(new URLSearchParams('world=default'), fetchView);
   assert.deepEqual(sent.map(r => r.get('lod')), ['type', 'entity']);
+  assert.equal(loaded.request.has('links'), false);
   assert.equal(loaded.view.lod, 'entity');
   assert.equal(loaded.note, undefined);
 });
@@ -70,7 +71,8 @@ test('a world that grows past the limit between the probe and the entity fetch s
   const fetchView = async request => { sent.push(String(request));
     return request.get('lod') === 'type' ? typeView(SMALL) : entityView(ENTITY_VIEW_LIMIT + 1); };
   const loaded = await loadWorld(new URLSearchParams(), fetchView);
-  assert.deepEqual(sent, ['lod=type', 'lod=entity']);
+  assert.deepEqual(sent, ['lod=type&links=none', 'lod=entity', 'lod=type']);
+  assert.equal(String(loaded.request), 'lod=type');
   assert.equal(loaded.view.lod, 'type');
   assert.equal(loaded.request.get('lod'), 'type');
   assert.match(loaded.note, /5,001 entities/);
@@ -116,4 +118,53 @@ test('a submit keeps the asked level while the selector shows an untouched fallb
   // No fallback: the selection goes as picked.
   assert.equal(submittedLod('type', 'entity', 'entity'), 'type');
   assert.equal(submittedLod('entity', 'type', 'type'), 'entity');
+});
+
+// #303: the type summary (`lod=type&links=none`, #296) is the size probe and is drawn first.
+const summarized = () => { const drawn = []; return { drawn, onSummary: view => drawn.push(view) }; };
+
+test('every request is bounded and the first one is the summary', async () => {
+  for (const size of [SMALL, LARGE]) for (const lod of [undefined, 'entity', 'type']) {
+    const params = new URLSearchParams('world=default');
+    if (lod) params.set('lod', lod);
+    const { sent, fetchView } = server(size);
+    await loadWorld(params, fetchView, summarized().onSummary);
+    assert.equal(String(sent[0]), String(new URLSearchParams({ world: 'default', lod: 'type', links: 'none' })), `${params}`);
+    // A small world's entity view is unbounded by shape but gated by the summary's count.
+    if (size === LARGE) for (const request of sent) assert.ok(bounded(request), `${params} sent ${request}`);
+  }
+});
+
+test('a small world sends summary then entity, and draws no summary', async () => {
+  const { sent, fetchView } = server(SMALL);
+  const { drawn, onSummary } = summarized();
+  const loaded = await loadWorld(new URLSearchParams('world=default'), fetchView, onSummary);
+  assert.deepEqual(sent.map(String), ['world=default&lod=type&links=none', 'world=default&lod=entity']);
+  assert.equal(drawn.length, 0);
+  assert.equal(loaded.view.lod, 'entity');
+});
+
+test('a large world sends summary then the full type view, and draws the summary once', async () => {
+  const { sent, fetchView } = server(LARGE);
+  const { drawn, onSummary } = summarized();
+  const loaded = await loadWorld(new URLSearchParams('world=default'), fetchView, onSummary);
+  assert.deepEqual(sent.map(String), ['world=default&lod=type&links=none', 'world=default&lod=type']);
+  assert.equal(drawn.length, 1);
+  assert.equal(entityCount(drawn[0]), LARGE);
+  assert.match(loaded.note, /310,669 entities/);
+});
+
+test('the served request after load is the full type view, never the summary', async () => {
+  for (const [size, query] of [[LARGE, 'world=default'], [LARGE, 'world=default&lod=type'], [SMALL, 'world=default&lod=type'],
+    [LARGE, 'world=default&lod=type&links=none']]) {
+    const loaded = await loadWorld(new URLSearchParams(query), server(size).fetchView, summarized().onSummary);
+    assert.equal(String(loaded.request), 'world=default&lod=type', `${query}`);
+  }
+});
+
+test('onSummary is called before the full type view is requested', async () => {
+  const order = [];
+  const fetchView = async request => { order.push(`fetch ${request}`); return typeView(LARGE); };
+  await loadWorld(new URLSearchParams('lod=type'), fetchView, () => order.push('summary'));
+  assert.deepEqual(order, ['fetch lod=type&links=none', 'summary', 'fetch lod=type']);
 });
