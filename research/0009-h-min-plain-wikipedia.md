@@ -213,7 +213,8 @@ Each is a candidate; karpathy assigns the disposition.
 1. **Containment (inclusion dependencies) as s2w-discover stage 5b, `PROFILER_VERSION` 3 =
    H-min proper,** decided from the development-window table and scored on the reserved corpus.
    → deferred: #244. *2026-09-29: `PROFILER_VERSION` 3 went to #250 PR 1 (addendum below);
-   #244's change takes 4.*
+   #244's change takes 4.* *2026-09-29: 4 went to #250 PR 2; #244's change took 5 and was scored on
+   `reserved` (addendum below, dated in UTC).*
 2. **The mapping format's alias limit is a finding for System 2's design,** not only for H: no
    v0 producer can join different values that name one entity, and the oracle ceiling is not
    the best v0 mapping (H-lite beats it on `wiki`). → deferred: #245.
@@ -343,3 +344,80 @@ below 0.60, so the row of #4's decision table that applies is unchanged ("entity
 0.60: fix H before comparing H with H+S2"). The remaining losses this report names are `revision`
 (#244, now `PROFILER_VERSION` 5) and the alias key (#245).
 
+
+## Addendum 2026-09-30 (UTC): implication 1, containment (s2w#244, `PROFILER_VERSION` 5)
+
+**Change.** Decision 0022's stage-5b amendment (dated 2026-09-29) adds stage 5b: two `Entity` or `EventId` paths
+share one value domain when at least 10% of one path's distinct values also appear at the other
+(coverage) and at least 95% of the shared values appear at the other path first, in a strictly
+earlier event (carry). The pair then keys one type. On `dev` it accepts exactly `revision.old` →
+`revision.new`, at N = 10^4 and at 2x10^5; `revision.new` and `revision.old` are each unique per
+event, so no earlier version keyed them. Nothing else changes in the mapping.
+
+**Hygiene.** `reserved` (10^5 events, 2026-09-29 02:15 to 05:15 UTC, pinned in 2bf39ba before
+any key or score) was the span this issue named, and neither #56 nor #250 had opened it. Whether
+to build was read from the development-window table (disclosed, in sample: v4 → v5 on `dev`,
+N = 10^4, R 0.2823 → 0.3674, F1 0.4383 → 0.5349). The rule (eb48f5b) and its docs (59173df)
+were committed, and the predictions P1-P6 were posted on #244
+([comment](https://github.com/daveremy/stream2worlds/issues/244#issuecomment-5902011361),
+01:03 UTC). Two crate commits followed before the opening: a refine pass (2061aa2: each pair
+measured once by a merge walk; the `dev` freezes at both windows and the 10^4 profile re-derive
+byte-identical) and round-1 review fixes (762493a: a test and comments, no rule change). Then
+`reserved` was opened as held-out (709923f, 01:18 UTC). v5 was frozen on `dev` after the opening
+(0551300); the in-sample freezes made before the opening were not committed, and each differs
+from the committed file only in the line that records `reserved`'s role. No crate changed between the
+opening and the scores, and no threshold was chosen after any held-out score was seen.
+
+v4 was scored from a build of `main` @ 455c547 with only the `corpora.toml` flip applied. This
+deviates from the posted plan, which named v4's committed freezes: those freezes had recorded
+`reserved`'s old role, so `score` refused them ("freeze again under the current pins"); v4 was
+re-frozen on `dev` under the current pins
+(`frozen/h-lite-v4.dev-{10000,200000}.pins-244.json`), and each file differs from the committed
+v4 freeze only in that pin line. Reports:
+`research/h-measure/results/{h-min-v5,h-lite-v4}.dev-{10000,200000}.reserved.md`.
+
+**Result** on `reserved`, base key `dev-key-v1.json`:
+
+| mapping | P | R | F1 | false-merge | recovery | `revision` P | `revision` R |
+|---|---|---|---|---|---|---|---|
+| v4, N = 10^4 | 0.9922 | 0.2866 | 0.4447 | 0.0078 | 0.0314 | undefined | 0.0000 |
+| **v5, N = 10^4** | 0.9933 | **0.3646** | **0.5334** | 0.0067 | **0.1250** | 1.0000 | 1.0000 |
+| v4, N = 2x10^5 | 0.9856 | 0.3440 | 0.5100 | 0.0144 | 0.0314 | undefined | 0.0000 |
+| v5, N = 2x10^5 | 0.9873 | 0.4220 | 0.5912 | 0.0127 | 0.1250 | 1.0000 | 1.0000 |
+| ceiling (oracle v0) | 1.0000 | 0.3973 | 0.5687 | 0.0000 | 0.1320 | | |
+
+Without the singleton-only types (`event`, `log`), mapping F1 is 0.4898 → 0.5840 at 10^4 and
+0.5591 → 0.6448 at 2x10^5 (ceiling 0.4806). Under the canonical-mention key, mapping F1 is
+0.3484 → 0.5231 and recovery 0.1290 → 0.5130 at 10^4; at 2x10^5, F1 0.5898 → 0.7182 and recovery
+0.5701 → 0.9541. Under `user-global`, F1 is 0.4455 → 0.5342 at 10^4. Among the scored paths, v5
+differs from v4 only in predicting `data.revision.new` (36,494 mentions) and `data.revision.old`
+(31,399), at both windows.
+
+v5's 2x10^5 mapping F1 (0.5912) exceeds the oracle-v0 ceiling (0.5687) for the reason the PR 2
+addendum gives: at that window the mapping also keys `title` as a type separate from the
+`title_url` class, and `score` counts both encodings of the page against one identity (`page` R
+0.50 against a type ceiling of 0.25). That is the #245 alias-key finding, not evidence for 5b.
+
+**Context collisions.** `revision @ data.wiki`: 2 groups, 4 mentions, P 0.5000, R 1.0000 (v4:
+R 0). The mapping keys the revision number alone, so equal revision numbers on two wikis merge;
+the key's identity separates them. The merge touches 4 of 67,893 revision mentions, and the
+type-level P is at least 0.9999 (it prints as 1.0000).
+
+**Pre-registered predictions** (N = 10^4, base key unless stated):
+
+| | prediction | measured | |
+|---|---|---|---|
+| P1 | `revision` R >= 0.95 and P >= 0.99 | R 1.0000, P 1.0000 | hit |
+| P2 | mapping R delta >= +0.06, F1 delta >= +0.07 | +0.0780, +0.0887 | hit |
+| P3 | mapping P >= v4's P − 0.01; false-merge <= 0.02; only `data.revision.new`/`old` change predicted count | 0.9933 (v4 0.9922); 0.0067; only those two | hit |
+| P4 | entity recovery in [0.10, 0.30], below 0.60 | 0.1250 | hit |
+| P5 | canonical-mention recovery in [0.45, 0.70] (crossing 0.60 not predicted) | 0.5130 | hit |
+| P6 | `revision @ data.wiki`: groups > 0 and P < 1 | 2 groups, P 0.5000 | hit |
+| control | N = 2x10^5: `revision` R >= 0.95; F1 delta >= +0.07 | 1.0000; +0.0812 | hit |
+
+**Reading.** Stage 5b recovers the `revision` type on held-out data at full recall and
+precision; mapping F1 rises from 0.44 to 0.53 at the frozen window, with precision unchanged.
+Entity recovery rises from 0.03 to 0.13 and stays below 0.60 under the base key, so the row of #4's
+decision table that applies is unchanged ("entity recovery < 0.60: fix H before comparing H with
+H+S2"). This is H-min proper as #4 and decision 0010 define it; the remaining named loss is the
+alias key (#245).

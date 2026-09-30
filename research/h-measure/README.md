@@ -6,7 +6,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, and reserved-3 for s2w#250 PR 2): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, and reserved-3 for s2w#250 PR 2; `reserved` opened as held-out by s2w#244, the others by the PRs named): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `keys.toml` | Every answer key's sha256, pinned before any score is run, and the reading of #17 it encodes. |
 | `dev-key-v0.json` | dev-key v0: the base key (key-spec format v0, `xtask/src/h_measure/key.rs`). |
@@ -17,6 +17,8 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `results/h-lite-v2.dev-N.<corpus>.md` | The pre-registered held-out reports, one per frozen file and held-out corpus, read in research [0009](../0009-h-min-plain-wikipedia.md). |
 | `frozen/h-lite-v3.dev-N.json`, `results/h-lite-v3.*` | H-lite `PROFILER_VERSION` 3 (s2w#250 PR 1): frozen on `dev` at the same windows, its `dev` profile table, and its `reserved-2` reports next to v2's on the same span. |
 | `frozen/h-lite-v4.dev-N.json`, `results/h-lite-v4.*` | H-lite `PROFILER_VERSION` 4 (s2w#250 PR 2, the second entity test): frozen on `dev` at the same windows, its `dev` profile table, and its `reserved-3` reports, with v3's reports on the same span beside them. |
+| `frozen/h-min-v5.dev-N.json`, `results/h-min-v5.*` | H-min `PROFILER_VERSION` 5 (s2w#244, stage 5b containment): frozen on `dev` after `reserved` was opened, its `dev` profile table, and its `reserved` reports. |
+| `frozen/h-lite-v4.dev-N.pins-244.json`, `results/h-lite-v4.dev-N.reserved.md` | v4 re-frozen on `dev` under the pins after `reserved` was opened (only that pin line differs from `h-lite-v4.dev-N.json`, which `score` now refuses for `reserved`), and its `reserved` reports beside v5's. |
 
 ## Rules
 

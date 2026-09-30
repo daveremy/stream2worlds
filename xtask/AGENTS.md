@@ -110,8 +110,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     `research/h-measure/frozen/`, reports in `research/h-measure/results/`. `score` re-runs the
     freeze, so a later `PROFILER_VERSION` or `Config` change, or any `s2w-discover` change that
     alters the mapping written, makes those files refuse to score; that is intended (the commit that froze them names the build). A new profiler version
-    is frozen to a new file and scored on the `reserved` corpus (#244), never on the spans 0009
-    already read.
+    is frozen to a new file and scored on a span pinned before it and never read, never on the
+    spans 0009 already read (#244 used `reserved`, #250 `reserved-2` and `reserved-3`). Opening
+    a span changes its pin, so a freeze made before the opening must be re-frozen under the
+    current pins to score it (#244: `h-lite-v4.dev-N.pins-244.json`).
   - The ceiling row is `KeySpec::oracle()`'s mapping, not the best v0 mapping for the key: a
     mapping that joins two alias paths holding equal values can beat it on that type (H-lite
     does on the plain key's `wiki`). Reports and notes call it the oracle-v0 ceiling (#245).

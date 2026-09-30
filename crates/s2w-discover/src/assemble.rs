@@ -1,5 +1,6 @@
-//! Stages 5 and 6 of research 0002 §6, H-lite subset: per-event value-equality aliases,
-//! attributes by functional dependency, co-occurrence relationships, and the emitted mapping.
+//! Stages 5 and 6 of research 0002 §6, H-min subset: per-event value-equality aliases joined
+//! with the stage-5b inclusion dependencies (`contain.rs`), attributes by functional dependency,
+//! co-occurrence relationships, and the emitted mapping.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -19,14 +20,17 @@ struct Type {
     merged: Vec<usize>,
 }
 
-/// Builds the mapping from the entity paths in `roles`, or says why there is none.
+/// Builds the mapping from the entity paths in `roles` and the paths in stage 5b's `links`, or
+/// says why there is none.
 pub(crate) fn assemble(
     table: &Table,
     roles: &[Role],
+    links: &[(usize, usize)],
     cfg: &Config,
 ) -> Result<StreamMapping, String> {
+    let linked: BTreeSet<usize> = links.iter().flat_map(|&(a, b)| [a, b]).collect();
     let keys: Vec<usize> = (0..roles.len())
-        .filter(|&p| roles[p] == Role::Entity)
+        .filter(|&p| roles[p] == Role::Entity || linked.contains(&p))
         .collect();
     if keys.is_empty() {
         return Err(
@@ -34,7 +38,7 @@ pub(crate) fn assemble(
                 .to_owned(),
         );
     }
-    let types = merge_one_to_one(table, alias_classes(table, &keys, cfg), cfg);
+    let types = merge_one_to_one(table, key_classes(table, &keys, links, cfg), cfg);
     let key_set: BTreeSet<usize> = keys.iter().copied().collect();
     let classes: Vec<Vec<FieldPath>> = types
         .iter()
@@ -43,7 +47,13 @@ pub(crate) fn assemble(
     let mut entities = Vec::new();
     for (ty, label) in types.iter().zip(type_labels(&classes)) {
         for &k in &ty.members {
-            let mut attrs = attributes(table, k, &key_set, cfg);
+            // Only an entity-test key has the repeat groups the attribute test reads; a key that
+            // is unique per event (stage 5b's) has none, so it carries no attributes.
+            let mut attrs = if roles[k] == Role::Entity {
+                attributes(table, k, &key_set, cfg)
+            } else {
+                Vec::new()
+            };
             attrs.extend(ty.merged.iter().map(|&m| attr(table, m)));
             attrs.sort_by(|a, b| a.name.cmp(&b.name));
             entities.push(EntityRule {
@@ -160,12 +170,21 @@ fn co_occurring<'a>(a: &'a [Option<String>], b: &'a [Option<String>]) -> Vec<(&'
         .collect()
 }
 
-/// Union of entity paths that hold equal values in the same events.
-fn alias_classes(table: &Table, keys: &[usize], cfg: &Config) -> Vec<Vec<usize>> {
-    components(keys.len(), |i, j| aliased(table, keys[i], keys[j], cfg))
-        .into_iter()
-        .map(|c| c.into_iter().map(|i| keys[i]).collect())
-        .collect()
+/// Union of key paths that hold equal values in the same events (stage 5) or share one value
+/// domain across events (stage 5b's `links`).
+fn key_classes(
+    table: &Table,
+    keys: &[usize],
+    links: &[(usize, usize)],
+    cfg: &Config,
+) -> Vec<Vec<usize>> {
+    components(keys.len(), |i, j| {
+        let pair = (keys[i].min(keys[j]), keys[i].max(keys[j]));
+        links.binary_search(&pair).is_ok() || aliased(table, keys[i], keys[j], cfg)
+    })
+    .into_iter()
+    .map(|c| c.into_iter().map(|i| keys[i]).collect())
+    .collect()
 }
 
 /// Non-key paths constant under `k`'s repeated values. `k` passed the entity test, so it has

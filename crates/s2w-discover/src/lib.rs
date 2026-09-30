@@ -1,5 +1,6 @@
-//! Structure discovery, H-lite (decision 0022; research 0002 §6 stages 1 to 4, plus per-event
-//! value-equality aliases and co-occurrence relationships).
+//! Structure discovery, H-min (decision 0022; research 0002 §6 stages 1 to 4, plus per-event
+//! value-equality aliases, inclusion dependencies between identifier paths (stage 5b) and
+//! co-occurrence relationships). `PROFILER_VERSION` 2 to 4 were H-lite: no stage 5b.
 //!
 //! [`discover`] reads a window of raw payloads, exactly as the log stores them, and proposes a
 //! [`StreamMapping`] or abstains. It reads statistics, never meaning: every decision rests on
@@ -11,18 +12,20 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 mod assemble;
+mod contain;
 mod flatten;
 mod roles;
 
 use s2w_model::{FieldPath, Segment, StreamMapping};
 
+pub use contain::Containment;
 pub use roles::Role;
 
 /// The profiler's version, recorded on every proposal it makes (`Actor::Agent { model: "h-lite",
 /// version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
-pub const PROFILER_VERSION: &str = "4";
+pub const PROFILER_VERSION: &str = "5";
 
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,6 +64,14 @@ pub struct Config {
     /// How far apart, as a share of the events profiled, a repeat group's first and last events
     /// must be to count toward `spread_groups_pct`.
     pub spread_window_pct: usize,
+    /// Stage 5b: share of a path's distinct values that must also appear at another identifier
+    /// path before the two can share one value domain (research 0002 §3's "about 10%").
+    pub contain_pct: usize,
+    /// Stage 5b: share of those shared values that must appear at the other path first, in a
+    /// strictly earlier event (the carry order that separates a reference from chance).
+    pub carry_pct: usize,
+    /// Stage 5b: distinct values per path compared, the first ones in stream order.
+    pub contain_cap: usize,
 }
 
 impl Default for Config {
@@ -80,6 +91,9 @@ impl Default for Config {
             category_max: 32,
             spread_groups_pct: 25,
             spread_window_pct: 10,
+            contain_pct: 10,
+            carry_pct: 95,
+            contain_cap: 250_000,
         }
     }
 }
@@ -110,6 +124,9 @@ pub struct Profile {
     pub event_type: Option<FieldPath>,
     /// Every path, sorted.
     pub paths: Vec<PathProfile>,
+    /// Stage 5b: every identifier pair with at least `min_support` shared values, both
+    /// directions, accepted or not, sorted by (referrer, referenced).
+    pub contained: Vec<Containment>,
 }
 
 /// The profiler's answer.
@@ -144,12 +161,14 @@ pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
         })
         .collect();
     paths.sort_by(|a, b| a.path.cmp(&b.path));
+    let (contained, links) = contain::measure(&table, &roles, cfg);
     let profile = Profile {
         events: table.events,
         skipped: table.skipped,
         decode: table.decode.clone(),
         event_type: roles::event_type(&table, cfg).map(|p| table.paths[p].clone()),
         paths,
+        contained,
     };
     let discovery = if table.events < cfg.min_events {
         Discovery::Abstain(format!(
@@ -157,7 +176,7 @@ pub fn discover(payloads: &[&[u8]], cfg: &Config) -> (Profile, Discovery) {
             table.events, cfg.min_events
         ))
     } else {
-        match assemble::assemble(&table, &roles, cfg) {
+        match assemble::assemble(&table, &roles, &links, cfg) {
             Ok(mapping) => Discovery::Mapping(mapping),
             Err(reason) => Discovery::Abstain(reason),
         }
