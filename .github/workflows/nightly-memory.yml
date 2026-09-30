@@ -1,0 +1,57 @@
+name: nightly-memory
+# The default `backfill_memory` sweep, nightly (s2w#282). The sweep is `#[ignore]`d in `ci.yml`: it
+# folds 1.5x10^5 events several times (~5-10 min plus a release build), too slow for every PR. Before
+# this workflow nothing ran it, so a profiler change doubled the head world (887 MiB) and broke its
+# 600 MiB assertion with CI green. Budget and limits: decision 0026.
+#
+# Hub only: the asserted peaks were measured on the hub runner's glibc, so the job does not fall
+# back to GitHub-hosted runners when `vars.S2W_RUNNER == 'down'` (it is skipped instead).
+# A failed run opens (or comments on) an issue labelled `nightly-memory`, because a scheduled run
+# has no PR to turn red. GitHub disables `schedule` after 60 days with no push to the default
+# branch; `workflow_dispatch` runs it by hand.
+on:
+  schedule:
+    - cron: "17 10 * * *"  # 03:17 MST
+  workflow_dispatch:
+concurrency:
+  group: nightly-memory  # one sweep at a time on the single runner, so two never skew each other's peaks
+  cancel-in-progress: false
+permissions:
+  contents: read
+  issues: write
+jobs:
+  backfill-memory:
+    if: vars.S2W_RUNNER != 'down'
+    timeout-minutes: 45
+    runs-on: [self-hosted, s2w]
+    steps:
+      - name: self-hosted paths (no bare /tmp; per-job cargo target under the runner user's cache)
+        run: |
+          mkdir -p "$HOME/.cache/cargo-target/s2w-nightly" "$RUNNER_TEMP/tmp"
+          echo "CARGO_TARGET_DIR=$HOME/.cache/cargo-target/s2w-nightly" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98"
+      - name: discovered entity types and their share of world events
+        run: cargo test --release -p s2w-app --test discovered_types -- --nocapture
+      - name: backfill_memory default sweep (asserts decision 0026's limits)
+        run: cargo test --release -p s2w-app --test backfill_memory -- --ignored --nocapture
+      - name: report a failure as an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}"
+          auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+          body=$(printf 'nightly-memory failed on %s: %s\n\nDecision 0026 has the budget; the run log has the `result` lines.' "$GITHUB_SHA" "$RUN_URL")
+          open=$(curl -fsS "${auth[@]}" "${api}/issues?state=open&labels=nightly-memory&per_page=1" | jq -r '.[0].number // empty')
+          if [ -n "$open" ]; then
+            jq -n --arg body "$body" '{body: $body}' | curl -fsS "${auth[@]}" -X POST "${api}/issues/${open}/comments" -d @- > /dev/null
+          else
+            jq -n --arg body "$body" '{title: "nightly-memory: backfill_memory sweep failed", body: $body, labels: ["nightly-memory"]}' \
+              | curl -fsS "${auth[@]}" -X POST "${api}/issues" -d @- > /dev/null
+          fi

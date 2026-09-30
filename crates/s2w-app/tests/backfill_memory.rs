@@ -13,7 +13,7 @@
 //! - `bridge`: the real `Bridge` over a durable SQLite log holding the raw events, with the
 //!   mapping engine routed, polled to the end of the log. Its peak minus `timeline` is the
 //!   backfill's transient (payload batches, verdict rows, claims in flight). It asserts the
-//!   process's peak resident stays under [`SERVE_PEAK_LIMIT`] (600 MiB): the fitness function
+//!   process's peak resident stays under [`SERVE_PEAK_LIMIT`] (810 MiB): the fitness function
 //!   for decision 0026's history cap, with no viewer connected.
 //! - `queries`: after the `timeline` fold, a `/world` read at the head split into its parts,
 //!   each its own peak window: the projection alone (`view_at`, which borrows the head) and the
@@ -48,7 +48,7 @@
 //! the first, each with its own `ETag`. More than one reader reports and does not assert.
 //!
 //! Measurement variants (s2w#220, where the bridge's ~170 MiB over the head world goes). They
-//! run only when named in `S2W_BACKFILL_MEMORY_VARIANTS`, and never assert the 600 MiB limit:
+//! run only when named in `S2W_BACKFILL_MEMORY_VARIANTS`, and never assert the serve peak limit:
 //!
 //! - `bridge-run`: the `bridge` child with every `poll_once` on a tokio blocking-pool thread, as
 //!   `Bridge::run` does in serve (a per-thread glibc arena, not the main one).
@@ -127,12 +127,14 @@ mod backfill {
     const MAPPING_FILE: &str = "mapping.json";
     const SOURCE_FILE: &str = "source";
     /// The most a serve process may hold at its peak during this backfill, whole process,
-    /// no viewer connected (decision 0026): room under the demo box's `MemoryMax=1G` for the
-    /// viewer path and the allocator.
-    const SERVE_PEAK_LIMIT: usize = 600 * 1024 * 1024;
-    /// The demo box's `MemoryMax`: the most a serve process may hold at its peak with a viewer
-    /// connected (s2w#216's finish line).
-    const VIEWER_PEAK_LIMIT: usize = 1024 * 1024 * 1024;
+    /// no viewer connected (decision 0026, re-derived 2026-09-30 in s2w#282): the measured
+    /// 780.8 MiB peak on the post-#291 world plus a 29 MiB margin.
+    const SERVE_PEAK_LIMIT: usize = 810 * 1024 * 1024;
+    /// The most a serve process may hold at its peak with a viewer connected (s2w#216's finish
+    /// line; decision 0026, re-derived 2026-09-30 in s2w#282): the measured 1,280 MiB worst
+    /// peak plus a 40 MiB margin. Above the demo box's `MemoryMax=1G`; s2w#282 proposes the
+    /// box's new value.
+    const VIEWER_PEAK_LIMIT: usize = 1320 * 1024 * 1024;
     /// How often, in milliseconds, the `viewer` reader asks for the world. Unset: 5000, the
     /// page's `WORLD_REFRESH_MS` (the real client); 1000 is the page's old rate, a worst case.
     const VIEWER_TICK_MS: &str = "S2W_BACKFILL_MEMORY_VIEWER_TICK_MS";

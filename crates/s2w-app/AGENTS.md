@@ -152,6 +152,15 @@ recorded stream.
   re-pins `FIXTURE_HASH`, those counts, the linked-mapping counts in
   `tests/support/recorded_links.rs`, and `[recorded]`, `[ir.recorded] events`, `[parse] events`
   and the `[memory.recorded]` counts in `xtask/scale-baseline.toml` in the same PR.
+- `tests/discovered_types.rs` (s2w#282) runs `discover` on the recorded fixture and fails when
+  the discovered entity types differ from `tests/discovered_types.baseline.txt`, printing each
+  type's share of world events. The committed mapping above is pinned, so this is the one per-PR
+  test that sees profiler drift. An intended change updates the baseline in the same PR
+  (`S2W_DISCOVERED_TYPES_BLESS=1`) and says what each added type costs. The baseline is derived
+  output, not a human-owned fixture.
+- `tests/backfill_memory.rs` is `#[ignore]`d in `ci.yml`; `.github/workflows/nightly-memory.yml`
+  runs its default sweep and `discovered_types` nightly on the hub runner and opens a
+  `nightly-memory` issue on failure (s2w#282). Limits: decision 0026.
 - `tests/support/recorded_links.rs` (shared by `#[path]` next to `recorded.rs`) loads
   `tests/fixtures/recorded-links.mapping.json` (a symlink to `s2w-system1/testdata/sample-links.mapping.json`,
   the engine's own link-merge fixture) and pins what it makes of the recorded fixture: 81,669
