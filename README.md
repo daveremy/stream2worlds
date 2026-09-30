@@ -166,6 +166,12 @@ A restart under another stream mapping serves a new epoch. Pass `?epoch=` (or a
 answers `410` with `{"error": "stale_epoch"}` rather than another history's world, and an open
 `/events` stream ends with one `stale_epoch` error event. Bare offsets are served as before.
 
+`/events?last=N` (1 to 1000) replays the last N events through the current head and closes,
+clamped to `replay_base`, so it never answers `offset_before_base`. It is its own anchor:
+combined with `from`, `at` or a `Last-Event-ID` it answers `400`; `?epoch=` still pins it.
+Every `/events` response carries the epoch and head it resolved as `S2W-Epoch` and `S2W-Head`
+headers, so a client can open its live stream from there, even after an empty tail.
+
 `GET /worlds/{world}/sources?at=N` returns a JSON array of `SourceInfo`, one per source ID
 active at `N` (sorted by source id); omitting `at` uses the current timeline head. An addition
 is visible at its recorded offset, a removal is already absent at its offset, and the latest

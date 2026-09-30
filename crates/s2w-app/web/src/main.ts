@@ -200,7 +200,7 @@ async function start(): Promise<void> {
       const seed = await evidence(params, view.offset, view.epoch, signal);
       if (signal.aborted) return;
       state.epoch = view.epoch;
-      state.snapshot(view); seed.forEach(message => state.apply(message));
+      state.snapshot(view); seed.messages.forEach(message => state.apply(message));
       state.lastAppliedOffset = view.offset;
       // Live view only: learn whether a rebuild is in progress (#184) or the log has unrouted
       // traffic (#143), so the page can name that state instead of reading as broken.

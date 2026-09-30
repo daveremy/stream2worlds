@@ -584,6 +584,7 @@ struct Params {
     to: Option<String>,
     ts: Option<String>,
     epoch: Option<String>,
+    last: Option<String>,
 }
 
 pub(crate) fn parse<T: std::str::FromStr>(
@@ -981,6 +982,8 @@ fn sse_error(error: &QueryError) -> Event {
 /// SSE: replays strictly after `from` (or `Last-Event-ID`) through `at` and closes, or
 /// through the head when `at` is absent, then
 /// follows appends. Each message's `id:` is `<epoch>:<offset>`, the offset after its event.
+/// `last=N` (s2w#294) is its own anchor: the last N retained events through the head, then close.
+/// Every stream's headers carry `S2W-Epoch` and `S2W-Head`, the history and head it resolved.
 ///
 /// The offset comes from `Last-Event-ID` when present, else `from`; the epoch from the
 /// header's prefix when present, else `?epoch`. A supplied epoch that is not the served one
@@ -1010,6 +1013,10 @@ async fn events(
         Ok(ok) => ok,
         Err(e) => return e.into_response(),
     };
+    let resolved = [
+        ("s2w-epoch", cursor.epoch.to_string()),
+        ("s2w-head", cursor.head.to_string()),
+    ];
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(follow(state, cursor, tx));
     let headers = [(
@@ -1018,6 +1025,7 @@ async fn events(
     )];
     (
         headers,
+        resolved,
         Sse::new(CappedStream {
             inner: ReceiverStream::new(rx),
             _permit: permit,
@@ -1036,8 +1044,14 @@ fn sse_cap_guard(
         .map_err(|_| QueryError::StreamLimit)
 }
 
+/// The largest `last=`: a tail is a page's evidence seed, not a replay (s2w#294).
+const MAX_LAST: u64 = 1000;
+
 /// Validates an `/events` request under one read: the epoch first, then `at >= from`, then
 /// `from` against the retained window (decision 0026), then `at` against the head.
+///
+/// `last=N` resolves in the same read: `at` is the head and `from` is `head - N`, clamped up to
+/// the replay base, so a restart from a snapshot returns fewer events instead of 410.
 fn events_start(
     state: &QueryState,
     world: &str,
@@ -1047,6 +1061,9 @@ fn events_start(
     check_world(state, world)?;
     check_branch(p.branch.as_deref())?;
     let query_epoch = parse("epoch", p.epoch.as_deref())?;
+    if let Some(last) = parse::<u64>("last", p.last.as_deref())? {
+        return events_tail(state, p, last_event_id, query_epoch, last);
+    }
     let (epoch, from) = match last_event_id {
         Some(id) => {
             let (epoch, from) = parse_last_event_id(id)?;
@@ -1074,20 +1091,62 @@ fn events_start(
             epoch: t.epoch(),
             pos: from,
             at,
+            head: t.head(),
+        })
+    })
+}
+
+/// `last=N`: one anchor per request, so `from`, `at` and `Last-Event-ID` are refused.
+fn events_tail(
+    state: &QueryState,
+    p: &Params,
+    last_event_id: Option<&str>,
+    epoch: Option<Epoch>,
+    last: u64,
+) -> Result<Cursor, QueryError> {
+    if !(1..=MAX_LAST).contains(&last) {
+        return Err(QueryError::BadParameter {
+            name: "last",
+            reason: format!("'{last}': must be from 1 to {MAX_LAST}"),
+        });
+    }
+    for (name, present) in [
+        ("from", p.from.is_some()),
+        ("at", p.at.is_some()),
+        ("Last-Event-ID", last_event_id.is_some()),
+    ] {
+        if present {
+            return Err(QueryError::BadParameter {
+                name: "last",
+                reason: format!("cannot be combined with {name}"),
+            });
+        }
+    }
+    state.read(|t| {
+        t.check_epoch(epoch)?;
+        let head = t.head();
+        Ok(Cursor {
+            epoch: t.epoch(),
+            pos: head.saturating_sub(last).max(t.replay_base()),
+            at: Some(head),
+            head,
         })
     })
 }
 
 /// Where an SSE follower is: the history it started under, the offset it has sent through,
-/// and the bound it closes at.
+/// the bound it closes at, and the head when it started (the `S2W-Head` header).
 struct Cursor {
     epoch: Epoch,
     pos: u64,
     at: Option<u64>,
+    head: u64,
 }
 
 async fn follow(state: QueryState, cursor: Cursor, tx: mpsc::Sender<Result<Event, Infallible>>) {
-    let Cursor { epoch, mut pos, at } = cursor;
+    let Cursor {
+        epoch, mut pos, at, ..
+    } = cursor;
     let mut head = state.head.subscribe();
     loop {
         head.borrow_and_update();
