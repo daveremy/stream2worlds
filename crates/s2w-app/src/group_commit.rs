@@ -104,9 +104,47 @@ impl Reporter for HumanReporter {
     }
 }
 
-/// Consumes `source` into `log` with group commit until the stream ends.
+/// How [`pump`] turns stream items into log events: `convert` maps a source item to an event,
+/// and `on_error` decides what a source error means (see [`pump`]'s doc comment).
+pub(crate) struct Decode<C, O> {
+    pub(crate) convert: C,
+    pub(crate) on_error: O,
+}
+
+/// The membership gate [`pump`] checks before every poll: the gated `sources`, and `check`,
+/// which returns whether a source is still a member and its membership generation. An empty
+/// `sources` list gates nothing.
+pub(crate) struct Membership<'a, M> {
+    pub(crate) sources: &'a [SourceId],
+    pub(crate) check: M,
+}
+
+impl Membership<'static, fn(&SourceId) -> Result<(bool, i64), AppError>> {
+    /// No gated sources: every source is a member at generation 0.
+    pub(crate) fn ungated() -> Self {
+        Self {
+            sources: &[],
+            check: |_| Ok((true, 0)),
+        }
+    }
+}
+
+/// The running totals [`pump`] reports after every flush. `reconnects` counts
+/// `SourceError::Retrying` reports (s2w#79 round 2: counted here, in s2w-app, per
+/// `crates/s2w/AGENTS.md`'s "no logic here beyond argument parsing and output formatting" — a
+/// `Reporter` only renders it, never counts it).
+#[derive(Default)]
+struct Totals {
+    appended: u64,
+    duplicates: u64,
+    reconnects: u64,
+    last_cursor: Option<String>,
+}
+
+/// Consumes `source` into the log through `write` with group commit until the stream ends.
 ///
-/// `convert` turns a source item into a log event; its error stops the pump. `on_error` sees
+/// `decode.convert` turns a source item into a log event; its error stops the pump.
+/// `decode.on_error` sees
 /// every source error: `Ok((message, retry))` for one that was reported and skipped (`retry`
 /// marks a transient failure retried from the same position), or the error that stops the pump.
 /// The buffer is flushed, and `report` told about it, before any error is returned.
@@ -122,27 +160,32 @@ impl Reporter for HumanReporter {
 ///
 /// # Errors
 ///
-/// Returns the first error from the log, `convert` or `on_error`.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
-)]
+/// Returns the first error from the log, `decode.convert` or `decode.on_error`.
 #[expect(
     clippy::too_many_lines,
     reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
 )]
-pub(crate) async fn pump<S, T, E>(
+pub(crate) async fn pump<S, T, E, C, O, M>(
     mut write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     mut source: S,
-    mut convert: impl FnMut(T) -> Result<RawEvent, AppError>,
-    mut on_error: impl FnMut(E) -> Result<(String, bool), AppError>,
+    decode: Decode<C, O>,
     report: &mut dyn Reporter,
-    sources: &[SourceId],
-    mut membership: impl FnMut(&SourceId) -> Result<(bool, i64), AppError>,
+    membership: Membership<'_, M>,
 ) -> Result<bool, AppError>
 where
     S: Stream<Item = Result<T, E>> + Unpin,
+    C: FnMut(T) -> Result<RawEvent, AppError>,
+    O: FnMut(E) -> Result<(String, bool), AppError>,
+    M: FnMut(&SourceId) -> Result<(bool, i64), AppError>,
 {
+    let Decode {
+        mut convert,
+        mut on_error,
+    } = decode;
+    let Membership {
+        sources,
+        check: mut membership,
+    } = membership;
     let mut generations = Vec::new();
     for source in sources {
         let (member, generation) = membership(source)?;
@@ -154,13 +197,7 @@ where
     let mut stopped = false;
     let mut buffer: Vec<RawEvent> = Vec::with_capacity(MAX_BATCH);
     let mut deadline: Option<Instant> = None;
-    let mut appended: u64 = 0;
-    let mut duplicates: u64 = 0;
-    // Count of `SourceError::Retrying` reports so far (s2w#79 round 2: counted here, in
-    // s2w-app, per `crates/s2w/AGENTS.md`'s "no logic here beyond argument parsing and output
-    // formatting" — a `Reporter` only renders it, never counts it).
-    let mut reconnects: u64 = 0;
-    let mut last_cursor: Option<String> = None;
+    let mut totals = Totals::default();
     loop {
         // Never poll a removed source, including on a restart with an already-removed row.
         if stopped {
@@ -188,15 +225,7 @@ where
                 if let Ok(next) = tokio::time::timeout_at(at, source.next()).await {
                     next
                 } else {
-                    flush_and_report(
-                        &mut commit,
-                        &mut buffer,
-                        &mut appended,
-                        &mut duplicates,
-                        reconnects,
-                        &last_cursor,
-                        report,
-                    )?;
+                    flush_and_report(&mut commit, &mut buffer, &mut totals, report)?;
                     deadline = None;
                     continue;
                 }
@@ -205,53 +234,30 @@ where
         };
         let outcome = match next {
             None => {
-                flush_and_report(
-                    &mut commit,
-                    &mut buffer,
-                    &mut appended,
-                    &mut duplicates,
-                    reconnects,
-                    &last_cursor,
-                    report,
-                )?;
+                flush_and_report(&mut commit, &mut buffer, &mut totals, report)?;
                 return Ok(stopped);
             }
             Some(Ok(item)) => convert(item).map(|event| {
                 if buffer.is_empty() {
                     deadline = Some(Instant::now() + MAX_DELAY);
                 }
-                last_cursor = Some(String::from_utf8_lossy(event.cursor.as_bytes()).into_owned());
+                totals.last_cursor =
+                    Some(String::from_utf8_lossy(event.cursor.as_bytes()).into_owned());
                 buffer.push(event);
             }),
             Some(Err(error)) => on_error(error).map(|(message, retry)| {
                 if retry {
-                    reconnects += 1;
+                    totals.reconnects += 1;
                 }
                 report.source_error(&message, retry);
             }),
         };
         if let Err(error) = outcome {
-            flush_and_report(
-                &mut commit,
-                &mut buffer,
-                &mut appended,
-                &mut duplicates,
-                reconnects,
-                &last_cursor,
-                report,
-            )?;
+            flush_and_report(&mut commit, &mut buffer, &mut totals, report)?;
             return Err(error);
         }
         if buffer.len() >= MAX_BATCH {
-            flush_and_report(
-                &mut commit,
-                &mut buffer,
-                &mut appended,
-                &mut duplicates,
-                reconnects,
-                &last_cursor,
-                report,
-            )?;
+            flush_and_report(&mut commit, &mut buffer, &mut totals, report)?;
             deadline = None;
         }
     }
@@ -278,26 +284,23 @@ pub(crate) async fn pump_events<L: EventLog>(
         stream,
         progress,
         report,
-        &[],
-        |_| Ok((true, 0)),
+        Membership::ungated(),
     )
     .await
     .map(|_stopped_early| ())
 }
 
+/// [`pump_events`] with a membership gate: `membership` is checked before every poll (see
+/// [`Membership`]).
+///
 /// Returns `Ok(true)` if `pump` stopped early on a membership change rather than a natural end
 /// of stream — see [`pump`]'s doc comment.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
-)]
 pub(crate) async fn pump_events_gated(
     write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     stream: EventStream,
     progress: Progress<'_>,
     report: &mut dyn Reporter,
-    sources: &[SourceId],
-    membership: impl FnMut(&SourceId) -> Result<(bool, i64), AppError>,
+    membership: Membership<'_, impl FnMut(&SourceId) -> Result<(bool, i64), AppError>>,
 ) -> Result<bool, AppError> {
     // `pump_future` and `report_progress` are only ever joined here with `select!`, never
     // spawned onto another task, so a plain borrow (no `Rc`, no `Send` bound) is enough — the
@@ -317,18 +320,16 @@ pub(crate) async fn pump_events_gated(
             Ok((error.to_string(), retry))
         }
     };
+    let decode = Decode { convert, on_error };
     if report.wants_ticker() {
         tokio::select! {
-            result = pump(write, stream, convert, on_error, report, sources, membership) => result,
+            result = pump(write, stream, decode, report, membership) => result,
             // report_progress never returns, so `never` can never be constructed; this is the
             // exhaustive match for an empty type, not a fallback branch.
             never = report_progress(progress, &total, &last_event_at) => match never {},
         }
     } else {
-        pump(
-            write, stream, convert, on_error, report, sources, membership,
-        )
-        .await
+        pump(write, stream, decode, report, membership).await
     }
 }
 
@@ -376,29 +377,27 @@ async fn report_progress(
 
 /// Flushes the buffer, if there's anything in it, and reports the batch's duplicates and the
 /// running totals so far.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the running counters travel as separate arguments; grouping them in a struct is a follow-up refactor (s2w#156)"
-)]
 fn flush_and_report(
     log: &mut impl FnMut(Vec<RawEvent>) -> Result<Vec<AppendOutcome>, AppError>,
     buffer: &mut Vec<RawEvent>,
-    appended: &mut u64,
-    duplicates: &mut u64,
-    reconnects: u64,
-    last_cursor: &Option<String>,
+    totals: &mut Totals,
     report: &mut dyn Reporter,
 ) -> Result<(), AppError> {
     if buffer.is_empty() {
         return Ok(());
     }
     let (inserted, duplicate_positions) = flush(log, buffer)?;
-    *appended += inserted;
-    *duplicates += duplicate_positions.len() as u64;
+    totals.appended += inserted;
+    totals.duplicates += duplicate_positions.len() as u64;
     for position in duplicate_positions {
         report.duplicate(position.as_u64());
     }
-    report.flushed(*appended, *duplicates, reconnects, last_cursor.as_deref());
+    report.flushed(
+        totals.appended,
+        totals.duplicates,
+        totals.reconnects,
+        totals.last_cursor.as_deref(),
+    );
     Ok(())
 }
 
@@ -429,7 +428,7 @@ mod tests {
     use s2w_model::{Cursor, RawEvent, SourceId, Timestamp};
     use tokio_stream::wrappers::ReceiverStream;
 
-    use super::{HumanReporter, MAX_BATCH, Reporter, pump};
+    use super::{Decode, HumanReporter, MAX_BATCH, Membership, Reporter, pump};
     use crate::AppError;
 
     /// An in-memory log that records the size of every batch it is handed.
@@ -499,11 +498,12 @@ mod tests {
             let outcome = pump(
                 |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
-                event,
-                Err,
+                Decode {
+                    convert: event,
+                    on_error: Err,
+                },
                 &mut HumanReporter,
-                &[],
-                |_| Ok((true, 0)),
+                Membership::ungated(),
             )
             .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
@@ -520,11 +520,12 @@ mod tests {
                 pump(
                     |events, _| log.append_batch(events),
                     ReceiverStream::new(receiver),
-                    event,
-                    Err,
+                    Decode {
+                        convert: event,
+                        on_error: Err,
+                    },
                     &mut HumanReporter,
-                    &[],
-                    |_| Ok((true, 0)),
+                    Membership::ungated(),
                 )
                 .await
             });
@@ -559,11 +560,12 @@ mod tests {
             let outcome = pump(
                 |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
-                event,
-                Err,
+                Decode {
+                    convert: event,
+                    on_error: Err,
+                },
                 &mut HumanReporter,
-                &[],
-                |_| Ok((true, 0)),
+                Membership::ungated(),
             )
             .await;
             assert!(
@@ -654,16 +656,17 @@ mod tests {
             let outcome = pump(
                 |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
-                event,
-                |error: AppError| {
-                    // First source error retries (reconnect), the second is skipped — exercises
-                    // both `retry=true` and `retry=false` in one run.
-                    errors_seen += 1;
-                    Ok((error.to_string(), errors_seen == 1))
+                Decode {
+                    convert: event,
+                    on_error: |error: AppError| {
+                        // First source error retries (reconnect), the second is skipped — exercises
+                        // both `retry=true` and `retry=false` in one run.
+                        errors_seen += 1;
+                        Ok((error.to_string(), errors_seen == 1))
+                    },
                 },
                 &mut reporter,
-                &[],
-                |_| Ok((true, 0)),
+                Membership::ungated(),
             )
             .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
@@ -709,11 +712,12 @@ mod tests {
             let outcome = pump(
                 |events, _| log.append_batch(events),
                 tokio_stream::iter(items),
-                event,
-                |_| Ok((String::new(), false)),
+                Decode {
+                    convert: event,
+                    on_error: |_| Ok((String::new(), false)),
+                },
                 &mut HumanReporter,
-                &[],
-                |_| Ok((true, 0)),
+                Membership::ungated(),
             )
             .await;
             assert!(outcome.is_ok(), "pump failed: {outcome:?}");
@@ -757,11 +761,15 @@ mod membership_tests {
                         .append_batch_with_generations(events, generations)
                 },
                 CountPolls(polls.clone()),
-                Ok,
-                Err,
+                Decode {
+                    convert: Ok,
+                    on_error: Err,
+                },
                 &mut HumanReporter,
-                &[source],
-                |source| Ok(log.borrow().source_membership(source)?),
+                Membership {
+                    sources: &[source],
+                    check: |source: &SourceId| Ok(log.borrow().source_membership(source)?),
+                },
             )
             .await
             .unwrap();
@@ -809,11 +817,15 @@ mod membership_tests {
                         .append_batch_with_generations(events, generations)
                 },
                 tokio_stream::iter(items),
-                Ok,
-                Err,
+                Decode {
+                    convert: Ok,
+                    on_error: Err,
+                },
                 &mut HumanReporter,
-                std::slice::from_ref(&source),
-                |source| Ok(log.borrow().source_membership(source)?),
+                Membership {
+                    sources: std::slice::from_ref(&source),
+                    check: |source: &SourceId| Ok(log.borrow().source_membership(source)?),
+                },
             )
             .await
             .unwrap();
@@ -849,14 +861,18 @@ mod membership_tests {
                         .append_batch_with_generations(events, generations)
                 },
                 stream,
-                |event| {
-                    log.borrow_mut().record_source_removed(&source)?;
-                    Ok(event)
+                Decode {
+                    convert: |event| {
+                        log.borrow_mut().record_source_removed(&source)?;
+                        Ok(event)
+                    },
+                    on_error: Err,
                 },
-                Err,
                 &mut HumanReporter,
-                std::slice::from_ref(&source),
-                |source| Ok(log.borrow().source_membership(source)?),
+                Membership {
+                    sources: std::slice::from_ref(&source),
+                    check: |source: &SourceId| Ok(log.borrow().source_membership(source)?),
+                },
             )
             .await
             .unwrap();
