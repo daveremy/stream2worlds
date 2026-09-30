@@ -17,7 +17,7 @@ use s2w_system1::MappingEngine;
 
 use crate::AppError;
 use crate::bridge::{EngineRegistry, Route};
-use crate::query::resolve_class;
+use crate::query::{read_proposal_rows, resolve_class};
 // The resolution tests predate `query::resolve_class` and name these through `super::*`.
 #[cfg(test)]
 use s2w_log::{Decider, Outcome};
@@ -113,16 +113,10 @@ pub fn watermark(log_dir: &Path) -> Result<Watermark, AppError> {
 /// [`AppError::Proposals`] if the store exists but cannot be opened or read, including a
 /// payload whose hash does not match (decision 0019's integrity check).
 pub fn load(log_dir: &Path) -> Result<Resolution, AppError> {
-    let exists = log_dir
-        .join(PROPOSAL_DATABASE_FILE)
-        .try_exists()
-        .map_err(|error| AppError::Proposals(s2w_log::LogError::Io(error.to_string())))?;
-    if !exists {
+    let Some((proposals, decisions)) = read_proposal_rows(log_dir).map_err(AppError::Proposals)?
+    else {
         return Ok(Resolution::default());
-    }
-    let store = ReadOnlySqliteProposalStore::open(log_dir).map_err(AppError::Proposals)?;
-    let proposals = store.proposals().map_err(AppError::Proposals)?;
-    let decisions = store.decisions().map_err(AppError::Proposals)?;
+    };
     Ok(resolve(&proposals, &decisions))
 }
 

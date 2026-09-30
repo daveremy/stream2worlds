@@ -10,7 +10,6 @@ mod dashboard;
 mod delta;
 mod diff;
 mod epoch;
-mod generation;
 mod http;
 mod projection;
 mod proposal_store;
@@ -18,6 +17,7 @@ mod proposals;
 mod read_timings;
 mod resolve;
 mod sentences;
+mod sources;
 mod stream;
 mod stream_mapping;
 mod summary_memo;
@@ -50,6 +50,7 @@ pub use sentences::{
     MAX_SENTENCES, SentenceEntity, SentenceRow, SentencesView, check_last as check_sentences_last,
     read_last, read_sentences,
 };
+pub use sources::{RECENT_UNROUTED_CAP, SourceStats};
 pub use stream_mapping::{
     ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope, proposal_id,
 };
@@ -62,7 +63,7 @@ pub use view::{
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
 // never disagree about what a valid `world`, `branch` or `lod` is.
 pub(crate) use http::{check_branch, check_world, parse, parse_links, parse_lod};
-pub(crate) use proposal_store::open_proposal_reader;
+pub(crate) use proposal_store::{open_proposal_reader, read_proposal_rows};
 pub(crate) use view::check_links;
 
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.

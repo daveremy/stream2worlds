@@ -20,8 +20,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 
 ## Module layering (s2w#240)
 
-`query` is the bottom of this crate: it depends on no sibling module (one pending exception:
-`query::http` still uses `bridge::SourceStats` until s2w#240 PR 2 moves it). `bridge`, `proposals`,
+`query` is the bottom of this crate: it depends on no sibling module. `query::http::generation`
+is `http`'s single-flight gate, a child so the two can share private items. `bridge`, `proposals`,
 `routes`, `snapshot`, `discover` depend on `query` (and on each other downward only); `serve` and
 `mcp` are the top and compose everything. Check 15 (`cargo xtask check`, module cycles) reports
 violations; it is report-only until s2w#240 flips `ENFORCE`.
@@ -49,7 +49,7 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
 - Full `/world` projections (`lod=entity` and, since s2w#297, full `lod=type`) are single-flight
-  (`query/generation.rs`, s2w#270): one build per `QueryState`, requests grouped by (epoch, `at`,
+  (`query/http/generation.rs`, s2w#270): one build per `QueryState`, requests grouped by (epoch, `at`,
   `lod`, `focus`, `hops`, `links`), a request never joins a build under way, a full queue answers
   503 `world_queue_full`. Never build a full view outside the queue: each holds about 330 MiB. The
   one exception is the type summary (`lod=type&links=none`), served alone so first paint never

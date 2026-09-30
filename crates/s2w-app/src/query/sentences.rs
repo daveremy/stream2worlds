@@ -87,13 +87,11 @@ pub fn read_sentences(
     world: &str,
     last: usize,
 ) -> Result<SentencesView, QueryError> {
-    let routes = crate::routes::load(log_dir)
-        .map_err(|error| QueryError::Storage(error.to_string()))?
-        .routes;
+    let mappings = super::proposal_store::read_mappings(log_dir)?;
     let log = ReadOnlySqliteEventLog::open(log_dir)?;
     let history = log.membership_history()?;
     let targets: BTreeSet<SourceId> = if history.is_empty() {
-        routes.keys().cloned().collect()
+        mappings.keys().cloned().collect()
     } else {
         members_at(&history, u64::MAX).into_iter().collect()
     };
@@ -113,17 +111,17 @@ pub fn read_sentences(
         .and_then(|manifest| manifest.events)
         .unwrap_or_default();
     // A mapping the engine refuses routes nothing in `serve` either, so it observes nothing.
-    let engines: BTreeMap<&SourceId, MappingEngine> = routes
+    let engines: BTreeMap<&SourceId, MappingEngine> = mappings
         .iter()
         .filter(|(source, _)| targets.contains(*source))
-        .filter_map(|(source, r)| Some((source, MappingEngine::new(r.mapping.clone()).ok()?)))
+        .filter_map(|(source, mapping)| Some((source, MappingEngine::new(mapping.clone()).ok()?)))
         .collect();
     let rows = tail
         .into_iter()
         .map(|stored| {
-            let route = routes.get(&stored.event.source);
+            let mapping = mappings.get(&stored.event.source);
             let engine = engines.get(&stored.event.source);
-            let payload = route.and_then(|r| decoded(&stored.event.payload, &r.mapping.decode));
+            let payload = mapping.and_then(|m| decoded(&stored.event.payload, &m.decode));
             let source = stored.event.source.as_str();
             SentenceRow {
                 position: stored.position.as_u64(),
