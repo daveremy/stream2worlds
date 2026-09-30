@@ -1515,7 +1515,10 @@ mod tests {
         let directory = TestDirectory::new("head")?;
         let mut sqlite = SqliteEventLog::open(directory.path())?;
         assert_eq!(sqlite.head()?, None);
-        assert_eq!(ReadOnlySqliteEventLog::open(directory.path())?.read_head()?, None);
+        assert_eq!(
+            ReadOnlySqliteEventLog::open(directory.path())?.read_head()?,
+            None
+        );
         for index in 1_u8..=3 {
             memory.append(event(index)?)?;
             sqlite.append(event(index)?)?;
@@ -1523,7 +1526,11 @@ mod tests {
         // A duplicate stores nothing, so the head does not move.
         memory.append(event(3)?)?;
         sqlite.append(event(3)?)?;
-        let last = memory.read_after(None)?.last().transpose()?.map(|s| s.position);
+        let last = memory
+            .read_after(None)?
+            .last()
+            .transpose()?
+            .map(|s| s.position);
         assert_eq!(memory.head()?, last);
         assert_eq!(memory.head()?.map(LogPosition::as_u64), Some(3));
         assert_eq!(sqlite.head()?.map(LogPosition::as_u64), Some(3));

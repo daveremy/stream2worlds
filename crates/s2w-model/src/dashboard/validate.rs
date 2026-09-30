@@ -156,6 +156,14 @@ impl DashboardManifest {
     }
 }
 
+/// Whether `value` is a string a manifest may hold where one is required: non-empty, within
+/// [`MAX_STRING_CHARS`] and free of `<` and `>`. A proposer uses it to leave out a type label
+/// or attribute name the validator would refuse.
+#[must_use]
+pub fn fits_text(value: &str) -> bool {
+    text("", value).is_ok()
+}
+
 /// A non-empty string within [`MAX_STRING_CHARS`] and free of `<` and `>`.
 fn text(at: &str, value: &str) -> Result<(), DashboardError> {
     if value.is_empty() {

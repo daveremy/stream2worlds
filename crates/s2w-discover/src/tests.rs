@@ -978,7 +978,11 @@ fn path_profiles_count_strings_and_their_mean_length() {
     let (profile, _) = run(&events, &[]);
     let stats = |keys: &[&str]| {
         let p = path(keys);
-        let found = profile.paths.iter().find(|x| x.path == p).expect("path profiled");
+        let found = profile
+            .paths
+            .iter()
+            .find(|x| x.path == p)
+            .expect("path profiled");
         (found.count, found.str_count, found.str_len_mean)
     };
     // 2 + 5 + 6 = 13 bytes over 3 strings: the mean rounds down to 4.

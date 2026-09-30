@@ -6,6 +6,7 @@
 //! Format 1 is frozen by [`DashboardManifest::identity`]'s pinned test: change a field and the
 //! pinned identities move, which needs a decision record.
 
+mod propose;
 mod validate;
 
 #[cfg(test)]
@@ -15,7 +16,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{FieldPath, Fnv64};
 
-pub use validate::{AcceptedMapping, ManifestContext};
+pub use propose::{
+    ManifestInput, ManifestOutcome, ManifestProposer, PathStats, ProposerId, ProposerTrace,
+    SourceInput,
+};
+pub use validate::{AcceptedMapping, ManifestContext, fits_text};
 
 /// The one manifest format this build reads and writes.
 pub const DASHBOARD_FORMAT: u32 = 1;
