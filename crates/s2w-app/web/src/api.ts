@@ -1,3 +1,6 @@
+// @ts-expect-error tsconfig's Bundler resolution forbids the extension; Node's native
+// TypeScript stripping (tests/*.test.mjs importing this file directly) requires it.
+import { SseParser } from './sse.ts';
 // These tagged unions mirror query/{view,delta}.rs; graph deltas are not snapshots.
 type Entity = { id: string; entity: number; entity_type: string; keys: string[];
   attrs: Record<string, { Str: string } | { Int: number } | { Bool: boolean }>;
@@ -102,28 +105,46 @@ export function eventsUrl(params: URLSearchParams, from: number, at?: number, ep
 // server resolved it under; every `/events` response carries both (s2w#294).
 export type Evidence = { messages: Message[]; head: number; epoch: string };
 const EVIDENCE_DEPTH = 500;
-async function readEvidence(response: Response): Promise<Evidence> {
+/// Called as a finite `/events` body arrives: once with the resolved head and epoch when the
+/// headers land, then with each network chunk's completed messages (s2w#295).
+export type EvidenceStream = { onHead?: (head: number, epoch: string) => void; onRows?: (messages: Message[]) => void };
+async function readEvidence(response: Response, stream: EvidenceStream = {}): Promise<Evidence> {
   const rawHead = response.headers.get('S2W-Head'), epoch = response.headers.get('S2W-Epoch');
   // A proxy that strips them must fail loudly, never read as an empty world at offset 0.
   if (rawHead === null || epoch === null) throw new Error('/events response without S2W-Head/S2W-Epoch');
   if (!/^\d+$/.test(rawHead)) throw new Error(`/events response with a non-numeric S2W-Head: ${rawHead}`);
   const head = Number(rawHead);
-  const text = await response.text();
-  const messages = text.split(/\r?\n\r?\n/).flatMap(block => {
-    const data = block.split(/\r?\n/).filter(line => line.startsWith('data:'))
-      .map(line => line.slice(5).trimStart()).join('\n');
-    return data ? [JSON.parse(data) as Message] : [];
-  });
+  stream.onHead?.(head, epoch);
+  // Parse as the body arrives, so the page can paint the first rows before the whole body
+  // (68 KB for 500 rows) has closed.
+  const parser = new SseParser(), messages: Message[] = [];
+  const take = (rows: Message[]) => { if (rows.length) { messages.push(...rows); stream.onRows?.(rows); } };
+  if (response.body) {
+    const reader = response.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        take(parser.push(value));
+      }
+    } catch (error) {
+      // A bad frame or an error frame: stop reading instead of leaving the body locked.
+      reader.cancel().catch(() => { /* already failed */ });
+      throw error;
+    }
+  }
+  take(parser.end());
   return { messages, head, epoch };
 }
 // The live page's evidence seed: the last 500 events through the server's head, in one request
 // that needs no `/time` or `/world` first. Clamped to the events the server keeps (decision
 // 0026), so it never answers `offset_before_base`.
-export async function evidenceTail(params: URLSearchParams, signal: AbortSignal): Promise<Evidence> {
+export async function evidenceTail(params: URLSearchParams, signal: AbortSignal,
+  stream: EvidenceStream = {}): Promise<Evidence> {
   const url = endpoint(params, 'events');
   for (const name of ['from', 'at', 'epoch']) url.searchParams.delete(name);
   url.searchParams.set('last', String(EVIDENCE_DEPTH));
-  return readEvidence(await checked(url, signal));
+  return readEvidence(await checked(url, signal), stream);
 }
 // A pinned page's evidence: the 500 events through `at`. The server keeps only recent events
 // (decision 0026): when those reach past them (just after a restart from a snapshot), the page
