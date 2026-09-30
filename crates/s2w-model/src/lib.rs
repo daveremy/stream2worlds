@@ -16,7 +16,8 @@ pub use dashboard::{
     MAX_QUESTIONS, MAX_ROLES, MAX_SENTENCE_FIELDS, MAX_SLOT_ITEMS, MAX_STRING_CHARS, MAX_TYPES,
     ManifestContext, ManifestInput, ManifestOutcome, ManifestProposer, PathStats, Projection,
     ProposerId, ProposerTrace, QuintessentialProjection, Role, Sentence, SentenceField, Slots,
-    SourceInput, Template, TruncateField, TypeRow, When, fits_text,
+    SourceInput, TRUNCATE_CHARS, Template, TruncateField, TypeRow, When, fits_text,
+    render_sentence, sentence_for,
 };
 pub use event::{AttrValue, WorldEvent};
 pub use hash::{Fnv64, fnv1a64, fnv1a64_hex, is_hex16};

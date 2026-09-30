@@ -30,12 +30,7 @@ pub fn decode_path(value: &mut Value, path: &FieldPath) -> Result<bool, String> 
 /// The value at `path`, if every segment exists.
 #[must_use]
 pub fn lookup<'v>(value: &'v Value, path: &FieldPath) -> Option<&'v Value> {
-    path.0
-        .iter()
-        .try_fold(value, |node, segment| match segment {
-            Segment::Key(key) => node.as_object()?.get(key),
-            Segment::Index(index) => node.as_array()?.get(*index),
-        })
+    path.lookup(value)
 }
 
 /// The value at `path`, mutably, if every segment exists.

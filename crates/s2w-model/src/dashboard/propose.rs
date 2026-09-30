@@ -22,6 +22,11 @@ pub struct PathStats {
     pub str_count: u64,
     /// The mean length of those strings in bytes, rounded down; 0 when there are none.
     pub str_len_mean: u64,
+    /// Whether the profiler read the path's values as RFC 3339 date-times (decision 0030). A
+    /// format-level fact, never a name match: a timestamp is not a label. Left out of the
+    /// JSON when false, so an input with no date-time path keeps its hash.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub timestamp: bool,
 }
 
 /// One member source with an accepted mapping, profiled over its log tail.

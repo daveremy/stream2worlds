@@ -48,6 +48,7 @@ pub(crate) fn input() -> ManifestInput {
         distinct: 3,
         str_count: 3,
         str_len_mean: 5,
+        timestamp: false,
     };
     ManifestInput {
         world: "w".to_owned(),

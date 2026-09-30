@@ -1240,8 +1240,30 @@ fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
     relabel(&mut expected.roles[0].projection.slots.subject_type);
     for row in &mut expected.types {
         row.type_label = labels[row.type_label.as_str()].clone();
+        relabel(&mut row.noun);
         if let Some(Label::Attr(attr)) = &mut row.label {
             attr.attr = names[attr.attr.as_str()].clone();
+        }
+    }
+    // A sentence names its type in its text and reads obfuscated paths.
+    for event in expected.events.iter_mut().flatten() {
+        let sentence = &mut event.sentence;
+        let (label, rest) = if let Some(rest) = sentence.text.strip_prefix("{0}: ") {
+            let label = rest.strip_suffix(" {1}").expect("event-type sentence");
+            (label.to_owned(), ("{0}: ", " {1}"))
+        } else {
+            let label = sentence
+                .text
+                .strip_suffix(" {0}")
+                .expect("type-key sentence");
+            (label.to_owned(), ("", " {0}"))
+        };
+        sentence.text = format!("{}{}{}", rest.0, labels[label.as_str()], rest.1);
+        for field in &mut sentence.fields {
+            let s2w_model::SentenceField::Path(p) = field else {
+                panic!("the fallback shows plain paths only");
+            };
+            *p = obf.path(p);
         }
     }
     expected
@@ -1253,5 +1275,76 @@ fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
             .iter()
             .any(|t| matches!(t.label, Some(Label::Attr(_))))
     );
+    assert!(a.events.is_some(), "vacuous: no sentence");
     assert_eq!(b, expected);
+}
+
+#[test]
+fn the_fallback_never_labels_a_type_by_a_date_time() {
+    use s2w_model::Label;
+    // `when` is a unique RFC 3339 date-time per event: the most distinct short string, and the
+    // key of its own type in some mappings. Neither may become a label.
+    let events: Vec<Value> = stream(1200)
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut event)| {
+            let (m, s) = (i / 60 % 60, i % 60);
+            event["when"] = json!(format!("2026-09-30T07:{m:02}:{s:02}Z"));
+            event
+        })
+        .collect();
+    let mut input = manifest_input(&events);
+    let when = path(&["when"]);
+    // Discovery leaves a unique value out of the mapping; an accepted mapping may still read
+    // it, as an attribute of every type and as the key of a type of its own.
+    let source = &mut input.sources[0];
+    for rule in &mut source.mapping.entities {
+        rule.attrs.push(s2w_model::AttrRule {
+            name: "when".to_owned(),
+            path: when.clone(),
+        });
+    }
+    source.mapping.entities.push(s2w_model::EntityRule {
+        id: "when".to_owned(),
+        type_label: "when".to_owned(),
+        key: vec![when.clone()],
+        attrs: Vec::new(),
+    });
+    source.mapping_identity = source.mapping.identity().expect("valid mapping");
+    assert!(
+        input.sources[0]
+            .paths
+            .iter()
+            .any(|p| p.path == when && p.timestamp),
+        "vacuous: `when` is not a timestamp path"
+    );
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    let mapping = &input.sources[0].mapping;
+    assert!(
+        mapping
+            .entities
+            .iter()
+            .any(|r| r.key[0] == when || r.attrs.iter().any(|a| a.path == when)),
+        "vacuous: no rule reads `when`"
+    );
+    for row in &m.types {
+        let rules: Vec<_> = mapping
+            .entities
+            .iter()
+            .filter(|r| r.type_label == row.type_label)
+            .collect();
+        match &row.label {
+            Some(Label::Attr(attr)) => assert!(
+                rules
+                    .iter()
+                    .flat_map(|r| &r.attrs)
+                    .filter(|a| a.name == attr.attr)
+                    .all(|a| a.path != when),
+                "{row:?}"
+            ),
+            Some(Label::Key(_)) => assert!(rules.iter().all(|r| r.key[0] != when), "{row:?}"),
+            None => {}
+        }
+    }
 }

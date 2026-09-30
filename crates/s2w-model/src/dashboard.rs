@@ -7,6 +7,7 @@
 //! pinned identities move, which needs a decision record.
 
 mod propose;
+mod render;
 mod validate;
 
 #[cfg(test)]
@@ -20,6 +21,7 @@ pub use propose::{
     ManifestInput, ManifestOutcome, ManifestProposer, PathStats, ProposerId, ProposerTrace,
     SourceInput,
 };
+pub use render::{TRUNCATE_CHARS, render_sentence, sentence_for};
 pub use validate::{AcceptedMapping, ManifestContext, fits_text};
 
 /// The one manifest format this build reads and writes.
