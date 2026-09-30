@@ -43,6 +43,11 @@ Through the committed mapping (`recorded.mapping.json`, a symlink to
 drift) the fixture yields 0 abstentions, 58,335 claims (35,001 entity-observed, 23,334
 relationship-observed), and a world of 11,462 entities and 19,512 relationships.
 
+The parse benchmark (s2w#166) maps it with `recorded-links.mapping.json` instead, a symlink to
+`s2w-system1/testdata/sample-links.mapping.json` (the same mapping plus a second site entity and
+a link merging it into the first): 81,669 claims, 11,667 of them link merges, 0 abstentions,
+pinned in `../support/recorded_links.rs`.
+
 ### Licence and privacy
 
 Edit metadata, page titles and edit comments are Wikimedia contributor content: **CC BY-SA

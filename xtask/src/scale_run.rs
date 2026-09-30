@@ -1,8 +1,9 @@
 //! `cargo xtask scale` (s2w#32, decision 0004): fold instructions per event under Valgrind for
-//! both event supplies (s2w#174), judged against `[ir]` and `[ir.recorded]` in
+//! both event supplies (s2w#174) and System 1 parse instructions per raw event of the recorded
+//! fixture (s2w#166), judged against `[ir]`, `[ir.recorded]` and `[parse]` in
 //! `xtask/scale-baseline.toml`, then the reported-only numbers. The recorded fixture's pin
-//! (`[recorded]`, `[ir.recorded] events`) is checked first, so a changed recording fails before
-//! the Valgrind run, in xtask's own terms.
+//! (`[recorded]`, `[ir.recorded] events`, `[parse] events`) is checked first, so a changed
+//! recording fails before the Valgrind run, in xtask's own terms.
 //!
 //! Linux only, and needs `valgrind` plus `gungraun-runner` at the version `s2w-app` pins for
 //! `gungraun`; a missing tool is a failure with the install command, never a skip. The
@@ -15,7 +16,7 @@ use std::process::{Command, ExitCode};
 
 use serde::Deserialize;
 
-use crate::scale::{self, Baseline, Supply};
+use crate::scale::{self, Baseline, IrBench};
 
 /// The benchmark's output directory under the target directory.
 const OUTPUT: &str = "gungraun/s2w-app/scale_ir";
@@ -45,7 +46,6 @@ pub(super) fn run(root: &Path) -> ExitCode {
         Ok(line) => println!("{line}"),
         Err(e) => problems.push(e),
     }
-    println!("parse: not yet measurable (follow-up)");
     println!("fork: not yet measurable (blocked on s2w#14)");
     if problems.is_empty() {
         return ExitCode::SUCCESS;
@@ -57,7 +57,7 @@ pub(super) fn run(root: &Path) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Preflight, the fixture pin, the benchmarks, and both `[ir]` judgments.
+/// Preflight, the fixture pin, the benchmarks, and the three instruction-count judgments.
 fn gated(root: &Path) -> Result<Vec<String>, Vec<String>> {
     let baseline = scale::read(root).map_err(|e| vec![e])?;
     preflight(root)?;
@@ -80,8 +80,8 @@ fn gated(root: &Path) -> Result<Vec<String>, Vec<String>> {
     let output = bench(root, &target).map_err(|e| vec![e])?;
     stamp(&baseline);
     let (mut lines, mut problems) = (Vec::new(), Vec::new());
-    for supply in Supply::ALL {
-        match summary_total(&output, supply).and_then(|t| scale::judge_ir(&baseline, supply, t)) {
+    for bench in IrBench::ALL {
+        match summary_total(&output, bench).and_then(|t| scale::judge_ir(&baseline, bench, t)) {
             Ok(line) => lines.push(line),
             Err(e) => problems.push(e),
         }
@@ -107,7 +107,7 @@ fn stamp(baseline: &Baseline) {
     );
     if baseline.ir.rustc != "unset" && rustc != baseline.ir.rustc {
         println!(
-            "scale: the compiler differs from the baseline's; instruction counts move with it, so a toolchain bump re-sets [ir] from the CI job"
+            "scale: the compiler differs from the baseline's; instruction counts move with it, so a toolchain bump re-sets [ir] and [parse] from the CI job"
         );
     }
 }
@@ -184,7 +184,7 @@ fn ir_events(root: &Path) -> Result<u64, String> {
         .ok_or_else(|| format!("{GENERATOR}: no integer-literal `const IR_EVENTS`; the benchmark's event count must stay a literal xtask can read"))
 }
 
-/// Runs both benchmarks fresh and returns their output directory.
+/// Runs every `scale_ir` benchmark fresh and returns their output directory.
 fn bench(root: &Path, target: &Path) -> Result<PathBuf, String> {
     let output = target.join(OUTPUT);
     if output.exists() {
@@ -208,20 +208,20 @@ fn bench(root: &Path, target: &Path) -> Result<PathBuf, String> {
         .args(&args)
         .current_dir(root)
         .status()
-        .map_err(|e| format!("fold Ir: UNKNOWN, could not run cargo bench: {e}"))?;
+        .map_err(|e| format!("scale Ir: UNKNOWN, could not run cargo bench: {e}"))?;
     if !status.success() {
         return Err(format!(
-            "fold Ir: UNKNOWN, `cargo {}` failed ({status}); fix the benchmark and retry",
+            "scale Ir: UNKNOWN, `cargo {}` failed ({status}); fix the benchmark and retry",
             args.join(" ")
         ));
     }
     Ok(output)
 }
 
-/// One supply's total Callgrind `Ir`. [`bench()`] deleted the output directory first, so a
+/// One benchmark's total Callgrind `Ir`. [`bench()`] deleted the output directory first, so a
 /// summary that exists is this run's.
-fn summary_total(output: &Path, supply: Supply) -> Result<u64, String> {
-    let (summary, name) = (output.join(supply.ir_summary()), supply.name("fold Ir"));
+fn summary_total(output: &Path, bench: IrBench) -> Result<u64, String> {
+    let (summary, name) = (output.join(bench.summary()), bench.name());
     let text = std::fs::read_to_string(&summary).map_err(|e| {
         format!(
             "{name}: UNKNOWN, no summary written by this run at {} ({e}); the benchmark or gungraun's output layout changed",

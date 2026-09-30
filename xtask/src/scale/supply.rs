@@ -13,13 +13,6 @@ pub(crate) enum Supply {
 impl Supply {
     pub(crate) const ALL: [Self; 2] = [Self::Synthetic, Self::Recorded];
 
-    pub(crate) fn ir(self) -> &'static str {
-        match self {
-            Self::Synthetic => "[ir]",
-            Self::Recorded => "[ir.recorded]",
-        }
-    }
-
     pub(crate) fn memory(self) -> &'static str {
         match self {
             Self::Synthetic => "[memory]",
@@ -44,14 +37,6 @@ impl Supply {
         }
     }
 
-    /// The gungraun summary of this supply's `scale_ir` bench: `<group>/<function>.<bench id>`.
-    pub(crate) fn ir_summary(self) -> &'static str {
-        match self {
-            Self::Synthetic => "scale/fold_ir_per_event.events/summary.json",
-            Self::Recorded => "scale/fold_ir_per_event_recorded.fixture/summary.json",
-        }
-    }
-
     pub(crate) fn changed(self) -> &'static str {
         match self {
             Self::Synthetic => "the generator changed",
@@ -70,14 +55,6 @@ pub(crate) struct MemGate {
 }
 
 impl Baseline {
-    /// `(fold_ir_per_event, events)` for `supply`.
-    pub(crate) fn ir_gate(&self, supply: Supply) -> (u64, u64) {
-        match supply {
-            Supply::Synthetic => (self.ir.fold_ir_per_event, self.ir.events),
-            Supply::Recorded => (self.ir.recorded.fold_ir_per_event, self.ir.recorded.events),
-        }
-    }
-
     pub(crate) fn memory_gate(&self, supply: Supply) -> MemGate {
         let (m, r) = (&self.memory, &self.memory.recorded);
         match supply {

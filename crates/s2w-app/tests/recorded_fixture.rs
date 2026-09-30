@@ -9,8 +9,12 @@
 #[path = "support/recorded.rs"]
 mod recorded;
 
+#[path = "support/recorded_links.rs"]
+mod recorded_links;
+
 use s2w_core::{World, fold};
 use s2w_model::WorldEvent;
+use s2w_system1::{Engine, MappingEngine};
 
 use recorded::{
     ENTITIES, FIXTURE_HASH, Fallible, RELATIONSHIPS, bytes, claims, hash, load, mapping,
@@ -81,6 +85,23 @@ fn replay_is_deterministic() -> Fallible<()> {
     assert!(
         first == second,
         "two runs of the mapping over the same events proposed different claims"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_linked_mapping_makes_the_pinned_counts() -> Fallible<()> {
+    let engine = MappingEngine::new(recorded_links::linked_mapping()?)?;
+    let verdicts: Vec<_> = load()?.iter().map(|e| engine.evaluate(e)).collect();
+    assert_eq!(
+        recorded_links::counts(&verdicts),
+        (
+            recorded_links::CLAIMS,
+            recorded_links::MERGES,
+            recorded_links::ABSTAINED
+        ),
+        "(claims, merges, abstentions) of the linked mapping over the recorded fixture; the \
+         parse benchmark's teardown asserts the same pins in tests/support/recorded_links.rs"
     );
     Ok(())
 }

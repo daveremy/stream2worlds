@@ -1,15 +1,17 @@
 # Scale baseline (s2w#32; decision 0004; research 0006 §12). Human-owned, like the golden files.
 #
 # Read by `cargo xtask check` ([memory], via s2w-app's ignored `scale_mem` tests) and by
-# `cargo xtask scale` ([ir], fold instructions under Valgrind; CI job 'scale'). Every key is
+# `cargo xtask scale` ([ir], fold instructions under Valgrind, and [parse], System 1 parse
+# instructions; CI job 'scale'). Every key is
 # required. Two event supplies are gated side by side (s2w#174): the seeded generator ([ir],
 # [memory]) and the recorded fixture ([recorded], [ir.recorded], [memory.recorded]).
 # A measurement more than `tolerance_percent` above its baseline fails. Raising
-# fold_ir_per_event or bytes_per_entity (either supply), target_bytes_per_entity,
+# fold_ir_per_event (either supply), parse_ir_per_event, bytes_per_entity (either supply),
+# any events / entities size, target_bytes_per_entity,
 # budget_bytes_per_entity or tolerance_percent against origin/main needs a
 # `Baseline-growth: s2w#<N>` trailer on a commit in the PR and a reason in the PR body.
 # `cargo xtask check --tighten-baseline` lowers [memory] values; it never raises them and never
-# touches [ir].
+# touches [ir] or [parse].
 
 tolerance_percent = 5
 set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29), raised by s2w#271 (2026-09-29); recorded supply s2w#174 (2026-09-29)"
@@ -35,6 +37,14 @@ profile = "bench"
 [ir.recorded]
 fold_ir_per_event = 15285 # measured by CI run 36569430562 (job scale), 2026-09-29
 events = 11667 # frames with id and data in the fixture; xtask counts them and checks
+
+# System 1 parse (s2w#166): every raw event of the recorded fixture through MappingEngine with
+# the committed linked mapping (crates/s2w-app/tests/fixtures/recorded-links.mapping.json), one
+# evaluate per event in file order (s2w-app bench parse_ir_per_event), divided by the raw
+# events. Same image, rustc and profile as [ir].
+[parse]
+parse_ir_per_event = 215237 # measured locally on the self-hosted runner's host, same rustc; CI job scale replaces it
+events = 11667 # the same fixture's frames; xtask checks it against the count too
 
 # Heap bytes per entity after folding entity-observed events, counted by dhat (test profile).
 [memory]
