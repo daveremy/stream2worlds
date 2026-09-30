@@ -108,11 +108,11 @@ fn the_fallback_files_an_accepted_manifest_and_a_second_run_writes_nothing() {
     let basis = report.basis.clone().expect("basis");
     assert!(
         basis.starts_with(&format!(
-            "policy={POLICY} proposer=dashboard-fallback/1 world={WORLD} built_on={SOURCE}:"
+            "policy={POLICY} proposer=dashboard-fallback/2 world={WORLD} built_on={SOURCE}:"
         )),
         "{basis}"
     );
-    assert!(basis.ends_with(" events=0 roles=1"), "{basis}");
+    assert!(basis.ends_with(" events=1 roles=1"), "{basis}");
 
     let view = read_dashboard(dir.path(), WORLD).expect("view");
     assert_eq!(view.proposal_id, report.proposal_id);
@@ -323,6 +323,40 @@ fn raw(source: &str, i: u64) -> RawEvent {
         received_at: Timestamp::from_millis(1_000),
         payload: format!("{{\"i\":{i}}}").into_bytes(),
     }
+}
+
+#[test]
+fn the_sentence_tail_stops_at_n_events_in_total_and_doubles_past_other_sources() {
+    use crate::query::read_last;
+    let dir = TestDirectory::new("sentences-tail");
+    let mut log = SqliteEventLog::open(dir.path()).expect("log");
+    log.append_batch((0..3).map(|i| raw("rare", i)).collect())
+        .expect("rare");
+    log.append_batch((0..50).map(|i| raw("other", i)).collect())
+        .expect("other");
+    log.append_batch((0..4).map(|i| raw("common", i)).collect())
+        .expect("common");
+    let targets: BTreeSet<SourceId> = ["rare", "common"]
+        .into_iter()
+        .map(|s| SourceId::new(s).expect("source"))
+        .collect();
+    let positions = |n: usize| -> Vec<u64> {
+        read_last(&log, &targets, n)
+            .expect("tail")
+            .iter()
+            .map(|s| s.position.as_u64())
+            .collect()
+    };
+    // 4 in total, not 4 per source: all from `common`, the newest.
+    assert_eq!(positions(4), vec![54, 55, 56, 57]);
+    // 6 needs `rare`, 50 non-member events back: the window doubles past them.
+    assert_eq!(positions(6), vec![2, 3, 54, 55, 56, 57]);
+    // More than the log holds: every target event.
+    assert_eq!(positions(200).len(), 7);
+
+    let empty = TestDirectory::new("sentences-tail-empty");
+    let log = SqliteEventLog::open(empty.path()).expect("log");
+    assert!(read_last(&log, &targets, 4).expect("tail").is_empty());
 }
 
 #[test]

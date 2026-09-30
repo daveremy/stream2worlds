@@ -13,6 +13,24 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Events read as sentences, and the fallback stops labelling editors "edit" — [#302](https://github.com/daveremy/stream2worlds/issues/302) (2026-09-30)
+
+**Shipped:** the dashboard manifest names each type's noun, label and kind, and gives each event
+type a sentence ([decision 0029](docs/decisions/0029-dashboard-manifest-v0.md)). One renderer in
+`s2w-model` fills the sentence from the payload; `GET /worlds/{world}/sentences?last=N` and the
+MCP `sentences` tool serve the last N events that way, byte-equal, each with the entities it
+names. The System 2 prompt asks for the new fields, and the deterministic proposer's version 2
+never labels a type by a date-time or by a category.
+
+**Learned:** measuring labels on the demo's own mapping found the category case. An editor's
+only attributes were its edit kind and content model, so the most distinct one, three values,
+became every editor's label, and the viewer would have named every editor "edit" or
+"wikitext". A string test for "human name" passes those words, so the measurement script
+reports the labels it scored, not only the share.
+
+**Next:** re-proposal of the demo world's manifest once the build is deployed, and the viewer
+reading `label` and `sentences` in place of its own guesses (s2w#288).
+
 ## The demo check fails loudly, and a restart stalls the page far less — [#338](https://github.com/daveremy/stream2worlds/pull/338), [#336](https://github.com/daveremy/stream2worlds/pull/336), [#334](https://github.com/daveremy/stream2worlds/pull/334), [#332](https://github.com/daveremy/stream2worlds/pull/332) (2026-09-30)
 
 **Shipped:** the demo check now asserts its first-paint and graph gates on every run, with

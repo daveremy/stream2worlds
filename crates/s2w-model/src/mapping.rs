@@ -42,6 +42,19 @@ pub struct StreamMapping {
 #[serde(transparent)]
 pub struct FieldPath(pub Vec<Segment>);
 
+impl FieldPath {
+    /// The value at this path in `value`, if every segment exists.
+    #[must_use]
+    pub fn lookup<'v>(&self, value: &'v serde_json::Value) -> Option<&'v serde_json::Value> {
+        self.0
+            .iter()
+            .try_fold(value, |node, segment| match segment {
+                Segment::Key(key) => node.as_object()?.get(key),
+                Segment::Index(index) => node.as_array()?.get(*index),
+            })
+    }
+}
+
 /// One step of a [`FieldPath`]: a JSON string selects an object key, a JSON number an array
 /// index.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

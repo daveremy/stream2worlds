@@ -1204,6 +1204,34 @@ fn the_fallback_abstains_past_the_built_on_cap() {
     assert_eq!(m.validate(&input.context()), Ok(()));
 }
 
+/// A fallback sentence names its type in its text and reads paths: rename both.
+fn relabel_sentences(
+    manifest: &mut s2w_model::DashboardManifest,
+    labels: &BTreeMap<String, String>,
+    obf: &Obfuscate,
+) {
+    for event in manifest.events.iter_mut().flatten() {
+        let sentence = &mut event.sentence;
+        let (label, rest) = if let Some(rest) = sentence.text.strip_prefix("{0}: ") {
+            let label = rest.strip_suffix(" {1}").expect("event-type sentence");
+            (label.to_owned(), ("{0}: ", " {1}"))
+        } else {
+            let label = sentence
+                .text
+                .strip_suffix(" {0}")
+                .expect("type-key sentence");
+            (label.to_owned(), ("", " {0}"))
+        };
+        sentence.text = format!("{}{}{}", rest.0, labels[label.as_str()], rest.1);
+        for field in &mut sentence.fields {
+            let s2w_model::SentenceField::Path(p) = field else {
+                panic!("the fallback shows plain paths only");
+            };
+            *p = obf.path(p);
+        }
+    }
+}
+
 #[test]
 fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
     use s2w_model::{DashboardManifest, Label};
@@ -1240,10 +1268,12 @@ fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
     relabel(&mut expected.roles[0].projection.slots.subject_type);
     for row in &mut expected.types {
         row.type_label = labels[row.type_label.as_str()].clone();
+        relabel(&mut row.noun);
         if let Some(Label::Attr(attr)) = &mut row.label {
             attr.attr = names[attr.attr.as_str()].clone();
         }
     }
+    relabel_sentences(&mut expected, &labels, &obf);
     expected
         .types
         .sort_by(|x, y| x.type_label.cmp(&y.type_label));
@@ -1253,5 +1283,123 @@ fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
             .iter()
             .any(|t| matches!(t.label, Some(Label::Attr(_))))
     );
+    assert!(a.events.is_some(), "vacuous: no sentence");
     assert_eq!(b, expected);
+}
+
+/// Discovery leaves a unique value out of the mapping; an accepted mapping may still read it,
+/// as an attribute of every type and as the key of a type of its own.
+fn read_everywhere(source: &mut s2w_model::SourceInput, at: &FieldPath) {
+    for rule in &mut source.mapping.entities {
+        rule.attrs.push(s2w_model::AttrRule {
+            name: "when".to_owned(),
+            path: at.clone(),
+        });
+    }
+    source.mapping.entities.push(s2w_model::EntityRule {
+        id: "when".to_owned(),
+        type_label: "when".to_owned(),
+        key: vec![at.clone()],
+        attrs: Vec::new(),
+    });
+    source.mapping_identity = source.mapping.identity().expect("valid mapping");
+}
+
+#[test]
+fn the_fallback_never_labels_a_type_by_a_date_time() {
+    use s2w_model::Label;
+    // `when` is a unique RFC 3339 date-time per event: the most distinct short string, and the
+    // key of its own type in some mappings. Neither may become a label.
+    let events: Vec<Value> = stream(1200)
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut event)| {
+            let (m, s) = (i / 60 % 60, i % 60);
+            event["when"] = json!(format!("2026-09-30T07:{m:02}:{s:02}Z"));
+            event
+        })
+        .collect();
+    let mut input = manifest_input(&events);
+    let when = path(&["when"]);
+    read_everywhere(&mut input.sources[0], &when);
+    assert!(
+        input.sources[0]
+            .paths
+            .iter()
+            .any(|p| p.path == when && p.timestamp),
+        "vacuous: `when` is not a timestamp path"
+    );
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    let mapping = &input.sources[0].mapping;
+    assert!(
+        mapping
+            .entities
+            .iter()
+            .any(|r| r.key[0] == when || r.attrs.iter().any(|a| a.path == when)),
+        "vacuous: no rule reads `when`"
+    );
+    for row in &m.types {
+        let rules: Vec<_> = mapping
+            .entities
+            .iter()
+            .filter(|r| r.type_label == row.type_label)
+            .collect();
+        match &row.label {
+            Some(Label::Attr(attr)) => assert!(
+                rules
+                    .iter()
+                    .flat_map(|r| &r.attrs)
+                    .filter(|a| a.name == attr.attr)
+                    .all(|a| a.path != when),
+                "{row:?}"
+            ),
+            Some(Label::Key(_)) => assert!(rules.iter().all(|r| r.key[0] != when), "{row:?}"),
+            None => {}
+        }
+    }
+}
+
+#[test]
+fn the_fallback_never_labels_a_type_by_a_category() {
+    use s2w_model::Label;
+    // `who` names 400 entities; `kind` takes three values. `kind` is the only attribute of
+    // `who`'s rule, so it is the most distinct candidate, and it still names a category.
+    let events: Vec<Value> = stream(1200)
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut event)| {
+            event["who"] = json!(format!("user{}", i % 400));
+            event["kind"] = json!(["edit", "new", "log"][i % 3]);
+            event
+        })
+        .collect();
+    let mut input = manifest_input(&events);
+    let source = &mut input.sources[0];
+    source.mapping.entities.push(s2w_model::EntityRule {
+        id: "who".to_owned(),
+        type_label: "who".to_owned(),
+        key: vec![path(&["who"])],
+        attrs: vec![s2w_model::AttrRule {
+            name: "kind".to_owned(),
+            path: path(&["kind"]),
+        }],
+    });
+    source.mapping_identity = source.mapping.identity().expect("valid mapping");
+    assert!(
+        source.paths.iter().any(|p| p.path == path(&["kind"])),
+        "vacuous: `kind` is not profiled"
+    );
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+    let row = m
+        .types
+        .iter()
+        .find(|r| r.type_label == "who")
+        .expect("a `who` row");
+    assert_eq!(
+        row.label,
+        Some(Label::Key(s2w_model::KeyLabel { key: 0 })),
+        "{row:?}"
+    );
 }

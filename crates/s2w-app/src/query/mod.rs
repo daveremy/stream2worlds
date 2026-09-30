@@ -17,6 +17,7 @@ mod proposal_store;
 mod proposals;
 mod read_timings;
 mod resolve;
+mod sentences;
 mod stream;
 mod stream_mapping;
 mod summary_memo;
@@ -45,6 +46,10 @@ pub use proposals::{
 };
 pub use read_timings::{PhaseTiming, ReadTimingsSnapshot};
 pub use resolve::{ClassResolution, Excluded, Winner, resolve_class};
+pub use sentences::{
+    MAX_SENTENCES, SentenceEntity, SentenceRow, SentencesView, check_last as check_sentences_last,
+    read_last, read_sentences,
+};
 pub use stream_mapping::{
     ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope, proposal_id,
 };

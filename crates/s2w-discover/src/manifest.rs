@@ -2,22 +2,28 @@
 //! proposer is configured. Like the profiler it reads statistics, never meaning: every choice
 //! rests on counts, distinct counts and string shares, and no tie is broken by a name, so
 //! renaming keys and hashing strings changes its manifest only by the same renaming.
+//!
+//! Version 2 skips date-time paths as labels (the profiler's `Timestamp` role, decision
+//! 0030), breaks a distinct-count tie by the shorter mean string length, names each type's
+//! noun after its type label, and gives each source a sentence: its event type and its busiest
+//! labelled type's key.
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use s2w_model::{
-    AttrLabel, BuiltOn, DashboardManifest, Domain, KeyLabel, Kind, Label, MAX_BUILT_ON, MAX_TYPES,
-    ManifestInput, ManifestOutcome, ManifestProposer, PathStats, Projection, ProposerId,
-    ProposerTrace, QuintessentialProjection, Role, Slots, Template, TypeRow, fits_text,
+    AttrLabel, BuiltOn, DashboardManifest, Domain, EventSentence, KeyLabel, Kind, Label,
+    MAX_BUILT_ON, MAX_EVENTS, MAX_TYPES, ManifestInput, ManifestOutcome, ManifestProposer,
+    PathStats, Projection, ProposerId, ProposerTrace, QuintessentialProjection, Role, Sentence,
+    SentenceField, Slots, SourceInput, Template, TypeRow, fits_text,
 };
 
-use crate::Profile;
+use crate::{Profile, Role as PathRole};
 
 /// The fallback's actor model name.
 pub const FALLBACK_MODEL: &str = "dashboard-fallback";
 /// The fallback's actor version. Bump it with any change to what it proposes.
-pub const FALLBACK_VERSION: &str = "1";
+pub const FALLBACK_VERSION: &str = "2";
 /// The longest mean string length, in bytes, of an attribute the fallback picks as a label.
 const LABEL_MAX_MEAN_LEN: u64 = 80;
 
@@ -34,6 +40,7 @@ pub fn path_stats(profile: &Profile) -> Vec<PathStats> {
             distinct: wide(p.distinct),
             str_count: wide(p.str_count),
             str_len_mean: wide(p.str_len_mean),
+            timestamp: p.role == PathRole::Timestamp,
         })
         .collect()
 }
@@ -75,7 +82,7 @@ impl ManifestProposer for FallbackProposer {
 struct TypeEvidence<'a> {
     /// Distinct values of a rule's first key path; the largest over the label's rules.
     count: u64,
-    /// Whether some rule's first key part is mostly strings.
+    /// Whether some rule's first key part is mostly strings and not a date-time.
     string_key: bool,
     /// Candidate label attributes: name, then the best statistics seen under that name.
     attrs: BTreeMap<&'a str, &'a PathStats>,
@@ -102,6 +109,8 @@ fn fallback(input: &ManifestInput) -> Result<DashboardManifest, String> {
         subject_type: subject.map(str::to_owned),
         ..Slots::default()
     };
+    let types: Vec<TypeRow> = rows.iter().map(|(label, e)| type_row(label, e)).collect();
+    let events = sentences(input, &types);
     Ok(DashboardManifest {
         built_on: input
             .sources
@@ -136,8 +145,8 @@ fn fallback(input: &ManifestInput) -> Result<DashboardManifest, String> {
                 slots,
             },
         }],
-        types: rows.iter().map(|(label, e)| type_row(label, e)).collect(),
-        events: None,
+        types,
+        events,
     })
 }
 
@@ -160,7 +169,7 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
             let evidence = types.entry(&rule.type_label).or_default();
             if let Some(first) = rule.key.first().and_then(|p| stats.get(p)) {
                 evidence.count = evidence.count.max(first.distinct);
-                evidence.string_key |= mostly_strings(first);
+                evidence.string_key |= mostly_strings(first) && !first.timestamp;
             }
             for attr in &rule.attrs {
                 let Some(s) = stats.get(&attr.path) else {
@@ -168,11 +177,14 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
                 };
                 let usable = fits_text(&attr.name)
                     && !keys.contains(&&attr.path)
+                    && !s.timestamp
                     && mostly_strings(s)
                     && s.str_len_mean <= LABEL_MAX_MEAN_LEN;
                 if usable {
                     let best = evidence.attrs.entry(&attr.name).or_insert(s);
-                    if s.distinct > best.distinct {
+                    if (Reverse(s.distinct), s.str_len_mean)
+                        < (Reverse(best.distinct), best.str_len_mean)
+                    {
                         *best = s;
                     }
                 }
@@ -182,10 +194,21 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
     types
 }
 
-/// A type's row: its label is the attribute with the most distinct values (a unique maximum),
-/// else its first key part when that is mostly strings, else none; primary when it has one.
+/// A type's row: its label is the attribute with the most distinct values, the shorter mean
+/// string length breaking a tie (a unique best), among attributes with at least half as many
+/// distinct values as the type has entities, else its first key part when that is mostly
+/// strings and not a date-time, else none; primary when it has one. Its noun is its type label.
 fn type_row(label: &str, evidence: &TypeEvidence) -> TypeRow {
-    let choice = unique_max(&evidence.attrs)
+    // An attribute with fewer distinct values than half the type's entities names a category
+    // (an edit kind, a content model), not an entity. With no profiled key the share cannot be
+    // judged, so no attribute qualifies.
+    let naming: BTreeMap<_, _> = evidence
+        .attrs
+        .iter()
+        .filter(|(_, s)| evidence.count > 0 && s.distinct.saturating_mul(2) >= evidence.count)
+        .map(|(name, s)| (*name, *s))
+        .collect();
+    let choice = unique_max(&naming)
         .map(|attr| {
             Label::Attr(AttrLabel {
                 attr: attr.to_owned(),
@@ -199,7 +222,7 @@ fn type_row(label: &str, evidence: &TypeEvidence) -> TypeRow {
     TypeRow {
         type_label: label.to_owned(),
         primary: choice.is_some(),
-        noun: None,
+        noun: Some(label.to_owned()),
         label: choice,
         kind: Some(Kind::Other),
     }
@@ -210,17 +233,19 @@ fn mostly_strings(stats: &PathStats) -> bool {
     stats.count > 0 && stats.str_count.saturating_mul(10) >= stats.count.saturating_mul(9)
 }
 
-/// The candidate with the most distinct values, or `None` on a tie: a tie is never broken by
-/// a name.
+/// The candidate with the most distinct values, then the shortest mean string length, or
+/// `None` when two tie on both: a tie is never broken by a name.
 fn unique_max<'a>(attrs: &BTreeMap<&'a str, &PathStats>) -> Option<&'a str> {
-    let mut best: Option<(&str, u64)> = None;
+    let rank = |stats: &PathStats| (Reverse(stats.distinct), stats.str_len_mean);
+    let mut best: Option<(&str, (Reverse<u64>, u64))> = None;
     let mut tied = false;
     for (name, stats) in attrs {
+        let r = rank(stats);
         match best {
-            Some((_, distinct)) if stats.distinct < distinct => {}
-            Some((_, distinct)) if stats.distinct == distinct => tied = true,
+            Some((_, b)) if r > b => {}
+            Some((_, b)) if r == b => tied = true,
             _ => {
-                best = Some((name, stats.distinct));
+                best = Some((name, r));
                 tied = false;
             }
         }
@@ -229,5 +254,97 @@ fn unique_max<'a>(attrs: &BTreeMap<&'a str, &PathStats>) -> Option<&'a str> {
         None
     } else {
         best.map(|(name, _)| name)
+    }
+}
+
+/// One sentence per source, `type key`, for the source's busiest primary type: the rule whose
+/// first key path has the most distinct values (a unique maximum). When the source has an
+/// event-type path, a sentence that also names the event type comes first; the renderer falls
+/// through to the plain one on an event that lacks it. `None` when no source gets one.
+fn sentences(input: &ManifestInput, types: &[TypeRow]) -> Option<Vec<EventSentence>> {
+    let mut out = Vec::new();
+    for source in &input.sources {
+        let Some((type_label, key)) = busiest(source, types) else {
+            continue;
+        };
+        let event_type = source
+            .event_type
+            .as_ref()
+            .filter(|p| source.paths.iter().any(|s| &s.path == *p));
+        if let Some(event_type) = event_type {
+            out.push(EventSentence {
+                source: source.source.clone(),
+                when: None,
+                sentence: Sentence {
+                    text: format!("{{0}}: {type_label} {{1}}"),
+                    fields: vec![
+                        SentenceField::Path(event_type.clone()),
+                        SentenceField::Path(key.clone()),
+                    ],
+                },
+            });
+        }
+        out.push(EventSentence {
+            source: source.source.clone(),
+            when: None,
+            sentence: Sentence {
+                text: format!("{type_label} {{0}}"),
+                fields: vec![SentenceField::Path(key.clone())],
+            },
+        });
+    }
+    // Two entries per source at most; the cap on sources keeps this far under MAX_EVENTS.
+    out.truncate(MAX_EVENTS);
+    (!out.is_empty()).then_some(out)
+}
+
+/// The source's primary type whose rule has the most distinct first-key values, with that key
+/// path; `None` when two types tie or no primary type's key was profiled as a non-date-time. A type label that holds a
+/// brace or does not fit a sentence's text is skipped.
+fn busiest<'a>(
+    source: &'a SourceInput,
+    types: &[TypeRow],
+) -> Option<(&'a str, &'a s2w_model::FieldPath)> {
+    let primary = |label: &str| types.iter().any(|t| t.primary && t.type_label == label);
+    let mut best: Option<(&str, &s2w_model::FieldPath, u64)> = None;
+    let mut tied = false;
+    for rule in &source.mapping.entities {
+        let label = rule.type_label.as_str();
+        if !primary(label)
+            || label.contains(['{', '}'])
+            || !fits_text(&format!("{{0}}: {label} {{1}}"))
+        {
+            continue;
+        }
+        let Some(key) = rule.key.first() else {
+            continue;
+        };
+        // A date-time key would make the sentence read "type 2026-09-30T…".
+        let Some(stats) = source.paths.iter().find(|s| &s.path == key && !s.timestamp) else {
+            continue;
+        };
+        match best {
+            // Rules that share a type label name one entity type, so a second one is not a
+            // tie: the one with more distinct values, then the shallower key path, stands for
+            // it (a structural fact, not a name).
+            Some((l, k, d)) if l == label => {
+                if (Reverse(stats.distinct), key.0.len()) < (Reverse(d), k.0.len()) {
+                    best = Some((label, key, stats.distinct));
+                    // Now a strict maximum over every type seen, when its count grew.
+                    tied &= stats.distinct == d;
+                }
+            }
+            Some((_, _, d)) if stats.distinct < d => {}
+            Some((_, _, d)) if stats.distinct == d => tied = true,
+            _ => {
+                best = Some((label, key, stats.distinct));
+                tied = false;
+            }
+        }
+    }
+    if tied {
+        None
+    } else {
+        best.map(|(l, k, _)| (l, k))
     }
 }

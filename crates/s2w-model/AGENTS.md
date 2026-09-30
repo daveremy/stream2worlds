@@ -44,6 +44,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   `ProposerTrace`, `ManifestOutcome`) live here because three crates share them (s2w#301).
   `ManifestInput`'s serialized JSON is hashed into the envelope's `input_hash`: adding,
   renaming or reordering a field moves every hash, so do it only with a format change.
+  `PathStats.timestamp` (s2w#302) is left out of the JSON when false, so it moves the hash
+  only of an input that has a date-time path.
+- `render_sentence` and `sentence_for` (s2w#302) render a manifest's sentence templates over
+  a decoded payload: pure, and `None` rather than a broken sentence. `FieldPath::lookup` is
+  the one path walker; `s2w-system1::decode::lookup` delegates to it.
 - FNV-1a 64 (`Fnv64`, `fnv1a64`, `fnv1a64_hex`) lives here once. Its values are persisted
   (source ids, log content hashes, snapshot checksums, fixture hashes): never change it.
 - No domain knowledge in this crate; see decision 0018.

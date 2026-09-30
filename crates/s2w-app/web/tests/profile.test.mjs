@@ -153,8 +153,9 @@ test('activeNow and topHubs sort, truncate, and retain missing ids', () => {
     { offset: 6, kind: 'link', entityIds: [1, 99], summary: '{}' },
   ];
   assert.deepEqual(activeNow(evidence, nodeById(nodes), keys), [
-    { label: 'Alpha One', count: 6 }, { label: '#99', count: 6 }, { label: 'Beta Two', count: 5 },
-    { label: 'Gamma Three', count: 4 }, { label: 'Delta Four', count: 3 },
+    { id: 1, label: 'Alpha One', count: 6 }, { id: 99, label: '#99', count: 6 },
+    { id: 2, label: 'Beta Two', count: 5 }, { id: 3, label: 'Gamma Three', count: 4 },
+    { id: 4, label: 'Delta Four', count: 3 },
   ]);
 
   const links = [

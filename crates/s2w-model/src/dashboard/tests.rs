@@ -909,6 +909,7 @@ fn a_manifest_input_implies_its_own_validation_context() {
         distinct: 1,
         str_count: 0,
         str_len_mean: 0,
+        timestamp: false,
     };
     let input = ManifestInput {
         world: "w".to_owned(),
