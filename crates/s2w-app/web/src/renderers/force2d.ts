@@ -73,6 +73,8 @@ export class Force2D implements GraphRenderer {
         return label;
       });
     this.maxR = maxRadius(element.clientWidth, element.clientHeight);
+    // Size the canvas now, not on the first ResizeObserver callback: the first-tick fit reads it.
+    this.graph.width(element.clientWidth).height(element.clientHeight);
     this.resize = new ResizeObserver(() => {
       this.maxR = maxRadius(element.clientWidth, element.clientHeight);
       this.graph?.width(element.clientWidth).height(element.clientHeight);
