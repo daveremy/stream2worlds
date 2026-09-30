@@ -318,6 +318,91 @@ On the 1,615-event fixture the mapping is unchanged: 5 types, 12 entity rules, 4
 rules (32 `n:1`); its users already pass the first test (re-measured 2026-09-29 on this change).
 #244's H-min change takes `PROFILER_VERSION` 5.
 
+## Amendment 2026-09-29: inclusion dependencies between identifier paths, stage 5b (s2w#244, `PROFILER_VERSION` 5)
+
+This is the stage that makes H-lite into H-min as [0010](0010-gate3-h-arm.md) and research 0002
+§6 stage 5 define it ("containment both ways ... carry-over pairs per candidate key").
+`PROFILER_VERSION` 2 to 4 are H-lite; 5 is H-min, and no report relabels an earlier number.
+
+Research [0009](../../research/0009-h-min-plain-wikipedia.md) measured `revision` recall 0 on
+plain `recentchange`. `revision.new` and `revision.old` are each unique per event, so stage 4
+correctly calls both `EventId`; a revision recurs only across the two paths (one edit's `new` is a
+later edit of the page's `old`).
+
+A throwaway probe (not committed), then the new profile table, measured every pair of keyable
+paths with at least 20 distinct values on `dev`: shared distinct values, **coverage** (the share
+of one path's distinct values also seen at the other) and **carry** (the share of shared values
+first seen at the other path in a strictly earlier event; a first sighting in the same event
+counts against it).
+
+| window | referrer → referenced | shared | coverage | carry |
+|---|---|---|---|---|
+| 10^3 | `revision.old` → `revision.new` | 48 | 12% | 100% |
+| 3x10^3 | `revision.old` → `revision.new` | 115 | 11% | 100% |
+| 10^4 | `revision.old` → `revision.new` | 541 | 14% | 100% |
+| 2x10^5 | `revision.old` → `revision.new` | 17,797 | 24% | 99% |
+| 10^3 to 2x10^5 | `length.old` → `length.new` (small integers, `NoDependents`) | 59 to 18,971 | 17-69% | 63-64% |
+| 2x10^5 | `log_params.target` → `title` | 181 | 56% | 15% |
+| 10^4 | the three per-event alias pairs (`title_url`/`meta.uri`, `server_name`/`meta.domain`, `comment`/`parsedcomment`) | 100 to 4,805 | 7-100% | 0% |
+
+The carry order is what separates a reference from a chance overlap: 99-100% for the real
+dependency, 63-64% for the small-integer collision, 15% or less for everything else. Coverage is
+censored by the window (research 0002's weak spot: an `old` usually points at an edit before the
+window opened) and sits at 11-24%. The committed table for 10^4 is
+[`h-min-v5.dev-10000.profile.md`](../../research/h-measure/results/h-min-v5.dev-10000.profile.md),
+which now also lists every measured pair and the resulting type classes.
+
+**The rule (stage 5b, `contain.rs`).** Candidates are keyable paths whose stage-4 role is
+`Entity` or `EventId`. `EventId` is included because a value seen once at one path identifies
+nothing across events, which is why stage 4 keys no type from it; an inclusion dependency supplies
+exactly that missing recurrence. No other role is reopened. For each ordered pair (referrer A,
+referenced B), over each path's first `Config::contain_cap` (250,000) distinct values in stream
+order (exact sets, no sketch):
+
+1. at least `min_support` (20) distinct values are shared;
+2. coverage of A is at least `Config::contain_pct` (10) percent;
+3. carry is at least `Config::carry_pct` (95) percent.
+
+Both directions are measured; a pair cannot pass both (the two carry shares sum to at most 100%).
+An accepted pair joins stage 5's alias classes: the key classes are the connected components of
+"aliased, or linked by 5b", and stage 6 (1:1 merge), labels and relationships are unchanged. The
+contained paths become key paths; an `EventId` member carries no attributes (it has no repeat
+groups for the attribute test to read). `Profile::contained` lists every measured pair with at
+least `min_support` shared values, accepted or not.
+
+`contain_pct` is research 0002 §3's "about 10%", not tuned; `carry_pct` is stage 4's 95. Margins
+on `dev`: coverage 11-24% against 10 (thin at small windows), carry 99-100% against 95 with the
+best non-dependency at 64%.
+
+No format change: two entity rules that share a type label already join on equal values
+(decision 0021), so the class {`revision.new`, `revision.old`} is two rules with the label
+`revision/new+revision/old`.
+
+Value equality, counts and stream order only, integer percentages, no tie broken by a name:
+check 12 holds, and a unit test covers a carried identifier under renaming and hashing.
+
+**Accepted false classes.** (1) Two counters that run in step with an offset (one always ahead)
+pass the carry test with no reference between them; a unit test names it, and no such pair
+appears on `dev`. (2) One id space shared by several contexts: `revision` ids are per wiki, so the
+type merges equal ids from two wikis (the `revision @ data.wiki` context-collision row measures
+it; a composite identity is #245's and out of scope).
+
+**What it does not do.** Where an event carries both linked paths with different values (every
+edit), the class has no representative value for that event (`class_values` ties), so it takes
+part in the 1:1 and relationship tests only through events that carry one member. It gives the
+class no attributes and no composite key.
+
+**Window dependence.** Coverage grows with the window (12% at 10^3, 24% at 2x10^5) because more
+of the chain falls inside it; carry does not move.
+
+On the 1,615-event `page_change` fixture (re-measured 2026-09-29 on this change): 7 types, 19
+entity rules, 69 relationship rules (53 `n:1`, 16 `n:m`), from 5, 12 and 46 (32 `n:1`) at v4.
+Stage 5b measures 82 pairs and accepts 6: `prior_state.revision.rev_id` and
+`prior_state...origin_rev_id` → `revision.rev_id` (coverage 14%, carry 99%: a revision type), and
+the moved-page pairs `created_redirect_page.page_id` → `page.page_id`, `meta.key.page_id` and
+`created_redirect_page.page_title`, `prior_state.page.page_title` → `page.page_title` (coverage
+100%, carry 100%), which join a page's ids and its titles across a move.
+
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a
@@ -329,6 +414,6 @@ pages and wikis at alias paths. Inclusion dependencies are #244.* *2026-09-29 (s
 `PROFILER_VERSION` 3 (amendment above). A `user` type needs a new entity criterion (#250 PR 2;
 *2026-09-29: done, `PROFILER_VERSION` 4, amendment above*);
 a revision recurs only across two paths, an inclusion dependency (#244); choosing among alias
-encodings of one entity needs a format that joins different values (#245).* Wiring into `serve` and
+encodings of one entity needs a format that joins different values (#245).* *2026-09-29 (s2w#244): inclusion dependencies are stage 5b, `PROFILER_VERSION` 5 (amendment above).* Wiring into `serve` and
 auto-apply (#163 PR 4; *2026-09-29: done, [decision 0025](0025-learned-mapping-auto-apply.md)*) and the mapping state surfaces [0017](0017-view-and-agents-first-class.md) requires (#163
 PR 5).
