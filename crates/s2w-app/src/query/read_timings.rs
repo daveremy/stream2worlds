@@ -23,8 +23,8 @@ pub struct PhaseTiming {
 /// not counted), and the three phases of each hold.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReadTimingsSnapshot {
-    /// Holds that built a view: one per `lod=type` body, one per single-flight `lod=entity`
-    /// generation however many subscribers it served (s2w#270). The phases below are per hold.
+    /// Holds that built a view: one per type-summary body, one per single-flight generation
+    /// (`lod=entity` or full `lod=type`) however many subscribers it served (s2w#270, s2w#297). The phases below are per hold.
     pub builds: u64,
     /// `/world` bodies served (status 200). `bodies / builds` is the sharing.
     pub bodies: u64,

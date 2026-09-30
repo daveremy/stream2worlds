@@ -91,7 +91,7 @@ pub struct QueryState {
     /// Where each `/world` body's read-guard hold went (s2w#243); `None` unless a measurement
     /// opts in with [`Self::with_read_timings`].
     read_timings: Option<Arc<ReadTimings>>,
-    /// The single-flight gate for `lod=entity` bodies (s2w#270).
+    /// The single-flight gate for full `/world` bodies (s2w#270, s2w#297).
     generations: Arc<Generations>,
     /// The last type summary built (s2w#296).
     summaries: Arc<SummaryMemo>,
@@ -174,7 +174,7 @@ impl QueryState {
         self.read_timings.as_deref()
     }
 
-    /// The single-flight gate for `lod=entity` bodies.
+    /// The single-flight gate for full `/world` bodies.
     pub(super) fn generations(&self) -> &Generations {
         &self.generations
     }
@@ -688,9 +688,10 @@ pub(crate) fn parse_links(raw: Option<&str>) -> Result<LinkDetail, QueryError> {
 /// `/world`: the view, streamed (#216). The projection and serialization run on a blocking
 /// thread holding the read guard, and the JSON reaches the client in bounded chunks, so neither
 /// a [`WorldView`] nor the whole body is ever resident. Answers `304` to a matching
-/// `If-None-Match` before projecting anything. `lod=entity` goes through the single-flight
-/// gate (s2w#270, [`generation`]): at most one full projection is in flight, shared by every
-/// request with the same parameters. A request not answered within [`BODY_YIELD_LIMIT`] gets
+/// `If-None-Match` before projecting anything. Every full view (`lod=entity`, and
+/// `lod=type` since s2w#297) goes through the single-flight gate (s2w#270, [`generation`]): at
+/// most one full projection is in flight, shared by every request with the same parameters. The
+/// type summary (`lod=type&links=none`) is served alone. A request not answered within [`BODY_YIELD_LIMIT`] gets
 /// `503`, the viewer retries.
 async fn world(
     State(state): State<QueryState>,
@@ -723,7 +724,9 @@ async fn world(
     let (answer_tx, answer_rx) = oneshot::channel();
     let key = generation::Key { epoch, at, params };
     let waiter = generation::Waiter::new(if_none_match, answer_tx);
-    if params.lod == Lod::Entity {
+    // Only the type summary (s2w#296) is served alone: it is small, and first paint must not
+    // wait behind a full projection. Every full view, `lod=type` too (s2w#297), is shared.
+    if !(params.lod == Lod::Type && params.links == LinkDetail::None) {
         if let Err(error) = generation::submit(&state, key, waiter) {
             return error.into_response();
         }
