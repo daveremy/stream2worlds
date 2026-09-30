@@ -126,7 +126,11 @@ fn a_failed_attempt_is_a_null_row_with_a_reject_and_the_fourth_run_is_skipped() 
     }
     let report = propose(dir.path(), WORLD, &proposer, false).expect("fourth");
     assert_eq!(report.action, Action::Skipped);
-    assert_eq!(proposer.calls.get(), MAX_ATTEMPTS, "no call once the attempts are spent");
+    assert_eq!(
+        proposer.calls.get(),
+        MAX_ATTEMPTS,
+        "no call once the attempts are spent"
+    );
 
     let (proposals, decisions) = dashboard_rows(dir.path());
     assert_eq!(proposals.len(), 3);
@@ -242,7 +246,11 @@ fn with_no_mapped_source_nothing_is_asked_and_no_store_is_created() {
 #[test]
 fn the_input_hash_is_stable_and_moves_with_the_tail_and_the_prompt() {
     let dir = mapped_log("dashboard-hash");
-    let hash = || propose_fallback(dir.path(), WORLD, true).expect("dry").input_hash;
+    let hash = || {
+        propose_fallback(dir.path(), WORLD, true)
+            .expect("dry")
+            .input_hash
+    };
     let first = hash();
     assert_eq!(hash(), first);
     let mut log = SqliteEventLog::open(dir.path()).expect("log");

@@ -389,41 +389,26 @@ pub fn propose(
     let id = proposer.id();
     let prompt_hash = proposer.prompt_hash();
     let hash = input_hash(&input, prompt_hash.as_deref()).map_err(QueryError::Storage)?;
-    let mut report = ProposeReport {
-        world: world.to_owned(),
-        actor: format!("{}/{}", id.model, id.version),
-        input_hash: hash.clone(),
-        action: Action::Skipped,
-        proposal_id: None,
-        attempt: None,
-        decision: None,
-        basis: None,
-        reason: None,
-        envelope: None,
-    };
+    let mut report = ProposeReport::new(world, &id, &hash);
     let Some(snapshot) = snapshot else {
         report.action = Action::Abstained;
         report.reason = Some("no member source with an accepted mapping has logged events".into());
         return Ok(report);
     };
-    let attempt = match plan(&proposals, &decisions, &id, world, &hash)
-        .map_err(QueryError::Storage)?
-    {
-        Plan::Skip(reason) => {
-            report.reason = Some(reason);
-            return Ok(report);
-        }
-        Plan::Complete { .. } if dry_run => {
-            report.action = Action::DryRun;
-            report.reason = Some("an undecided proposal from an earlier run would be decided".into());
-            return Ok(report);
-        }
-        Plan::Complete { .. } => None,
-        Plan::Propose { attempt } => Some(attempt),
-    };
+    let attempt =
+        match plan(&proposals, &decisions, &id, world, &hash).map_err(QueryError::Storage)? {
+            Plan::Skip(reason) => return Ok(report.skipped(reason)),
+            Plan::Complete { .. } if dry_run => {
+                report.action = Action::DryRun;
+                report.reason =
+                    Some("an undecided proposal from an earlier run would be decided".into());
+                return Ok(report);
+            }
+            Plan::Complete { .. } => None,
+            Plan::Propose { attempt } => Some(attempt),
+        };
     // The proposer may be slow (a model call): it runs before the writer lock is taken.
-    let answer = attempt.map(|_| proposer.propose(&input));
-    let filing = match answer {
+    let filing = match attempt.map(|_| proposer.propose(&input)) {
         Some(ManifestOutcome::Abstain(reason)) => {
             report.action = Action::Abstained;
             report.reason = Some(reason);
@@ -432,18 +417,31 @@ pub fn propose(
         Some(outcome) => Some(filing(&input, prompt_hash, outcome)),
         None => None,
     };
-    if dry_run {
-        if let (Some(attempt), Some(filing)) = (attempt, filing) {
-            let envelope = filing.envelope(world, &hash, attempt);
-            report.action = Action::DryRun;
-            report.proposal_id = Some(proposal_id(&id, world, &hash, attempt));
-            report.attempt = Some(attempt);
-            report.decision = Some(outcome_name(filing.outcome).to_owned());
-            report.basis = Some(filing.basis(&id, world));
-            report.envelope = Some(envelope);
-        }
-        return Ok(report);
+    let Some(attempt) = attempt.filter(|_| dry_run) else {
+        return write(log_dir, (world, &id, &hash), snapshot, filing, report);
+    };
+    if let Some(filing) = filing {
+        let envelope = filing.envelope(world, &hash, attempt);
+        report.decided(
+            Action::DryRun,
+            proposal_id(&id, world, &hash, attempt),
+            attempt,
+            (filing.outcome, filing.basis(&id, world)),
+        );
+        report.envelope = Some(envelope);
     }
+    Ok(report)
+}
+
+/// Takes the writer lock, plans again from the store it guards, and appends what the plan
+/// says: the decision an undecided row lacks, or the new proposal and its decision.
+fn write(
+    log_dir: &Path,
+    (world, id, hash): (&str, &ProposerId, &str),
+    snapshot: LogPosition,
+    filing: Option<Filing>,
+    mut report: ProposeReport,
+) -> Result<ProposeReport, QueryError> {
     let mut store = match SqliteProposalStore::open(log_dir) {
         Ok(store) => store,
         Err(LogError::Locked) => return Err(QueryError::StoreLocked),
@@ -451,62 +449,95 @@ pub fn propose(
     };
     let proposals = store.proposals()?;
     let decisions = store.decisions()?;
-    match plan(&proposals, &decisions, &id, world, &hash).map_err(QueryError::Storage)? {
-        Plan::Skip(reason) => {
-            report.reason = Some(reason);
-            Ok(report)
-        }
+    match plan(&proposals, &decisions, id, world, hash).map_err(QueryError::Storage)? {
+        Plan::Skip(reason) => Ok(report.skipped(reason)),
         Plan::Complete {
             id: proposal,
             attempt,
             decision,
         } => {
             store.append_decision(&decision)?;
-            report.action = Action::Completed;
-            report.proposal_id = Some(proposal);
-            report.attempt = Some(attempt);
-            report.decision = Some(outcome_name(decision.outcome).to_owned());
-            report.basis = Some(decision.basis);
+            report.decided(
+                Action::Completed,
+                proposal,
+                attempt,
+                (decision.outcome, decision.basis),
+            );
             Ok(report)
         }
         Plan::Propose { attempt } => {
-            // Only a concurrent run could make this `None`: another filer completed the row
-            // this run planned to complete. Asking now would hold the lock over a model call.
+            // Only a concurrent run gets here with no answer: another filer decided the row
+            // this run meant to. Asking now would hold the lock over a model call.
             let Some(filing) = filing else {
-                report.reason = Some("the store changed during the run; run again".into());
-                return Ok(report);
+                return Ok(report.skipped("the store changed during the run; run again".into()));
             };
-            let envelope = filing.envelope(world, &hash, attempt);
-            let payload = serde_json::to_vec(&envelope)
+            let payload = serde_json::to_vec(&filing.envelope(world, hash, attempt))
                 .map_err(|error| QueryError::Storage(format!("envelope: {error}")))?;
             parse_dashboard_envelope(&payload).map_err(|reason| QueryError::BadParameter {
                 name: "envelope",
                 reason,
             })?;
-            let pid = proposal_id(&id, world, &hash, attempt);
             let decision = NewDecision {
-                proposal_id: pid.clone(),
+                proposal_id: proposal_id(id, world, hash, attempt),
                 decider: Decider::Policy,
                 outcome: filing.outcome,
-                basis: filing.basis(&id, world),
+                basis: filing.basis(id, world),
                 decided_at_ms: now_ms().map_err(QueryError::Storage)?,
             };
             store.append_proposal(&NewProposal {
-                id: pid.clone(),
+                id: decision.proposal_id.clone(),
                 class: DASHBOARD_MANIFEST_CLASS.to_owned(),
-                actor: actor(&id),
+                actor: actor(id),
                 snapshot_offset: snapshot,
                 payload,
                 proposed_at_ms: decision.decided_at_ms,
             })?;
             store.append_decision(&decision)?;
-            report.action = Action::Filed;
-            report.proposal_id = Some(pid);
-            report.attempt = Some(attempt);
-            report.decision = Some(outcome_name(decision.outcome).to_owned());
-            report.basis = Some(decision.basis);
+            report.decided(
+                Action::Filed,
+                decision.proposal_id,
+                attempt,
+                (decision.outcome, decision.basis),
+            );
             Ok(report)
         }
+    }
+}
+
+impl ProposeReport {
+    fn new(world: &str, id: &ProposerId, input_hash: &str) -> Self {
+        Self {
+            world: world.to_owned(),
+            actor: format!("{}/{}", id.model, id.version),
+            input_hash: input_hash.to_owned(),
+            action: Action::Skipped,
+            proposal_id: None,
+            attempt: None,
+            decision: None,
+            basis: None,
+            reason: None,
+            envelope: None,
+        }
+    }
+
+    fn skipped(mut self, reason: String) -> Self {
+        self.action = Action::Skipped;
+        self.reason = Some(reason);
+        self
+    }
+
+    fn decided(
+        &mut self,
+        action: Action,
+        proposal_id: String,
+        attempt: u32,
+        (outcome, basis): (Outcome, String),
+    ) {
+        self.action = action;
+        self.proposal_id = Some(proposal_id);
+        self.attempt = Some(attempt);
+        self.decision = Some(outcome_name(outcome).to_owned());
+        self.basis = Some(basis);
     }
 }
 
@@ -620,7 +651,8 @@ fn now_ms() -> Result<i64, String> {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("system clock before epoch: {error}"))?;
-    i64::try_from(elapsed.as_millis()).map_err(|error| format!("system clock out of range: {error}"))
+    i64::try_from(elapsed.as_millis())
+        .map_err(|error| format!("system clock out of range: {error}"))
 }
 
 #[cfg(test)]

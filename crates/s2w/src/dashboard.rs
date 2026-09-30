@@ -213,7 +213,10 @@ fn render_report(report: &ProposeReport, json: bool) -> String {
         let _ = write!(out, "\n  {reason}");
     }
     if report.envelope.is_some() {
-        let _ = write!(out, "\n  dry run: nothing written; --json prints the envelope");
+        let _ = write!(
+            out,
+            "\n  dry run: nothing written; --json prints the envelope"
+        );
     }
     out
 }
@@ -327,8 +330,14 @@ mod tests {
         );
         for (bad, expect) in [
             (&[][..], "--log-dir is required"),
-            (&["--log-dir", "d", "--dry-run", "--dry-run"][..], "more than once"),
-            (&["--log-dir", "d", "--file", "x"][..], "--dry-run or --json"),
+            (
+                &["--log-dir", "d", "--dry-run", "--dry-run"][..],
+                "more than once",
+            ),
+            (
+                &["--log-dir", "d", "--file", "x"][..],
+                "--dry-run or --json",
+            ),
         ] {
             let error = parse_propose(&args(bad)).expect_err(expect);
             assert!(error.contains(expect), "{bad:?}: {error}");
