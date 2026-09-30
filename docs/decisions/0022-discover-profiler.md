@@ -98,6 +98,12 @@ read through the neutral-named link `crates/s2w-discover/testdata/recorded.raw.s
 vocabulary scan stays clean, with check 11's key and value maps. It adds about 3 s to an
 unoptimized `cargo xtask check` (two profiler passes over 1,615 events).
 
+*Dated note 2026-09-29 (s2w#291 PR 2, [0030](0030-timestamps-are-a-format.md)):* the contract is
+now "rename every key, shift every RFC 3339 date-time by one constant, hash every other string",
+matching the evaluation contract, which shifts timestamps and keeps their format. Check 12 shifts
+date-times with `s2w_discover::stamp::shift` and also compares every path's role; check 11 still
+hashes every string.
+
 ## Measured on the recorded fixture
 
 `crates/s2w-sources/testdata/wikipedia-page-change.raw.sse` (1,615 events, recorded
