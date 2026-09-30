@@ -13,7 +13,7 @@ use s2w_log::{
     StoredProposal,
 };
 use s2w_model::{SourceId, StreamMapping};
-use s2w_system1::MappingEngine;
+use s2w_system1::{MappingEngine, MappingEngineError};
 use serde::{Deserialize, Serialize};
 
 use crate::AppError;
@@ -82,7 +82,8 @@ struct Candidate<'a> {
 ///
 /// # Errors
 /// A message naming the failure: not JSON of the envelope's shape, another envelope format,
-/// an invalid source id, or a mapping that fails [`StreamMapping::validate`].
+/// an invalid source id, a mapping that fails [`StreamMapping::validate`], or a mapping with
+/// links, which [`MappingEngine`] does not execute yet (decision 0027).
 pub fn decode_envelope(payload: &[u8]) -> Result<(SourceId, StreamMapping, String), String> {
     let envelope: MappingEnvelope =
         serde_json::from_slice(payload).map_err(|error| format!("payload: {error}"))?;
@@ -97,6 +98,10 @@ pub fn decode_envelope(payload: &[u8]) -> Result<(SourceId, StreamMapping, Strin
         .mapping
         .identity()
         .map_err(|error| format!("mapping: {error}"))?;
+    if !envelope.mapping.links.is_empty() {
+        let error = MappingEngineError::LinksNotExecuted(envelope.mapping.links.len());
+        return Err(format!("mapping: {error}"));
+    }
     Ok((source, envelope.mapping, identity))
 }
 

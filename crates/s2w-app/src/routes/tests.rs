@@ -285,6 +285,31 @@ fn unusable_payloads_are_excluded_and_named_and_other_rows_still_route() {
     assert_eq!(rows.routed(), routed(&[("src", "good")]));
 }
 
+/// A valid version-2 mapping with a link is excluded and named, not routed: the engine does
+/// not execute links yet (decision 0027), and one such row must not stop `serve`.
+#[test]
+fn a_linked_mapping_is_excluded_and_other_rows_still_route() {
+    let linked = r#"{"version":2,"decode":[],"entities":[{"id":"e","type_label":"A","key":[["id"]],"attrs":[]},{"id":"f","type_label":"A","key":[["alt"]],"attrs":[]}],"relationships":[],"links":[{"survivor":"e","absorbed":"f"}]}"#;
+    let mut rows = Rows::new();
+    rows.propose_raw(
+        "linked",
+        STREAM_MAPPING_CLASS,
+        format!(r#"{{"format":1,"source":"src","mapping":{linked}}}"#).into_bytes(),
+    )
+    .propose("good", "other", "A");
+    rows.decide("linked", Policy, Accept)
+        .decide("good", Policy, Accept);
+    let resolution = rows.resolve();
+    assert_eq!(resolution.excluded.len(), 1, "{resolution:?}");
+    assert_eq!(resolution.excluded[0].proposal_id, "linked");
+    assert!(
+        resolution.excluded[0].reason.contains("link"),
+        "{:?}",
+        resolution.excluded[0]
+    );
+    assert_eq!(rows.routed(), routed(&[("other", "good")]));
+}
+
 trait ReplaceVersion {
     fn replace_version(self) -> Vec<u8>;
 }

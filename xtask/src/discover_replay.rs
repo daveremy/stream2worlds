@@ -72,6 +72,7 @@ fn replay_inner(sse: &str, harness: &Harness) -> Result<Vec<String>, Vec<String>
         decode: a.decode.clone(),
         entities: Vec::new(),
         relationships: Vec::new(),
+        links: Vec::new(),
     };
     let maps = Maps::build(&payloads, &decode_only)?;
     let hidden = payloads

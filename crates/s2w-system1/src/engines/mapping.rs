@@ -46,15 +46,23 @@ pub enum MappingEngineError {
     /// The mapping could not be encoded to compute its digest.
     #[error("mapping could not be encoded: {0}")]
     Encode(#[from] serde_json::Error),
+    /// The mapping has links, which this engine does not execute yet (decision 0027; s2w#245
+    /// PR 2 adds the merge claims). Refused rather than run, so a link is never silently dropped.
+    #[error("mapping has {0} link(s); this engine does not execute links yet (s2w#245)")]
+    LinksNotExecuted(usize),
 }
 
 impl MappingEngine {
     /// Validates `mapping` and computes its identity and provenance digest.
     ///
     /// # Errors
-    /// [`MappingEngineError::Invalid`] for a mapping that fails [`StreamMapping::validate`].
+    /// [`MappingEngineError::Invalid`] for a mapping that fails [`StreamMapping::validate`];
+    /// [`MappingEngineError::LinksNotExecuted`] for a valid mapping with links.
     pub fn new(mapping: StreamMapping) -> Result<Self, MappingEngineError> {
         let name = format!("{NAME_PREFIX}{}", mapping.identity()?);
+        if !mapping.links.is_empty() {
+            return Err(MappingEngineError::LinksNotExecuted(mapping.links.len()));
+        }
         let mapping_hash = fnv1a64_hex(&serde_json::to_vec(&mapping)?);
         let provenance = provenance(&mapping_hash, None);
         Ok(Self {

@@ -153,6 +153,7 @@ impl KeySpec {
             decode: self.decode.clone(),
             entities,
             relationships: Vec::new(),
+            links: Vec::new(),
         };
         mapping
             .validate()

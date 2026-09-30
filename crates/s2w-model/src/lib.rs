@@ -12,8 +12,8 @@ mod natural_key;
 pub use event::{AttrValue, WorldEvent};
 pub use hash::{Fnv64, fnv1a64, fnv1a64_hex};
 pub use mapping::{
-    AttrRule, EntityRule, FieldPath, MAPPING_VERSION, MappingError, RelationshipRule, Segment,
-    StreamMapping,
+    AttrRule, EntityRule, FieldPath, LinkRule, MAPPING_VERSION, MAPPING_VERSION_LINKS,
+    MappingError, RelationshipRule, Segment, StreamMapping,
 };
 pub use natural_key::{KEY_FORMAT, KEY_SEPARATOR, KeyError, KeyPart, NaturalKey};
 

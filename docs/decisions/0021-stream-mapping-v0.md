@@ -24,6 +24,7 @@ knowledge needs, whether a heuristic profiler, System 2 or an operator: a mappin
   endpoints, an empty key, an empty path or key segment, an empty id, label, attribute name or
   kind, a repeated attribute name in one rule, and U+001F in a label or key segment.
 - Aliases and merge rules are out of scope. Adding them makes the format version 2.
+  *2026-09-29: version 2 adds `links`, [decision 0027](0027-stream-mapping-links.md).*
 
 **`MappingEngine` (`s2w-system1`).** Built from one validated mapping. Per payload:
 
@@ -126,5 +127,11 @@ object → site. It is recorded domain data under `testdata/` (0018 §4); no Rus
 is `mapping-<identity>` (`StreamMapping::identity()`), not `mapping`, and its provenance also
 names the proposal id. The natural-key format is versioned as `KEY_FORMAT = 1` and feeds the
 identity. `MappingEngine` is now registered, by `serve`, from stored proposals.
+
+**2026-09-29 (s2w#245 PR 1, [0027](0027-stream-mapping-links.md)).** Format version 2 adds
+`links`: pairs of entity rules with one type label whose different keys name one entity. The
+base version stays 1 (`MAPPING_VERSION`) and `MAPPING_VERSION_LINKS = 2`; `validate()` reads
+both, and a version-1 mapping keeps its bytes and identity. Until #245 PR 2, `MappingEngine`
+refuses a mapping with links.
 
 verify: `cargo test -p s2w-system1 mapping && cargo xtask check` passes.

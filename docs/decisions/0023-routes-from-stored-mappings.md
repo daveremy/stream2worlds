@@ -50,6 +50,12 @@ mapping's canonical JSON (`serde_json` of the struct, fields in declaration orde
 and key order in the source text never change it; a key-format or mapping-format bump always
 does. The fixture mapping's identity is pinned in a test.
 
+*Amendment, 2026-09-29 ([decision 0027](0027-stream-mapping-links.md)): the second field is the
+mapping's own `version`, not the `MAPPING_VERSION` constant. A version-1 mapping hashes 1 as
+before and serializes byte for byte as before (`links` is omitted when empty), so every stored
+version-1 identity, the pinned fixture's included, is unchanged. A version-2 mapping hashes 2
+and is a new identity, pinned by its own test.*
+
 **The engine name carries it: `MappingEngine::name()` is `mapping-<identity>`.** The verdict
 key is (position, engine name, version) (0012) and the bridge cursor only rises, so a new
 mapping must be a new name: it has no stored rows, the bridge evaluates every position under it,
