@@ -28,7 +28,7 @@ have a dashboard manifest: [decision 0029](docs/decisions/0029-dashboard-manifes
 `DashboardManifest` format 1 name the world's projection, roles and primary types, with an
 optional label, kind and noun per type. It is a `dashboard-manifest` proposal resolved per world
 by 0023's rule, readable at `GET /worlds/{world}/dashboard`, `s2w dashboard show` and the MCP
-`dashboard` tool; nothing proposes one yet ([#307](https://github.com/daveremy/stream2worlds/pull/307), [#300](https://github.com/daveremy/stream2worlds/issues/300)). `cargo xtask check` also holds
+`dashboard` tool; nothing proposes one yet ([#307](https://github.com/daveremy/stream2worlds/pull/307), [#300](https://github.com/daveremy/stream2worlds/issues/300)). `cargo xtask scale` also holds
 parse instructions per event to a CI-measured baseline of 215,248 Ir/event ([#299](https://github.com/daveremy/stream2worlds/pull/299), [#166](https://github.com/daveremy/stream2worlds/issues/166)).
 
 **Learned:** the memory doubling had a cause we could name and remove: [#261](https://github.com/daveremy/stream2worlds/pull/261)'s second test
@@ -43,7 +43,7 @@ sprint's code.
 
 **Changed course:** [#291](https://github.com/daveremy/stream2worlds/issues/291) ended as a churn rule for counters plus a narrow timestamp-format
 change (check 12 shifts timestamps instead of hashing them, still owed as PR 2) plus a leaf cap;
-free-text shape stays out of System 1. Two plans cleared review and became eleven sized child
+free-text shape stays out of System 1. Two plans cleared review and became nine sized child
 issues: progressive render ([#292](https://github.com/daveremy/stream2worlds/issues/292), children [#293](https://github.com/daveremy/stream2worlds/issues/293) to [#297](https://github.com/daveremy/stream2worlds/issues/297) and [#303](https://github.com/daveremy/stream2worlds/issues/303)) and the
 dashboard manifest ([#288](https://github.com/daveremy/stream2worlds/issues/288), children [#300](https://github.com/daveremy/stream2worlds/issues/300) to [#302](https://github.com/daveremy/stream2worlds/issues/302)). Merged main is not deployed; the demo
 box stays on b207c74f by the [#282](https://github.com/daveremy/stream2worlds/issues/282) ruling until the deploy below.
