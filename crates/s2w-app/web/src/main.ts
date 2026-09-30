@@ -161,7 +161,8 @@ async function start(): Promise<void> {
     let retry = true;
     try {
       const rows = await fetchSentences(world, SENTENCES_LAST, signal);
-      if (!signal.aborted && generation === sentencesGeneration) {
+      // Until a sentence renders, today's table stays: an all-null answer switches nothing.
+      if (!signal.aborted && generation === sentencesGeneration && (state.feed !== undefined || rows.some(row => row.sentence))) {
         if (state.feed === undefined) {
           const small = document.createElement('small'); small.textContent = manifest.domain;
           eventsHeading.replaceChildren('Live changes ', small);

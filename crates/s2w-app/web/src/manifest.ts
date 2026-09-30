@@ -138,7 +138,7 @@ export function feedSentences(rows: SentenceRow[]): string[] {
 
 /// Active now from the feed: the primary types' entities named by the most events, one count
 /// per event per entity, ties to the most recent. Labels: the row's own label, else the node's
-/// label, else `#<entity>`, else the key as display text.
+/// label, else the key as display text.
 export function sentenceActive(
   rows: SentenceRow[], manifest: Manifest | undefined, labelOf: (entity: number) => string | undefined, limit = 5,
 ): { type: string; label: string; count: number }[] {
@@ -152,8 +152,8 @@ export function sentenceActive(
       seen.add(id);
       const item = counts.get(id);
       if (item !== undefined) { item.count++; continue; }
-      const label = entity.label ??
-        (entity.entity === undefined ? keyText(entity.key) : labelOf(entity.entity) ?? `#${entity.entity}`);
+      const label = entity.label ?? (entity.entity === undefined ? undefined : labelOf(entity.entity)) ??
+        keyText(entity.key);
       counts.set(id, { type: entity.type, label, count: 1 });
     }
   }
@@ -161,9 +161,10 @@ export function sentenceActive(
   return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, limit);
 }
 
-/// Whether a failed sentence poll can succeed later: 503 and network errors can; any other
-/// API answer (400, 404, ...) fails the same way forever, so the poll stops.
+/// Whether a failed manifest load or sentence poll can succeed later: network errors, 429 and
+/// the gateway answers a proxy gives while the server restarts (502, 503, 504) can; any other
+/// API answer (400, 404, 500, ...) fails the same way forever, so the poll stops.
 export function pollRetries(error: unknown): boolean {
   const status = (error as { status?: unknown } | null)?.status;
-  return typeof status !== 'number' || status === 503;
+  return typeof status !== 'number' || status === 429 || status === 502 || status === 503 || status === 504;
 }

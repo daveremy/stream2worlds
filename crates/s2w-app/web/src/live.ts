@@ -8,8 +8,9 @@ import { renderActive } from './active.ts';
 import { changesText, feedSentences, sentenceActive, withIcon } from './manifest.ts';
 import type { SentenceRow } from './manifest';
 
-// The feed each table last showed: a repaint with the same rows keeps the DOM.
-const renderedFeeds = new WeakMap<HTMLTableElement, SentenceRow[]>();
+// The feed each table last showed, as its row positions: a repaint or a poll that returns the
+// same events keeps the DOM (a row's sentence never changes for its position).
+const renderedFeeds = new WeakMap<HTMLTableElement, string>();
 
 /// The live list and Active now, one renderer per mode (s2w#289): with a sentence feed, the
 /// manifest's sentences and Active now counted from them; without one, today's table and
@@ -26,13 +27,14 @@ export function renderLive(table: HTMLTableElement, active: HTMLElement, state: 
 
 /// One row per sentence, newest first, under an explicit `tbody`.
 export function renderFeed(table: HTMLTableElement, rows: SentenceRow[]): void {
-  if (renderedFeeds.get(table) === rows) return;
+  const shown = `${rows.length}:${rows[0]?.position}:${rows[rows.length - 1]?.position}`;
+  if (renderedFeeds.get(table) === shown) return;
   const head = document.createElement('thead');
   const cell = document.createElement('th'); cell.textContent = 'Change'; head.insertRow().append(cell);
   const body = document.createElement('tbody');
   for (const sentence of feedSentences(rows)) body.insertRow().insertCell().textContent = sentence;
   table.replaceChildren(head, body);
-  renderedFeeds.set(table, rows);
+  renderedFeeds.set(table, shown);
 }
 
 // Active now from the feed, per feed array: recounted only when the feed or the labels change

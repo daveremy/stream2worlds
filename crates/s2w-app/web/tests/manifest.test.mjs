@@ -105,7 +105,7 @@ test('active now counts primary entities once per event', () => {
     { type: 'user', label: 'v', count: 1 },
   ]);
   assert.deepEqual(sentenceActive([{ position: 1, source: 's', sentence: 'x', entities: [{ type: 'user', key: 'u', entity: 4 }] }],
-    manifest, () => undefined), [{ type: 'user', label: '#4', count: 1 }]);
+    manifest, () => undefined), [{ type: 'user', label: 'u', count: 1 }], 'an off-page entity reads as its key');
   assert.equal(changesText(1), '1 change');
   assert.equal(changesText(22), '22 changes');
 });
@@ -115,7 +115,7 @@ test('the feed renders under an explicit tbody; no feed renders today\'s table',
   state.manifest = manifest;
   const table = new Element('table'), active = new Element('div');
   renderLive(table, active, state);
-  assert.notEqual(table.children[1]?.children[0]?.children.length, 1, 'today\'s table (or empty) without a feed');
+  assert.equal(table.children[0].children[0].children.length, 4, 'today\'s four-column table without a feed');
   state.feed = rows;
   renderLive(table, active, state);
   const [head, body] = table.children;
@@ -123,12 +123,14 @@ test('the feed renders under an explicit tbody; no feed renders today\'s table',
   assert.equal(body.tagName, 'tbody');
   assert.deepEqual(body.children.map(tr => tr.children[0].textContent), ['third', 'first']);
   const recent = active.children[1].children.map(li => li.textContent);
-  assert.deepEqual(recent, [`${KIND_ICON.document} One (2 changes)`, `${KIND_ICON.person} #2 (1 change)`,
+  assert.deepEqual(recent, [`${KIND_ICON.document} One (2 changes)`, `${KIND_ICON.person} u (1 change)`,
     `${KIND_ICON.person} v (1 change)`]);
 });
 
 test('only a retryable failure keeps the sentence poll alive', () => {
   assert.equal(pollRetries({ status: 503 }), true);
+  for (const status of [429, 502, 504]) assert.equal(pollRetries({ status }), true, String(status));
+  assert.equal(pollRetries({ status: 500 }), false);
   assert.equal(pollRetries(new TypeError('network')), true);
   assert.equal(pollRetries({ status: 404 }), false);
   assert.equal(pollRetries({ status: 400 }), false);

@@ -151,7 +151,7 @@ fn decoded(payload: &[u8], decode: &[s2w_model::FieldPath]) -> Option<Value> {
 }
 
 /// The entities the engine observes in the event, in claim order, each (type, key) once, the
-/// first claim of a pair giving its label.
+/// first claim of a pair that has one giving its label.
 fn observed(
     engine: &MappingEngine,
     stored: &StoredEvent,
@@ -160,30 +160,40 @@ fn observed(
     let Verdict::Propose { claims, .. } = engine.evaluate(&stored.event) else {
         return Vec::new();
     };
-    let mut seen = BTreeSet::new();
-    claims
-        .into_iter()
-        .filter_map(|claim| match claim {
-            WorldEvent::EntityObserved {
-                key,
-                entity_type,
-                attrs,
-            } => {
-                let label = labels
-                    .get(&entity_type)
-                    .and_then(|label| entity_label(label, &key, &attrs));
-                Some((entity_type, key.as_str().to_owned(), label))
-            }
-            _ => None,
-        })
-        .filter(|(entity_type, key, _)| seen.insert((entity_type.clone(), key.clone())))
-        .map(|(entity_type, key, label)| SentenceEntity {
-            entity_type,
+    let mut entities: Vec<SentenceEntity> = Vec::new();
+    let mut index = BTreeMap::new();
+    for claim in claims {
+        let WorldEvent::EntityObserved {
             key,
-            entity: None,
-            label,
-        })
-        .collect()
+            entity_type,
+            attrs,
+        } = claim
+        else {
+            continue;
+        };
+        let label = labels
+            .get(&entity_type)
+            .and_then(|label| entity_label(label, &key, &attrs));
+        let key = key.as_str().to_owned();
+        match index.get(&(entity_type.clone(), key.clone())) {
+            Some(&at) => {
+                let entity: &mut SentenceEntity = &mut entities[at];
+                if entity.label.is_none() {
+                    entity.label = label;
+                }
+            }
+            None => {
+                index.insert((entity_type.clone(), key.clone()), entities.len());
+                entities.push(SentenceEntity {
+                    entity_type,
+                    key,
+                    entity: None,
+                    label,
+                });
+            }
+        }
+    }
+    entities
 }
 
 /// The display text of the label a type row names for one observation; `None` when the

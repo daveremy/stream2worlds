@@ -273,9 +273,9 @@ Amends "Labels and sentences" above. Measured on the demo: sentences read
 `Llewee edited Saint_David's_Day: /* School celebrations */ added link`, and an edit with an
 empty summary read `ArchivioItalia edited Draft:Battle_of_the_Wall_of_Megara: `.
 
-- **Display text.** A sentence field's string, a sentence entity's label and a viewer label all
-  go through one rule set (`s2w_model::display_text`, copied in `web/src/manifest.ts` with the
-  same test vectors): every `/* … */` span is removed (an unterminated `/*` stays), whitespace
+- **Display text.** A sentence field's string, a sentence entity's label and a viewer label a
+  type row names all go through one rule set (`s2w_model::display_text`, copied in
+  `web/src/manifest.ts` with the same test vectors): every `/* … */` span is removed (an unterminated `/*` stays), whitespace
   runs are one space and trimmed (ASCII whitespace and the no-break space only), and a value
   that is one token containing `_` shows its underscores as spaces. These are v0 heuristics
   about text, not about a domain: a comment span is markup, and a one-token underscore value
