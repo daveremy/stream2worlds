@@ -64,8 +64,12 @@ export function labelFor(node: Node, keyByType: LabelKeyMap): string {
   return node.keys.join(', ') || `#${node.entity}`;
 }
 
-export function labelMap(nodes: Node[], keyByType: LabelKeyMap): Map<string, string> {
-  const labels = nodes.map(node => [node, labelFor(node, keyByType)] as const);
+/// Every node's label: `preferred` first (the manifest's), else `labelFor`; a label two
+/// entities share gets `#<entity>` appended.
+export function labelMap(
+  nodes: Node[], keyByType: LabelKeyMap, preferred?: (node: Node) => string | undefined,
+): Map<string, string> {
+  const labels = nodes.map(node => [node, preferred?.(node) ?? labelFor(node, keyByType)] as const);
   const counts = new Map<string, number>();
   for (const [, label] of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
   return new Map(labels.map(([node, label]) => [node.id,

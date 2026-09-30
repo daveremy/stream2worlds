@@ -1,6 +1,7 @@
 // @ts-expect-error tsconfig's Bundler resolution forbids the extension; Node's native
 // TypeScript stripping (tests/*.test.mjs importing this file directly) requires it.
 import { SseParser } from './sse.ts';
+import type { Dashboard, SentenceRow } from './manifest';
 // These tagged unions mirror query/{view,delta}.rs; graph deltas are not snapshots.
 type Entity = { id: string; entity: number; entity_type: string; keys: string[];
   attrs: Record<string, { Str: string } | { Int: number } | { Bool: boolean }>;
@@ -182,4 +183,15 @@ export async function proposals(params: URLSearchParams, signal: AbortSignal): P
   const url = endpoint(params, 'proposals');
   url.searchParams.delete('at');
   return (await checked(url, signal)).json();
+}
+// The effective dashboard manifest (decision 0029); independent of the pinned offset.
+export async function dashboard(world: string, signal: AbortSignal): Promise<Dashboard> {
+  const url = new URL(`/worlds/${encodeURIComponent(world)}/dashboard`, location.origin);
+  return (await checked(url, signal)).json();
+}
+// The last `last` events as the manifest's sentences, oldest first (`/sentences` has no `at`).
+export async function sentences(world: string, last: number, signal: AbortSignal): Promise<SentenceRow[]> {
+  const url = new URL(`/worlds/${encodeURIComponent(world)}/sentences`, location.origin);
+  url.searchParams.set('last', String(last));
+  return ((await checked(url, signal)).json() as Promise<{ rows: SentenceRow[] }>).then(view => view.rows);
 }

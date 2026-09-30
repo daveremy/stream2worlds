@@ -332,7 +332,15 @@ mod tests {
         );
         let only = s("{0}", vec![SentenceField::Path(p(&["a"]))]);
         assert_eq!(render_sentence(&only, &json!({"a": ""})), None);
-        // An empty-comment entry falls through to the next matching one.
+    }
+
+    #[test]
+    fn an_entry_with_an_empty_field_falls_through_to_the_next() {
+        let trunc = |key: &str| {
+            SentenceField::Truncate(TruncateField {
+                truncate: p(&[key]),
+            })
+        };
         let events = vec![EventSentence {
             source: "s1".to_owned(),
             when: None,

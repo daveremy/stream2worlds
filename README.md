@@ -42,6 +42,13 @@
 One command each after `cargo build --release`, no other configuration. Newest first — see
 [`demos/`](demos/) for what each one shows and a captured real run.
 
+The live demo (`/w/default/` on the demo box) reads the world's dashboard manifest when one is
+in effect: graph nodes and the legend carry each type's name, noun and kind icon, **Live
+changes** lists the newest 200 events as the manifest's sentences, and **Active now** counts
+the entities they name, for example `📄 Tucson, Arizona (22 changes)`. A pinned moment
+(`?at=`) keeps names and icons but shows the evidence list, since sentences are live only.
+With no manifest the page shows today's evidence view.
+
 - **[local-routed-world](demos/local-routed-world/)**: `./demos/local-routed-world/run.sh
   [--keep]` — a local `s2w serve` whose world is routed from the first event (a human-accepted
   mapping seeded before serve starts); `--keep` holds it up for the viewer demo check.

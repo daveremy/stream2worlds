@@ -3,6 +3,8 @@ import type { NodeObject } from 'force-graph';
 import type { Link, Node } from '../api';
 import { LINE_HEIGHT, collideForce, fitView, isTypeView, labelBox, labelLines, maxRadius, maxTypeCount, nodeRadius } from '../nodesize';
 import { labelFor, linkColor, typeColor } from '../profile';
+import { nounFor, withIcon } from '../manifest';
+import type { Manifest } from '../manifest';
 import type { GraphRenderer } from '../renderer';
 import type { ViewState } from '../state';
 type GraphNode = Node & NodeObject;
@@ -17,6 +19,8 @@ export class Force2D implements GraphRenderer {
   private degreeMap = new Map<string, number>();
   private keyByType = new Map<string, string | undefined>();
   private labelById = new Map<string, string>();
+  // Icons and nouns (s2w#289); a type node's label already carries both.
+  private manifest: Manifest | undefined;
   private groundColor = DEFAULT_GROUND;
   private inkColor = DEFAULT_INK;
   private typeMax = 1;
@@ -35,6 +39,10 @@ export class Force2D implements GraphRenderer {
   }
   private label(node: GraphNode): string {
     return this.labelById.get(node.id) ?? labelFor(node, this.keyByType);
+  }
+  // An entity's canvas label: its label behind the type's kind icon.
+  private entityLabel(node: GraphNode): string {
+    return withIcon(this.manifest, node.entity_type, this.label(node));
   }
   /**
    * Applies presentation-supplied colours to the canvas. Safe to call before `mount` (stores the
@@ -58,7 +66,7 @@ export class Force2D implements GraphRenderer {
         context.font = `${fontSize}px system-ui, sans-serif`;
         context.textAlign = 'center'; context.textBaseline = 'top'; context.fillStyle = this.inkColor;
         const top = node.y + this.radius(node) + 2 / globalScale;
-        if (node.kind !== 'type') { context.fillText(this.label(node), node.x, top); return; }
+        if (node.kind !== 'type') { context.fillText(this.entityLabel(node), node.x, top); return; }
         this.lines(node).forEach((line, index) =>
           context.fillText(line, node.x!, top + (index * LINE_HEIGHT) / globalScale));
       })
@@ -68,8 +76,8 @@ export class Force2D implements GraphRenderer {
       .nodeLabel((node: GraphNode) => {
         // Tooltip libraries accept HTML strings: return a text-only element for stream data.
         const label = document.createElement('span');
-        label.textContent = node.kind === 'type' ? `${node.entity_type} (${node.count})` :
-          `${this.label(node)} · ${node.entity_type}${node.kind === 'hub' ? ` · hub (${node.in_degree})` : ''}`;
+        label.textContent = node.kind === 'type' ? this.label(node) :
+          `${this.entityLabel(node)} · ${nounFor(this.manifest, node.entity_type)}${node.kind === 'hub' ? ` · hub (${node.in_degree})` : ''}`;
         return label;
       });
     this.maxR = maxRadius(element.clientWidth, element.clientHeight);
@@ -93,6 +101,7 @@ export class Force2D implements GraphRenderer {
     this.degreeMap = state.degreeMap;
     this.keyByType = state.keyByType;
     this.labelById = state.labels;
+    this.manifest = state.manifest;
     this.typeMax = maxTypeCount(stateNodes);
     const previous: Map<string, Partial<GraphNode>> = new Map(
       (this.graph?.graphData().nodes ?? []).map(node => [node.id, node]));
@@ -107,7 +116,7 @@ export class Force2D implements GraphRenderer {
     // force-graph's defaults (charge -30, no collide, no warmup).
     const typeView = isTypeView(stateNodes);
     this.typeLines = new Map(stateNodes.flatMap(node =>
-      node.kind === 'type' ? [[node.id, labelLines(labelFor(node, this.keyByType))] as const] : []));
+      node.kind === 'type' ? [[node.id, labelLines(this.label(node))] as const] : []));
     const fresh = typeView && !nodes.some(node => previous.has(node.id));
     if (fresh) this.fitOnTick = this.fitOnStop = true;
     this.graph?.d3Force('collide', typeView ? collideForce<GraphNode>(node => labelBox(this.radius(node), this.lines(node))) : null)

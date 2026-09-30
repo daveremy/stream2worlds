@@ -14,7 +14,7 @@ export function renderActive(element: HTMLElement, state: ViewState): void {
   element.replaceChildren(recentHeading, recentList, hubHeading, hubList);
 }
 
-function metricList(values: string[]): HTMLUListElement {
+export function metricList(values: string[]): HTMLUListElement {
   const list = document.createElement('ul');
   for (const value of values.length ? values : ['None']) {
     const item = document.createElement('li'); item.textContent = value; list.append(item);

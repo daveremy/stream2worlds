@@ -261,10 +261,44 @@ re-proposal of the manifest carries all of it; a manifest filed before it still 
   case. Both thresholds are heuristics checked against one stream.
 - **Surfaces.** `GET /worlds/{world}/sentences?last=N` (`last` required, 1 to 200) returns
   `{rows}`, newest last, each `{position, source, sentence, entities}`; an entity carries
-  `type`, `key`, and `entity` when the head world holds the key. MCP `sentences` is byte-equal
+  `type`, `key`, and `entity` when the head world holds the key (and `label` since #289, see
+  below). MCP `sentences` is byte-equal
   and the ninth read-only MCP tool.
 - **System 2 prompt.** The prompt asks two more questions: a noun, label and kind per type
   (never a timestamp path), and a sentence per event type.
+
+### Display text and the viewer (#289, 2026-09-30)
+
+Amends "Labels and sentences" above. Measured on the demo: sentences read
+`Llewee edited Saint_David's_Day: /* School celebrations */ added link`, and an edit with an
+empty summary read `ArchivioItalia edited Draft:Battle_of_the_Wall_of_Megara: `.
+
+- **Display text.** A sentence field's string, a sentence entity's label and a viewer label all
+  go through one rule set (`s2w_model::display_text`, copied in `web/src/manifest.ts` with the
+  same test vectors): every `/* … */` span is removed (an unterminated `/*` stays), whitespace
+  runs are one space and trimmed (ASCII whitespace and the no-break space only), and a value
+  that is one token containing `_` shows its underscores as spaces. These are v0 heuristics
+  about text, not about a domain: a comment span is markup, and a one-token underscore value
+  is an identifier. Text with spaces keeps its underscores. `truncate` counts characters of
+  the display text. `when` matches the raw value, never the display text.
+- **Empty fields.** A field whose display text is empty is absent, with one exception: the last
+  placeholder of the template (only whitespace after it) is dropped together with the
+  whitespace and separators (`: ; , - – —`) before it. So `{0} edited {1}: {2}` with an empty
+  comment reads `ArchivioItalia edited Draft:Battle of the Wall of Megara`. An empty field
+  anywhere else fails the entry, and the next matching entry renders.
+- **Entity labels on `/sentences`.** Each entity may carry `label`: the display text of what
+  its type row's `label` names, read from this event (a key part, or the attribute this
+  observation carries), never from the fold. It is absent when the type has no row or label or
+  the value is empty. The field is additive; no other field changed. The server computes it
+  because a large world never sends the viewer its entity nodes, so the page could not name an
+  entity otherwise.
+- **The viewer.** With a manifest in effect, graph labels, tooltips and the legend use the
+  type rows (label, noun, and one fixed icon per kind); a live page shows the last 200
+  sentences newest first under "Live changes" and counts Active now over them (primary types
+  only, one count per event). A pinned page keeps the names and icons but not the feed, since
+  `/sentences` has no `at`. Manifest v0 has no word for an event, so the viewer says "changes"
+  for every stream (decision 0018: no compiled domain vocabulary); a manifest event noun is
+  s2w#347. With no manifest the page is unchanged.
 
 ## What it never does
 
