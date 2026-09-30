@@ -13,6 +13,42 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Mappings merge entities, and the box's memory is explained — [#276](https://github.com/daveremy/stream2worlds/pull/276), [#279](https://github.com/daveremy/stream2worlds/pull/279), [#280](https://github.com/daveremy/stream2worlds/pull/280), [#281](https://github.com/daveremy/stream2worlds/pull/281), [#285](https://github.com/daveremy/stream2worlds/pull/285), [#286](https://github.com/daveremy/stream2worlds/pull/286), [#287](https://github.com/daveremy/stream2worlds/pull/287) (2026-09-29)
+
+**Shipped:** a mapping's `links` now do something. When both rules of a link match with
+different keys, the engine emits one merge for the pair, so `enwiki` and `en.wikipedia.org` can
+name one wiki; mappings without links produce byte-identical claims
+([#279](https://github.com/daveremy/stream2worlds/pull/279), [#245](https://github.com/daveremy/stream2worlds/issues/245) PR 2). The question "why does the box run out of memory" has a measured
+answer: the head world had grown from 403 MiB to 887 MiB unnoticed, because the 600 MiB test
+is `#[ignore]`d. A bisect with a per-type tally traced it: [#261](https://github.com/daveremy/stream2worlds/pull/261) added four non-entity
+types (edit counts, comment text, byte size), +6.1M events and +347 MiB for no recall gain,
+while the revision entity from [#276](https://github.com/daveremy/stream2worlds/pull/276) cost +136 MiB and earned it. mimalloc measured 84 to
+102 MiB lower and returns memory after a backfill ([#280](https://github.com/daveremy/stream2worlds/pull/280), [#282](https://github.com/daveremy/stream2worlds/issues/282)). The signed contract
+can no longer be edited in place: `cargo xtask check` hashes everything above the dated-notes
+heading, so an in-place edit fails and an appended note passes ([#281](https://github.com/daveremy/stream2worlds/pull/281)). The Source seat
+reports lag per partition: Kafka gives a number per partition, while SSE and stdin say "not
+reported" rather than 0, and the watch and serve status line shows it ([#286](https://github.com/daveremy/stream2worlds/pull/286)). `score`
+accepts a span opening, so the re-freeze that [#244](https://github.com/daveremy/stream2worlds/issues/244) needed is gone (only Reserved to
+Heldout with the same sha256 is allowed), and `PROFILER_MODEL` is now `h-min` in the discover
+crate ([#285](https://github.com/daveremy/stream2worlds/pull/285), [#287](https://github.com/daveremy/stream2worlds/pull/287), [#277](https://github.com/daveremy/stream2worlds/issues/277) PR A and B). Containment ([#276](https://github.com/daveremy/stream2worlds/pull/276), stage 5b)
+merged before the sprint opened: F1 0.44 to 0.53 on the held-out span, all six predictions hit.
+
+**Learned:** the demo page renders but first paint took about 8.6 s at the end of the sprint
+against about 3 s in Sprint 84, and the check failed on its 8 s limit; the world grows and
+`/world` still queues behind the fold. A test marked `#[ignore]` hides a doubling for as long as
+nobody runs it, so [#282](https://github.com/daveremy/stream2worlds/issues/282) adds a scheduled sweep. [#250](https://github.com/daveremy/stream2worlds/issues/250) closed on evidence from
+earlier sprints; no work was needed this sprint.
+
+**Changed course:** Dave set the demo's direction: the user is the watcher, and the page shows
+content (page titles, user names, events as sentences) rather than metadata. The planner starts
+from the domain's quintessential projection and its roles, every feature must pass "could a
+pre-AI dashboard do this?", and the first-paint gate is 1 s + 2 x RTT
+([#288](https://github.com/daveremy/stream2worlds/issues/288) to [#292](https://github.com/daveremy/stream2worlds/issues/292)). The demo box stays on b207c74f until the profiler guard from
+[#291](https://github.com/daveremy/stream2worlds/issues/291) lands.
+
+**Next:** single-flight `/world` ([#270](https://github.com/daveremy/stream2worlds/issues/270), in review) and progressive rendering
+([#292](https://github.com/daveremy/stream2worlds/issues/292)), then the profiler guard ([#291](https://github.com/daveremy/stream2worlds/issues/291)) and [#277](https://github.com/daveremy/stream2worlds/issues/277) PR C.
+
 ## The page renders — #262, #265, #269, #243, #245 PR 1 and #235 PR 3, and #244 just after (2026-09-29)
 
 **Shipped:** a person opening the demo now sees a world. The page opens on the type view (about
