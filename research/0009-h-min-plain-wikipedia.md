@@ -212,7 +212,7 @@ Each is a candidate; karpathy assigns the disposition.
    H-min proper,** decided from the development-window table and scored on the reserved corpus.
    → deferred: #244. *2026-09-29: `PROFILER_VERSION` 3 went to #250 PR 1 (addendum below);
    #244's change takes 4.* *2026-09-29: 4 went to #250 PR 2; #244's change took 5 and was scored on
-   `reserved` (addendum 2026-09-30 below).*
+   `reserved` (addendum below, dated in UTC).*
 2. **The mapping format's alias limit is a finding for System 2's design,** not only for H: no
    v0 producer can join different values that name one entity, and the oracle ceiling is not
    the best v0 mapping (H-lite beats it on `wiki`). → deferred: #245.
@@ -343,7 +343,7 @@ below 0.60, so the row of #4's decision table that applies is unchanged ("entity
 (#244, now `PROFILER_VERSION` 5) and the alias key (#245).
 
 
-## Addendum 2026-09-30: implication 1, containment (s2w#244, `PROFILER_VERSION` 5)
+## Addendum 2026-09-30 (UTC): implication 1, containment (s2w#244, `PROFILER_VERSION` 5)
 
 **Change.** Decision 0022's stage-5b amendment (dated 2026-09-29) adds stage 5b: two `Entity` or `EventId` paths
 share one value domain when at least 10% of one path's distinct values also appear at the other
@@ -362,12 +362,14 @@ were committed, and the predictions P1-P6 were posted on #244
 measured once by a merge walk; the `dev` freezes at both windows and the 10^4 profile re-derive
 byte-identical) and round-1 review fixes (762493a: a test and comments, no rule change). Then
 `reserved` was opened as held-out (709923f, 01:18 UTC). v5 was frozen on `dev` after the opening
-(0551300); its mappings equal the in-sample freezes made before it. No crate changed between the
+(0551300); the in-sample freezes made before the opening were not committed, and each differs
+from the committed file only in the line that records `reserved`'s role. No crate changed between the
 opening and the scores, and no threshold was chosen after any held-out score was seen.
 
-v4 was scored from a build of `main` @ 455c547 with only the `corpora.toml` flip applied. Its
-committed freezes had recorded `reserved`'s old role, so `score` refused them ("freeze again
-under the current pins"); v4 was re-frozen on `dev` under the current pins
+v4 was scored from a build of `main` @ 455c547 with only the `corpora.toml` flip applied. This
+deviates from the posted plan, which named v4's committed freezes: those freezes had recorded
+`reserved`'s old role, so `score` refused them ("freeze again under the current pins"); v4 was
+re-frozen on `dev` under the current pins
 (`frozen/h-lite-v4.dev-{10000,200000}.pins-244.json`), and each file differs from the committed
 v4 freeze only in that pin line. Reports:
 `research/h-measure/results/{h-min-v5,h-lite-v4}.dev-{10000,200000}.reserved.md`.
@@ -397,7 +399,7 @@ addendum gives: at that window the mapping also keys `title` as a type separate 
 **Context collisions.** `revision @ data.wiki`: 2 groups, 4 mentions, P 0.5000, R 1.0000 (v4:
 R 0). The mapping keys the revision number alone, so equal revision numbers on two wikis merge;
 the key's identity separates them. The merge touches 4 of 67,893 revision mentions, and the
-type-level P prints 1.0000 at four decimals.
+type-level P is at least 0.9999 (it prints as 1.0000).
 
 **Pre-registered predictions** (N = 10^4, base key unless stated):
 
