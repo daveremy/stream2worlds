@@ -32,7 +32,7 @@
   from the newest events of each mapped source, with no model in the loop.
   [#312](https://github.com/daveremy/stream2worlds/pull/312)
 - **Four viewers share one `/world` build.** Full entity and full type requests are single-flight,
-  so concurrent viewers no longer build a 330 MiB projection each.
+  so concurrent viewers no longer each build their own full projection.
   [#315](https://github.com/daveremy/stream2worlds/pull/315),
   [#322](https://github.com/daveremy/stream2worlds/pull/322)
 - **A timestamp is never a thing.** Date-time fields no longer become entity types, and the change
@@ -115,8 +115,8 @@ curl http://localhost:4310/worlds/default/world
 # returns every entity.
 # Or open http://localhost:4310/ in a browser for the web view (evidence table and graph);
 # add ?at=<offset> to the URL to pin a moment.
-# The page fetches the type summary first; above 5,000 entities it draws that, then adds the
-# links from the full type view, instead of every entity; set a
+# The page fetches the type summary first. Above 5,000 entities it draws the summary instead
+# of every entity, then adds the links from the full type view. Set a
 # Focus entity (and Hops) to see its neighbourhood (#262).
 # The Detail selector reads Types while the page shows types.
 curl http://localhost:4310/worlds/default/sources
