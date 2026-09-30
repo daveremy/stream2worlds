@@ -56,7 +56,9 @@ fn mapped(name: &str) -> Fallible<TestDirectory> {
     store.append_proposal(&NewProposal {
         id: "m1".to_owned(),
         class: STREAM_MAPPING_CLASS.to_owned(),
-        actor: Actor::Human { id: "dave".to_owned() },
+        actor: Actor::Human {
+            id: "dave".to_owned(),
+        },
         snapshot_offset: LogPosition::from_u64(1).ok_or("position")?,
         payload: serde_json::to_vec(&MappingEnvelope {
             format: ENVELOPE_FORMAT,
@@ -160,7 +162,11 @@ fn a_command_that_prints_no_manifest_is_a_null_row_with_a_reject() -> TestResult
     assert!(basis.starts_with("invalid: not JSON"), "{basis}");
     let shown = s2w(&["dashboard", "show", "--log-dir", &dir.path(), "--json"])?;
     let view: Value = serde_json::from_slice(&shown.stdout)?;
-    assert_eq!(view["manifest"], Value::Null, "a rejected row is not in effect");
+    assert_eq!(
+        view["manifest"],
+        Value::Null,
+        "a rejected row is not in effect"
+    );
     Ok(())
 }
 

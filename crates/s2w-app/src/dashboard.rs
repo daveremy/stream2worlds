@@ -589,17 +589,16 @@ pub fn propose_system2(
     command: &System2Command,
     dry_run: bool,
 ) -> Result<ProposeReport, QueryError> {
-    let provider =
-        ExecProvider::inherit(command.argv.clone(), &command.env).map_err(|error| {
-            let name = match error {
-                ExecSetupError::EmptyCommand => "system2-cmd",
-                _ => "system2-env",
-            };
-            QueryError::BadParameter {
-                name,
-                reason: error.to_string(),
-            }
-        })?;
+    let provider = ExecProvider::inherit(command.argv.clone(), &command.env).map_err(|error| {
+        let name = match error {
+            ExecSetupError::EmptyCommand => "system2-cmd",
+            _ => "system2-env",
+        };
+        QueryError::BadParameter {
+            name,
+            reason: error.to_string(),
+        }
+    })?;
     let id = ProposerId {
         model: command.model.clone(),
         version: command.version.clone(),

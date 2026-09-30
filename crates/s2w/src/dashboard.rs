@@ -143,71 +143,93 @@ fn parse_propose(args: &[String]) -> Result<ProposeArgs, String> {
 /// `--system2-model` go together, and `--system2-env` needs them.
 fn split_system2(args: &[String]) -> Result<(Vec<String>, Option<System2Command>), String> {
     let mut rest = Vec::new();
-    let mut argv: Option<Vec<String>> = None;
-    let mut model: Option<(String, String)> = None;
-    let mut env: Vec<String> = Vec::new();
+    let mut flags = System2Flags::default();
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
-        match flag {
-            "--system2-cmd" => {
-                if argv.is_some() {
-                    return Err(format!("{flag} was given more than once"));
-                }
-                let tail = &args[index + 1..];
-                let end = tail.iter().position(|arg| arg == "--").unwrap_or(tail.len());
-                if end == 0 {
-                    return Err(format!(
-                        "{flag} needs a command: {flag} <program> [<arg>...] [--]"
-                    ));
-                }
-                argv = Some(tail[..end].to_vec());
-                index += end + 2;
-            }
+        index += match flag {
+            "--system2-cmd" => flags.command(&args[index + 1..])?,
             "--system2-model" | "--system2-env" => {
                 let value = args
                     .get(index + 1)
                     .filter(|value| !value.trim().is_empty() && !value.starts_with("--"))
                     .ok_or_else(|| format!("{flag} needs a value: {flag} <value>"))?;
-                if flag == "--system2-model" {
-                    if model.is_some() {
-                        return Err(format!("{flag} was given more than once"));
-                    }
-                    model = Some(split_model(value)?);
-                } else {
-                    if value.contains(['=', '\0']) {
-                        return Err(format!("{flag} takes a variable name, not '{value}'"));
-                    }
-                    if env.contains(value) {
-                        return Err(format!("{flag} {value} was given more than once"));
-                    }
-                    env.push(value.clone());
-                }
-                index += 2;
+                flags.value(flag, value)?;
+                2
             }
             _ => {
                 rest.push(args[index].clone());
-                index += 1;
+                1
             }
+        };
+    }
+    Ok((rest, flags.finish()?))
+}
+
+/// The `--system2-*` flags seen so far.
+#[derive(Default)]
+struct System2Flags {
+    argv: Option<Vec<String>>,
+    model: Option<(String, String)>,
+    env: Vec<String>,
+}
+
+impl System2Flags {
+    /// Takes `--system2-cmd`'s tokens from `tail` (the arguments after the flag) and returns
+    /// how many arguments that consumed, the flag and a closing `--` included.
+    fn command(&mut self, tail: &[String]) -> Result<usize, String> {
+        if self.argv.is_some() {
+            return Err("--system2-cmd was given more than once".to_owned());
+        }
+        let end = tail
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(tail.len());
+        if end == 0 {
+            return Err(
+                "--system2-cmd needs a command: --system2-cmd <program> [<arg>...] [--]".to_owned(),
+            );
+        }
+        self.argv = Some(tail[..end].to_vec());
+        Ok(end + 2)
+    }
+
+    /// Takes `--system2-model <value>` or `--system2-env <value>`.
+    fn value(&mut self, flag: &str, value: &str) -> Result<(), String> {
+        if flag == "--system2-model" {
+            if self.model.is_some() {
+                return Err(format!("{flag} was given more than once"));
+            }
+            self.model = Some(split_model(value)?);
+            return Ok(());
+        }
+        if value.contains(['=', '\0']) {
+            return Err(format!("{flag} takes a variable name, not '{value}'"));
+        }
+        if self.env.iter().any(|name| name == value) {
+            return Err(format!("{flag} {value} was given more than once"));
+        }
+        self.env.push(value.to_owned());
+        Ok(())
+    }
+
+    /// The command, when `--system2-cmd` and `--system2-model` were both given.
+    fn finish(self) -> Result<Option<System2Command>, String> {
+        match (self.argv, self.model) {
+            (Some(argv), Some((model, version))) => Ok(Some(System2Command {
+                argv,
+                model,
+                version,
+                env: self.env,
+            })),
+            (Some(_), None) => Err("--system2-cmd needs --system2-model <model>/<version>".into()),
+            (None, Some(_)) => Err("--system2-model needs --system2-cmd".to_owned()),
+            (None, None) if !self.env.is_empty() => {
+                Err("--system2-env needs --system2-cmd".to_owned())
+            }
+            (None, None) => Ok(None),
         }
     }
-    let system2 = match (argv, model) {
-        (Some(argv), Some((model, version))) => Some(System2Command {
-            argv,
-            model,
-            version,
-            env,
-        }),
-        (Some(_), None) => {
-            return Err("--system2-cmd needs --system2-model <model>/<version>".to_owned());
-        }
-        (None, Some(_)) => return Err("--system2-model needs --system2-cmd".to_owned()),
-        (None, None) if !env.is_empty() => {
-            return Err("--system2-env needs --system2-cmd".to_owned());
-        }
-        (None, None) => None,
-    };
-    Ok((rest, system2))
 }
 
 /// `<model>/<version>`, split at the last `/`; both parts non-empty.
@@ -465,7 +487,10 @@ mod tests {
         ]))
         .expect("parses");
         assert!(parsed.json, "--json after `--` is ours");
-        assert_eq!(parsed.world, "default", "--world before `--` is the command's");
+        assert_eq!(
+            parsed.world, "default",
+            "--world before `--` is the command's"
+        );
         assert_eq!(
             parsed.system2,
             Some(System2Command {
@@ -515,7 +540,15 @@ mod tests {
                 "more than once",
             ),
             (
-                &["--system2-model", "m/v", "--system2-cmd", "a", "--", "--system2-cmd", "b"][..],
+                &[
+                    "--system2-model",
+                    "m/v",
+                    "--system2-cmd",
+                    "a",
+                    "--",
+                    "--system2-cmd",
+                    "b",
+                ][..],
                 "more than once",
             ),
             (

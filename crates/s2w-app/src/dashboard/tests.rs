@@ -397,7 +397,10 @@ impl Capture {
 
 impl s2w_system2::Provider for Capture {
     fn complete(&self, prompt: &str) -> Result<Reply, s2w_system2::ProviderError> {
-        self.prompts.lock().expect("prompts").push(prompt.to_owned());
+        self.prompts
+            .lock()
+            .expect("prompts")
+            .push(prompt.to_owned());
         Ok(reply(self.reply))
     }
 }
@@ -418,6 +421,34 @@ fn system2_id() -> ProposerId {
     }
 }
 
+/// The one row `proposals` holds: by the System 2 actor, carrying `manifest`, the proposer's
+/// prompt hash and the replayed cost.
+fn assert_filed_by_system2(
+    proposals: &[StoredProposal],
+    proposer: &System2Proposer<ReplayProvider>,
+    manifest: &DashboardManifest,
+) {
+    assert_eq!(proposals.len(), 1);
+    assert_eq!(
+        proposals[0].actor,
+        Actor::Agent {
+            model: "test-model".to_owned(),
+            version: "2026-09".to_owned(),
+        }
+    );
+    let envelope = parse_dashboard_envelope(&proposals[0].payload).expect("envelope");
+    assert_eq!(envelope.manifest.as_ref(), Some(manifest));
+    assert_eq!(envelope.provenance.prompt_hash, proposer.prompt_hash());
+    assert_eq!(
+        (
+            envelope.provenance.input_tokens,
+            envelope.provenance.output_tokens,
+            envelope.provenance.latency_ms,
+        ),
+        (Some(1_000), Some(200), Some(1_500))
+    );
+}
+
 #[test]
 fn a_replayed_system2_manifest_is_filed_accepted_with_its_prompt_hash_and_cost() {
     let dir = mapped_log("dashboard-system2");
@@ -429,7 +460,10 @@ fn a_replayed_system2_manifest_is_filed_accepted_with_its_prompt_hash_and_cost()
     let text = serde_json::to_string(&manifest).expect("manifest json");
     let prompts = Capture::prompts(dir.path(), "unused");
     assert_eq!(prompts.len(), 2, "a non-JSON reply is repaired once");
-    assert!(dashboard_rows(dir.path()).0.is_empty(), "the dry run wrote nothing");
+    assert!(
+        dashboard_rows(dir.path()).0.is_empty(),
+        "the dry run wrote nothing"
+    );
 
     let mut replay = ReplayProvider::new();
     replay.insert(&prompts[0], reply(&format!("```json\n{text}\n```")));
@@ -441,31 +475,18 @@ fn a_replayed_system2_manifest_is_filed_accepted_with_its_prompt_hash_and_cost()
     assert_eq!(proposer.provider().calls().len(), 1);
 
     let (proposals, decisions) = dashboard_rows(dir.path());
-    assert_eq!((proposals.len(), decisions.len()), (1, 1));
-    assert_eq!(
-        proposals[0].actor,
-        Actor::Agent {
-            model: "test-model".to_owned(),
-            version: "2026-09".to_owned(),
-        }
-    );
-    let envelope = parse_dashboard_envelope(&proposals[0].payload).expect("envelope");
-    assert_eq!(envelope.manifest.as_ref(), Some(manifest.as_ref()));
-    assert_eq!(envelope.provenance.prompt_hash, proposer.prompt_hash());
-    assert_eq!(
-        (
-            envelope.provenance.input_tokens,
-            envelope.provenance.output_tokens,
-            envelope.provenance.latency_ms,
-        ),
-        (Some(1_000), Some(200), Some(1_500))
-    );
+    assert_filed_by_system2(&proposals, &proposer, &manifest);
+    assert_eq!(decisions.len(), 1);
     let view = read_dashboard(dir.path(), WORLD).expect("view");
     assert_eq!(view.proposal_id, report.proposal_id);
 
     let again = propose(dir.path(), WORLD, &proposer, false).expect("again");
     assert_eq!(again.action, Action::Skipped);
-    assert_eq!(proposer.provider().calls().len(), 1, "a re-run asks nothing");
+    assert_eq!(
+        proposer.provider().calls().len(),
+        1,
+        "a re-run asks nothing"
+    );
     assert_eq!(dashboard_rows(dir.path()), (proposals, decisions));
 }
 
@@ -474,7 +495,10 @@ fn a_replayed_system2_reply_that_fails_its_repair_is_a_null_row_with_a_reject() 
     let dir = mapped_log("dashboard-system2-bad");
     let prompts = Capture::prompts(dir.path(), "not json");
     assert_eq!(prompts.len(), 2);
-    assert!(prompts[1].contains("not json"), "the repair carries the reply");
+    assert!(
+        prompts[1].contains("not json"),
+        "the repair carries the reply"
+    );
 
     let mut replay = ReplayProvider::new();
     replay.insert(&prompts[0], reply("not json"));
@@ -492,12 +516,18 @@ fn a_replayed_system2_reply_that_fails_its_repair_is_a_null_row_with_a_reject() 
     assert_eq!(envelope.manifest, None);
     assert_eq!(envelope.provenance.raw.as_deref(), Some("still not json"));
     assert_eq!(
-        (envelope.provenance.input_tokens, envelope.provenance.latency_ms),
+        (
+            envelope.provenance.input_tokens,
+            envelope.provenance.latency_ms
+        ),
         (Some(2_000), Some(3_000)),
         "summed over both calls"
     );
     assert!(
-        envelope.provenance.error.is_some_and(|e| e.starts_with("not JSON")),
+        envelope
+            .provenance
+            .error
+            .is_some_and(|e| e.starts_with("not JSON")),
         "the last fault is kept"
     );
 }
