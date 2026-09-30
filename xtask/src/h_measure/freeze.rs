@@ -116,7 +116,7 @@ pub(crate) fn profile(
     let pins = Pins::load(root)?;
     let pin = pins.corpus(corpus)?;
     let events = development_window(&pins, dir, corpus, window)?;
-    let (profile, _) = profiled(&events, &Config::default())?;
+    let (profile, discovery) = profiled(&events, &Config::default())?;
     let mut out = format!(
         "# Profile: {corpus} (sha256 {}), first {window} events, profiler {PROFILER_VERSION}\n\n\
          events {}, skipped {}, decode {:?}, event-type field {}\n\n\
@@ -142,6 +142,34 @@ pub(crate) fn profile(
             p.distinct,
             p.role
         );
+    }
+    out += "\n## Containment (stage 5b)\n\n| referrer | referenced | shared | coverage % | carry % | accepted |\n|---|---|---|---|---|---|\n";
+    for c in &profile.contained {
+        out += &format!(
+            "| `{}` | `{}` | {} | {} | {} | {} |\n",
+            s2w_discover::rule_id(&c.referrer),
+            s2w_discover::rule_id(&c.referenced),
+            c.shared,
+            c.coverage_pct,
+            c.carry_pct,
+            c.accepted
+        );
+    }
+    out += "\n## Types (key paths per type label)\n\n";
+    match discovery {
+        Discovery::Mapping(mapping) => {
+            let mut types: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+            for rule in &mapping.entities {
+                types
+                    .entry(rule.type_label.as_str())
+                    .or_default()
+                    .extend(rule.key.iter().map(s2w_discover::rule_id));
+            }
+            for (label, keys) in types {
+                out += &format!("- `{label}`: {}\n", keys.join(", "));
+            }
+        }
+        Discovery::Abstain(reason) => out += &format!("abstained: {reason}\n"),
     }
     Ok(out)
 }

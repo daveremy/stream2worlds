@@ -607,3 +607,159 @@ fn renaming_is_invariant_with_a_category_and_a_second_test_entity() {
     assert_eq!(canonical(mapping(b)), obf.mapping(&a));
     assert_eq!(pb.event_type, pa.event_type.as_ref().map(|p| obf.path(p)));
 }
+
+/// The base stream plus `n`, unique per event, and `w`, in 90% of events: for `share` in 100 of
+/// events it carries the `n` of the event five back (each `n` is carried at most once, so `w`
+/// stays unique too), otherwise a value never seen at `n` (a reference to before the window).
+fn carried(n: u64, share: u64) -> Vec<Value> {
+    let mut events = stream(n);
+    for (i, event) in (0u64..).zip(events.iter_mut()) {
+        event["n"] = json!(format!("i{}", 10_000 + i));
+        if i % 10 != 0 {
+            event["w"] = if i % 100 < share && i >= 5 {
+                json!(format!("i{}", 10_000 + i - 5))
+            } else {
+                json!(format!("z{i}"))
+            };
+        }
+    }
+    events
+}
+
+fn containment<'p>(
+    profile: &'p Profile,
+    referrer: &str,
+    referenced: &str,
+) -> Option<&'p Containment> {
+    let (a, b) = (path(&[referrer]), path(&[referenced]));
+    profile
+        .contained
+        .iter()
+        .find(|c| c.referrer == a && c.referenced == b)
+}
+
+#[test]
+fn a_carried_identifier_joins_its_source_in_one_type() {
+    let (profile, discovery) = run(&carried(1200, 30), &[]);
+    assert_eq!(role(&profile, &["n"]), Role::EventId);
+    assert_eq!(role(&profile, &["w"]), Role::EventId);
+    let link = containment(&profile, "w", "n").expect("measured");
+    assert!(link.accepted, "{link:?}");
+    assert_eq!(link.carry_pct, 100);
+    let reverse = containment(&profile, "n", "w").expect("both directions measured");
+    assert!(!reverse.accepted && reverse.carry_pct == 0, "{reverse:?}");
+    let m = mapping(discovery);
+    assert_eq!(entity(&m, "n").type_label, "n+w");
+    assert_eq!(entity(&m, "w").type_label, "n+w");
+    assert!(
+        entity(&m, "n").attrs.is_empty(),
+        "a unique key has no repeat groups"
+    );
+}
+
+#[test]
+fn stage_5b_thresholds_are_inclusive() {
+    let events = carried(1200, 30);
+    let (profile, _) = run(&events, &[]);
+    let link = containment(&profile, "w", "n").expect("measured").clone();
+    let at = |cfg: Config| {
+        let (p, _) = run_with(&events, &[], &cfg);
+        containment(&p, "w", "n").expect("measured").accepted
+    };
+    let cfg = Config::default;
+    assert!(at(Config {
+        contain_pct: link.coverage_pct,
+        ..cfg()
+    }));
+    assert!(!at(Config {
+        contain_pct: link.coverage_pct + 1,
+        ..cfg()
+    }));
+    assert!(at(Config {
+        carry_pct: link.carry_pct,
+        ..cfg()
+    }));
+    assert!(!at(Config {
+        carry_pct: link.carry_pct + 1,
+        ..cfg()
+    }));
+}
+
+#[test]
+fn a_few_carried_values_or_a_capped_comparison_links_nothing() {
+    let (profile, discovery) = run(&carried(1200, 5), &[]);
+    let link = containment(&profile, "w", "n").expect("measured");
+    assert!(!link.accepted && link.coverage_pct < 10, "{link:?}");
+    assert!(!mapping(discovery).entities.iter().any(|e| e.id == "w"));
+    let cfg = Config {
+        contain_cap: 5,
+        ..Config::default()
+    };
+    let (profile, _) = run_with(&carried(1200, 30), &[], &cfg);
+    assert!(
+        containment(&profile, "w", "n").is_none(),
+        "under min_support"
+    );
+}
+
+#[test]
+fn chance_overlap_without_carry_order_links_nothing() {
+    // Two unique identifiers drawn from one pool in unrelated orders: the sets overlap almost
+    // entirely, but a shared value is first seen at either path about equally often.
+    let mut events = stream(1200);
+    for (i, event) in (0u64..).zip(events.iter_mut()) {
+        event["u"] = json!(format!("v{}", (i * 7919) % 1201));
+        event["v"] = json!(format!("v{}", (i * 104_729 + 13) % 1201));
+    }
+    let (profile, discovery) = run(&events, &[]);
+    for (a, b) in [("u", "v"), ("v", "u")] {
+        let c = containment(&profile, a, b).expect("measured");
+        assert!(c.coverage_pct >= 90 && !c.accepted, "{c:?}");
+    }
+    assert!(
+        !mapping(discovery)
+            .entities
+            .iter()
+            .any(|e| e.id == "u" || e.id == "v")
+    );
+}
+
+#[test]
+fn per_event_aliases_are_not_containment() {
+    let (profile, _) = run(&stream(1200), &[]);
+    let c = profile
+        .contained
+        .iter()
+        .find(|c| c.referrer == path(&["a"]) && c.referenced == path(&["x", "a"]))
+        .expect("alias pair measured");
+    assert_eq!((c.carry_pct, c.accepted), (0, false));
+}
+
+#[test]
+fn two_offset_counters_are_the_accepted_false_class() {
+    // Decision 0022 v5: a counter that runs ahead of another passes the carry test with no
+    // reference between them. Named, not fixed: no pair like it appears on the dev windows.
+    let mut events = stream(1200);
+    for (i, event) in (0u64..).zip(events.iter_mut()) {
+        event["u"] = json!(i);
+        event["v"] = json!(i + 50);
+    }
+    let (profile, discovery) = run(&events, &[]);
+    assert!(containment(&profile, "u", "v").expect("measured").accepted);
+    let m = mapping(discovery);
+    assert_eq!(entity(&m, "u").type_label, entity(&m, "v").type_label);
+}
+
+#[test]
+fn renaming_is_invariant_with_containment() {
+    let plain = carried(1200, 30);
+    let obf = Obfuscate::new(&plain);
+    let hidden: Vec<Value> = plain.iter().map(|v| obf.value(v)).collect();
+    let (pa, a) = run(&plain, &[]);
+    let (pb, b) = run(&hidden, &[]);
+    let a = mapping(a);
+    assert_eq!(entity(&a, "n").type_label, entity(&a, "w").type_label);
+    assert_eq!(canonical(mapping(b)), obf.mapping(&a));
+    let accepted = |p: &Profile| p.contained.iter().filter(|c| c.accepted).count();
+    assert_eq!(accepted(&pa), accepted(&pb));
+}
