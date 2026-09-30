@@ -106,7 +106,8 @@ mod backfill {
     use s2w_app::bridge::{Bridge, BridgeConfig, EngineRegistry, Route};
     use s2w_app::discover::DISCOVER_WINDOW;
     use s2w_app::query::{
-        DEFAULT_HISTORY_CAP, QueryState, ReadTimingsSnapshot, Timeline, ViewParams, router,
+        DEFAULT_HISTORY_CAP, LinkDetail, Lod, Node, QueryState, ReadTimingsSnapshot, Timeline,
+        ViewParams, router,
     };
     use s2w_core::{World, fold};
     use s2w_discover::{Config, Discovery, discover};
@@ -117,6 +118,8 @@ mod backfill {
     use super::recorded::load;
 
     const EVENTS: usize = 150_000;
+    /// Reads of each type view in the `queries` variant (s2w#296); the median is reported.
+    const TYPE_READS: usize = 5;
     const CAP: u64 = s2w_app::DEFAULT_HUB_IN_DEGREE_CAP;
     const VARIANT: &str = "S2W_BACKFILL_MEMORY_VARIANT";
     const VARIANTS: &str = "S2W_BACKFILL_MEMORY_VARIANTS";
@@ -377,7 +380,7 @@ mod backfill {
             drop((json, view));
             let before = reset_peak();
             let started = Instant::now();
-            let len = drain_world(&state);
+            let len = drain_world(&state, "/worlds/default/world");
             report(
                 "query /world streamed",
                 before,
@@ -395,7 +398,99 @@ mod backfill {
             state
                 .with_head(|world, _| clone_breakdown(world, timings.as_ref()))
                 .unwrap();
+            type_reads(&state, head);
         }
+    }
+
+    /// The type summary against the full type view at the head (s2w#296): each read
+    /// [`TYPE_READS`] times through the real router, its `build` and `write` taken from the
+    /// read-timings delta of that one read, then the two projections compared (same nodes and
+    /// counts, hubs' `hub_refs` aside).
+    fn type_reads(state: &QueryState, head: u64) {
+        let mut rows = Vec::new();
+        for (name, uri) in [
+            ("summary", "/worlds/default/world?lod=type&links=none"),
+            ("type", "/worlds/default/world?lod=type"),
+        ] {
+            let mut builds = Vec::new();
+            let mut writes = Vec::new();
+            let mut len = 0;
+            for _ in 0..TYPE_READS {
+                let before = state.read_timings().unwrap();
+                len = drain_world(state, uri);
+                let after = state.read_timings().unwrap();
+                assert_eq!(after.builds, before.builds + 1, "{uri}: one build per read");
+                builds.push(ms(after.build.total - before.build.total));
+                writes.push(ms(after.write.total - before.write.total));
+            }
+            builds.sort_by(f64::total_cmp);
+            writes.sort_by(f64::total_cmp);
+            let median = |v: &[f64]| v[v.len() / 2];
+            eprintln!(
+                "query /world {name}: build median {:.1} ms (min {:.1}, max {:.1}), write median \
+                 {:.1} ms, body {}",
+                median(&builds),
+                builds[0],
+                builds[builds.len() - 1],
+                median(&writes),
+                mib(len),
+            );
+            rows.push(serde_json::json!({
+                "view": name,
+                "reads": TYPE_READS,
+                "build_ms": builds,
+                "write_ms": writes,
+                "body_bytes": len,
+            }));
+        }
+        let summary = state
+            .view_at(
+                Some(head),
+                None,
+                &ViewParams {
+                    lod: Lod::Type,
+                    links: LinkDetail::None,
+                    ..ViewParams::default()
+                },
+            )
+            .unwrap();
+        let mut full = state
+            .view_at(
+                Some(head),
+                None,
+                &ViewParams {
+                    lod: Lod::Type,
+                    ..ViewParams::default()
+                },
+            )
+            .unwrap();
+        for node in &mut full.nodes {
+            if let Node::Hub { hub_refs, .. } = node {
+                hub_refs.clear();
+            }
+        }
+        assert_eq!(summary.nodes, full.nodes, "the summary's nodes are the type view's");
+        let (entities, hubs) = state
+            .with_head(|world, _| {
+                let hubs = summary
+                    .nodes
+                    .iter()
+                    .filter(|n| matches!(n, Node::Hub { .. }))
+                    .count();
+                (world.entity_count(), hubs)
+            })
+            .unwrap();
+        eprintln!(
+            "result {}",
+            serde_json::json!({
+                "target": env!("CARGO_CRATE_NAME"),
+                "variant": "queries-type",
+                "entities": entities,
+                "nodes": summary.nodes.len(),
+                "hubs": hubs,
+                "reads": rows,
+            })
+        );
     }
 
     /// Times `World::clone` of the head, then each of its collections alone (s2w#243: what a
@@ -462,21 +557,17 @@ mod backfill {
 
     /// One `/world` through the real router, its body drained chunk by chunk and counted, never
     /// held whole.
-    fn drain_world(state: &QueryState) -> usize {
+    fn drain_world(state: &QueryState, uri: &str) -> usize {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         runtime.block_on(async {
             let res = router(state.clone())
-                .oneshot(
-                    Request::get("/worlds/default/world")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
+                .oneshot(Request::get(uri).body(Body::empty()).unwrap())
                 .await
                 .unwrap();
-            assert_eq!(res.status(), StatusCode::OK, "/world");
+            assert_eq!(res.status(), StatusCode::OK, "{uri}");
             drained_len(res.into_body()).await
         })
     }

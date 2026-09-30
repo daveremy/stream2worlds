@@ -116,6 +116,16 @@ mod tests {
                 ),
                 (
                     "world_view",
+                    "/worlds/default/world?lod=type&links=none".to_owned(),
+                    json!({"world":"default","lod":"type","links":"none"}),
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?at=14&lod=type&links=all".to_owned(),
+                    json!({"world":"default","at":14,"lod":"type","links":"all"}),
+                ),
+                (
+                    "world_view",
                     format!("/worlds/default/world?focus={id}&hops=2"),
                     json!({"world":"default","focus":id,"hops":2}),
                 ),
@@ -241,6 +251,30 @@ mod tests {
                     "world_view",
                     "/worlds/default/world?lod=invalid",
                     json!({"world":"default","lod":"invalid"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?links=none",
+                    json!({"world":"default","links":"none"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?lod=entity&links=none",
+                    json!({"world":"default","lod":"entity","links":"none"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?lod=type&focus=1&links=none",
+                    json!({"world":"default","lod":"type","focus":1,"links":"none"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?lod=type&links=some",
+                    json!({"world":"default","lod":"type","links":"some"}),
                     "bad_parameter",
                 ),
                 (
