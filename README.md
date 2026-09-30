@@ -41,6 +41,9 @@
 One command each after `cargo build --release`, no other configuration. Newest first — see
 [`demos/`](demos/) for what each one shows and a captured real run.
 
+- **[local-routed-world](demos/local-routed-world/)**: `./demos/local-routed-world/run.sh
+  [--keep]` — a local `s2w serve` whose world is routed from the first event (a human-accepted
+  mapping seeded before serve starts); `--keep` holds it up for the viewer demo check.
 - **[serve-wikipedia](demos/serve-wikipedia/)**: `./demos/serve-wikipedia/run.sh` — one process
   ingests Wikipedia's live edits and serves the resulting world over HTTP.
 - **[watch-wikipedia](demos/watch-wikipedia/)**: `./demos/watch-wikipedia/run.sh` — live stream
@@ -212,7 +215,15 @@ Humans review proposals from the command line. `s2w proposals list [--log-dir DI
 prints every stored proposal with its decisions, then which stream mapping each source runs and
 which mapping rows routing excludes, and why; `--json` prints the same view the query API and
 MCP serve. `s2w proposals grade [--log-dir DIR] [--json]` prints the grades per class and actor.
-Neither creates `proposals.sqlite3`: a missing store reads as empty. `s2w proposals decide
+Neither creates `proposals.sqlite3`: a missing store reads as empty. `s2w proposals propose
+--log-dir DIR --source ID --mapping FILE --author ID [--json]` appends one `stream-mapping`
+proposal by a human author: the StreamMapping JSON in FILE for source ID
+([decision 0021](docs/decisions/0021-stream-mapping-v0.md)), creating the store if needed. It
+decides nothing; the source routes once a human accepts it with `decide`, and from then on
+discovery leaves it alone, so a fresh log is routed from its first event instead of after the
+10,000-event window. The id comes from the author, source and mapping identity, so a re-run
+returns the stored row. A mapping that does not validate, or an unreadable file, is exit 1
+`bad_parameter` and writes nothing. `s2w proposals decide
 --log-dir DIR --proposal ID --outcome accept|reject --basis TEXT --reviewer ID` appends one
 decision with the `human` decider, the only decider whose review grades a producer. The store
 has no reviewer column, so the basis is stored as `reviewer=<id>; <text>`; this prefix is the

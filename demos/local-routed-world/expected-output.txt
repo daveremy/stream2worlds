@@ -1,0 +1,31 @@
+== stream2worlds: local-routed-world demo ==
+-- 1. propose demos/local-routed-world/mapping.json for source 'wikipedia.page_change' --
+proposal: 2403922f6b73959a
+-- 2. accept it as a human --
+recorded decision 1 on proposal 2403922f6b73959a: human accept, basis: reviewer=demo; local demo world (s2w#309)
+source 'wikipedia.page_change' now runs mapping 6815cb3fc24b0848 from proposal 2403922f6b73959a
+a running `s2w serve` sees the change within a poll and rebuilds the world under the new routes
+-- 3. serve --
+server: http://127.0.0.1:37533
+routed: head 35
+
+== world by type (curl http://127.0.0.1:37533/worlds/default/world?lod=type | jq) ==
+{
+  "offset": 35,
+  "types": [
+    {
+      "type": "page",
+      "count": 7
+    },
+    {
+      "type": "site",
+      "count": 5
+    },
+    {
+      "type": "user",
+      "count": 6
+    }
+  ]
+}
+
+== done ==
