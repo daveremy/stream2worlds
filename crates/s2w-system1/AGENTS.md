@@ -25,7 +25,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   Jev joins behind the same trait next.
 - Obfuscation replay covers both: `cargo xtask check` 10 runs claim-reading engines over the
   golden log, and check 11 runs `MappingEngine` over `testdata/raw-sample.jsonl` with
-  `testdata/sample.mapping.json`. `testdata/` holds recorded domain data (decision 0018 §4);
+  `testdata/sample.mapping.json` and the linked `testdata/sample-links.mapping.json`
+  (decision 0027; a link claims `EntitiesMerged` between the entities and the relationships). `testdata/` holds recorded domain data (decision 0018 §4);
   change a fixture only with the command recorded in decision 0021.
 - `decode` (path lookup, in-place decode, `key_part`, and `natural_key` with its `entity_key`
   wrapper, the engine's one key builder) is public because check 11 and `cargo xtask

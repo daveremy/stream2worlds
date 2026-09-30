@@ -370,10 +370,7 @@ fn merges_are_claimed_in_link_order() -> TestResult {
             _ => None,
         })
         .collect();
-    assert_eq!(
-        merges,
-        vec![key(&["ta", r#""y""#]), key(&["ta", r#""z""#])]
-    );
+    assert_eq!(merges, vec![key(&["ta", r#""y""#]), key(&["ta", r#""z""#])]);
     Ok(())
 }
 

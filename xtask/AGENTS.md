@@ -30,7 +30,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 - `obfuscation.rs`: check 10, obfuscation replay of the golden log through the fold and the
   claim-reading engines.
 - `obfuscation_raw.rs`: check 11, raw obfuscation replay of `MappingEngine` over a recorded raw
-  stream and a mapping (decision 0021). Self-tests live in `obfuscation_raw/tests.rs`.
+  stream and two mappings, version 1 and a linked version 2 whose merges must change the world
+  (decisions 0021, 0027). Self-tests live in `obfuscation_raw/tests.rs`.
   - `obfuscation_raw/rename.rs`: applies the maps to payloads, the mapping and claims; the
     non-vacuity checks. Decodes with `s2w_system1::decode` and reads keys with
     `s2w_model::NaturalKey::parts`, never its own copy; a key that does not read fails the check.

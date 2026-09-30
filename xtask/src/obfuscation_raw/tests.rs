@@ -4,6 +4,8 @@ use s2w_system1::AbstainReason;
 
 const RAW_TEXT: &str = include_str!("../../../crates/s2w-system1/testdata/raw-sample.jsonl");
 const MAPPING_TEXT: &str = include_str!("../../../crates/s2w-system1/testdata/sample.mapping.json");
+const LINKS_TEXT: &str =
+    include_str!("../../../crates/s2w-system1/testdata/sample-links.mapping.json");
 
 fn replay_with(harness: &Harness) -> Vec<String> {
     replay(RAW_TEXT, MAPPING_TEXT, harness)
@@ -158,7 +160,7 @@ fn a_key_that_does_not_read_fails_closed() {
     let leaked = rename::leaked_leaves(std::slice::from_ref(&claim), &BTreeSet::new());
     assert_eq!(leaked.len(), 1, "{leaked:?}");
     assert!(leaked[0].contains("key part 0"), "{leaked:?}");
-    let vacuous = rename::non_vacuity(std::slice::from_ref(&claim), &[]);
+    let vacuous = rename::non_vacuity(std::slice::from_ref(&claim), &[], false);
     assert!(
         vacuous.iter().any(|p| p.contains("key part 0")),
         "{vacuous:?}"
@@ -180,4 +182,55 @@ fn the_maps_cover_every_mapping_name_and_decode_into_the_data_string() {
     }
     // Rule ids are not renamed.
     assert_eq!(renamed.entities[0].id, mapping.entities[0].id);
+}
+
+#[test]
+fn the_committed_linked_fixture_replays_clean() {
+    assert_eq!(
+        replay_requiring(RAW_TEXT, LINKS_TEXT, &Harness::REAL, true),
+        Vec::<String>::new()
+    );
+}
+
+/// A pass B that loses its link claims no merge, so its world keeps each site's two keys
+/// apart: the replay sees a different world.
+#[test]
+fn a_pass_b_without_its_merges_is_a_different_world() {
+    let harness = Harness {
+        mutate_b: |mapping| mapping.links.clear(),
+        ..Harness::REAL
+    };
+    assert_different_world(&replay(RAW_TEXT, LINKS_TEXT, &harness));
+}
+
+/// The linked fixture must claim a merge that changes the world: without its link (the
+/// version-1 fixture, required to merge) the replay is vacuous on both counts.
+#[test]
+fn a_linked_fixture_without_a_merge_is_reported() {
+    let problems = replay_requiring(RAW_TEXT, MAPPING_TEXT, &Harness::REAL, true);
+    for what in ["one merge claim", "merges must change the folded world"] {
+        assert!(
+            problems.iter().any(|p| p.contains(what)),
+            "{what}: {problems:?}"
+        );
+    }
+}
+
+/// A link whose two rules always give equal keys claims no merge, and the linked fixture's
+/// replay says so rather than passing.
+#[test]
+fn a_link_whose_keys_never_differ_is_reported() {
+    // `data.performer.wiki_id` equals `data.wiki_id` on every line, so the two keys are equal
+    // text and the engine claims no merge at all.
+    let mapping = LINKS_TEXT.replacen(
+        r#"[["data", "meta", "domain"]]"#,
+        r#"[["data", "performer", "wiki_id"]]"#,
+        1,
+    );
+    assert_ne!(mapping, LINKS_TEXT);
+    let problems = replay(RAW_TEXT, &mapping, &Harness::REAL);
+    assert!(
+        problems.iter().any(|p| p.contains("one merge claim")),
+        "{problems:?}"
+    );
 }

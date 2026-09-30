@@ -111,7 +111,10 @@ fn site_keys() -> Fallible<Vec<(NaturalKey, NaturalKey)>> {
             serde_json::from_str(outer["data"].as_str().ok_or("data is not a string")?)?;
         let part = |value: &serde_json::Value| -> Fallible<NaturalKey> {
             let text = value.as_str().ok_or("a site key part is not a string")?;
-            Ok(NaturalKey::from_parts("site", &[KeyPart::Str(text.to_owned())])?)
+            Ok(NaturalKey::from_parts(
+                "site",
+                &[KeyPart::Str(text.to_owned())],
+            )?)
         };
         let pair = (part(&data["wiki_id"])?, part(&data["meta"]["domain"])?);
         if !pairs.contains(&pair) {
@@ -137,7 +140,11 @@ fn a_stored_linked_mapping_routes_and_merges_at_the_bridge() -> TestResult {
     for (survivor, absorbed) in &sites {
         let id = world.id_of(survivor).ok_or("survivor unknown")?;
         assert_ne!(world.id_of(absorbed), Some(id), "two keys, two minted ids");
-        assert_eq!(resolved(&world, absorbed)?, id, "{absorbed:?} joins {survivor:?}");
+        assert_eq!(
+            resolved(&world, absorbed)?,
+            id,
+            "{absorbed:?} joins {survivor:?}"
+        );
         survivors.push(id);
     }
     let mut targets: Vec<EntityId> = world
@@ -191,16 +198,26 @@ fn a_shared_absorbed_value_joins_only_the_first_survivor() -> TestResult {
         .iter()
         .filter(|c| matches!(c, WorldEvent::EntitiesMerged { .. }))
         .count();
-    assert_eq!(merges, 2, "the engine claims both; the fold keeps the first");
+    assert_eq!(
+        merges, 2,
+        "the engine claims both; the fold keeps the first"
+    );
 
-    let world = fold(World::with_hub_cap(s2w_app::DEFAULT_HUB_IN_DEGREE_CAP), &claims);
+    let world = fold(
+        World::with_hub_cap(s2w_app::DEFAULT_HUB_IN_DEGREE_CAP),
+        &claims,
+    );
     let key = |text: &str| NaturalKey::from_parts("T", &[KeyPart::Str(text.to_owned())]);
     let (u1, u2, s) = (key("u1")?, key("u2")?, key("s")?);
     assert_eq!(resolved(&world, &s)?, resolved(&world, &u1)?);
     assert_ne!(resolved(&world, &u2)?, resolved(&world, &u1)?);
     assert_eq!(world.merges().len(), 1);
     let targets: Vec<EntityId> = world.relationships().keys().map(|rel| rel.to).collect();
-    assert_eq!(targets, vec![resolved(&world, &u1)?; 2], "both edges bind to u1");
+    assert_eq!(
+        targets,
+        vec![resolved(&world, &u1)?; 2],
+        "both edges bind to u1"
+    );
     Ok(())
 }
 

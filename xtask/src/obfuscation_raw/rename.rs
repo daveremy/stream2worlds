@@ -103,6 +103,10 @@ impl Maps {
                     kind: self.value(kind)?,
                 })
             }
+            WorldEvent::EntitiesMerged { survivor, absorbed } => Ok(WorldEvent::EntitiesMerged {
+                survivor: self.natural_key(survivor)?,
+                absorbed: self.natural_key(absorbed)?,
+            }),
             other => Err(format!(
                 "raw obfuscation replay: a mapping engine proposed an unexpected claim {other:?}"
             )),
@@ -131,11 +135,16 @@ fn read_key(key: &NaturalKey) -> Result<(&str, Vec<KeyPart>), String> {
         .map_err(|e| format!("raw obfuscation replay: key {key:?}: {e}"))
 }
 
-/// What pass A must exercise for the replay to mean anything.
-pub(super) fn non_vacuity(claims: &[WorldEvent], expected: &[WorldEvent]) -> Vec<String> {
+/// What pass A must exercise for the replay to mean anything; `merges` adds one merge claim.
+pub(super) fn non_vacuity(
+    claims: &[WorldEvent],
+    expected: &[WorldEvent],
+    merges: bool,
+) -> Vec<String> {
     let mut problems = Vec::new();
     let mut types = BTreeSet::new();
     let (mut rels, mut multi, mut int_part, mut str_attr) = (0, false, false, false);
+    let mut merged = 0;
     for claim in claims {
         match claim {
             WorldEvent::EntityObserved {
@@ -154,10 +163,12 @@ pub(super) fn non_vacuity(claims: &[WorldEvent], expected: &[WorldEvent]) -> Vec
                 str_attr |= attrs.values().any(|v| matches!(v, AttrValue::Str(_)));
             }
             WorldEvent::RelationshipObserved { .. } => rels += 1,
+            WorldEvent::EntitiesMerged { .. } => merged += 1,
             _ => {}
         }
     }
     [
+        (!merges || merged >= 1, "one merge claim"),
         (types.len() >= 2, "two entity types"),
         (rels >= 1, "one relationship"),
         (multi, "one multi-part key"),
@@ -195,6 +206,7 @@ pub(super) fn leaked_leaves(claims: &[WorldEvent], raw_leaves: &BTreeSet<String>
             WorldEvent::RelationshipObserved { from, to, kind } => {
                 (vec![from, to], vec![kind.as_str()])
             }
+            WorldEvent::EntitiesMerged { survivor, absorbed } => (vec![survivor, absorbed], vec![]),
             _ => (vec![], vec![]),
         };
         seen.extend(labels.into_iter().map(str::to_owned));
