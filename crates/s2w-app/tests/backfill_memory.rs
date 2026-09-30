@@ -148,8 +148,9 @@ mod backfill {
         })
     }
     /// The variants the default sweep (no `VARIANTS`) runs.
-    const DEFAULT_VARIANTS: [&str; 6] =
-        ["world", "timeline", "queries", "bridge", "viewer", "viewers4"];
+    const DEFAULT_VARIANTS: [&str; 6] = [
+        "world", "timeline", "queries", "bridge", "viewer", "viewers4",
+    ];
     /// How many readers the `viewers4` variant runs: the demo check's `--viewers 4` (s2w#272).
     const VIEWERS4: usize = 4;
     /// The bridge child's timeline history cap, when set (s2w#220).
@@ -1170,7 +1171,10 @@ mod backfill {
                 .trim_backtraces(Some(1))
                 .build()
         });
-        if matches!(split(&variant).0, "bridge" | "bridge-run" | "viewer" | "viewers4") {
+        if matches!(
+            split(&variant).0,
+            "bridge" | "bridge-run" | "viewer" | "viewers4"
+        ) {
             bridge(&PathBuf::from(std::env::var(LOG_DIR).unwrap()), &variant);
             return;
         }
