@@ -210,13 +210,13 @@ release build, loaded host (load average 4-8, a workspace build running alongsid
 | World events | 11,266,766 | 20,040,997 | **14,323,096** (213,153 entities) |
 | Head world alone | 403 MiB | 887 MiB | **598.9 MiB** (postcard 141.4 MiB) |
 | World plus the capped timeline | 427 MiB | 913 MiB | **623.5 MiB** |
-| `bridge`, whole-process peak | 548.5 MiB | 1,131.9 MiB | **780.8 [780.6-780.8] MiB** (4 runs) |
+| `bridge`, whole-process peak | 548.5 MiB | 1,131.9 MiB | **780.7 [780.6-780.8] MiB** (4 runs) |
 | `viewer` (1 viewer, 5 s tick), whole-process peak | 851 MiB | not reached | **1,280.0 [1,270.8-1,297.1] MiB** (3 runs) |
 | One `/world` projection at the head (`queries`) | | | 1,248 MiB peak; body 292 MiB |
 
 The bridge's overhead above the head world is now 182 MiB (145 MiB at #255). The budget follows
 the world, so both limits in `tests/backfill_memory.rs` move to the measured peak plus a margin:
-**`SERVE_PEAK_LIMIT` 810 MiB** (780.8 MiB + 29 MiB; the 600 MiB figure had 30 MiB over its predicted 570 MiB) and
+**`SERVE_PEAK_LIMIT` 810 MiB** (the worst run, 780.8 MiB, plus 29 MiB; the 600 MiB figure had 30 MiB over its predicted 570 MiB) and
 **`VIEWER_PEAK_LIMIT` 1,340 MiB** (the worst run, 1,297.1 MiB, plus 43 MiB; the viewer
 spread was 26 MiB here and 28 MiB in #243). The history cap stays 50,000: at #255 cap 2 saved at most 28 MiB against cap 50,000, so no cap
 buys back a 180 MiB step in the world. The viewer limit is now above the demo box's `MemoryMax=1G`, so the

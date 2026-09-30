@@ -127,7 +127,7 @@ mod backfill {
     const MAPPING_FILE: &str = "mapping.json";
     const SOURCE_FILE: &str = "source";
     /// The most a serve process may hold at its peak during this backfill, whole process,
-    /// no viewer connected (decision 0026, re-derived 2026-09-30 in s2w#282): the measured
+    /// no viewer connected (decision 0026, re-derived 2026-09-30 in s2w#282): the worst measured
     /// 780.8 MiB peak on the post-#291 world plus a 29 MiB margin.
     const SERVE_PEAK_LIMIT: usize = 810 * 1024 * 1024;
     /// The most a serve process may hold at its peak with a viewer connected (s2w#216's finish
