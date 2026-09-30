@@ -31,7 +31,7 @@ reported" rather than 0, and the watch and serve status line shows it ([#286](ht
 accepts a span opening, so the re-freeze that [#244](https://github.com/daveremy/stream2worlds/issues/244) needed is gone (only Reserved to
 Heldout with the same sha256 is allowed), and `PROFILER_MODEL` is now `h-min` in the discover
 crate ([#285](https://github.com/daveremy/stream2worlds/pull/285), [#287](https://github.com/daveremy/stream2worlds/pull/287), [#277](https://github.com/daveremy/stream2worlds/issues/277) PR A and B). Containment ([#276](https://github.com/daveremy/stream2worlds/pull/276), stage 5b)
-merged before the sprint opened: F1 0.44 to 0.53 on the held-out span, all six predictions hit.
+merged at the start of the sprint, before planning: F1 0.44 to 0.53 on the held-out span, all six predictions hit.
 
 **Learned:** the demo page renders but first paint took about 8.6 s at the end of the sprint
 against about 3 s in Sprint 84, and the check failed on its 8 s limit; the world grows and
