@@ -1,0 +1,10 @@
+# Shrink-only (s2w#156): cargo xtask check fails if any count rises above or falls below this.
+# Lower it with `cargo xtask check --tighten-baseline`; raising it needs a Baseline-growth: s2w#<N> trailer.
+[lints]
+"clippy::box_collection" = 2
+"clippy::cast_precision_loss" = 4
+"clippy::cognitive_complexity" = 8
+"clippy::too_many_arguments" = 12
+"clippy::too_many_lines" = 32
+"dead_code" = 7
+"missing_docs" = 1

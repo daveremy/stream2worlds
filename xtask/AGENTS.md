@@ -49,6 +49,13 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 - `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64, `[ir.recorded] events` and `[parse] events`), the pure `[ir]`/`[parse]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
   - `scale/supply.rs`: the two event supplies each scale number is measured on, the seeded generator (`[ir]`, `[memory]`) and the recorded fixture (`[ir.recorded]`, `[memory.recorded]`), gated side by side (s2w#174).
   - `scale/ir_bench.rs`: the three gated instruction counts (fold on each supply, and System 1's parse of the recorded fixture, s2w#166), each with its table, key and gungraun summary path.
+- `expect_count.rs`: check 18, a shrink-only per-lint count of `#[expect]` attributes in every
+  workspace package's `*.rs` files, tests and benches included, against
+  `xtask/expect-baseline.toml` (s2w#156). Walks the package directories itself, because
+  `module_size::walk` skips test targets; reads each file as a `syn` AST (`cfg_attr` arms
+  included); reuses `module_size::{git, trailer}` for the baseline-growth rule. Self-tests live
+  in `expect_count/tests.rs`, whose sample sources spell the attribute `EXPECT` so a text search
+  never counts them.
 - `readme_scale.rs`: check 17, the README Scale row's figures equal `xtask/scale-baseline.toml` (s2w#324). Reads the row's prose (number before a fixed phrase, per supply segment); a phrase it cannot find fails.
 - `h_measure.rs`: `cargo xtask h-measure selftest | freeze | score` (s2w#56, contract B3). The selftest runs the mapping
   executor over `crates/s2w-system1/testdata/raw-sample.jsonl` with `sample.mapping.json` and

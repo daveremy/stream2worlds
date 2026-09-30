@@ -64,10 +64,16 @@
 //! 17. **README Scale row** (`readme_scale.rs`): every figure in the Technical architecture
 //!     Scale row (Ir per event, bytes per entity and their ratios, bytes per relationship, parse
 //!     Ir, target and ceiling) equals `xtask/scale-baseline.toml` (s2w#324).
+//! 18. **`#[expect]` count** (`expect_count.rs`, baseline `xtask/expect-baseline.toml`): every
+//!     `#[expect]` attribute in every workspace package's `*.rs` files, tests and benches included,
+//!     counted per lint as syn attributes. Shrink-only: a count above its baseline fails, a count
+//!     below it fails until `--tighten-baseline` lowers the file, and raising the file needs a
+//!     `Baseline-growth: s2w#<N>` trailer (s2w#156).
 //!
-//! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
+//! Escape hatches: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
-//! forbid. Other lints may be relaxed locally only with a reason, visible in review.
+//! forbid. Other lints may be relaxed locally only with a reasoned `#[expect]` (the workspace
+//! denies `#[allow]`), visible in review and counted by check 18.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -81,6 +87,7 @@ mod clippy_config;
 mod contract_frozen;
 mod decision_numbers;
 mod discover_replay;
+mod expect_count;
 mod golden;
 mod h_measure;
 mod module_cycles;
@@ -287,6 +294,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(decision_numbers::check(root));
     problems.extend(contract_frozen::check(root));
     problems.extend(readme_scale::check(root, &table));
+    problems.extend(expect_count::check(root, &meta, tighten));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -321,7 +329,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers, frozen contract: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers, frozen contract, expect count: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))
