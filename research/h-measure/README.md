@@ -6,7 +6,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, and reserved-3 for s2w#250 PR 2): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, and reserved-3 for s2w#250 PR 2; `reserved` opened as held-out by s2w#244, the others by the PRs named): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `keys.toml` | Every answer key's sha256, pinned before any score is run, and the reading of #17 it encodes. |
 | `dev-key-v0.json` | dev-key v0: the base key (key-spec format v0, `xtask/src/h_measure/key.rs`). |

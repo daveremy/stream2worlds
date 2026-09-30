@@ -22,6 +22,8 @@
 #   heldout    held-out split scored by PR 3. Disjoint from dev, later in time.
 #   heldout-2  second held-out span, for the spread.
 #   reserved   for any later H-lite/H-min change (containment follow-up); PR 3 never opens it.
+#              s2w#244 opened `reserved` itself (H-min, PROFILER_VERSION 5): its role is now
+#              `heldout`; `reserved-2` and `reserved-3` were opened the same way by s2w#250.
 # The split is held out from THIS measurement only: H-lite's thresholds (decision 0022,
 # PROFILER_VERSION 2) were tuned earlier on `page_change` fixtures by the same project.
 
@@ -62,7 +64,8 @@ bytes = 156121889
 sha256 = "4432c2a8533e0080a2a97344a2aa5ed1273aafc951faf673dcdb36b65800bc22"
 
 [corpus.reserved]
-role = "reserved"
+# opened by s2w#244, 2026-09-30, after eb48f5b (rule) and 59173df (docs)
+role = "heldout"
 file = "reserved.raw.sse"
 stream = "mediawiki.recentchange"
 since = "2026-09-29T02:15:00Z"
