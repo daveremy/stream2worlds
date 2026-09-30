@@ -71,6 +71,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 mod clippy_config;
 mod contract_frozen;
@@ -117,6 +118,14 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Lower-case hex sha256 of `bytes`.
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn workspace_root() -> PathBuf {

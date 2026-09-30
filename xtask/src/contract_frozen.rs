@@ -8,11 +8,10 @@
 //!
 //! The pin lives in the source, not in a tagged commit, so the check needs no git history and
 //! runs the same on a shallow clone. A missing file, a missing heading or a different hash fails.
+//! `.gitattributes` pins the file to LF line endings, so a CRLF checkout cannot change the bytes.
 
 use std::fs;
 use std::path::Path;
-
-use sha2::{Digest, Sha256};
 
 const PATH: &str = "docs/evaluation-contract.md";
 const HEADING: &str = "## Dated notes after sign-off";
@@ -39,10 +38,7 @@ fn judge(bytes: &[u8], signed: &str) -> Vec<String> {
             "{PATH}: no line reads exactly `{HEADING}`. That heading separates the signed text from the dated notes; restore it, and add changes as dated notes below it."
         )];
     };
-    let actual: String = Sha256::digest(&bytes[..end])
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let actual = crate::sha256(&bytes[..end]);
     if actual == signed {
         return Vec::new();
     }
@@ -89,8 +85,11 @@ mod tests {
         );
         let problems = judge(edited.as_bytes(), SIGNED_SHA256);
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("differs from the signed version"));
-        assert!(problems[0].contains("new dated note"));
+        assert!(
+            problems[0].contains("differs from the signed version"),
+            "{problems:?}"
+        );
+        assert!(problems[0].contains("new dated note"), "{problems:?}");
     }
 
     #[test]
@@ -123,13 +122,28 @@ mod tests {
         let text = committed().replace(HEADING, "## Notes after sign-off");
         let problems = judge(text.as_bytes(), SIGNED_SHA256);
         assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(problems[0].contains("no line reads exactly"));
+        assert!(
+            problems[0].contains("no line reads exactly"),
+            "{problems:?}"
+        );
     }
 
     #[test]
     fn a_second_heading_above_b1_fails() {
         let text = committed().replacen("### B1. Arms", &format!("{HEADING}\n\n### B1. Arms"), 1);
         assert_eq!(judge(text.as_bytes(), SIGNED_SHA256).len(), 1);
+    }
+
+    #[test]
+    fn a_heading_on_the_first_line_hashes_nothing_and_fails() {
+        let text = format!("{HEADING}\n{}", committed());
+        assert_eq!(judge(text.as_bytes(), SIGNED_SHA256).len(), 1);
+    }
+
+    #[test]
+    fn the_committed_text_fails_against_another_pin() {
+        let other = crate::sha256(b"");
+        assert_eq!(judge(committed().as_bytes(), &other).len(), 1);
     }
 
     #[test]

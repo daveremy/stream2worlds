@@ -12,8 +12,8 @@ mapping against an answer key (s2w#56).
   11 runs a recorded raw stream through `MappingEngine`), `s2w-discover` (check 12 profiles a
   recorded raw stream twice), `s2w-sources` (checks 12 and 13 and `cargo xtask scale` cut a
   recorded stream into frames with the live SSE adapter's `replay_frames`, s2w#174), `sha2`
-  (`h_measure/pins.rs` checks answer keys and corpora against their sha256 pins, s2w#56;
-  `contract_frozen.rs` hashes the signed evaluation contract, s2w#59)
+  (the crate-root `sha256` helper: `h_measure/pins.rs` checks answer keys and corpora against
+  their sha256 pins, s2w#56; `contract_frozen.rs` hashes the signed evaluation contract, s2w#59)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -124,7 +124,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 - `contract_frozen.rs`: check 16, the signed `docs/evaluation-contract.md` only grows by dated
   notes. Every byte above `## Dated notes after sign-off` must hash to `SIGNED_SHA256`; changes
   at or below that heading are free. The pin is in the source rather than a tagged commit so the
-  check needs no git history. A missing file or heading fails. Update the pin only when Dave
+  check needs no git history; `.gitattributes` pins the file to LF. A missing file or heading fails. Update the pin only when Dave
   re-signs the contract (s2w#59).
 - `module_cycles.rs`: check 15, no dependency cycle between the modules of one crate target
   (s2w#67, plan #44 §1c). Edges run leaf to leaf, from the module naming a path to the module
