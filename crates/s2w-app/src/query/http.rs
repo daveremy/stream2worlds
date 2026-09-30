@@ -28,6 +28,7 @@ use super::dashboard::DashboardView;
 use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
 use super::epoch::Epoch;
+use super::generation::{self, Generations};
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
 use super::stream;
@@ -86,6 +87,11 @@ pub struct QueryState {
     /// Where each `/world` body's read-guard hold went (s2w#243); `None` unless a measurement
     /// opts in with [`Self::with_read_timings`].
     read_timings: Option<Arc<ReadTimings>>,
+    /// The single-flight gate for `lod=entity` bodies (s2w#270).
+    generations: Arc<Generations>,
+    /// How long a `/world` request waits for its answer, and a body for writers, before a 503:
+    /// [`BODY_YIELD_LIMIT`], shorter in tests.
+    body_wait: Duration,
 }
 
 impl QueryState {
@@ -108,6 +114,8 @@ impl QueryState {
             rebuilding: Arc::new(rebuilding),
             log_dir: None,
             read_timings: None,
+            generations: Arc::default(),
+            body_wait: BODY_YIELD_LIMIT,
         }
     }
 
@@ -152,6 +160,23 @@ impl QueryState {
     #[must_use]
     pub fn read_timings(&self) -> Option<ReadTimingsSnapshot> {
         self.read_timings.as_deref().map(ReadTimings::snapshot)
+    }
+
+    /// The hold timings to record into, when a measurement opted in.
+    pub(super) fn timings(&self) -> Option<&ReadTimings> {
+        self.read_timings.as_deref()
+    }
+
+    /// The single-flight gate for `lod=entity` bodies.
+    pub(super) fn generations(&self) -> &Generations {
+        &self.generations
+    }
+
+    /// Shortens how long a `/world` request waits before a 503.
+    #[cfg(test)]
+    pub(super) fn with_body_wait(mut self, wait: Duration) -> Self {
+        self.body_wait = wait;
+        self
     }
 
     /// The string identifier of the world this process serves.
@@ -369,9 +394,13 @@ impl QueryState {
     /// The read guard a `/world` body holds while it streams. Taken only while no write is
     /// reserved (checked after acquiring, so a reservation made meanwhile is seen): a body never
     /// holds the guard a reserved writer is about to take on the runtime it waits for. Gives up
-    /// after [`BODY_YIELD_LIMIT`] with [`QueryError::Unavailable`] (503; the viewer retries).
-    fn read_for_body(&self) -> Result<RwLockReadGuard<'_, Timeline>, QueryError> {
-        let until = Instant::now() + BODY_YIELD_LIMIT;
+    /// with [`QueryError::Unavailable`] (503; the viewer retries) after the body wait limit
+    /// ([`BODY_YIELD_LIMIT`]), or as soon as `wanted` says no client is waiting any more.
+    pub(super) fn read_for_body(
+        &self,
+        wanted: impl Fn() -> bool,
+    ) -> Result<RwLockReadGuard<'_, Timeline>, QueryError> {
+        let until = Instant::now() + self.body_wait;
         let mut backoff = Duration::from_millis(1);
         let mut waiting = None;
         loop {
@@ -383,7 +412,7 @@ impl QueryState {
             if waiting.is_none() {
                 waiting = Some(Counted::enter(&self.bodies_waiting));
             }
-            if Instant::now() >= until {
+            if Instant::now() >= until || !wanted() {
                 return Err(QueryError::Unavailable);
             }
             std::thread::sleep(backoff);
@@ -424,50 +453,6 @@ impl QueryState {
                 ..world_view(&world, params)?
             })
         })
-    }
-
-    /// `/world`'s blocking half: under one read guard, resolves the offset, answers `304` or
-    /// an error through `answer`, then serializes the view into `writer`. The guard is taken
-    /// only while no write is reserved ([`Self::read_for_body`], s2w#259) and held until the
-    /// last chunk is handed over, so appends wait for the whole body; `writer` gives
-    /// up on a client that stops reading ([`stream::STALL`]) or reads too slowly
-    /// ([`stream::BODY_BUDGET`]).
-    fn stream_world(
-        &self,
-        request: &WorldRequest,
-        answer: oneshot::Sender<Result<WorldAnswer, QueryError>>,
-        writer: stream::ChunkWriter,
-    ) {
-        let started = Instant::now();
-        let t = match self.read_for_body() {
-            Ok(t) => t,
-            Err(error) => {
-                let _ = answer.send(Err(error));
-                return;
-            }
-        };
-        let guarded = Instant::now();
-        let result = match resolve_world(&t, request) {
-            Err(error) => Err(error),
-            Ok(Resolved::NotModified(tag)) => Ok(WorldAnswer::NotModified(tag)),
-            Ok(Resolved::World(tag, world)) => {
-                match HeadView::new(&world, &request.params, t.epoch()) {
-                    Err(error) => Err(error),
-                    Ok(view) => {
-                        let built = Instant::now();
-                        if answer.send(Ok(WorldAnswer::Body(tag))).is_ok() {
-                            write_view(&view, writer);
-                            // Recorded only when a measurement opted in (s2w#243).
-                            if let Some(timings) = &self.read_timings {
-                                timings.record(guarded - started, built - guarded, built.elapsed());
-                            }
-                        }
-                        return;
-                    }
-                }
-            }
-        };
-        let _ = answer.send(result);
     }
 
     /// The one branch served, with its head and fold version.
@@ -562,7 +547,9 @@ impl IntoResponse for QueryError {
             | Self::StaleEpoch { .. } => StatusCode::GONE,
             Self::BranchNotYet { .. } | Self::LodNotYet { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::BadParameter { .. } | Self::HopsTooLarge { .. } => StatusCode::BAD_REQUEST,
-            Self::Unavailable | Self::StreamLimit => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::StreamLimit | Self::WorldQueueFull => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             Self::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::StoreLocked => StatusCode::CONFLICT,
         };
@@ -655,7 +642,10 @@ pub(crate) fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
 /// `/world`: the view, streamed (#216). The projection and serialization run on a blocking
 /// thread holding the read guard, and the JSON reaches the client in bounded chunks, so neither
 /// a [`WorldView`] nor the whole body is ever resident. Answers `304` to a matching
-/// `If-None-Match` before projecting anything.
+/// `If-None-Match` before projecting anything. `lod=entity` goes through the single-flight
+/// gate (s2w#270, [`generation`]): at most one full projection is in flight, shared by every
+/// request with the same parameters. A request not answered within [`BODY_YIELD_LIMIT`] gets
+/// `503`, the viewer retries.
 async fn world(
     State(state): State<QueryState>,
     Path(world): Path<String>,
@@ -677,23 +667,37 @@ async fn world(
         Ok(parsed) => parsed,
         Err(error) => return error.into_response(),
     };
-    let request = WorldRequest {
-        at,
-        epoch,
-        params,
-        if_none_match: headers
-            .get(header::IF_NONE_MATCH)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_owned),
-    };
+    let if_none_match = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
     let (answer_tx, answer_rx) = oneshot::channel();
-    let (writer, body) = stream::channel();
-    tokio::task::spawn_blocking(move || state.stream_world(&request, answer_tx, writer));
-    match answer_rx.await {
+    let key = generation::Key { epoch, at, params };
+    let waiter = generation::Waiter::new(if_none_match, answer_tx);
+    if params.lod == Lod::Entity {
+        if let Err(error) = generation::submit(&state, key, waiter) {
+            return error.into_response();
+        }
+    } else {
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || generation::serve_alone(&state, key, waiter));
+    }
+    // Giving up drops the receiver: a queued request is then dropped before it is built.
+    match tokio::time::timeout(state.body_wait, answer_rx).await {
+        Ok(answer) => world_response(answer),
+        Err(_) => QueryError::Unavailable.into_response(),
+    }
+}
+
+/// The response for `/world`'s answer; a dropped sender means the generation panicked.
+fn world_response(
+    answer: Result<Result<WorldAnswer, QueryError>, oneshot::error::RecvError>,
+) -> Response {
+    match answer {
         Ok(Ok(WorldAnswer::NotModified(tag))) => {
             (StatusCode::NOT_MODIFIED, [(header::ETAG, tag)]).into_response()
         }
-        Ok(Ok(WorldAnswer::Body(tag))) => (
+        Ok(Ok(WorldAnswer::Body(tag, body))) => (
             [
                 (
                     header::CONTENT_TYPE,
@@ -705,54 +709,37 @@ async fn world(
         )
             .into_response(),
         Ok(Err(error)) => error.into_response(),
-        // The blocking task panicked before answering.
+        // The generation panicked before answering.
         Err(_) => QueryError::Unavailable.into_response(),
     }
 }
 
-/// `/world`'s parsed request.
-struct WorldRequest {
-    at: Option<u64>,
+/// Checks the epoch and the offset (in that order, as every offset read does) and returns the
+/// view's tag with the offset it names, so a caller can answer `304` before any projection.
+pub(super) fn resolve_offset(
+    t: &Timeline,
     epoch: Option<Epoch>,
-    params: ViewParams,
-    if_none_match: Option<String>,
-}
-
-/// The world a `/world` request names, or `304` when the client already has its view.
-enum Resolved<'t> {
-    NotModified(HeaderValue),
-    World(HeaderValue, std::borrow::Cow<'t, World>),
-}
-
-/// Checks the epoch and the offset (in that order, as every offset read does), then answers
-/// `304` before any projection when `If-None-Match` names this view's tag.
-fn resolve_world<'t>(t: &'t Timeline, request: &WorldRequest) -> Result<Resolved<'t>, QueryError> {
-    t.check_epoch(request.epoch)?;
-    let offset = request.at.unwrap_or_else(|| t.head());
+    at: Option<u64>,
+    params: &ViewParams,
+) -> Result<(HeaderValue, u64), QueryError> {
+    t.check_epoch(epoch)?;
+    let offset = at.unwrap_or_else(|| t.head());
     t.check_offset(offset)?;
-    let tag = world_etag(t.epoch(), t.hub_cap(), offset, &request.params);
-    if request
-        .if_none_match
-        .as_deref()
-        .is_some_and(|inm| etag_matches(inm, &tag))
-    {
-        return Ok(Resolved::NotModified(tag));
-    }
-    Ok(Resolved::World(tag, t.world_at(offset)?))
+    Ok((world_etag(t.epoch(), t.hub_cap(), offset, params), offset))
 }
 
 /// Serializes `view` into `writer`. A failed write (client gone or stalled) drops `writer`
 /// unfinished, which ends the body with an error; there is no one left to report it to.
-fn write_view(view: &HeadView<'_>, mut writer: stream::ChunkWriter) {
+pub(super) fn write_view(view: &HeadView<'_>, mut writer: stream::ChunkWriter) {
     if serde_json::to_writer(&mut writer, view).is_ok() {
         let _ = writer.finish();
     }
 }
 
-/// What `/world` answers once the read guard is held.
-enum WorldAnswer {
+/// What `/world` answers once the read guard is held: `304`, or the tag and the body stream.
+pub(super) enum WorldAnswer {
     NotModified(HeaderValue),
-    Body(HeaderValue),
+    Body(HeaderValue, stream::ChunkStream),
 }
 
 /// `/world`'s entity tag: the view is a pure function of (epoch, fold, offset, params), so equal
@@ -776,7 +763,7 @@ fn world_etag(epoch: Epoch, hub_cap: u64, offset: u64, params: &ViewParams) -> H
 }
 
 /// Whether an `If-None-Match` value names `tag` (weak comparison, or `*`).
-fn etag_matches(if_none_match: &str, tag: &HeaderValue) -> bool {
+pub(super) fn etag_matches(if_none_match: &str, tag: &HeaderValue) -> bool {
     let tag = tag.to_str().unwrap_or_default();
     if_none_match.split(',').map(str::trim).any(|candidate| {
         candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == tag
@@ -1643,7 +1630,7 @@ mod membership_tests {
             let body = {
                 let state = state.clone();
                 std::thread::spawn(move || {
-                    let guard = state.read_for_body().expect("read");
+                    let guard = state.read_for_body(|| true).expect("read");
                     tx.send(()).expect("send");
                     std::thread::sleep(Duration::from_millis(50));
                     drop(guard);

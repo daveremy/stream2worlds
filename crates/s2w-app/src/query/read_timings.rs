@@ -1,6 +1,8 @@
 //! Where a `/world` body's read-guard hold goes (s2w#243, PR 1 of s2w#235): the wait for the
 //! guard, building the view under it (`HeadView::new`, which runs `Graph::new` and the sorts),
-//! and writing the body with the guard still held. Off unless a caller opts in with
+//! and writing the body with the guard still held. Since s2w#270 one hold can serve several
+//! bodies (a single-flight generation), so the phases are per hold and `bodies` counts what
+//! the holds served. Off unless a caller opts in with
 //! [`QueryState::with_read_timings`](super::QueryState::with_read_timings); serve never does,
 //! and the timings never change what is written.
 
@@ -17,14 +19,17 @@ pub struct PhaseTiming {
 }
 
 /// What [`QueryState::read_timings`](super::QueryState::read_timings) reports: `/world`
-/// bodies served (a `304` or an error builds nothing and is not counted) and the three phases
-/// of each one's hold.
+/// holds that built a view, the bodies they served (a `304` or an error builds nothing and is
+/// not counted), and the three phases of each hold.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReadTimingsSnapshot {
-    /// `/world` bodies served (status 200).
+    /// Holds that built a view: one per `lod=type` body, one per single-flight `lod=entity`
+    /// generation however many subscribers it served (s2w#270). The phases below are per hold.
+    pub builds: u64,
+    /// `/world` bodies served (status 200). `bodies / builds` is the sharing.
     pub bodies: u64,
-    /// From `stream_world` starting on its blocking thread to the read guard taken: queueing
-    /// behind a writer. Time waiting for a blocking thread is not in it.
+    /// From the hold starting on its blocking thread to the read guard taken: queueing behind
+    /// a writer. Time waiting for a blocking thread, or queued for a generation, is not in it.
     pub wait: PhaseTiming,
     /// From the guard taken to the view built: offset resolution, `Graph::new` and the sorts.
     pub build: PhaseTiming,
@@ -77,9 +82,10 @@ impl Phase {
     }
 }
 
-/// The counters `stream_world` records into, shared by every clone of one `QueryState`.
+/// The counters every `/world` hold records into, shared by every clone of one `QueryState`.
 #[derive(Default)]
 pub(crate) struct ReadTimings {
+    builds: AtomicU64,
     bodies: AtomicU64,
     wait: Phase,
     build: Phase,
@@ -87,9 +93,10 @@ pub(crate) struct ReadTimings {
 }
 
 impl ReadTimings {
-    /// Records one body's hold.
-    pub(crate) fn record(&self, wait: Duration, build: Duration, write: Duration) {
-        self.bodies.fetch_add(1, Ordering::Relaxed);
+    /// Records one hold that built a view and served `bodies` bodies from it.
+    pub(crate) fn record(&self, bodies: u64, wait: Duration, build: Duration, write: Duration) {
+        self.builds.fetch_add(1, Ordering::Relaxed);
+        self.bodies.fetch_add(bodies, Ordering::Relaxed);
         self.wait.record(wait);
         self.build.record(build);
         self.write.record(write);
@@ -99,6 +106,7 @@ impl ReadTimings {
     /// being recorded can be off by that one body; read it after the readers stop.
     pub(crate) fn snapshot(&self) -> ReadTimingsSnapshot {
         ReadTimingsSnapshot {
+            builds: self.builds.load(Ordering::Relaxed),
             bodies: self.bodies.load(Ordering::Relaxed),
             wait: self.wait.get(),
             build: self.build.get(),
@@ -116,10 +124,11 @@ mod tests {
         let timings = ReadTimings::default();
         assert_eq!(timings.snapshot().build_share(), None);
         let ms = Duration::from_millis;
-        timings.record(ms(1), ms(100), ms(300));
-        timings.record(ms(5), ms(300), ms(300));
+        timings.record(1, ms(1), ms(100), ms(300));
+        timings.record(3, ms(5), ms(300), ms(300));
         let seen = timings.snapshot();
-        assert_eq!(seen.bodies, 2);
+        assert_eq!(seen.builds, 2);
+        assert_eq!(seen.bodies, 4);
         assert_eq!(
             seen.wait,
             PhaseTiming {

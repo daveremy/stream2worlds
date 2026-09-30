@@ -39,7 +39,8 @@
 //!   the guard, `build` under it (`HeadView::new`: `Graph::new` and the sorts), `write` with it
 //!   still held (serialization, which still reads each node out of the world). `build share`
 //!   is `build / (build + write)`: the part of the hold a handoff that releases the guard after
-//!   the projection keeps.
+//!   the projection keeps. Since s2w#270 one hold (a single-flight generation) can serve several
+//!   readers' bodies: `builds` counts holds, `bodies` what they served.
 //!
 //! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants;
 //! `S2W_BACKFILL_MEMORY_VIEWER_TICK_MS=1000` sets the `viewer` tick;
@@ -561,6 +562,7 @@ mod backfill {
     /// The server-side `/world` hold split as a `result` field, in milliseconds.
     fn timings_json(timings: &ReadTimingsSnapshot) -> serde_json::Value {
         serde_json::json!({
+            "builds": timings.builds,
             "bodies": timings.bodies,
             "wait_ms_sum": ms(timings.wait.total),
             "wait_ms_max": ms(timings.wait.max),
@@ -578,8 +580,9 @@ mod backfill {
     fn report_timings(timings: &ReadTimingsSnapshot) {
         let share = |s: Option<f64>| s.map_or_else(|| "-".to_owned(), |s| format!("{s:.2}"));
         eprintln!(
-            "/world hold over {} bodies: wait total {} ms (max {}), build total {} ms (max {}), \
-             write total {} ms (max {}); build share {} (of maxima {})",
+            "/world hold over {} builds serving {} bodies: wait total {} ms (max {}), \
+             build total {} ms (max {}), write total {} ms (max {}); build share {} (of maxima {})",
+            timings.builds,
             timings.bodies,
             timings.wait.total.as_millis(),
             timings.wait.max.as_millis(),
