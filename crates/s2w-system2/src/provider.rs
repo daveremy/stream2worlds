@@ -58,6 +58,13 @@ pub enum ProviderError {
         /// Wall time of the call.
         latency_ms: u64,
     },
+    /// The command exited, but a process it started (outside its process group) still held
+    /// stdout open after the drain grace, so the reply may be incomplete.
+    #[error("exec: stdout was still open after the command exited")]
+    StdoutHeld {
+        /// Wall time of the call.
+        latency_ms: u64,
+    },
     /// Reading from or writing to the command failed.
     #[error("exec: {0}")]
     Io(String),
@@ -76,7 +83,11 @@ impl ProviderError {
         match self {
             Self::Timeout { stdout, .. } | Self::Exit { stdout, .. } => stdout.as_deref(),
             Self::StdoutTooLarge { stdout, .. } => Some(stdout),
-            Self::Spawn(_) | Self::NotUtf8 { .. } | Self::Io(_) | Self::NotRecorded { .. } => None,
+            Self::Spawn(_)
+            | Self::NotUtf8 { .. }
+            | Self::StdoutHeld { .. }
+            | Self::Io(_)
+            | Self::NotRecorded { .. } => None,
         }
     }
 
@@ -87,7 +98,8 @@ impl ProviderError {
             Self::Timeout { latency_ms, .. }
             | Self::StdoutTooLarge { latency_ms, .. }
             | Self::Exit { latency_ms, .. }
-            | Self::NotUtf8 { latency_ms } => Some(*latency_ms),
+            | Self::NotUtf8 { latency_ms }
+            | Self::StdoutHeld { latency_ms } => Some(*latency_ms),
             Self::Spawn(_) | Self::Io(_) | Self::NotRecorded { .. } => None,
         }
     }

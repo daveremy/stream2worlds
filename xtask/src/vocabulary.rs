@@ -529,19 +529,31 @@ fn ts_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
 fn prompt_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for dir in crate_dirs(root) {
-        collect_matching(&dir.join("prompts"), &|_| true, &mut files);
+        collect_every(&dir.join("prompts"), &mut files);
     }
     files
+}
+
+/// Every file under `dir`, depth-first and sorted, with no directory skipped: a prompt tree has
+/// no test or build-output subtree, and a skipped `examples/` would be a way around the check.
+fn collect_every(dir: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(read) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut paths: Vec<PathBuf> = read.flatten().map(|entry| entry.path()).collect();
+    paths.sort();
+    for path in paths {
+        if path.is_dir() {
+            collect_every(&path, files);
+        } else {
+            files.push(path);
+        }
+    }
 }
 
 /// `exts` files under `dir`, depth-first and sorted. `tests/`, `benches/` and `examples/` are
 /// not shipped source; `target/`, `node_modules/` and `dist/` are build output.
 fn collect_files(dir: &Path, exts: &[&str], files: &mut Vec<PathBuf>) {
-    collect_matching(dir, &|path| has_ext(path, exts), files);
-}
-
-/// The files under `dir` that `keep` accepts, depth-first and sorted, skipping excluded dirs.
-fn collect_matching(dir: &Path, keep: &dyn Fn(&Path) -> bool, files: &mut Vec<PathBuf>) {
     let Ok(read) = fs::read_dir(dir) else {
         return;
     };
@@ -550,9 +562,9 @@ fn collect_matching(dir: &Path, keep: &dyn Fn(&Path) -> bool, files: &mut Vec<Pa
     for path in paths {
         if path.is_dir() {
             if !excluded_dir(&path) {
-                collect_matching(&path, keep, files);
+                collect_files(&path, exts, files);
             }
-        } else if keep(&path) {
+        } else if has_ext(&path, exts) {
             files.push(path);
         }
     }
@@ -877,8 +889,16 @@ mod tests {
             "crates/demo/prompts/p.txt",
             "Line one.\nKey rows by wiki_id.\nUse wikiId. vocabulary: allow\n",
         );
+        // A subdirectory another walker would skip as test code is scanned here.
+        scratch.write("crates/demo/prompts/tests/q.md", "wiki_id\n");
         let problems = check(&scratch.0);
-        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains("crates/demo/prompts/tests/q.md:1")),
+            "{problems:?}"
+        );
         for line in [2, 3] {
             assert!(
                 problems

@@ -329,9 +329,7 @@ impl Run {
             });
         }
         if self.stdout.open {
-            return Err(ProviderError::Io(
-                "stdout was still open after the command exited".to_owned(),
-            ));
+            return Err(ProviderError::StdoutHeld { latency_ms });
         }
         let text = String::from_utf8(self.stdout.bytes)
             .map_err(|_| ProviderError::NotUtf8 { latency_ms })?;

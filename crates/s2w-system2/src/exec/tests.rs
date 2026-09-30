@@ -89,6 +89,21 @@ fn a_child_of_the_command_does_not_hold_the_call_open() {
 }
 
 #[test]
+fn stdout_held_past_exit_by_a_process_outside_the_group_is_reported_with_latency() {
+    // `setsid` moves the sleep out of the command's process group, so the group kill cannot
+    // reach it and stdout stays open after the shell exits.
+    if !Path::new("/usr/bin/setsid").exists() {
+        return;
+    }
+    let error = run("setsid sleep 6 & echo hi").unwrap_err();
+    assert!(
+        matches!(error, ProviderError::StdoutHeld { .. }),
+        "{error:?}"
+    );
+    assert!(error.latency_ms().is_some());
+}
+
+#[test]
 fn stdout_over_the_cap_is_refused_with_the_first_bytes_kept() {
     let limits = small(|l| l.stdout_bytes = 10);
     let error = ExecProvider::new(sh("printf 0123456789abcdef"), vec![])
