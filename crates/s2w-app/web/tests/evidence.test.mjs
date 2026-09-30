@@ -77,7 +77,7 @@ test('evidenceTail hands over the head, then each chunk\'s rows, before the body
   });
   let closed = false; done.then(() => { closed = true; });
   push(frame(41) + frame(42).slice(0, 20));
-  await new Promise(resolve => setTimeout(resolve, 10));
+  for (let i = 0; i < 200 && seen.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 5));
   assert.deepEqual(seen, ['head 43 00000000000000aa', 'rows 41']);
   assert.equal(closed, false);
   push(frame(42).slice(20) + frame(43)); close();
