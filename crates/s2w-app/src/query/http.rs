@@ -24,6 +24,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::QueryError;
+use super::dashboard::DashboardView;
 use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
 use super::epoch::Epoch;
@@ -196,6 +197,19 @@ impl QueryState {
             return Ok(ProposalsView::default());
         };
         super::proposal_store::read_view(log_dir)
+    }
+
+    /// The served world's dashboard (decision 0029), read fresh from the log directory's
+    /// proposal store on every call. Empty when no log directory is configured or the store
+    /// file does not exist; never creates it.
+    ///
+    /// # Errors
+    /// [`QueryError::Storage`] if the store exists but cannot be opened or read.
+    pub fn dashboard(&self) -> Result<DashboardView, QueryError> {
+        let Some(log_dir) = self.log_dir() else {
+            return Ok(DashboardView::default());
+        };
+        super::dashboard::read_dashboard(log_dir, self.world())
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
@@ -569,6 +583,7 @@ pub fn router(state: QueryState) -> Router {
         .route("/worlds/{world}/sources", get(sources))
         .route("/worlds/{world}/presentation", get(world_presentation))
         .route("/worlds/{world}/proposals", get(world_proposals))
+        .route("/worlds/{world}/dashboard", get(world_dashboard))
         .with_state(state)
 }
 
@@ -826,6 +841,14 @@ async fn world_proposals(State(state): State<QueryState>, Path(world): Path<Stri
     let run = || -> Result<_, QueryError> {
         check_world(&state, &world)?;
         state.proposals()
+    };
+    run().map(Json).into_response()
+}
+
+async fn world_dashboard(State(state): State<QueryState>, Path(world): Path<String>) -> Response {
+    let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
+        state.dashboard()
     };
     run().map(Json).into_response()
 }

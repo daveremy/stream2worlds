@@ -16,7 +16,10 @@ use s2w_log::{
 use s2w_model::SourceId;
 use serde::Serialize;
 
-use crate::query::{DecisionDto, QueryError, open_proposal_reader};
+use crate::query::{
+    DASHBOARD_MANIFEST_CLASS, DecisionDto, QueryError, decode_dashboard_envelope,
+    open_proposal_reader,
+};
 use crate::routes::{self, STREAM_MAPPING_CLASS};
 
 pub use crate::query::read_view;
@@ -153,6 +156,7 @@ pub fn record_decision(
         .flatten()
         .ok_or_else(unknown)?;
     let mapping_source = mapping_source(&proposal, outcome)?;
+    check_dashboard_accept(&proposal, outcome)?;
     let mut store = SqliteProposalStore::open(log_dir).map_err(|error| match error {
         LogError::Locked => QueryError::StoreLocked,
         other => other.into(),
@@ -195,6 +199,27 @@ fn mapping_source(
         }),
         Err(_) => Ok(None),
     }
+}
+
+/// Refuses an accept on a `dashboard-manifest` proposal that resolution excludes: an
+/// undecodable envelope or a null manifest (decision 0029). Any other class or outcome passes.
+///
+/// # Errors
+/// [`QueryError::BadParameter`] naming `proposal`.
+fn check_dashboard_accept(proposal: &StoredProposal, outcome: Outcome) -> Result<(), QueryError> {
+    if proposal.class != DASHBOARD_MANIFEST_CLASS || outcome != Outcome::Accept {
+        return Ok(());
+    }
+    decode_dashboard_envelope(&proposal.payload)
+        .map(drop)
+        .map_err(|reason| QueryError::BadParameter {
+            name: "proposal",
+            reason: format!(
+                "{} is not a usable {DASHBOARD_MANIFEST_CLASS} envelope, so resolution excludes \
+                 it and an accept could never take effect ({reason}); reject it instead",
+                proposal.id
+            ),
+        })
 }
 
 /// What `source` runs now, resolved from `log_dir`'s stored mappings and decisions.
