@@ -13,6 +13,56 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## World loads finish, the viewer stays bounded, and H-lite finds editors — #259, #262, #250 PR 2, #220 PR A and B (2026-09-29)
+
+**Shipped:** the demo world, now titled "Living Wikipedia", loads whole. Its page had been
+blank, looping "Reconnecting: Failed to fetch", because the server cut every `/world` response
+off at about 4 MiB. The cause was a lock: `serve`'s bridge wrote new events into the world on
+the server's only async thread while a `/world` response held the world's read lock and waited
+for that same thread to send its chunks, so after 5 s the response ended at the body channel's
+capacity. The bridge now waits for in-flight `/world` responses before its next write, and a
+waiting response goes before the next write, so a backfill cannot starve it; a response that
+waits more than 30 s answers 503, which the viewer retries
+([#260](https://github.com/daveremy/stream2worlds/pull/260)). For gate 3, H-lite now finds
+editors: a second entity test keys a path whose repeat groups spread across the window while
+another varying path stays constant within them, so Wikipedia's `user` becomes an entity type
+(`PROFILER_VERSION` 4, [#261](https://github.com/daveremy/stream2worlds/pull/261)). The bridge
+memory work merged: the measurement harness now refuses any tuned-allocator variable
+(`MALLOC_*`, `GLIBC_TUNABLES`, `LD_PRELOAD`) in its default sweep rather than a fixed list of
+names ([#253](https://github.com/daveremy/stream2worlds/pull/253)), and batch 250 with a
+50,000-event history cap lowers the bridge's cap-2 peak from 577 to 520–538 MiB
+([#255](https://github.com/daveremy/stream2worlds/pull/255)). Rustdoc errors are fixed and CI
+now runs `cargo doc -D warnings`
+([#257](https://github.com/daveremy/stream2worlds/pull/257)). The Sprint 82 entry landed in
+[#256](https://github.com/daveremy/stream2worlds/pull/256).
+Just after the sprint, the viewer stopped asking for the whole graph: it requests the type view
+(`?lod=type`) first, uses its per-type counts as a size probe, and loads entities only on worlds
+of 5,000 entities or fewer, or around a focus entity
+([#263](https://github.com/daveremy/stream2worlds/pull/263)).
+
+**Learned:** fixing the truncation exposed the next problem. The whole demo world is 370 MB
+(310,669 nodes) at the default entity level, and the page froze trying to draw it; the type
+view of the same world is 5.9 KB. The server-side demo check said PASS all sprint because it
+never loads the page, so a demo PASS now needs a rendered page. H-lite's new rule was scored on
+a newly pinned held-out span, `reserved-3`, opened only after the predictions were posted, and
+every prediction hit: identity F1 rose from 0.2920 to 0.4431 and recall from 0.1710 to 0.2853,
+with `user` at precision 0.968 and recall 1.0. Entity recovery is 0.042, still far below gate
+3's 0.60, against an oracle-v0 ceiling of F1 0.5712.
+
+**Changed course:** #259 asked for a bounded viewer timeout and a viewer-level slow-`/world`
+test. Both rested on a wrong diagnosis: the body was cut short on the server, so the regression
+test is server-side. #263 bounds the view in the page, not on the server: the bare `/world`
+default is still the entity level, and the API's bytes, etags and pins are unchanged. The demo
+page is also now meant to be the world's own dashboard, with no s2w terms, authored by System 2
+as a declarative dashboard manifest on the world's log (design pass on
+[#116](https://github.com/daveremy/stream2worlds/issues/116)).
+
+**Next:** deploy #263 and check that the page renders in a browser. Rebase #243's `/world` lock
+measurement onto #260, which changed the same lock code. #220 PR C (mimalloc) is re-measured on
+PR B's base. For gate 3, containment
+([#244](https://github.com/daveremy/stream2worlds/issues/244), `PROFILER_VERSION` 5) and the
+alias limit ([#245](https://github.com/daveremy/stream2worlds/issues/245)).
+
 ## The demo is live and holds, and H-lite stops minting an action name as an entity — #216, #250 PR 1 (2026-09-29)
 
 **Shipped:** the demo runs again and held. At 11:50 the learned Wikipedia world was OOM-killed

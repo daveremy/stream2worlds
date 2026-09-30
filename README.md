@@ -21,24 +21,22 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **The demo is live again and held for 10 minutes.** The learned Wikipedia world runs on the
-  3.8 GB demo box under a 2.5 GB limit (it had been our own 1 GiB setting) and passed the hold
-  check with 11 samples, no restarts and 755 MiB of its own memory.
-  [Changelog](CHANGELOG.md)
-- **H-lite no longer calls an action name an entity.** A small key that decides an event's
-  shape is now a category: precision 0.9840 to 0.9987 on a reserved span, every pre-registered
-  prediction hit, recall still the gap.
-  [#254](https://github.com/daveremy/stream2worlds/pull/254)
-- **The first gate-3 number is measured.** H-lite, frozen before anyone scored it, reaches
-  identity F1 0.284 and 0.293 on two held-out plain-Wikipedia spans; reported, never counted.
-  [Research 0009](research/0009-h-min-plain-wikipedia.md)
-- **A gate-3 score cannot come from a mapping nobody froze.** `cargo xtask h-measure freeze`
-  pins keys and corpora by sha256, and `score` refuses any frozen file that differs.
-  [#242](https://github.com/daveremy/stream2worlds/pull/242)
-- **In progress:** two memory PRs, [#253](https://github.com/daveremy/stream2worlds/pull/253)
-  and [#255](https://github.com/daveremy/stream2worlds/pull/255), are reviewed and not yet
-  merged; they lower the bridge's peak memory
-  ([#220](https://github.com/daveremy/stream2worlds/issues/220)).
+- **The demo world loads whole.** `/world` responses were cut off at about 4 MiB while the
+  bridge appended, which blanked the page; the bridge now waits for in-flight responses before
+  its next write.
+  [#260](https://github.com/daveremy/stream2worlds/pull/260)
+- **The web view never asks for the whole graph.** Above 5,000 entities it opens on entity
+  types (5.9 KB instead of 370 MB on the demo world); set a Focus entity to see a
+  neighbourhood.
+  [#263](https://github.com/daveremy/stream2worlds/pull/263)
+- **H-lite finds editors.** A second entity test keys Wikipedia's `user`; on a held-out span
+  opened after the predictions, identity F1 rose from 0.2920 to 0.4431 and every prediction hit.
+  [#261](https://github.com/daveremy/stream2worlds/pull/261)
+- **The bridge's peak memory is lower.** Batch 250 and a 50,000-event history cap take its
+  peak from 577 to 520–538 MiB.
+  [#255](https://github.com/daveremy/stream2worlds/pull/255)
+- **In progress:** deploying the bounded view and checking that the demo page renders in a
+  browser, and measuring the `/world` lock ([#243](https://github.com/daveremy/stream2worlds/issues/243)).
 
 ## Demos
 
@@ -105,6 +103,8 @@ s2w watch wikipedia --log-dir ./s2w-data
 s2w serve wikipedia --log-dir ./s2w-data --port 4310 --world default
 # From another terminal:
 curl http://localhost:4310/worlds/default/world
+# On a large world, ask for the type view first: /world?lod=type is small by construction,
+# while the default (lod=entity) returns every entity.
 # Or open http://localhost:4310/ in a browser for the web view (evidence table and graph);
 # add ?at=<offset> to the URL to pin a moment.
 # Above 5,000 entities the page shows entity types instead of every entity; set a
@@ -149,6 +149,11 @@ valid snapshot and replays only the tail (`--no-snapshot` turns both off and rep
 below `replay_base`, and `/entity/{id}/history` whenever `base` is not 0 answer `410` with
 `{"error": "offset_before_base"}`. The web page restarts from a fresh read when its live stream
 falls behind `replay_base`. The MCP tools share this contract.
+
+`/world` takes `lod=entity` (the default, every entity) or `lod=type` (one node per entity
+type with its member `count`; hub entities stay as themselves); `lod=cluster` answers 501.
+A `/world` response that waits more than 30 s for the bridge's current write answers 503;
+retry it (the web view does).
 
 Offsets belong to a history, named by its **epoch** (16 hex digits, reported by `/world`,
 `/time` and every SSE `id:` as `<epoch>:<offset>`; [decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)).
@@ -253,7 +258,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 
 **The first question, with its numbers.** Gate 4 asks, for each human edit to an English Wikipedia article: will it be reverted within 30 minutes? A 30-minute pilot on 2026-09-27 ([research 0004](research/0004-revert-pilot.md)) measured 1,854 eligible edits, a 3.8% base rate, and ROC AUC 0.888 for Wikimedia's own revert-risk model on that question. One Sunday-morning window, so these are orders of magnitude, not the test. Wikimedia's model is reported beside `s2w`'s score, not required to be beaten: the gate asks for skill over the base rate and over a simple-features model, and calibration ([contract A9](docs/evaluation-contract.md#a9-gate-4-pass-thresholds-dave-2026-09-27-report-b2-dont-require-it)).
 
-**The heuristics arm, measured.** Gate 3 compares System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover`, no containment yet), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. The mapping format limits every arm here (it cannot join different values that name one entity), so the note reads H-lite against an oracle-v0 reference (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
+**The heuristics arm, measured.** Gate 3 compares System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover`, no containment yet), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. A later rule, scored on a third held-out span (`reserved-3`, opened only after the predictions were posted), raises that: `PROFILER_VERSION` 4 keys Wikipedia's `user` and reaches identity F1 0.4431 (0.2920 under version 3), precision 0.99, entity recovery 0.042 ([#261](https://github.com/daveremy/stream2worlds/pull/261)). The mapping format limits every arm here (it cannot join different values that name one entity), so the note reads H-lite against an oracle-v0 reference (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
 
 ## Roadmap
 
