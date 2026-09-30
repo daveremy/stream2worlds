@@ -81,9 +81,9 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
   (only local development logs, from 2026-09-29), and `h-min/5` names the same profiler after
   it. A restarted `serve` does not file again for such a source, because the producer writes
   nothing when a proposal with the same (source, identity) exists from any actor. The 4b
-  decided-window skip matches this actor only, so a window `h-lite/5` filed and a human
-  rejected is profiled again at each start before that check stops the write. Versions 2 to 4
-  remain `h-lite`.
+  decided-window skip matches this actor only, so a window that `h-lite/5` filed and a human
+  rejected is profiled again at each start; the (source, identity) check then stops the write.
+  Versions 2 to 4 remain `h-lite`.
 - **Grading** the policy's accuracy is #33/#56. No automatic revoke exists yet.
 - **Surfaces** ([0017](0017-view-and-agents-first-class.md)): which mapping a source runs is
   shown only in start-up notes, `s2w proposals list` and the proposals panel; the per-source
