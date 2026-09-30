@@ -2,7 +2,7 @@
 //! stream, per source id (s2w#168).
 //!
 //! An adapter whose protocol exposes the head position (Kafka's high watermark) tracks one
-//! [`Watermark`] per source and hands the app [`Watermarks::tracked`]. An adapter whose protocol
+//! [`Watermark`] per source and hands the app a tracked `Watermarks`. An adapter whose protocol
 //! has no such position (SSE, stdin) says so with [`Watermarks::not_reported`], so the app shows
 //! the lag as absent, never as zero.
 
