@@ -22,7 +22,7 @@
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
 - **A large world paints its shape first.** `/world?lod=type&links=none` returns the type summary
-  in about 150 ms at 360k entities, against 2.5 s for the full type view, and the viewer draws it
+  in about 150 ms at 360k entities, against a full type view that took 2.5 s on the demo box (now 274 ms at 213k entities on the recorded backfill, [#325](https://github.com/daveremy/stream2worlds/issues/325); the demo-box figure follows the deploy), and the viewer draws it
   before the links arrive. [#318](https://github.com/daveremy/stream2worlds/pull/318),
   [#319](https://github.com/daveremy/stream2worlds/pull/319)
 - **System 2 can propose a dashboard.** `s2w dashboard propose --system2-cmd <program>` asks any
