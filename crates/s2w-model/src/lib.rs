@@ -18,7 +18,7 @@ pub use dashboard::{
     Template, TruncateField, TypeRow, When,
 };
 pub use event::{AttrValue, WorldEvent};
-pub use hash::{Fnv64, fnv1a64, fnv1a64_hex};
+pub use hash::{Fnv64, fnv1a64, fnv1a64_hex, is_hex16};
 pub use mapping::{
     AttrRule, EntityRule, FieldPath, LinkRule, MAPPING_VERSION, MAPPING_VERSION_LINKS,
     MappingError, RelationshipRule, Segment, StreamMapping,

@@ -284,7 +284,7 @@ fn print_json(log_dir: &Path, rendered: serde_json::Result<String>) -> ExitCode 
     }
 }
 
-fn actor_text(actor: &ActorDto) -> String {
+pub(crate) fn actor_text(actor: &ActorDto) -> String {
     match actor {
         ActorDto::Human { id } => format!("human {id}"),
         ActorDto::Agent { model, version } => format!("agent {model}@{version}"),

@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use s2w_log::{StoredDecision, StoredProposal};
-use s2w_model::{AcceptedMapping, DashboardManifest};
+use s2w_model::{AcceptedMapping, DashboardManifest, is_hex16};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use super::QueryError;
@@ -78,13 +78,6 @@ where
     T: Deserialize<'de>,
 {
     Option::deserialize(deserializer)
-}
-
-fn is_hex16(value: &str) -> bool {
-    value.len() == 16
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Parses a `dashboard-manifest` payload and checks every envelope rule of decision 0029.

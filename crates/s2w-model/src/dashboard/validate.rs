@@ -83,7 +83,7 @@ impl DashboardManifest {
         for (i, built_on) in self.built_on.iter().enumerate() {
             let at = format!("built_on[{i}]");
             text(&format!("{at}.source"), &built_on.source)?;
-            if !is_identity(&built_on.mapping) {
+            if !crate::hash::is_hex16(&built_on.mapping) {
                 return Err(DashboardError::NotAnIdentity {
                     at: format!("{at}.mapping"),
                 });
@@ -204,13 +204,6 @@ fn distinct<'a>(
             value: value.to_owned(),
         })
     }
-}
-
-fn is_identity(value: &str) -> bool {
-    value.len() == 16
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn path(at: &str, path: &FieldPath) -> Result<(), DashboardError> {

@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use s2w_app::query::{ActorDto, DashboardView, read_dashboard};
+use s2w_app::query::{DashboardView, read_dashboard};
 
 use crate::output::{self, Format};
 use crate::{DEFAULT_LOG_DIR, usage_error, valid_world_name};
@@ -109,11 +109,10 @@ fn render(world: &str, view: &DashboardView, json: bool) -> String {
     let mut out = String::new();
     match (&view.manifest, &view.proposal_id, &view.identity) {
         (Some(manifest), Some(proposal_id), Some(identity)) => {
-            let actor = match &view.actor {
-                Some(ActorDto::Agent { model, version }) => format!("{model}/{version}"),
-                Some(ActorDto::Human { id }) => format!("human {id}"),
-                None => "unknown".to_owned(),
-            };
+            let actor = view
+                .actor
+                .as_ref()
+                .map_or_else(|| "unknown".to_owned(), crate::proposals::actor_text);
             let default_role = manifest
                 .roles
                 .iter()

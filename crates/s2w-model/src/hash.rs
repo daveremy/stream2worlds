@@ -54,6 +54,15 @@ pub fn fnv1a64_hex(bytes: &[u8]) -> String {
     format!("{:016x}", fnv1a64(bytes))
 }
 
+/// Whether `value` is exactly 16 lowercase hex digits, the shape `fnv1a64_hex` produces.
+#[must_use]
+pub fn is_hex16(value: &str) -> bool {
+    value.len() == 16
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
