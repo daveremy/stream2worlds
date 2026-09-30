@@ -22,7 +22,7 @@ authentication layer, or Streamable HTTP transport is added here.
 
 | Tool | Mirrors HTTP route | Pure function(s) it calls |
 |---|---|---|
-| `world_view` | `GET /world?at=&branch=&lod=&focus=&hops=` | `query::world_view` |
+| `world_view` | `GET /world?at=&branch=&lod=&focus=&hops=&links=` (`links` amended 2026-09-30, s2w#296) | `query::world_view` |
 | `world_diff` | `GET /diff?from=&to=` | `query::diff` |
 | `entity_history` | `GET /entity/{id}/history?to=` | `Timeline::history` |
 | `branches` | `GET /branches` | `QueryState::branches` (shared branch summary) |
