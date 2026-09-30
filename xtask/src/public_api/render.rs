@@ -37,7 +37,6 @@ impl Names {
                 Item::Struct(i) => (&i.attrs, &i.vis, &i.ident),
                 Item::Enum(i) => (&i.attrs, &i.vis, &i.ident),
                 Item::Union(i) => (&i.attrs, &i.vis, &i.ident),
-                Item::Type(i) => (&i.attrs, &i.vis, &i.ident),
                 Item::Mod(m) if !excluded(&m.attrs) => {
                     if let Some((_, inner)) = &m.content {
                         self.collect(inner);
@@ -346,13 +345,17 @@ fn impl_lines(
     }
 }
 
-/// A bare single-segment path naming a type that is only ever defined non-`pub` here.
+/// A single-segment path (generic arguments allowed) naming a type that is only ever defined non-`pub` here.
 fn private_self(ty: &Type, private: &BTreeSet<String>) -> bool {
     match ty {
-        Type::Path(p) if p.qself.is_none() => p
-            .path
-            .get_ident()
-            .is_some_and(|id| private.contains(&id.to_string())),
+        // An alias is never counted as private: `type A = Pub;` may name a public type.
+        Type::Path(p) if p.qself.is_none() && p.path.leading_colon.is_none() => {
+            p.path.segments.len() == 1
+                && p.path
+                    .segments
+                    .first()
+                    .is_some_and(|s| private.contains(&s.ident.to_string()))
+        }
         _ => false,
     }
 }

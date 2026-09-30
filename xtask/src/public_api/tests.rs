@@ -124,3 +124,11 @@ fn trait_default_methods_and_deprecation_are_api() {
     ));
     assert!(differs("pub fn f() {}", "#[deprecated] pub fn f() {}"));
 }
+
+#[test]
+fn impl_filter_skips_private_generic_types_but_not_aliases() {
+    let generic = "struct Q<T>(T); impl<T> Clone for Q<T> { fn clone(&self) -> Self { todo() } }";
+    assert!(api(generic).is_empty(), "{:?}", api(generic));
+    let alias = "pub struct P; type A = P; impl Default for A { fn default() -> A { P } }";
+    assert!(api(alias).iter().any(|l| l.contains("impl Default for A")));
+}

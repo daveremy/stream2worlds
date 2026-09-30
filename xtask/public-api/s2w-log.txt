@@ -8,8 +8,6 @@ s2w_log: impl Error for LogError
 s2w_log: impl EventLog for InMemoryEventLog
 s2w_log: impl EventLog for SqliteEventLog
 s2w_log: impl InMemoryEventLog { # [must_use] pub fn new () -> Self }
-s2w_log: impl Iterator for Replay < '_ >
-s2w_log: impl Iterator for Replay < '_ > { type Item = Result < StoredEvent , LogError > ; }
 s2w_log: impl LogPosition { # [must_use] pub const fn as_u64 (self) -> u64 }
 s2w_log: impl LogPosition { # [must_use] pub const fn from_u64 (position : u64) -> Option < Self > }
 s2w_log: impl LogReader for ReadOnlySqliteEventLog

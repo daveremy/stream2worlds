@@ -5,8 +5,6 @@ s2w_sources: pub mod watermark
 s2w_sources: pub use sse :: replay_frames ;
 s2w_sources::filter: # [derive (Debug , Clone , PartialEq , Eq)] pub struct FieldFilter { } ..
 s2w_sources::filter: impl FieldFilter { pub fn parse (spec : & str) -> Result < Self , String > }
-s2w_sources::ndjson: impl < R : AsyncBufRead + Unpin > Stream for NdjsonSource < R >
-s2w_sources::ndjson: impl < R : AsyncBufRead + Unpin > Stream for NdjsonSource < R > { type Item = Result < NdjsonEvent , NdjsonSourceError > ; }
 s2w_sources::registry: # [derive (Debug , thiserror :: Error)] pub enum ResolveError { Invalid (SourceError) , Unknown { uri : String , forms : & 'static str , } , FiltersUnsupported { uri : String , scheme : & 'static str , } , PresetFilterInvalid (PresetFilterError) }
 s2w_sources::registry: # [derive (Debug , thiserror :: Error)] pub struct PresetFilterError (_) ;
 s2w_sources::registry: pub const FORMS : & str = _ ;
