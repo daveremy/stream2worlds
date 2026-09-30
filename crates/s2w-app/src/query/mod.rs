@@ -6,6 +6,7 @@
 //! offset everywhere, and only the actual world branch exists: any other branch is
 //! [`QueryError::BranchNotYet`].
 
+mod dashboard;
 mod delta;
 mod diff;
 mod epoch;
@@ -13,12 +14,20 @@ mod http;
 mod proposal_store;
 mod proposals;
 mod read_timings;
+mod resolve;
 mod stream;
+mod stream_mapping;
 mod timeline;
 mod view;
 
 use thiserror::Error;
 
+pub use dashboard::{
+    DASHBOARD_ENVELOPE_FORMAT, DASHBOARD_MANIFEST_CLASS, DashboardEnvelope, DashboardView,
+    ExcludedDto, MAX_ATTEMPTS, MAX_RAW_BYTES, Provenance, dashboard_view,
+    decode_envelope as decode_dashboard_envelope, parse_envelope as parse_dashboard_envelope,
+    read_dashboard,
+};
 pub use delta::{Delta, fold_with_delta};
 pub use diff::{Changed, Changes, MergeEdge, WorldDiff, diff};
 pub use epoch::Epoch;
@@ -31,6 +40,8 @@ pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
 };
 pub use read_timings::{PhaseTiming, ReadTimingsSnapshot};
+pub use resolve::{ClassResolution, Excluded, Winner, resolve_class};
+pub use stream_mapping::{ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope};
 pub use timeline::{BaseTime, DEFAULT_HISTORY_CAP, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HeadView, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,
