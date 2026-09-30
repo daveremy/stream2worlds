@@ -1,7 +1,8 @@
 # s2w-discover
 
 Structure discovery: profiles a window of raw payloads and proposes a `StreamMapping`
-(decision 0021), or abstains. The H-lite heuristic profiler of decision 0022.
+(decision 0021), or abstains. The H-min heuristic profiler of decision 0022 (H-lite before
+`PROFILER_VERSION` 5).
 
 ## Allowed dependencies
 
@@ -21,7 +22,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Abstaining is a first-class answer: every role that cannot be decided says so in `Profile`,
   and no mapping is emitted without an entity type or below `min_events`.
 - Thresholds live in `Config` and decision 0022; change one there, with the fixture numbers.
-- `PROFILER_VERSION` is recorded on every proposal `serve` files from this crate (decision
-  0025). Bump it with any change to `Config::default()` or to a rule.
+- `PROFILER_MODEL` (`h-min`) and `PROFILER_VERSION` are recorded on every proposal `serve`
+  files from this crate (decision 0025). Bump the version with any change to
+  `Config::default()` or to a rule; the model name is not a rule.
 - Unit tests use synthetic streams with neutral names; no domain knowledge in this crate
   (decision 0018).

@@ -182,6 +182,28 @@ fn the_proposal_id_is_deterministic_and_moves_with_every_field() {
 }
 
 #[test]
+fn the_actor_is_the_discover_crates_profiler_and_its_name_moves_the_id() {
+    assert_eq!(PROFILER_MODEL, "h-min");
+    assert_eq!(
+        actor(),
+        Actor::Agent {
+            model: PROFILER_MODEL.to_owned(),
+            version: PROFILER_VERSION.to_owned(),
+        }
+    );
+    // Version 5 filed as `h-lite` before #277; the same window under `h-min` is another id.
+    let before = Actor::Agent {
+        model: "h-lite".to_owned(),
+        version: PROFILER_VERSION.to_owned(),
+    };
+    let source = SourceId::new(SOURCE).expect("source");
+    assert_ne!(
+        proposal_id(&actor(), &source, position(1), position(300), "m1"),
+        proposal_id(&before, &source, position(1), position(300), "m1")
+    );
+}
+
+#[test]
 fn the_basis_names_the_policy_profiler_window_and_mapping_size() {
     let payloads = stream(300);
     let refs: Vec<&[u8]> = payloads.iter().map(Vec::as_slice).collect();
@@ -196,7 +218,7 @@ fn the_basis_names_the_policy_profiler_window_and_mapping_size() {
     assert_eq!(
         basis(position(1), position(300), 300, &mapping),
         format!(
-            "policy=learned-mapping-auto-apply/1 profiler=h-lite/{PROFILER_VERSION} window=1..300 events=300 types={} entity_rules={} relationship_rules={}",
+            "policy=learned-mapping-auto-apply/1 profiler=h-min/{PROFILER_VERSION} window=1..300 events=300 types={} entity_rules={} relationship_rules={}",
             types.len(),
             mapping.entities.len(),
             mapping.relationships.len()

@@ -197,7 +197,7 @@ To connect an MCP client, configure it to launch `s2w mcp --log-dir ./s2w-data` 
 
 `serve` proposes a stream mapping itself. At start, before it builds its routes, it profiles
 the first 10,000 logged events of each source that has no mapping, with `s2w-discover`. A
-mapping is stored as a `stream-mapping` proposal from `h-lite` and accepted by the `policy`
+mapping is stored as a `stream-mapping` proposal from `h-min` and accepted by the `policy`
 decider in the same start, so the source is routed, backfilled and live at once; the start-up
 notes say `discover: <source>: proposed mapping <identity> (proposal <id>), accepted by
 policy learned-mapping-auto-apply/1`. A source with fewer events, or one the profiler abstains

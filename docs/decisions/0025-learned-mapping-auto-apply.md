@@ -72,6 +72,18 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
 - *2026-09-29, #197 PR 4b:* claim volume measured (0022, "Claim volume"): 110 to 1,010 MiB at
   10^5 events, bracketing the ~350 MiB line. End-to-end obfuscation invariance through
   `serve` is a test.
+- *2026-09-29, #277 PR B:* **the actor is `h-min/5`**. `PROFILER_MODEL` moves from `s2w-app`
+  to `s2w-discover`, next to `PROFILER_VERSION`, and reads `h-min`: version 5 added stage 5b,
+  which makes H-lite into H-min (0022). The `model: "h-lite"` in the actor and the
+  `profiler=h-lite/<PROFILER_VERSION>` in the basis above now read `h-min`. No version bump,
+  since no rule or `Config` changed. The actor tuple does change, so grading by (actor, version)
+  keeps the two labels apart: `h-lite/5` names proposals filed by version 5 before this change
+  (only local development logs, from 2026-09-29), and `h-min/5` names the same profiler after
+  it. A restarted `serve` does not file again for such a source, because the producer writes
+  nothing when a proposal with the same (source, identity) exists from any actor. The 4b
+  decided-window skip matches this actor only, so a window that `h-lite/5` filed and a human
+  rejected is profiled again at each start; the (source, identity) check then stops the write.
+  Versions 2 to 4 remain `h-lite`.
 - **Grading** the policy's accuracy is #33/#56. No automatic revoke exists yet.
 - **Surfaces** ([0017](0017-view-and-agents-first-class.md)): which mapping a source runs is
   shown only in start-up notes, `s2w proposals list` and the proposals panel; the per-source
