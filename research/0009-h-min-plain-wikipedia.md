@@ -376,6 +376,12 @@ re-frozen on `dev` under the current pins
 v4 freeze only in that pin line. Reports:
 `research/h-measure/results/{h-min-v5,h-lite-v4}.dev-{10000,200000}.reserved.md`.
 
+*Note 2026-09-30 (s2w#277):* the re-freeze is no longer needed. `score` now accepts a corpus pin
+whose role went from `reserved` to `heldout` with the same file, events and sha256, and still
+refuses every other change. The original `frozen/h-lite-v4.dev-10000.json`, scored on `reserved`
+from 455c547 plus that fix, gives a report that differs from the committed one only in the line
+naming the mapping file and its sha256. No number above moves.
+
 **Result** on `reserved`, base key `dev-key-v1.json`:
 
 | mapping | P | R | F1 | false-merge | recovery | `revision` P | `revision` R |

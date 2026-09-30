@@ -95,8 +95,9 @@ impl Pins {
     }
 
     /// Every pin, as `key <file>` to its sha256 and `corpus <name>` to its role, file, event
-    /// count and sha256: what `freeze` records and `score` compares against, so relabelling a
-    /// corpus's role after a freeze counts as a changed pin.
+    /// count and sha256: what `freeze` records and `score` compares against. A role change after
+    /// a freeze counts as a changed pin, except `reserved` to `heldout` (opening the span,
+    /// s2w#277; `report::pins_used`).
     pub(crate) fn all(&self) -> BTreeMap<String, String> {
         let keys = self
             .keys
