@@ -98,7 +98,7 @@ of one expresses the single case.
   world's member sources and the input profile's paths per source. It runs `validate_shape`
   (everything above that needs no context) and then every reference: each `built_on` pair
   names that source's accepted mapping; every type, attribute, key part and relationship exists
-  in those mappings; every path is in the profile. It returns the first fault: shape faults (in field order) before reference faults.
+  in the accepted mappings the check is given; every path is in the profile. It returns the first fault: shape faults (in field order) before reference faults.
 - **The read path is `stale_entries(&current)`**, against the mappings in effect now only
   (the read has no profile, so paths are not checked). A manifest built on mapping A goes
   stale when mapping B lands: it is served with `stale: true` and a list of the entries the
