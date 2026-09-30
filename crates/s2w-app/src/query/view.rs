@@ -686,6 +686,13 @@ struct EntityStream<'w> {
 }
 
 impl<'w> HeadView<'w> {
+    /// A view already projected, such as a memoised type summary.
+    pub(crate) const fn from_view(view: WorldView) -> Self {
+        Self {
+            inner: HeadInner::Owned(view),
+        }
+    }
+
     /// Prepares the view of `world` at `params`, labelled `epoch`. Every error surfaces here,
     /// before a byte is written, so a caller can still answer with an error status.
     ///

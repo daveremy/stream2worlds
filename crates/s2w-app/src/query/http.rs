@@ -32,9 +32,11 @@ use super::generation::{self, Generations};
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
 use super::stream;
+use super::summary_memo::{SummaryKey, SummaryMemo};
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{
-    ACTUAL_BRANCH, HeadView, LinkDetail, Lod, ViewParams, WorldView, check_links, world_view,
+    ACTUAL_BRANCH, HeadView, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary,
+    world_view,
 };
 use crate::bridge::SourceStats;
 
@@ -91,6 +93,8 @@ pub struct QueryState {
     read_timings: Option<Arc<ReadTimings>>,
     /// The single-flight gate for `lod=entity` bodies (s2w#270).
     generations: Arc<Generations>,
+    /// The last type summary built (s2w#296).
+    summaries: Arc<SummaryMemo>,
     /// How long a `/world` request waits for its answer, and a body for writers, before a 503:
     /// [`BODY_YIELD_LIMIT`], shorter in tests.
     body_wait: Duration,
@@ -117,6 +121,7 @@ impl QueryState {
             log_dir: None,
             read_timings: None,
             generations: Arc::default(),
+            summaries: Arc::default(),
             body_wait: BODY_YIELD_LIMIT,
         }
     }
@@ -172,6 +177,28 @@ impl QueryState {
     /// The single-flight gate for `lod=entity` bodies.
     pub(super) fn generations(&self) -> &Generations {
         &self.generations
+    }
+
+    /// The type summary of `t` at `offset`, labelled with the served epoch: the memo's copy
+    /// when it holds that (epoch, hub cap, offset), else a fresh build that replaces it.
+    ///
+    /// # Errors
+    /// As [`Timeline::check_offset`], checked before the memo so an offset that fell below the
+    /// base is refused even when its summary is memoised.
+    pub(super) fn summary_at(&self, t: &Timeline, offset: u64) -> Result<WorldView, QueryError> {
+        t.check_offset(offset)?;
+        let key = SummaryKey {
+            epoch: t.epoch(),
+            hub_cap: t.hub_cap(),
+            offset,
+        };
+        self.summaries.get_or_build(key, || {
+            let world = t.world_at(offset)?;
+            Ok(WorldView {
+                epoch: t.epoch(),
+                ..type_summary(&world)
+            })
+        })
     }
 
     /// Shortens how long a `/world` request waits before a 503.
@@ -449,7 +476,12 @@ impl QueryState {
     ) -> Result<WorldView, QueryError> {
         self.read(|t| {
             t.check_epoch(epoch)?;
-            let world = t.world_at(at.unwrap_or_else(|| t.head()))?;
+            let at = at.unwrap_or_else(|| t.head());
+            if params.links == LinkDetail::None {
+                check_links(params)?;
+                return self.summary_at(t, at);
+            }
+            let world = t.world_at(at)?;
             Ok(WorldView {
                 epoch: t.epoch(),
                 ..world_view(&world, params)?

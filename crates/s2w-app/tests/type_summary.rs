@@ -31,12 +31,16 @@ mod summary {
             .block_on(f)
     }
 
-    fn app() -> Router {
+    fn state() -> QueryState {
         let mut t = Timeline::new(CAP);
         for (i, e) in events().into_iter().enumerate() {
             t.append(Timestamp::from_millis(i64::try_from(i).unwrap() * 1000), e);
         }
-        router(QueryState::new(t))
+        QueryState::new(t)
+    }
+
+    fn app() -> Router {
+        router(state())
     }
 
     const TYPE: ViewParams = ViewParams {
@@ -160,7 +164,10 @@ mod summary {
         assert_eq!(node(&summary, &b)["kind"], "hub");
         assert_eq!(full_a["hub_refs"], json!([{ "kind": "on", "hub": b }]));
         assert_eq!(summary_a["hub_refs"], json!([]));
-        assert_eq!(summary_a["members"], json!([a2[2..].parse::<u64>().unwrap()]));
+        assert_eq!(
+            summary_a["members"],
+            json!([a2[2..].parse::<u64>().unwrap()])
+        );
         assert_eq!(summary_a["keys"], json!(["a", "a2"]));
         assert_eq!(summary_a["in_degree"], 2);
         // Every non-hub type is counted: p1, p2 as user; p3 untyped.
@@ -294,6 +301,43 @@ mod summary {
                 let error = world_view(&head, &params).unwrap_err();
                 assert_eq!(error.json_body()["error"], "bad_parameter");
             }
+        });
+    }
+
+    #[test]
+    fn a_moved_head_gets_a_fresh_summary() {
+        run(async {
+            let state = state();
+            let app = router(state.clone());
+            let count = |body: &[u8]| {
+                let view: Value = serde_json::from_slice(body).unwrap();
+                view["nodes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|n| n["id"] == "type:zed")
+                    .map_or(0, |n| n["count"].as_u64().unwrap())
+            };
+            let (_, headers, body) = get_raw(&app, get(SUMMARY_URI, None)).await;
+            let tag = headers[header::ETAG].to_str().unwrap().to_owned();
+            assert_eq!(count(&body), 0);
+            // Served twice from one head: the same bytes (the second from the memo).
+            let (_, _, again) = get_raw(&app, get(SUMMARY_URI, None)).await;
+            assert_eq!(again, body);
+            state
+                .append(Timestamp::from_millis(99_000), observe("zed:1", "zed"))
+                .unwrap();
+            let (status, headers, body) = get_raw(&app, get(SUMMARY_URI, Some(&tag))).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_ne!(headers[header::ETAG], tag.as_str());
+            assert_eq!(count(&body), 1);
+            // An offset below the head is its own summary, not the memoised head's.
+            let (_, _, old) = get_raw(&app, get(&format!("{SUMMARY_URI}&at=1"), None)).await;
+            let head = fold(World::with_hub_cap(CAP), &events()[..1]);
+            assert_eq!(
+                serde_json::from_slice::<Value>(&old).unwrap()["nodes"],
+                serde_json::to_value(type_summary(&head)).unwrap()["nodes"]
+            );
         });
     }
 }

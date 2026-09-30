@@ -36,7 +36,7 @@ use super::QueryError;
 use super::epoch::Epoch;
 use super::http::{QueryState, WorldAnswer, etag_matches, resolve_offset, write_view};
 use super::stream;
-use super::view::{HeadView, ViewParams};
+use super::view::{HeadView, LinkDetail, ViewParams};
 
 /// The most requests queued for a generation at once; one more answers `503`. The same bound
 /// as the concurrent `/events` streams.
@@ -244,13 +244,22 @@ fn generate(state: &QueryState, group: Group) {
     if fresh.is_empty() {
         return;
     }
-    let world = match timeline.world_at(offset) {
-        Ok(world) => world,
-        Err(error) => return answer_all(fresh, &error),
-    };
-    let view = match HeadView::new(&world, &key.params, timeline.epoch()) {
-        Ok(view) => view,
-        Err(error) => return answer_all(fresh, &error),
+    let world;
+    let view = if key.params.links == LinkDetail::None {
+        // The type summary (s2w#296) comes from the memo when the offset has not moved.
+        match state.summary_at(&timeline, offset) {
+            Ok(view) => HeadView::from_view(view),
+            Err(error) => return answer_all(fresh, &error),
+        }
+    } else {
+        world = match timeline.world_at(offset) {
+            Ok(world) => world,
+            Err(error) => return answer_all(fresh, &error),
+        };
+        match HeadView::new(&world, &key.params, timeline.epoch()) {
+            Ok(view) => view,
+            Err(error) => return answer_all(fresh, &error),
+        }
     };
     let built = Instant::now();
     let (writer, bodies) = stream::fan_out(fresh.len());

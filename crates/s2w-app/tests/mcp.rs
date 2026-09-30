@@ -116,16 +116,6 @@ mod tests {
                 ),
                 (
                     "world_view",
-                    "/worlds/default/world?lod=type&links=none".to_owned(),
-                    json!({"world":"default","lod":"type","links":"none"}),
-                ),
-                (
-                    "world_view",
-                    "/worlds/default/world?at=14&lod=type&links=all".to_owned(),
-                    json!({"world":"default","at":14,"lod":"type","links":"all"}),
-                ),
-                (
-                    "world_view",
                     format!("/worlds/default/world?focus={id}&hops=2"),
                     json!({"world":"default","focus":id,"hops":2}),
                 ),
@@ -209,6 +199,32 @@ mod tests {
                 ),
             ] {
                 assert_http(&state, uri, &call(&server, tool, args), error).await;
+            }
+        });
+    }
+
+    /// The type summary (s2w#296): `links` has the route's default and values.
+    #[test]
+    fn world_view_links_match_http_bytes() {
+        run(async {
+            let state = golden();
+            let server = WorldMcp::new(state.clone());
+            for (uri, args) in [
+                (
+                    "/worlds/default/world?lod=type&links=none",
+                    json!({"world":"default","lod":"type","links":"none"}),
+                ),
+                (
+                    "/worlds/default/world?at=14&lod=type&links=none",
+                    json!({"world":"default","at":14,"lod":"type","links":"none"}),
+                ),
+                (
+                    "/worlds/default/world?at=14&lod=type&links=all",
+                    json!({"world":"default","at":14,"lod":"type","links":"all"}),
+                ),
+            ] {
+                let result = call(&server, "world_view", args);
+                assert_http(&state, uri, &result, None).await;
             }
         });
     }

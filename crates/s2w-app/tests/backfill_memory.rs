@@ -107,7 +107,7 @@ mod backfill {
     use s2w_app::discover::DISCOVER_WINDOW;
     use s2w_app::query::{
         DEFAULT_HISTORY_CAP, LinkDetail, Lod, Node, QueryState, ReadTimingsSnapshot, Timeline,
-        ViewParams, router,
+        ViewParams, router, type_summary,
     };
     use s2w_core::{World, fold};
     use s2w_discover::{Config, Discovery, discover};
@@ -337,6 +337,10 @@ mod backfill {
         );
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one measured sequence of reads whose peak windows must not interleave"
+    )]
     fn timeline(events: &[RawEvent], engine: &MappingEngine, queries: bool) {
         let before = reset_peak();
         let started = Instant::now();
@@ -402,84 +406,107 @@ mod backfill {
         }
     }
 
-    /// The type summary against the full type view at the head (s2w#296): each read
-    /// [`TYPE_READS`] times through the real router, its `build` and `write` taken from the
-    /// read-timings delta of that one read, then the two projections compared (same nodes and
-    /// counts, hubs' `hub_refs` aside).
-    fn type_reads(state: &QueryState, head: u64) {
-        let mut rows = Vec::new();
-        for (name, uri) in [
-            ("summary", "/worlds/default/world?lod=type&links=none"),
-            ("type", "/worlds/default/world?lod=type"),
-        ] {
-            let mut builds = Vec::new();
-            let mut writes = Vec::new();
-            let mut len = 0;
-            for _ in 0..TYPE_READS {
-                let before = state.read_timings().unwrap();
-                len = drain_world(state, uri);
-                let after = state.read_timings().unwrap();
-                assert_eq!(after.builds, before.builds + 1, "{uri}: one build per read");
-                builds.push(ms(after.build.total - before.build.total));
-                writes.push(ms(after.write.total - before.write.total));
-            }
-            builds.sort_by(f64::total_cmp);
-            writes.sort_by(f64::total_cmp);
-            let median = |v: &[f64]| v[v.len() / 2];
-            eprintln!(
-                "query /world {name}: build median {:.1} ms (min {:.1}, max {:.1}), write median \
-                 {:.1} ms, body {}",
-                median(&builds),
-                builds[0],
-                builds[builds.len() - 1],
-                median(&writes),
-                mib(len),
-            );
-            rows.push(serde_json::json!({
-                "view": name,
-                "reads": TYPE_READS,
-                "build_ms": builds,
-                "write_ms": writes,
-                "body_bytes": len,
-            }));
+    /// [`TYPE_READS`] reads of `uri`, each one's `build` and `write` from the read-timings delta
+    /// of that read alone, printed (first read, then the median of the rest) and returned in
+    /// read order as a `result` row. The summary's first read builds it; the rest are served
+    /// from its memo (s2w#296).
+    fn timed_reads(state: &QueryState, name: &str, uri: &str) -> serde_json::Value {
+        let mut builds = Vec::new();
+        let mut writes = Vec::new();
+        let mut len = 0;
+        for _ in 0..TYPE_READS {
+            let before = state.read_timings().unwrap();
+            len = drain_world(state, uri);
+            let after = state.read_timings().unwrap();
+            assert_eq!(after.builds, before.builds + 1, "{uri}: one build per read");
+            builds.push(ms(after.build.total - before.build.total));
+            writes.push(ms(after.write.total - before.write.total));
         }
-        let summary = state
-            .view_at(
-                Some(head),
-                None,
-                &ViewParams {
-                    lod: Lod::Type,
-                    links: LinkDetail::None,
-                    ..ViewParams::default()
-                },
-            )
-            .unwrap();
-        let mut full = state
-            .view_at(
-                Some(head),
-                None,
-                &ViewParams {
-                    lod: Lod::Type,
-                    ..ViewParams::default()
-                },
-            )
-            .unwrap();
+        let median = |v: &[f64]| {
+            let mut rest = v[1..].to_vec();
+            rest.sort_by(f64::total_cmp);
+            rest[rest.len() / 2]
+        };
+        eprintln!(
+            "query /world {name}: build first {:.1} ms, then median {:.1} ms; write first {:.1} \
+             ms, then median {:.1} ms; body {}",
+            builds[0],
+            median(&builds),
+            writes[0],
+            median(&writes),
+            mib(len),
+        );
+        serde_json::json!({
+            "view": name,
+            "reads": TYPE_READS,
+            "build_ms": builds,
+            "write_ms": writes,
+            "body_bytes": len,
+        })
+    }
+
+    /// The summary's own build at the head with no memo, [`TYPE_READS`] times, apart from any
+    /// request: the head's entity count and each build in milliseconds.
+    fn pure_summary_ms(state: &QueryState) -> (usize, Vec<f64>) {
+        state
+            .with_head(|world, _| {
+                let pure: Vec<f64> = (0..TYPE_READS)
+                    .map(|_| {
+                        let started = Instant::now();
+                        drop(type_summary(world));
+                        ms(started.elapsed())
+                    })
+                    .collect();
+                (world.entity_count(), pure)
+            })
+            .unwrap()
+    }
+
+    /// The type summary against the full type view at the head (s2w#296): each read
+    /// [`TYPE_READS`] times through the real router ([`timed_reads`]), the two projections
+    /// compared (same nodes and counts, hubs' `hub_refs` aside), and the summary's own build
+    /// timed with no memo ([`pure_summary_ms`]).
+    fn type_reads(state: &QueryState, head: u64) {
+        let rows = [
+            timed_reads(
+                state,
+                "summary",
+                "/worlds/default/world?lod=type&links=none",
+            ),
+            timed_reads(state, "type", "/worlds/default/world?lod=type"),
+        ];
+        let view = |links| {
+            let params = ViewParams {
+                lod: Lod::Type,
+                links,
+                ..ViewParams::default()
+            };
+            state.view_at(Some(head), None, &params).unwrap()
+        };
+        let (summary, mut full) = (view(LinkDetail::None), view(LinkDetail::All));
         for node in &mut full.nodes {
             if let Node::Hub { hub_refs, .. } = node {
                 hub_refs.clear();
             }
         }
-        assert_eq!(summary.nodes, full.nodes, "the summary's nodes are the type view's");
-        let (entities, hubs) = state
-            .with_head(|world, _| {
-                let hubs = summary
-                    .nodes
-                    .iter()
-                    .filter(|n| matches!(n, Node::Hub { .. }))
-                    .count();
-                (world.entity_count(), hubs)
-            })
-            .unwrap();
+        assert_eq!(
+            summary.nodes, full.nodes,
+            "the summary's nodes are the type view's"
+        );
+        let (entities, mut pure) = pure_summary_ms(state);
+        pure.sort_by(f64::total_cmp);
+        let hubs = summary
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, Node::Hub { .. }))
+            .count();
+        eprintln!(
+            "type_summary alone at {entities} entities, {hubs} hubs: median {:.1} ms (min {:.1}, \
+             max {:.1})",
+            pure[pure.len() / 2],
+            pure[0],
+            pure[pure.len() - 1],
+        );
         eprintln!(
             "result {}",
             serde_json::json!({
@@ -488,6 +515,7 @@ mod backfill {
                 "entities": entities,
                 "nodes": summary.nodes.len(),
                 "hubs": hubs,
+                "type_summary_ms": pure,
                 "reads": rows,
             })
         );
