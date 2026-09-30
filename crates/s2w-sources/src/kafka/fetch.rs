@@ -394,12 +394,9 @@ mod tests {
         use rskafka::client::partition::{Compression, UnknownTopicHandling};
         use tokio_stream::StreamExt;
 
-        use std::sync::Arc;
-
         use s2w_model::{ModelError, SourceId};
 
         use super::{KafkaConnection, KafkaStart};
-        use crate::watermark::{Watermark, Watermarks};
 
         let broker = std::env::var("S2W_KAFKA_BROKER")?;
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -442,18 +439,11 @@ mod tests {
             let starts = (0..3)
                 .map(|partition| (partition, KafkaStart::Timestamp(base + 2_000)))
                 .collect();
-            let marks: BTreeMap<i32, Arc<Watermark>> = (0..3)
-                .map(|partition| (partition, Arc::new(Watermark::unknown())))
-                .collect();
-            let watermarks = Watermarks::tracked(
-                marks
-                    .iter()
-                    .map(|(partition, mark)| {
-                        let source = SourceId::new(format!("k.p{partition}"))?;
-                        Ok((source, format!("p{partition}"), Arc::clone(mark)))
-                    })
-                    .collect::<Result<Vec<_>, ModelError>>()?,
-            );
+            // The adapter's own helper, so the test reads the watermarks the real path builds.
+            let sources = (0..3)
+                .map(|partition| Ok((partition, SourceId::new(format!("k.p{partition}"))?)))
+                .collect::<Result<BTreeMap<i32, SourceId>, ModelError>>()?;
+            let (marks, watermarks) = crate::kafka::lag::partition_watermarks(&sources);
             let mut source = connection.start(&starts, &marks).await?;
             assert_eq!(source.start_offsets(), [(0, 2), (1, 2), (2, 2)]);
             let mut seen = Vec::new();

@@ -1,5 +1,6 @@
 //! The source-lag segment of the progress line (s2w#168): how many records each source has
-//! that the app has not read yet, per partition.
+//! that the app has not pulled off the stream yet, per partition. Records already pulled but
+//! still waiting in the group-commit buffer count as read.
 //!
 //! A source whose protocol has no head position says so ("lag not reported"), and a partition
 //! whose position is not known yet prints `?`: an absent number is never shown as zero.
@@ -14,8 +15,8 @@ const SHOWN: usize = 8;
 /// Renders the lag segment, e.g. `lag p0 12, p1 0, p2 ?`.
 ///
 /// `None` (the source reports no watermark) renders `lag not reported`. Up to [`SHOWN`]
-/// partitions print in source order; past that, the [`SHOWN`] furthest behind print (unknown
-/// last, ties in source order), then `+N more`.
+/// partitions print in the adapter's order; past that, the [`SHOWN`] furthest behind print (unknown
+/// last, ties in the adapter's order), then `+N more`.
 pub(crate) fn render_lag(readings: Option<&[LagReading]>) -> String {
     let Some(readings) = readings else {
         return "lag not reported".to_owned();
@@ -25,10 +26,8 @@ pub(crate) fn render_lag(readings: Option<&[LagReading]>) -> String {
     }
     let mut shown: Vec<&LagReading> = readings.iter().collect();
     if shown.len() > SHOWN {
-        // Stable sort: equal lags keep source order. `None` sorts after every number.
-        shown.sort_by_key(|reading| {
-            std::cmp::Reverse(reading.behind.map(|behind| behind.saturating_add(1)))
-        });
+        // Stable sort: equal lags keep the adapter's order. `None` sorts after every number.
+        shown.sort_by_key(|reading| std::cmp::Reverse(reading.behind));
         shown.truncate(SHOWN);
     }
     let mut line = "lag".to_owned();
@@ -53,7 +52,7 @@ mod tests {
     use super::render_lag;
 
     fn reading(partition: usize, behind: Option<u64>) -> LagReading {
-        let name = format!("k.t.p{partition:02}");
+        let name = format!("k.t.p{partition}");
         let source = match SourceId::new(name.as_str()) {
             Ok(source) => source,
             Err(error) => panic!("{name:?} should be a valid source id: {error}"),

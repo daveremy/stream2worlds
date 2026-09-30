@@ -72,8 +72,8 @@ fn known(position: i64) -> Option<i64> {
 
 /// The lag signal of one started source: either "this source reports no watermark", or one
 /// tracked [`Watermark`] per source id. Cheap to clone; clones share the same watermarks.
-#[derive(Debug, Clone, Default)]
-pub struct Watermarks(Option<Arc<Vec<Tracked>>>);
+#[derive(Debug, Clone)]
+pub struct Watermarks(Option<Arc<[Tracked]>>);
 
 /// One tracked source: its id, the short label the status line shows, and its watermark.
 #[derive(Debug)]
@@ -90,9 +90,9 @@ impl Watermarks {
     }
 
     /// One watermark per source, each with the label the status line shows ("p0"). Readings
-    /// come back ordered by source id.
+    /// come back in the order given here: the adapter's own order (Kafka: partition number).
     pub(crate) fn tracked(entries: Vec<(SourceId, String, Arc<Watermark>)>) -> Self {
-        let mut tracked: Vec<Tracked> = entries
+        let tracked: Arc<[Tracked]> = entries
             .into_iter()
             .map(|(source, label, mark)| Tracked {
                 source,
@@ -100,12 +100,11 @@ impl Watermarks {
                 mark,
             })
             .collect();
-        tracked.sort_by(|left, right| left.source.cmp(&right.source));
-        Self(Some(Arc::new(tracked)))
+        Self(Some(tracked))
     }
 
     /// `None` when the source reports no watermark; otherwise one reading per tracked source,
-    /// ordered by source id.
+    /// in the adapter's order.
     #[must_use]
     pub fn read(&self) -> Option<Vec<LagReading>> {
         self.0.as_ref().map(|tracked| {
@@ -125,7 +124,8 @@ impl Watermarks {
     }
 }
 
-/// One source's lag at the moment it was read.
+/// One source's lag at the moment it was read. The status line uses `label` and `behind`;
+/// `source` and `high_watermark` are there for the per-source surfaces (s2w#284).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LagReading {
     /// The source this reading is for.
@@ -167,7 +167,6 @@ mod tests {
     #[test]
     fn not_reported_reads_as_none_never_as_zero() {
         assert_eq!(Watermarks::not_reported().read(), None);
-        assert_eq!(Watermarks::default().read(), None);
     }
 
     #[test]
@@ -199,12 +198,13 @@ mod tests {
     }
 
     #[test]
-    fn readings_come_back_in_source_order_and_clones_share_state() {
+    fn readings_keep_the_adapter_order_and_clones_share_state() {
         let first = Arc::new(Watermark::unknown());
         let second = Arc::new(Watermark::unknown());
+        // Text order would put p10 before p2; the adapter's order is kept.
         let watermarks = Watermarks::tracked(vec![
-            (source("k.p1"), "p1".into(), second.clone()),
-            (source("k.p0"), "p0".into(), first.clone()),
+            (source("k.p2"), "p2".into(), first.clone()),
+            (source("k.p10"), "p10".into(), second.clone()),
         ]);
         let clone = watermarks.clone();
         second.observe_high(4);
@@ -213,6 +213,6 @@ mod tests {
             .into_iter()
             .map(|reading| (reading.label, reading.behind))
             .collect();
-        assert_eq!(labels, vec![("p0".into(), None), ("p1".into(), Some(3))]);
+        assert_eq!(labels, vec![("p2".into(), None), ("p10".into(), Some(3))]);
     }
 }

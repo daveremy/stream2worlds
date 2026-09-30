@@ -10,16 +10,18 @@ use super::KafkaEvent;
 use crate::source::SourceError;
 use crate::watermark::{Watermark, Watermarks};
 
-/// Marks `event` delivered on its partition's watermark, then converts it with [`super::raw`].
+/// Converts `event` with [`super::raw`], then marks it delivered on its partition's watermark.
 pub(super) fn delivered(
     sources: &BTreeMap<i32, SourceId>,
     marks: &BTreeMap<i32, Arc<Watermark>>,
     event: KafkaEvent,
 ) -> Result<RawEvent, SourceError> {
-    if let Some(mark) = marks.get(&event.partition) {
-        mark.delivered(event.offset);
+    let (partition, offset) = (event.partition, event.offset);
+    let raw = super::raw(sources, event)?;
+    if let Some(mark) = marks.get(&partition) {
+        mark.delivered(offset);
     }
-    super::raw(sources, event)
+    Ok(raw)
 }
 
 /// One watermark per assigned partition, keyed by partition for the fetch tasks and the

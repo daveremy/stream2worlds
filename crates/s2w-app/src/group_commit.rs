@@ -360,18 +360,15 @@ async fn report_progress(
         let current = total.get();
         let rate = current.saturating_sub(previous) as f64 / elapsed;
         previous = current;
-        let segments = format!(
-            "{}{}",
-            progress.lag_segment(),
-            progress.storage_segment(now)
-        );
+        let lag = progress.lag_segment();
+        let storage = progress.storage_segment(now);
         match last_event_at.get() {
             Some(at) => eprintln!(
-                "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago{segments}",
+                "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago{lag}{storage}",
                 at.elapsed()
             ),
             None => eprintln!(
-                "s2w: {name}: {rate:.1} events/s, {current} total, no events yet{segments}"
+                "s2w: {name}: {rate:.1} events/s, {current} total, no events yet{lag}{storage}"
             ),
         }
     }
