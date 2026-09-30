@@ -223,6 +223,35 @@ falls back to the one before it.
   a `dashboard-manifest` proposal whose envelope does not decode or whose manifest is null,
   as it does for an undecodable `stream-mapping`. A reject is always allowed.
 
+### Labels and sentences (#302, 2026-09-30)
+
+This update adds what the viewer needs to name entities and to read events. A later
+re-proposal of the manifest carries all of it; a manifest filed before it still loads.
+
+- **Type rows.** Each `types[]` row may carry `noun` (one entity of the type), `label`
+  (`{"attr": name}` or `{"key": i}`) and `kind` (a closed set; the viewer maps it to an icon).
+  A label never reads a date-time path: the profiler marks those `"timestamp": true`.
+- **Sentences.** `events[]` holds `{source, when?, sentence}`. For one event the renderer takes
+  the source's entries whose `when` matches the payload, in manifest order, then its entries
+  with no `when`; the first that renders wins, and none gives `null`. A field shows a string
+  as it is and a number or bool as its JSON text; `delta` shows a signed integer difference;
+  `truncate` keeps 120 characters and adds `…`. An absent, null, array or object field, or a
+  non-integer `delta` operand, fails that entry.
+- **Fallback v2** (`dashboard-fallback/2`). A type's label is its attribute with the most
+  distinct values, the shorter mean string length breaking a tie, among attributes with at
+  least half as many distinct values as the type has entities; else its first key part when
+  that is mostly strings and not a date-time; else none, and the type is not primary. The
+  half-share rule came from the demo's mapping, where an editor's only attributes were its
+  edit kind and content model: without it every editor was labelled "edit". The noun is the
+  type label. Per source, one sentence for its busiest primary type: `"{0}: <type> {1}"`
+  over the event type and the first key when the event type is profiled, then `"<type> {0}"`.
+- **Surfaces.** `GET /worlds/{world}/sentences?last=N` (`last` required, 1 to 200) returns
+  `{rows}`, newest last, each `{position, source, sentence, entities}`; an entity carries
+  `type`, `key`, and `entity` when the head world holds the key. MCP `sentences` is byte-equal
+  and the ninth read-only MCP tool.
+- **System 2 prompt.** The prompt asks two more questions: a noun, label and kind per type
+  (never a timestamp path), and a sentence per event type.
+
 ## What it never does
 
 Render a manifest string as HTML; put provenance into the identity; resolve a manifest across
