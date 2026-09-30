@@ -85,4 +85,6 @@ inside that definition rather than debated separately every time it comes up.
   *2026-09-29: measured as H-lite (H-min without containment, `PROFILER_VERSION` 2; research
   [0009](../../research/0009-h-min-plain-wikipedia.md)). Held-out identity F1 0.284 and 0.293
   on two spans, entity recovery 0. The lower-bound reading stands; containment, the stage that
-  makes H-lite H-min, is #244.*
+  makes H-lite H-min, is #244.* *2026-09-30: containment measured (#244, `PROFILER_VERSION` 5,
+  research 0009 addendum): held-out identity F1 0.5334 on `reserved` (0.4447 under version 4),
+  entity recovery 0.125. Still below 0.60 recovery; the lower-bound reading stands.*
