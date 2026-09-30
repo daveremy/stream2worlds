@@ -501,8 +501,10 @@ async fn serve_live(
                     crate::status::Progress::named(name)
                         .with_watermarks(started.watermarks.clone()),
                     reporter,
-                    &started.sources,
-                    |source| Ok(shared.borrow().source_membership(source)?),
+                    group_commit::Membership {
+                        sources: &started.sources,
+                        check: |source: &SourceId| Ok(shared.borrow().source_membership(source)?),
+                    },
                 )
                 .await?;
                 if stopped_early {
