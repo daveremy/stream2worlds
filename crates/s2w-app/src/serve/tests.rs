@@ -339,6 +339,7 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
             stream: Box::pin(tokio_stream::wrappers::ReceiverStream::new(events_rx)),
             ends: Ending::AtEndOfInput,
             notes: Vec::new(),
+            watermarks: s2w_sources::watermark::Watermarks::not_reported(),
         };
         let (stop_tx, stop_rx) = oneshot::channel();
         let mut reporter = TestReporter::default();
@@ -1078,6 +1079,7 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
         stream: Box::pin(tokio_stream::wrappers::ReceiverStream::new(events_rx)),
         ends: Ending::AtEndOfInput,
         notes: Vec::new(),
+        watermarks: s2w_sources::watermark::Watermarks::not_reported(),
     };
     let (stop_tx, stop_rx) = oneshot::channel();
     let server = serve_live(

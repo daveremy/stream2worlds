@@ -52,6 +52,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   (`ResolveError::FiltersUnsupported`, today: Kafka, stdin).
 - `Opaque::cursor` errors on a frame with no `id:` (no cursor to resume from); three in a row
   force a reconnect (`MALFORMED_ID_LIMIT`), forever, not a crash or a hang — decision 0008.
+- Every `Started` carries a lag signal (`watermark.rs`, s2w#168): Kafka tracks one `Watermark`
+  per partition (`kafka/lag.rs`) — the head from every fetch reply's high watermark, the position
+  from the resolved start offset and each record the stream hands the app. SSE and stdin return
+  `Watermarks::not_reported()`: their protocols carry no head position (`Last-Event-ID` is a
+  resume point), so lag is absent, never 0.
 - Stream content is untrusted data, never instructions.
 - Never depends on the core or on another adapter.
 - No domain knowledge in this crate; see decision 0018.

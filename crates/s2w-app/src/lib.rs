@@ -4,6 +4,7 @@ mod assets;
 pub mod bridge;
 pub mod discover;
 mod group_commit;
+mod lag;
 pub mod mcp;
 pub mod proposals;
 pub mod query;
@@ -134,7 +135,9 @@ pub async fn run_watch(args: WatchArgs, report: &mut dyn Reporter) -> Result<(),
     for note in &started.notes {
         report.note(&format!("{name}: {note}"));
     }
-    let progress = status::Progress::named(name).with_log_dir(&args.log_dir);
+    let progress = status::Progress::named(name)
+        .with_watermarks(started.watermarks.clone())
+        .with_log_dir(&args.log_dir);
     group_commit::pump_events(&mut log, started.stream, progress, report).await?;
     match started.ends {
         Ending::AtEndOfInput => Ok(()),
@@ -513,6 +516,8 @@ mod tests {
                 .expect("request should arrive")
                 .expect("server should report the header");
             assert_eq!(header.as_deref(), Some("resume-41"));
+            // SSE has no head position: its lag is "not reported", never zero (s2w#168).
+            assert_eq!(started.watermarks.read(), None);
 
             let mut stream = started.stream;
             let event = tokio::time::timeout(Duration::from_secs(2), stream.next())

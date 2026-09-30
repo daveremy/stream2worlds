@@ -10,6 +10,8 @@ use std::pin::Pin;
 use s2w_model::{Cursor, ModelError, RawEvent, SourceId};
 use tokio_stream::Stream;
 
+use crate::watermark::Watermarks;
+
 /// The running stream a started source yields. Current-thread runtime, one consumer: no `Send`.
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<RawEvent, SourceError>>>>;
 
@@ -43,6 +45,9 @@ pub struct Started {
     pub ends: Ending,
     /// Lines for stderr about how the source started (fresh partitions, resume points).
     pub notes: Vec<String>,
+    /// How far behind the head of each source the stream is, or an explicit "not reported"
+    /// when the protocol has no head position (s2w#168).
+    pub watermarks: Watermarks,
 }
 
 impl std::fmt::Debug for Started {
@@ -51,6 +56,7 @@ impl std::fmt::Debug for Started {
             .debug_struct("Started")
             .field("ends", &self.ends)
             .field("notes", &self.notes)
+            .field("watermarks", &self.watermarks)
             .finish_non_exhaustive()
     }
 }
@@ -227,6 +233,7 @@ impl Started {
             stream: Box::pin(tokio_stream::empty()),
             ends: Ending::Never,
             notes: vec!["source removed; re-add with a cursor and restart to resume".into()],
+            watermarks: Watermarks::not_reported(),
         }
     }
 }

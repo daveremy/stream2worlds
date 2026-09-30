@@ -17,6 +17,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use super::envelope::envelope;
 use super::{KafkaEvent, KafkaSourceError, KafkaStart, KafkaTarget};
+use crate::watermark::Watermark;
 
 /// Records buffered between the fetch tasks and the consumer.
 const CHANNEL_CAPACITY: usize = 1024;
@@ -92,6 +93,7 @@ impl KafkaConnection {
     pub(crate) async fn start(
         self,
         starts: &BTreeMap<i32, KafkaStart>,
+        marks: &BTreeMap<i32, Arc<Watermark>>,
     ) -> Result<KafkaSource, KafkaSourceError> {
         let mut clients = Vec::with_capacity(self.partitions.len());
         let mut start_offsets = Vec::with_capacity(self.partitions.len());
@@ -108,15 +110,19 @@ impl KafkaConnection {
                     message: error.to_string(),
                 })?;
             let offset = resolve_start(&client, partition, start).await?;
+            let mark = marks
+                .get(&partition)
+                .map_or_else(|| Arc::new(Watermark::unknown()), Arc::clone);
+            mark.resume_at(offset);
             start_offsets.push((partition, offset));
-            clients.push((client, offset));
+            clients.push((client, offset, mark));
         }
         let (sender, receiver) = mpsc::channel(CHANNEL_CAPACITY);
         let tasks = clients
             .into_iter()
-            .map(|(client, offset)| {
+            .map(|(client, offset, mark)| {
                 let handle: JoinHandle<()> =
-                    tokio::spawn(fetch_loop(client, offset, sender.clone()));
+                    tokio::spawn(fetch_loop(client, offset, mark, sender.clone()));
                 handle.abort_handle()
             })
             .collect();
@@ -226,7 +232,8 @@ async fn resolve_start(
     }
 }
 
-/// Fetches one partition forever from `offset`, never skipping an offset.
+/// Fetches one partition forever from `offset`, never skipping an offset, and records each
+/// reply's high watermark in `mark`.
 ///
 /// Stops when the consumer is dropped or after sending a fatal error.
 #[expect(
@@ -236,6 +243,7 @@ async fn resolve_start(
 async fn fetch_loop(
     client: PartitionClient,
     mut offset: i64,
+    mark: Arc<Watermark>,
     sender: mpsc::Sender<Result<KafkaEvent, KafkaSourceError>>,
 ) {
     let partition = client.partition();
@@ -246,8 +254,11 @@ async fn fetch_loop(
             .fetch_records(offset, 1..MAX_FETCH_BYTES, MAX_WAIT_MS)
             .await
         {
-            Ok((records, _high_watermark)) => {
+            Ok((records, high_watermark)) => {
                 backoff.reset();
+                // Every reply carries the head, even an empty one after MAX_WAIT_MS, so an
+                // idle partition's lag drains to zero (s2w#168).
+                mark.observe_high(high_watermark);
                 for record in records {
                     // A compressed batch can start before the requested offset.
                     if record.offset < offset {
@@ -383,6 +394,8 @@ mod tests {
         use rskafka::client::partition::{Compression, UnknownTopicHandling};
         use tokio_stream::StreamExt;
 
+        use s2w_model::{ModelError, SourceId};
+
         use super::{KafkaConnection, KafkaStart};
 
         let broker = std::env::var("S2W_KAFKA_BROKER")?;
@@ -426,7 +439,12 @@ mod tests {
             let starts = (0..3)
                 .map(|partition| (partition, KafkaStart::Timestamp(base + 2_000)))
                 .collect();
-            let mut source = connection.start(&starts).await?;
+            // The adapter's own helper, so the test reads the watermarks the real path builds.
+            let sources = (0..3)
+                .map(|partition| Ok((partition, SourceId::new(format!("k.p{partition}"))?)))
+                .collect::<Result<BTreeMap<i32, SourceId>, ModelError>>()?;
+            let (marks, watermarks) = crate::kafka::lag::partition_watermarks(&sources);
+            let mut source = connection.start(&starts, &marks).await?;
             assert_eq!(source.start_offsets(), [(0, 2), (1, 2), (2, 2)]);
             let mut seen = Vec::new();
             while seen.len() < 9 {
@@ -441,6 +459,19 @@ mod tests {
                 .flat_map(|partition| (2..5).map(move |offset| (partition, offset)))
                 .collect();
             assert_eq!(seen, expected);
+            // Every record came from a reply that reported the head first (s2w#168). Nothing
+            // here marks records delivered (the adapter's stream does), so each partition is
+            // still behind by the three records past its start offset.
+            let heads: Vec<_> = watermarks
+                .read()
+                .ok_or("tracked watermarks read as not reported")?
+                .into_iter()
+                .map(|reading| (reading.label, reading.high_watermark, reading.behind))
+                .collect();
+            let expected_heads: Vec<_> = (0..3)
+                .map(|partition| (format!("p{partition}"), Some(5), Some(3)))
+                .collect();
+            assert_eq!(heads, expected_heads);
             drop(source);
 
             // Measured on Apache Kafka 4.1: ListOffsets answers -1 for a time after the last
@@ -458,13 +489,20 @@ mod tests {
                 (1, KafkaStart::After(3)),
                 (2, KafkaStart::Latest),
             ]);
-            let source = KafkaConnection::open(&target).await?.start(&starts).await?;
+            let source = KafkaConnection::open(&target)
+                .await?
+                .start(&starts, &BTreeMap::new())
+                .await?;
             assert_eq!(source.start_offsets(), [(0, 5), (1, 4), (2, 5)]);
             drop(source);
 
             // A stored cursor past the end is loud, never a silent restart.
             let starts = BTreeMap::from([(0, KafkaStart::After(10))]);
-            match KafkaConnection::open(&target).await?.start(&starts).await {
+            match KafkaConnection::open(&target)
+                .await?
+                .start(&starts, &BTreeMap::new())
+                .await
+            {
                 Err(KafkaSourceError::CursorAhead {
                     partition: 0,
                     next: 11,

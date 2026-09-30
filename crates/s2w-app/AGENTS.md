@@ -100,6 +100,10 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   disk is full. A figure measured on tmpfs or ramfs says
   `NOT A DISK NUMBER` and never prints days; a `statfs` failure, a non-Linux host and an
   overlay are all `Unknown`, never `Disk`. The `--json` reporter's output does not change.
+- `lag` (s2w#168) renders the started source's `Watermarks` on the same human progress line, for
+  `watch` and `serve`: `lag p0 12, p1 0`, `?` for a position not known yet, `lag not reported`
+  for a source with no watermark (never 0); past 8 partitions the furthest behind print, then
+  `+N more`. The `--json` reporter's output does not change.
 
 ## Scale measurements (s2w#32, s2w#174)
 

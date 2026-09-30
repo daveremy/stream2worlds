@@ -9,6 +9,7 @@
 
 mod envelope;
 mod fetch;
+mod lag;
 
 use std::collections::BTreeMap;
 
@@ -368,20 +369,15 @@ impl Source for KafkaAdapter {
                 return Ok(Started::removed(source));
             }
             let identities = sources.values().cloned().collect();
-            let running = connection.start(&starts).await.map_err(error)?;
-            let mut notes = Vec::new();
-            if !stored.is_empty() {
-                // A partition added since the last run has no cursor; it starts at its end.
-                for (partition, offset) in running.start_offsets() {
-                    if fresh.contains(partition) {
-                        notes.push(format!(
-                            "partition {partition} of {topic:?} has no stored cursor; starting at offset {offset}"
-                        ));
-                    }
-                }
-            }
+            let (marks, watermarks) = lag::partition_watermarks(&sources);
+            let running = connection.start(&starts, &marks).await.map_err(error)?;
+            let notes = if stored.is_empty() {
+                Vec::new()
+            } else {
+                fresh_partition_notes(&topic, &fresh, running.start_offsets())
+            };
             let stream = running.map(move |item| match item {
-                Ok(event) => raw(&sources, event),
+                Ok(event) => lag::delivered(&sources, &marks, event),
                 Err(error) => Err(seam_error(&target, error)),
             });
             Ok(Started {
@@ -389,9 +385,23 @@ impl Source for KafkaAdapter {
                 stream: Box::pin(stream),
                 ends: Ending::Never,
                 notes,
+                watermarks,
             })
         })
     }
+}
+
+/// A partition added since the last run has no cursor; it starts at its end. One note each.
+fn fresh_partition_notes(topic: &str, fresh: &[i32], start_offsets: &[(i32, i64)]) -> Vec<String> {
+    start_offsets
+        .iter()
+        .filter(|(partition, _)| fresh.contains(partition))
+        .map(|(partition, offset)| {
+            format!(
+                "partition {partition} of {topic:?} has no stored cursor; starting at offset {offset}"
+            )
+        })
+        .collect()
 }
 
 /// One Kafka record as a log event under its partition's source id.

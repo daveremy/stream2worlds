@@ -334,7 +334,8 @@ pub(crate) async fn pump_events_gated(
 
 /// Prints the source's throughput, running total and time since the last event roughly every
 /// [`PROGRESS_INTERVAL`], forever — the caller races it against the pump and drops it once the
-/// pump finishes. With a log directory it appends the storage figures (s2w#32). Human mode
+/// pump finishes. It appends the source's lag per partition (s2w#168) and, with a log
+/// directory, the storage figures (s2w#32). Human mode
 /// only; see [`Reporter::wants_ticker`].
 async fn report_progress(
     mut progress: Progress<'_>,
@@ -359,14 +360,15 @@ async fn report_progress(
         let current = total.get();
         let rate = current.saturating_sub(previous) as f64 / elapsed;
         previous = current;
-        let storage_segment = progress.storage_segment(now);
+        let lag = progress.lag_segment();
+        let storage = progress.storage_segment(now);
         match last_event_at.get() {
             Some(at) => eprintln!(
-                "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago{storage_segment}",
+                "s2w: {name}: {rate:.1} events/s, {current} total, last event {:.1?} ago{lag}{storage}",
                 at.elapsed()
             ),
             None => eprintln!(
-                "s2w: {name}: {rate:.1} events/s, {current} total, no events yet{storage_segment}"
+                "s2w: {name}: {rate:.1} events/s, {current} total, no events yet{lag}{storage}"
             ),
         }
     }

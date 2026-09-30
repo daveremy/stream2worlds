@@ -35,6 +35,7 @@ use frame::{FrameParser, RawFrame};
 pub(crate) use since_param::SinceQueryParam;
 
 use crate::source::{CursorLookup, Ending, Source, SourceError, StartFuture, Started};
+use crate::watermark::Watermarks;
 
 /// The `User-Agent` every SSE request sends.
 pub(crate) const USER_AGENT: &str =
@@ -142,6 +143,9 @@ impl Source for SseSource {
                 stream: Box::pin(stream),
                 ends: Ending::Never,
                 notes: vec![note],
+                // SSE carries no head position: `Last-Event-ID` is a resume point, not a
+                // watermark, so this source reports no lag rather than a made-up zero.
+                watermarks: Watermarks::not_reported(),
             })
         })
     }
