@@ -33,6 +33,13 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   runs the mapping, so stored verdicts and snapshots are keyed by it. Never change what it
   hashes without a decision record; the fixture mapping's identity is pinned, and so are a
   version-1 and a version-2 identity.
+- `DashboardManifest` format 1 (decision 0029) is a world's dashboard: domain, quintessential
+  projection, roles, per-type and per-event presentation. `validate(&ManifestContext)` is the
+  write path (accepted mappings plus the input profile's paths); `stale_entries` is the read
+  path, against the current mappings only. `identity()` hashes the format and the manifest's
+  canonical JSON (declaration order, `None` skipped) and is pinned for a full and a
+  domain-level-only manifest. Every string is untrusted model output: capped, and free of `<`
+  and `>`. The envelope around it lives in `s2w-app`.
 - FNV-1a 64 (`Fnv64`, `fnv1a64`, `fnv1a64_hex`) lives here once. Its values are persisted
   (source ids, log content hashes, snapshot checksums, fixture hashes): never change it.
 - No domain knowledge in this crate; see decision 0018.

@@ -35,7 +35,9 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
 - `proposals` (#185) is the one proposal read and decision-write service: MCP `decision_record`
   (the `agent` seat) and the `s2w proposals decide` CLI (the `human` seat, basis stored as
   `reviewer=<id>; <basis>`) both call `record_decision`. An unknown id or missing store never
-  creates the store; an accept on an undecodable `stream-mapping` envelope is refused.
+  creates the store; an accept on an undecodable `stream-mapping` envelope is refused, and so is
+  an accept on a `dashboard-manifest` row whose envelope does not decode or whose manifest is
+  null (decision 0029).
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
@@ -45,6 +47,11 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   claims, and serves a stored verdict instead of calling the engine (decision 0012); a verdict
   that does not match the log is an error, never a re-evaluation. The one other write is
   `publish_source_stats`, a read-only telemetry side channel that never touches the timeline.
+- `query::resolve_class` is decision 0023's resolution rule, once, generic over a proposal class
+  and the scope key its decoder returns. `routes::resolve` (per source) and the dashboard read
+  (`query::dashboard`, per world, decision 0029) both call it; never copy the rule. The
+  `stream-mapping` envelope lives in `query::stream_mapping` and `routes` re-exports it, so
+  `query` stays the bottom of the crate.
 - `routes` (decision 0023) turns accepted `stream-mapping` proposals into routes. `resolve` is
   pure; `load` opens the proposal store read-only. `serve` builds its registry from it before
   snapshot restore, because the feed fingerprint depends on the routes. The world manifest's

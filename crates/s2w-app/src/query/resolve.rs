@@ -53,6 +53,37 @@ fn later<'a>(slot: &mut Option<&'a StoredDecision>, decision: &'a StoredDecision
     }
 }
 
+/// Every `class` proposal `decode` accepts, in ascending `seq`; the refused ones apart, in
+/// proposal order.
+fn candidates<'a, K, T, F>(
+    class: &str,
+    decode: F,
+    proposals: &'a [StoredProposal],
+) -> (Vec<Candidate<'a, K, T>>, Vec<Excluded>)
+where
+    F: Fn(&[u8]) -> Result<(K, T, String), String>,
+{
+    let mut excluded = Vec::new();
+    let mut candidates = Vec::new();
+    for proposal in proposals.iter().filter(|p| p.class == class) {
+        match decode(&proposal.payload) {
+            Ok((key, value, identity)) => candidates.push(Candidate {
+                seq: proposal.seq,
+                id: &proposal.id,
+                key,
+                identity,
+                value,
+            }),
+            Err(reason) => excluded.push(Excluded {
+                proposal_id: proposal.id.clone(),
+                reason,
+            }),
+        }
+    }
+    candidates.sort_by_key(|c| c.seq);
+    (candidates, excluded)
+}
+
 /// The resolution rule (decision 0023). Pure: the same rows always resolve the same way.
 ///
 /// 1. Only `class` proposals count; one whose payload `decode` refuses is [`Excluded`].
@@ -79,24 +110,7 @@ where
     T: Clone,
     F: Fn(&[u8]) -> Result<(K, T, String), String>,
 {
-    let mut excluded = Vec::new();
-    let mut candidates = Vec::new();
-    for proposal in proposals.iter().filter(|p| p.class == class) {
-        match decode(&proposal.payload) {
-            Ok((key, value, identity)) => candidates.push(Candidate {
-                seq: proposal.seq,
-                id: &proposal.id,
-                key,
-                identity,
-                value,
-            }),
-            Err(reason) => excluded.push(Excluded {
-                proposal_id: proposal.id.clone(),
-                reason,
-            }),
-        }
-    }
-    candidates.sort_by_key(|c| c.seq);
+    let (candidates, excluded) = candidates(class, decode, proposals);
 
     // Latest human and policy decision per proposal id.
     let mut latest: BTreeMap<&str, [Option<&StoredDecision>; 2]> = BTreeMap::new();
