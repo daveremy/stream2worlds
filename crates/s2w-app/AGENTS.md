@@ -120,8 +120,14 @@ recorded stream.
   `tests/fixtures/recorded.mapping.json` (a symlink to check 11's `sample.mapping.json`).
   `tests/recorded_fixture.rs` checks its bytes and counts (58,335 claims; `ENTITIES` 11,462 and
   `RELATIONSHIPS` 19,512 after the fold) and that replay is deterministic. A re-recording
-  re-pins `FIXTURE_HASH`, those counts, and `[recorded]`, `[ir.recorded] events` and the
-  `[memory.recorded]` counts in `xtask/scale-baseline.toml` in the same PR.
+  re-pins `FIXTURE_HASH`, those counts, the linked-mapping counts in
+  `tests/support/recorded_links.rs`, and `[recorded]`, `[ir.recorded] events`, `[parse] events`
+  and the `[memory.recorded]` counts in `xtask/scale-baseline.toml` in the same PR.
+- `tests/support/recorded_links.rs` (shared by `#[path]` next to `recorded.rs`) loads
+  `tests/fixtures/recorded-links.mapping.json` (a symlink to `s2w-system1/testdata/sample-links.mapping.json`,
+  the engine's own link-merge fixture) and pins what it makes of the recorded fixture: 81,669
+  claims, 11,667 link merges, 0 abstentions. `tests/recorded_fixture.rs` checks the pins on every
+  `cargo test`; the parse benchmark's teardown asserts the same ones.
 - `benches/scale_ir.rs`: gungraun library benchmark `fold_ir_per_event` (total instructions for
   folding `IR_EVENTS` events; setup not counted). Needs Valgrind and `gungraun-runner` at the
   same version as the `gungraun` pin. The summary lands in
@@ -129,7 +135,13 @@ recorded stream.
   benchmark, `fold_ir_per_event_recorded` (id `fixture`), folds every claim of the recorded
   fixture in emission order (loading and mapping not counted) and asserts the pinned entities
   and relationships in teardown; its summary is `scale/fold_ir_per_event_recorded.fixture/summary.json`
-  under the same directory. Its Ir is divided by raw events, not claims.
+  under the same directory. Its Ir is divided by raw events, not claims. The third,
+  `parse_ir_per_event` (id `fixture`, s2w#166), measures System 1's parse: one
+  `MappingEngine::evaluate` per raw event of the recorded fixture with the linked mapping
+  (loading the fixture and building the engine not counted), asserting the pinned claim, merge
+  and abstention counts in teardown; summary `scale/parse_ir_per_event.fixture/summary.json`. Its
+  body is a plain loop, never a closure: gungraun toggles collection on entering any symbol
+  under the benchmark function's name, so a closure's callees go uncounted.
 - `tests/scale_mem.rs`: `#[ignore]`d; owns a dhat global allocator; each test prints one JSON
   line with bytes per entity (gated) and bytes per relationship (reported):
   `bytes_per_entity_and_relationship` on the generator,

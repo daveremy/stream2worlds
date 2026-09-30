@@ -44,8 +44,9 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.
   - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer; its `git` and `trailer` helpers are shared with `scale.rs`.
-- `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64 and `[ir.recorded] events`), the pure `[ir]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
+- `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64, `[ir.recorded] events` and `[parse] events`), the pure `[ir]`/`[parse]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
   - `scale/supply.rs`: the two event supplies each scale number is measured on, the seeded generator (`[ir]`, `[memory]`) and the recorded fixture (`[ir.recorded]`, `[memory.recorded]`), gated side by side (s2w#174).
+  - `scale/ir_bench.rs`: the three gated instruction counts (fold on each supply, and System 1's parse of the recorded fixture, s2w#166), each with its table, key and gungraun summary path.
 - `h_measure.rs`: `cargo xtask h-measure selftest | freeze | score` (s2w#56, contract B3). The selftest runs the mapping
   executor over `crates/s2w-system1/testdata/raw-sample.jsonl` with `sample.mapping.json` and
   checks it against `MappingEngine` (every predicted cluster is an entity the engine proposes
@@ -142,17 +143,17 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     globs to the defining module. Extern crates (Cargo metadata), prelude names, primitives,
     generic parameters, `Self`, leading `::` and extern-crate globs are not this crate's; any
     other multi-segment path that does not resolve is a finding.
-- `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory after checking the recorded fixture's pin, the `[ir]` and `[ir.recorded]` judgments, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` baseline belongs to that job's image.
+- `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory after checking the recorded fixture's pin, the `[ir]`, `[ir.recorded]` and `[parse]` judgments, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` and `[parse]` baselines belong to that job's image.
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual
 counts, and also rewrites `[memory]` in `xtask/scale-baseline.toml` down to the measurement;
-it never raises anything and never touches `[ir]`. Each ratchet refuses to tighten over its own findings only, and the refusal carries those findings' severity: report-only module-size findings leave `module-size.toml` untouched with a `[report-only]` line while `[memory]` still tightens and the run exits 0 (s2w#192). The asymmetry is deliberate: `[memory]` is
+it never raises anything and never touches `[ir]` or `[parse]`. Each ratchet refuses to tighten over its own findings only, and the refusal carries those findings' severity: report-only module-size findings leave `module-size.toml` untouched with a `[report-only]` line while `[memory]` still tightens and the run exits 0 (s2w#192). The asymmetry is deliberate: `[memory]` is
 measured by `cargo xtask check` on any machine, so tightening it is automatic, while `[ir]` is
-owned by the CI image, so an `[ir]` improvement past tolerance stays a printed hint to lower
-`fold_ir_per_event` by hand from the CI job's number. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
+owned by the CI image, so an `[ir]` or `[parse]` improvement past tolerance stays a printed hint to lower
+`fold_ir_per_event` or `parse_ir_per_event` by hand from the CI job's number. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
 dep-info, build failure) are report-only until
 `module-size.toml` enables enforcement; baseline growth always blocks without an authorized
 `Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`; the same trailer rule covers
-raising `fold_ir_per_event`, `bytes_per_entity`, `target_bytes_per_entity`,
+raising `fold_ir_per_event`, `parse_ir_per_event`, any events or entities size, `bytes_per_entity`, `target_bytes_per_entity`,
 `budget_bytes_per_entity` or `tolerance_percent` in `xtask/scale-baseline.toml` (a file absent on `origin/main` is all growth). CI needs full git history.
 - No domain knowledge in this crate; see decision 0018.

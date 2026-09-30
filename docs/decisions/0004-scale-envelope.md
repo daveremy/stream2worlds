@@ -110,3 +110,14 @@ SSE and stdin state that they report none. `watch`'s and `serve`'s human status 
 `lag p0 12, p1 0` (a `?` until a position is known; `lag not reported` for SSE and stdin, never
 0). The `sources` route, MCP and the view gain it in s2w#284. The "per-partition lag are not
 measured yet" sentence above predates this.
+
+**Amendment 2026-09-29 (s2w#166): parse cost is measured.** `[parse] parse_ir_per_event` in
+`xtask/scale-baseline.toml`, gated at the same 5% by `cargo xtask scale`: every raw event of the
+recorded fixture through System 1's `MappingEngine` with the committed linked mapping (the fold
+supply's mapping plus a second site entity and a link merging it into the first, so link merges
+are inside the measured region), divided by the 11,667 raw events. First figure 215,248 Ir per raw
+event, about 14 times the recorded fold's 15,285. `serde_json` parsing inside `evaluate` (the
+~2.9 KB envelope, then its decoded `data`) is about 92% of that in the Callgrind profile.
+`JsonClaimsEngine` is not measured: it is the bare-claim engine for the planned stdin bridge
+(#10), not a raw-stream parser, and no `s2w-app` path runs it yet. Fork cost (#167) is still not
+measured.

@@ -1,7 +1,7 @@
 //! The scale baseline (`xtask/scale-baseline.toml`) and its judges (s2w#32, decision 0004).
 //!
 //! The judges are pure; [`read`], [`growth`] (which reads `origin/main` through `git`) and
-//! the runners do I/O. The runners live in `scale_run.rs` (`cargo xtask scale`, fold instructions per event under
+//! the runners do I/O. The runners live in `scale_run.rs` (`cargo xtask scale`, fold and parse instructions per event under
 //! Valgrind) and `scale_mem_check.rs` (the `check` hook, heap bytes per entity). A measurement
 //! that cannot be read is a failure, never a pass.
 use std::path::Path;
@@ -11,7 +11,9 @@ use serde::de::DeserializeOwned;
 
 use crate::module_size::{git, trailer};
 
+mod ir_bench;
 mod supply;
+pub(super) use ir_bench::IrBench;
 pub(super) use supply::Supply;
 
 /// The baseline file, relative to the workspace root.
@@ -28,7 +30,17 @@ pub(super) struct Baseline {
     pub(super) set_by: String,
     pub(super) recorded: RecordedFixture,
     pub(super) ir: IrBaseline,
+    pub(super) parse: ParseBaseline,
     pub(super) memory: MemoryBaseline,
+}
+
+/// `[parse]`: System 1 parse instructions per raw event of the recorded fixture (s2w#166), same
+/// CI image, rustc and profile as `[ir]`.
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ParseBaseline {
+    pub(super) parse_ir_per_event: u64,
+    pub(super) events: u64,
 }
 
 /// `[recorded]`: the pin on the recorded fixture's bytes (FNV-1a 64, as `s2w_model::Fnv64`
@@ -104,6 +116,7 @@ pub(super) fn parse(text: &str) -> Result<Baseline, String> {
         b.ir.events,
         b.memory.entities,
         b.ir.recorded.events,
+        b.parse.events,
         b.memory.recorded.entities,
         b.memory.recorded.relationships,
     ];
@@ -157,7 +170,8 @@ fn percent(measured: f64, base: f64) -> f64 {
 }
 
 /// Checks the recorded fixture's bytes against `[recorded]` and counts its events (frames with
-/// both `id:` and `data:`, by the live SSE framing) against `[ir.recorded] events`. A changed
+/// both `id:` and `data:`, by the live SSE framing) against `[ir.recorded] events` and
+/// `[parse] events`, the two divisors over this fixture. A changed
 /// recording never gets measured: it is human-owned, like a golden file.
 pub(super) fn judge_fixture(b: &Baseline, bytes: &[u8]) -> Result<(), String> {
     let actual = s2w_model::Fnv64::new().write(bytes).finish();
@@ -170,30 +184,35 @@ pub(super) fn judge_fixture(b: &Baseline, bytes: &[u8]) -> Result<(), String> {
     let events = s2w_sources::replay_frames(bytes)
         .map_err(|e| format!("recorded fixture: UNKNOWN, {FIXTURE}: {e}"))?
         .len() as u64;
-    if events != b.ir.recorded.events {
-        return Err(format!(
-            "recorded fixture: {FIXTURE} holds {events} events but [ir.recorded] events = {}; the framing changed, so fix it or re-measure and update {BASELINE}",
-            b.ir.recorded.events
-        ));
+    for (table, pinned) in [
+        ("[ir.recorded]", b.ir.recorded.events),
+        ("[parse]", b.parse.events),
+    ] {
+        if events != pinned {
+            return Err(format!(
+                "recorded fixture: {FIXTURE} holds {events} events but {table} events = {pinned}; the framing changed, so fix it or re-measure and update {BASELINE}"
+            ));
+        }
     }
     Ok(())
 }
 
-/// Judges one supply's total fold instructions against its `[ir]` table. `Ok` is the report
-/// line.
-pub(super) fn judge_ir(b: &Baseline, supply: Supply, total_ir: u64) -> Result<String, String> {
-    let (name, key) = (supply.name("fold Ir"), supply.ir());
+/// Judges one benchmark's total instructions against its table (`[ir]`, `[ir.recorded]` or
+/// `[parse]`). `Ok` is the report line.
+pub(super) fn judge_ir(b: &Baseline, bench: IrBench, total_ir: u64) -> Result<String, String> {
+    let name = bench.name();
+    let (table, key) = (bench.table(), bench.key());
     if total_ir == 0 {
         return Err(format!(
             "{name}: UNKNOWN (the benchmark reported 0 instructions); fix the bench run, an unknown never passes"
         ));
     }
-    let (base, events) = b.ir_gate(supply);
+    let (base, events) = b.ir_gate(bench);
     let per_event = total_ir as f64 / events as f64;
     let set_to = per_event.ceil();
     if base == 0 {
         return Err(format!(
-            "{name}: baseline unset: measured {set_to} Ir/event ({total_ir} Ir over {events} events); set {key} fold_ir_per_event = {set_to} and [ir] rustc = the `rustc -V` line in {BASELINE} from the CI job 'scale' (image {}), with a Baseline-growth: s2w#<N> trailer",
+            "{name}: baseline unset: measured {set_to} Ir/event ({total_ir} Ir over {events} events); set {table} {key} = {set_to} and [ir] rustc = the `rustc -V` line in {BASELINE} from the CI job 'scale' (image {}), with a Baseline-growth: s2w#<N> trailer",
             b.ir.ci_image
         ));
     }
@@ -202,17 +221,18 @@ pub(super) fn judge_ir(b: &Baseline, supply: Supply, total_ir: u64) -> Result<St
     let tol = b.tolerance_percent as f64;
     if change > tol {
         return Err(format!(
-            "{name} regressed {change:+.1}%: measured {per_event:.0} Ir/event vs baseline {base} (tolerance {tol}%); make the fold cheaper, or if the cost is intended raise {key} fold_ir_per_event to {set_to} in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer"
+            "{name} regressed {change:+.1}%: measured {per_event:.0} Ir/event vs baseline {base} (tolerance {tol}%); {}, or if the cost is intended raise {table} {key} to {set_to} in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer",
+            bench.remedy()
         ));
     }
-    // Unlike [memory], nothing lowers [ir] automatically: it belongs to the CI image, so a local
+    // Unlike [memory], nothing lowers [ir] or [parse] automatically: each belongs to the CI image, so a local
     // improvement is only a hint.
     let mut line = format!(
         "{name}: {per_event:.0} Ir/event vs baseline {base} ({change:+.1}%, tolerance {tol}%)"
     );
     if change < -tol {
         line.push_str(&format!(
-            "; improved past tolerance, lower {key} fold_ir_per_event to {set_to} to lock it in"
+            "; improved past tolerance, lower {table} {key} to {set_to} to lock it in"
         ));
     }
     Ok(line)
@@ -302,8 +322,8 @@ fn judge_memory_baseline(
     }
 }
 
-/// Guarded keys that are higher than on the base (or new, when there is no base). The two
-/// measurement sizes count too: raising either lowers the measured per-unit figure.
+/// Guarded keys that are higher than on the base (or new, when there is no base). The events
+/// and entities measurement sizes count too: raising one lowers the measured per-unit figure.
 pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'static str> {
     let keys = |b: &Baseline| {
         [
@@ -312,6 +332,7 @@ pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'s
                 "[ir.recorded] fold_ir_per_event",
                 b.ir.recorded.fold_ir_per_event,
             ),
+            ("[parse] parse_ir_per_event", b.parse.parse_ir_per_event),
             ("[memory] bytes_per_entity", b.memory.bytes_per_entity),
             (
                 "[memory.recorded] bytes_per_entity",
@@ -331,6 +352,7 @@ pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'s
             ("[ir] events", b.ir.events),
             ("[memory] entities", b.memory.entities),
             ("[ir.recorded] events", b.ir.recorded.events),
+            ("[parse] events", b.parse.events),
             ("[memory.recorded] entities", b.memory.recorded.entities),
         ]
     };

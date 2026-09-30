@@ -1,6 +1,6 @@
 use super::*;
 
-const TEXT: &str = "# header\ntolerance_percent = 5\nset_by = \"s2w#32\"\n\n[recorded]\nfixture_fnv1a64 = 0x10\n\n[ir]\nfold_ir_per_event = 10000\nci_image = \"ubuntu-24.04\"\nevents = 100000\nrustc = \"rustc 1.98.1\"\nprofile = \"bench\"\n\n[ir.recorded]\nfold_ir_per_event = 20000\nevents = 2\n\n[memory]\nbytes_per_entity = 830 # measured\ntarget_bytes_per_entity = 300\nbudget_bytes_per_entity = 900\nbytes_per_relationship_reported = 234\nentities = 100000\n\n[memory.recorded]\nbytes_per_entity = 400 # recorded\nbytes_per_relationship_reported = 500\nentities = 3\nrelationships = 4\n";
+const TEXT: &str = "# header\ntolerance_percent = 5\nset_by = \"s2w#32\"\n\n[recorded]\nfixture_fnv1a64 = 0x10\n\n[ir]\nfold_ir_per_event = 10000\nci_image = \"ubuntu-24.04\"\nevents = 100000\nrustc = \"rustc 1.98.1\"\nprofile = \"bench\"\n\n[ir.recorded]\nfold_ir_per_event = 20000\nevents = 2\n\n[parse]\nparse_ir_per_event = 30000\nevents = 2\n\n[memory]\nbytes_per_entity = 830 # measured\ntarget_bytes_per_entity = 300\nbudget_bytes_per_entity = 900\nbytes_per_relationship_reported = 234\nentities = 100000\n\n[memory.recorded]\nbytes_per_entity = 400 # recorded\nbytes_per_relationship_reported = 500\nentities = 3\nrelationships = 4\n";
 
 /// Two complete events and a comment: what [`judge_fixture`] counts.
 const FIXTURE_BYTES: &[u8] = b": header\nid: 1\ndata: {}\n\nid: 2\ndata: {}\n\n";
@@ -46,13 +46,13 @@ fn parse_requires_every_field_and_refuses_unknown_ones() {
 #[test]
 fn ir_judge_passes_within_tolerance_and_fails_above_it() {
     let b = baseline();
-    assert!(judge_ir(&b, Supply::Synthetic, 1_040_000_000).is_ok());
-    let err = judge_ir(&b, Supply::Synthetic, 1_100_000_000).unwrap_err();
+    assert!(judge_ir(&b, IrBench::Fold(Supply::Synthetic), 1_040_000_000).is_ok());
+    let err = judge_ir(&b, IrBench::Fold(Supply::Synthetic), 1_100_000_000).unwrap_err();
     assert!(
         err.contains("+10.0%") && err.contains("Baseline-growth"),
         "{err}"
     );
-    let improved = judge_ir(&b, Supply::Synthetic, 800_000_000).unwrap();
+    let improved = judge_ir(&b, IrBench::Fold(Supply::Synthetic), 800_000_000).unwrap();
     assert!(
         improved.contains("lower [ir] fold_ir_per_event to 8000"),
         "{improved}"
@@ -63,12 +63,12 @@ fn ir_judge_passes_within_tolerance_and_fails_above_it() {
 fn ir_judge_refuses_unknown_and_unset() {
     let mut b = baseline();
     assert!(
-        judge_ir(&b, Supply::Synthetic, 0)
+        judge_ir(&b, IrBench::Fold(Supply::Synthetic), 0)
             .unwrap_err()
             .contains("UNKNOWN")
     );
     b.ir.fold_ir_per_event = 0;
-    let err = judge_ir(&b, Supply::Synthetic, 885_928_832).unwrap_err();
+    let err = judge_ir(&b, IrBench::Fold(Supply::Synthetic), 885_928_832).unwrap_err();
     assert!(
         err.contains("baseline unset: measured 8860 Ir/event"),
         "{err}"
@@ -119,7 +119,7 @@ fn summary_ir_reads_the_callgrind_total() {
 fn growth_counts_raised_and_new_values() {
     let b = baseline();
     assert_eq!(grown_keys(Some(&b), &b), Vec::<&str>::new());
-    assert_eq!(grown_keys(None, &b).len(), 11);
+    assert_eq!(grown_keys(None, &b).len(), 13);
     let mut raised = b.clone();
     raised.memory.budget_bytes_per_entity = 1000;
     raised.tolerance_percent = 6;
@@ -202,18 +202,18 @@ fn the_fixture_pin_refuses_changed_bytes_and_a_changed_count() {
 #[test]
 fn the_recorded_supply_is_judged_against_its_own_tables() {
     let mut b = baseline();
-    let line = judge_ir(&b, Supply::Recorded, 40_000).unwrap();
+    let line = judge_ir(&b, IrBench::Fold(Supply::Recorded), 40_000).unwrap();
     assert!(
         line.starts_with("fold Ir (recorded): 20000 Ir/event"),
         "{line}"
     );
-    let err = judge_ir(&b, Supply::Recorded, 44_000).unwrap_err();
+    let err = judge_ir(&b, IrBench::Fold(Supply::Recorded), 44_000).unwrap_err();
     assert!(
         err.contains("raise [ir.recorded] fold_ir_per_event"),
         "{err}"
     );
     b.ir.recorded.fold_ir_per_event = 0;
-    let unset = judge_ir(&b, Supply::Recorded, 40_000).unwrap_err();
+    let unset = judge_ir(&b, IrBench::Fold(Supply::Recorded), 40_000).unwrap_err();
     assert!(
         unset.contains("set [ir.recorded] fold_ir_per_event = 20000"),
         "{unset}"
@@ -264,4 +264,66 @@ fn recorded_keys_count_as_growth_and_tighten_separately() {
         (350, 830)
     );
     assert!(lowered.contains("bytes_per_entity = 350 # recorded"));
+}
+
+#[test]
+fn parse_is_judged_against_its_own_table() {
+    let mut b = baseline();
+    let parse = IrBench::Parse;
+    let line = judge_ir(&b, parse, 60_000).unwrap();
+    assert!(
+        line.starts_with("parse Ir (recorded): 30000 Ir/event vs baseline 30000"),
+        "{line}"
+    );
+    let err = judge_ir(&b, parse, 66_000).unwrap_err();
+    assert!(
+        err.contains("+10.0%")
+            && err.contains("make the engine's evaluate cheaper")
+            && err.contains("raise [parse] parse_ir_per_event to 33000"),
+        "{err}"
+    );
+    let improved = judge_ir(&b, parse, 50_000).unwrap();
+    assert!(
+        improved.contains("lower [parse] parse_ir_per_event to 25000"),
+        "{improved}"
+    );
+    assert!(judge_ir(&b, parse, 0).unwrap_err().contains("UNKNOWN"));
+    b.parse.parse_ir_per_event = 0;
+    let unset = judge_ir(&b, parse, 60_000).unwrap_err();
+    assert!(
+        unset.contains("set [parse] parse_ir_per_event = 30000"),
+        "{unset}"
+    );
+    // The fold's numbers are untouched by the parse table.
+    assert!(judge_ir(&b, IrBench::Fold(Supply::Recorded), 40_000).is_ok());
+}
+
+#[test]
+fn the_parse_table_is_required_and_counts_the_fixture() {
+    let missing = TEXT.replace("[parse]\nparse_ir_per_event = 30000\nevents = 2\n\n", "");
+    assert!(parse(&missing).unwrap_err().contains("parse"));
+    assert!(parse(&TEXT.replace("events = 2\n\n[memory]", "events = 0\n\n[memory]")).is_err());
+    let mut b = baseline();
+    b.recorded.fixture_fnv1a64 = s2w_model::Fnv64::new().write(FIXTURE_BYTES).finish();
+    b.parse.events = 3;
+    let count = judge_fixture(&b, FIXTURE_BYTES).unwrap_err();
+    assert!(
+        count.contains("holds 2 events but [parse] events = 3"),
+        "{count}"
+    );
+}
+
+#[test]
+fn parse_keys_count_as_growth() {
+    let b = baseline();
+    let mut raised = b.clone();
+    raised.parse.parse_ir_per_event += 1;
+    raised.parse.events += 1;
+    assert_eq!(
+        grown_keys(Some(&b), &raised),
+        ["[parse] parse_ir_per_event", "[parse] events"]
+    );
+    let mut lowered = b.clone();
+    lowered.parse.parse_ir_per_event -= 1;
+    assert!(grown_keys(Some(&b), &lowered).is_empty());
 }
