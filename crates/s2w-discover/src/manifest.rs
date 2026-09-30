@@ -87,7 +87,9 @@ struct TypeEvidence<'a> {
     count: u64,
     /// Whether some rule's first key part is mostly strings and not a date-time.
     string_key: bool,
-    /// Candidate label attributes: name, then the best statistics seen under that name.
+    /// Candidate label attributes: name, then the best statistics seen under that name. Like
+    /// `count`, a merged maximum: an attribute's statistics may come from another rule with the
+    /// same label than the one whose key set `count`.
     attrs: BTreeMap<&'a str, &'a PathStats>,
 }
 
@@ -211,10 +213,7 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
 /// primary when it has one. Its noun is its type label.
 fn type_row(label: &str, evidence: &TypeEvidence) -> TypeRow {
     // An attribute with fewer distinct values than half the type's entities names a category
-    // (an edit kind, a content model), not an entity. With no profiled key the share cannot be
-    // judged, so no attribute qualifies. Below `MIN_LABEL_DISTINCT` values the share is noise.
-    // The count is the largest over the label's rules and an attribute's statistics may come
-    // from another rule with the same label; both are merged maxima.
+    // (an edit kind, a content model), not an entity.
     let naming: BTreeMap<_, _> = evidence
         .attrs
         .iter()

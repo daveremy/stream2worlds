@@ -1375,32 +1375,13 @@ fn the_fallback_never_labels_a_type_by_a_category() {
         })
         .collect();
     let mut input = manifest_input(&events);
-    let source = &mut input.sources[0];
-    source.mapping.entities.push(s2w_model::EntityRule {
-        id: "who".to_owned(),
-        type_label: "who".to_owned(),
-        key: vec![path(&["who"])],
-        attrs: vec![s2w_model::AttrRule {
-            name: "kind".to_owned(),
-            path: path(&["kind"]),
-        }],
-    });
-    source.mapping_identity = source.mapping.identity().expect("valid mapping");
-    assert!(
-        source.paths.iter().any(|p| p.path == path(&["kind"])),
-        "vacuous: `kind` is not profiled"
-    );
+    add_rule(&mut input, "who", "who", "kind");
+    stats_of(&input, "kind");
     let m = fallback_manifest(&input);
     assert_eq!(m.validate(&input.context()), Ok(()));
-    let row = m
-        .types
-        .iter()
-        .find(|r| r.type_label == "who")
-        .expect("a `who` row");
     assert_eq!(
-        row.label,
-        Some(Label::Key(s2w_model::KeyLabel { key: 0 })),
-        "{row:?}"
+        row_label(&m, "who"),
+        Some(Label::Key(s2w_model::KeyLabel { key: 0 }))
     );
 }
 
@@ -1428,12 +1409,12 @@ fn row_label(m: &s2w_model::DashboardManifest, label: &str) -> Option<s2w_model:
         .clone()
 }
 
-fn stats_of<'a>(input: &'a s2w_model::ManifestInput, key: &str) -> &'a s2w_model::PathStats {
+fn stats_of<'a>(input: &'a s2w_model::ManifestInput, field: &str) -> &'a s2w_model::PathStats {
     input.sources[0]
         .paths
         .iter()
-        .find(|p| p.path == path(&[key]))
-        .unwrap_or_else(|| panic!("vacuous: `{key}` is not profiled"))
+        .find(|p| p.path == path(&[field]))
+        .unwrap_or_else(|| panic!("vacuous: `{field}` is not profiled"))
 }
 
 #[test]
