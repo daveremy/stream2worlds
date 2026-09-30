@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use s2w_discover::{Discovery, PROFILER_VERSION};
+use s2w_discover::{Discovery, PROFILER_MODEL, PROFILER_VERSION};
 use s2w_log::{
     Actor, Decider, LogError, LogPosition, LogReader, NewDecision, NewProposal, Outcome,
     PROPOSAL_DATABASE_FILE, ProposalStore, ReadOnlySqliteProposalStore, SqliteEventLog,
@@ -25,9 +25,6 @@ use crate::routes::{self, ENVELOPE_FORMAT, MappingEnvelope, Resolution, STREAM_M
 
 /// Events profiled per source: the first this many of the source, by log position.
 pub const DISCOVER_WINDOW: usize = 10_000;
-
-/// The model name on the producer's proposals (decision 0022's heuristic profiler).
-pub const PROFILER_MODEL: &str = "h-lite";
 
 /// The policy that accepts the producer's proposals, as written in each decision's basis.
 pub const POLICY: &str = "learned-mapping-auto-apply/1";

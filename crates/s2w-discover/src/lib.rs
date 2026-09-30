@@ -21,8 +21,13 @@ use s2w_model::{FieldPath, Segment, StreamMapping};
 pub use contain::Containment;
 pub use roles::Role;
 
-/// The profiler's version, recorded on every proposal it makes (`Actor::Agent { model: "h-lite",
-/// version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
+/// The profiler's name, recorded on every proposal it makes (`Actor::Agent { model, version }`,
+/// decision 0025). This crate owns it because a change here changes the profiler. Version 5 added
+/// stage 5b, which makes H-lite into H-min (decision 0022); versions 2 to 4 filed as `h-lite`.
+pub const PROFILER_MODEL: &str = "h-min";
+
+/// The profiler's version, recorded on every proposal it makes (`Actor::Agent { model:
+/// PROFILER_MODEL, version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
 pub const PROFILER_VERSION: &str = "5";
