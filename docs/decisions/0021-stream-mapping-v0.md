@@ -140,6 +140,6 @@ refused a mapping with links.
 **2026-09-29 (s2w#245 PR 2, [0027](0027-stream-mapping-links.md)).** `MappingEngine` claims a
 link's merge between the entities and the relationships. Check 11 also replays
 `sample-links.mapping.json` (version 2, one link) and maps a merge claim's two keys; for that
-fixture pass A must claim a merge that changes the folded world.
+fixture pass A must claim a merge that takes effect in the fold (joins two entities).
 
 verify: `cargo test -p s2w-system1 mapping && cargo xtask check` passes.
