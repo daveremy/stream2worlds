@@ -48,6 +48,10 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
+- Full `/world` (`lod=entity`) projections are single-flight (`query/generation.rs`, s2w#270): one
+  build per `QueryState`, requests grouped by (epoch, `at`, `lod`, `focus`, `hops`), a request never
+  joins a build under way, a full queue answers 503 `world_queue_full`. Never build a full view
+  outside the queue: each holds about 330 MiB.
 - The System 1 bridge (`bridge/`, decision 0011) writes to `QueryState`'s timeline only
   through `append`, resumes from a log position (never a fold offset), and refuses a non-empty
   timeline (`Bridge::resume` after a snapshot restore: one whose head is past its base). It commits each batch's verdicts to the verdict store before serving any of its
