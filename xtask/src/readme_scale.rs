@@ -155,17 +155,25 @@ fn judge(row: &str, b: &Baseline) -> Vec<String> {
 
 /// The two "(1.23×" ratios, recomputed from the baseline the way the row prints them.
 fn ratios(row: &str, b: &Baseline) -> Vec<String> {
-    let target = b.memory.target_bytes_per_entity;
+    let target = b.memory.target_bytes_per_entity.max(1);
     let mut problems = Vec::new();
-    for (label, bytes) in [
-        ("synthetic", b.memory.bytes_per_entity),
-        ("recorded", b.memory.recorded.bytes_per_entity),
+    for (label, bytes, seg) in [
+        (
+            "synthetic",
+            b.memory.bytes_per_entity,
+            segment(row, "Synthetic:", "Recorded:"),
+        ),
+        (
+            "recorded",
+            b.memory.recorded.bytes_per_entity,
+            segment(row, "Recorded:", "Bytes are"),
+        ),
     ] {
         let hundredths = (bytes * 100 + target / 2) / target;
         let want = format!("({}.{:02}×", hundredths / 100, hundredths % 100);
-        if !row.contains(&want) {
+        if !seg.is_some_and(|s| s.contains(&want)) {
             problems.push(format!(
-                "README.md Scale row: no \"{want}\" ratio for the {label} bytes per entity ({bytes} B over the {target} B target, {BASELINE}). Edit the ratio in the row to match."
+                "README.md Scale row: no \"{want}\" ratio in the {label} figures for the bytes per entity ({bytes} B over the {target} B target, {BASELINE}). Edit the ratio in the row to match."
             ));
         }
     }
@@ -218,6 +226,15 @@ mod tests {
             let problems = judge(&row.replace(from, to), &b);
             assert_eq!(problems.len(), 1, "{from}: {problems:?}");
         }
+    }
+
+    #[test]
+    fn a_ratio_in_the_wrong_supply_segment_fails() {
+        let (row, b) = committed_row();
+        let swapped = row
+            .replace("(1.23×", "(1.16×@")
+            .replace("(1.16×)", "(1.23×)");
+        assert!(!judge(&swapped, &b).is_empty());
     }
 
     #[test]
