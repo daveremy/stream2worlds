@@ -23,9 +23,12 @@ use crate::{Profile, Role as PathRole};
 /// The fallback's actor model name.
 pub const FALLBACK_MODEL: &str = "dashboard-fallback";
 /// The fallback's actor version. Bump it with any change to what it proposes.
-pub const FALLBACK_VERSION: &str = "2";
+pub const FALLBACK_VERSION: &str = "3";
 /// The longest mean string length, in bytes, of an attribute the fallback picks as a label.
 const LABEL_MAX_MEAN_LEN: u64 = 80;
+/// The fewest distinct values an attribute the fallback picks as a label may have: a sample-size
+/// guard, since a share of distinct values over fewer values than this is noise.
+const MIN_LABEL_DISTINCT: u64 = 8;
 
 /// Copies the profiler's numbers into the dashboard input's own statistics type.
 #[must_use]
@@ -167,15 +170,22 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
                 continue;
             }
             let evidence = types.entry(&rule.type_label).or_default();
-            if let Some(first) = rule.key.first().and_then(|p| stats.get(p)) {
-                evidence.count = evidence.count.max(first.distinct);
-                evidence.string_key |= mostly_strings(first) && !first.timestamp;
-            }
+            // With no profiled key, how often the rule's entities occur cannot be judged, so
+            // none of its attributes may name them.
+            let Some(first) = rule.key.first().and_then(|p| stats.get(p)) else {
+                continue;
+            };
+            evidence.count = evidence.count.max(first.distinct);
+            evidence.string_key |= mostly_strings(first) && !first.timestamp;
             for attr in &rule.attrs {
                 let Some(s) = stats.get(&attr.path) else {
                     continue;
                 };
-                let usable = fits_text(&attr.name)
+                // Coverage: an attribute on more than twice as many events as the rule's key
+                // describes the event, not the entity. Its distinct count is taken over those
+                // other events too, so the share test below would compare two populations.
+                let usable = s.count <= first.count.saturating_mul(2)
+                    && fits_text(&attr.name)
                     && !keys.contains(&&attr.path)
                     && !s.timestamp
                     && mostly_strings(s)
@@ -195,17 +205,24 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
 }
 
 /// A type's row: its label is the attribute with the most distinct values, the shorter mean
-/// string length breaking a tie (a unique best), among attributes with at least half as many
-/// distinct values as the type has entities, else its first key part when that is mostly
-/// strings and not a date-time, else none; primary when it has one. Its noun is its type label.
+/// string length breaking a tie (a unique best), among attributes with at least
+/// `MIN_LABEL_DISTINCT` distinct values and at least half as many as the type has entities,
+/// else its first key part when that is mostly strings and not a date-time, else none;
+/// primary when it has one. Its noun is its type label.
 fn type_row(label: &str, evidence: &TypeEvidence) -> TypeRow {
     // An attribute with fewer distinct values than half the type's entities names a category
     // (an edit kind, a content model), not an entity. With no profiled key the share cannot be
-    // judged, so no attribute qualifies.
+    // judged, so no attribute qualifies. Below `MIN_LABEL_DISTINCT` values the share is noise.
+    // The count is the largest over the label's rules and an attribute's statistics may come
+    // from another rule with the same label; both are merged maxima.
     let naming: BTreeMap<_, _> = evidence
         .attrs
         .iter()
-        .filter(|(_, s)| evidence.count > 0 && s.distinct.saturating_mul(2) >= evidence.count)
+        .filter(|(_, s)| {
+            evidence.count > 0
+                && s.distinct >= MIN_LABEL_DISTINCT
+                && s.distinct.saturating_mul(2) >= evidence.count
+        })
         .map(|(name, s)| (*name, *s))
         .collect();
     let choice = unique_max(&naming)

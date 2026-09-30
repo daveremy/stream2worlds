@@ -247,6 +247,17 @@ re-proposal of the manifest carries all of it; a manifest filed before it still 
   type label. Per source, one or two entries for its busiest primary type (a date-time key
   never counts): `"{0}: <type> {1}"` over the event type and the first key when the event type
   is profiled, then `"<type> {0}"`.
+- **Fallback v3** (`dashboard-fallback/3`, 2026-09-30, s2w#288). Two more tests on a label
+  attribute, both on statistics only. **Coverage:** an attribute of a rule is a candidate only
+  when it is on at most twice as many events as the rule's first key path, and a rule with no
+  profiled key offers none. **Floor:** a candidate needs at least 8 distinct values as well as
+  the half share. Measured cause: on the demo, the two rare `redirect_page_link/wikibase_*`
+  types have their key on 40 of 2,000 tail events (16 distinct), while the content-model
+  attribute is on all 2,000 with 4 values. The share compared a count over 2,000 events with
+  one over 40; when the rare key had 8 or fewer values in the window, 4 cleared half and the
+  category became the label. Coverage is the root-cause rule. The floor is a sample-size
+  guard, since a share over fewer than 8 values is noise; it alone would also have caught this
+  case. Both thresholds are heuristics checked against one stream.
 - **Surfaces.** `GET /worlds/{world}/sentences?last=N` (`last` required, 1 to 200) returns
   `{rows}`, newest last, each `{position, source, sentence, entities}`; an entity carries
   `type`, `key`, and `entity` when the head world holds the key. MCP `sentences` is byte-equal

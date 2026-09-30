@@ -36,7 +36,7 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   files from this crate (decision 0025). Bump the version with any change to
   `Config::default()` or to a rule; the model name is not a rule.
 - `manifest` (decision 0029, s2w#301) holds `path_stats` (the profiler's numbers copied into
-  `s2w_model::PathStats`) and `FallbackProposer` (actor `dashboard-fallback/1`): the `feed`
+  `s2w_model::PathStats`) and `FallbackProposer` (actor `dashboard-fallback/3`): the `feed`
   projection, one default role, a label per type only where the statistics pick one uniquely.
   The same name-blindness rule applies; `tests.rs` asserts it under the obfuscation. Bump
   `FALLBACK_VERSION` with any change to what it proposes. `PathProfile`'s `str_count` and
