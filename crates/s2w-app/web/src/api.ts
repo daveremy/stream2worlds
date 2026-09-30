@@ -98,22 +98,42 @@ export function eventsUrl(params: URLSearchParams, from: number, at?: number, ep
   if (epoch) url.searchParams.set('epoch', epoch);
   return url;
 }
-// A finite SSE response from the same route seeds pinned and live evidence alike. The server
-// keeps only recent events (decision 0026): when the last 500 reach past them (just after a
-// restart from a snapshot), the page starts with no evidence rather than failing.
-export async function evidence(params: URLSearchParams, at: number, epoch: string, signal: AbortSignal): Promise<Message[]> {
-  let response: Response;
-  try { response = await checked(eventsUrl(params, Math.max(0, at - 500), at, epoch), signal); }
-  catch (error) {
-    if (error instanceof ApiError && error.code === 'offset_before_base') return [];
-    throw error;
-  }
+// A finite SSE response's messages plus the history (`S2W-Epoch`) and head (`S2W-Head`) the
+// server resolved it under; every `/events` response carries both (s2w#294).
+export type Evidence = { messages: Message[]; head: number; epoch: string };
+async function readEvidence(response: Response): Promise<Evidence> {
+  const head = Number(response.headers.get('S2W-Head'));
+  const epoch = response.headers.get('S2W-Epoch') ?? '';
   const text = await response.text();
-  return text.split(/\r?\n\r?\n/).flatMap(block => {
+  const messages = text.split(/\r?\n\r?\n/).flatMap(block => {
     const data = block.split(/\r?\n/).filter(line => line.startsWith('data:'))
       .map(line => line.slice(5).trimStart()).join('\n');
     return data ? [JSON.parse(data) as Message] : [];
   });
+  return { messages, head, epoch };
+}
+// The live page's evidence seed: the last 500 events through the server's head, in one request
+// that needs no `/time` or `/world` first. Clamped to the events the server keeps (decision
+// 0026), so it never answers `offset_before_base`.
+export async function evidenceTail(params: URLSearchParams, signal: AbortSignal): Promise<Evidence> {
+  const url = endpoint(params, 'events');
+  for (const name of ['from', 'at', 'epoch']) url.searchParams.delete(name);
+  url.searchParams.set('last', '500');
+  return readEvidence(await checked(url, signal));
+}
+// A pinned page's evidence: the 500 events through `at`. The server keeps only recent events
+// (decision 0026): when those reach past them (just after a restart from a snapshot), the page
+// starts with no evidence rather than failing; that 410 carries no headers, so `head` and
+// `epoch` are the request's own.
+export async function evidence(params: URLSearchParams, at: number, epoch: string | undefined,
+  signal: AbortSignal): Promise<Evidence> {
+  let response: Response;
+  try { response = await checked(eventsUrl(params, Math.max(0, at - 500), at, epoch), signal); }
+  catch (error) {
+    if (error instanceof ApiError && error.code === 'offset_before_base') return { messages: [], head: at, epoch: epoch ?? '' };
+    throw error;
+  }
+  return readEvidence(response);
 }
 // EventSource hides HTTP status. A finite, empty replay probes the same guarded route.
 export async function streamStatus(params: URLSearchParams, from: number, epoch: string, signal: AbortSignal): Promise<void> {
