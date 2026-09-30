@@ -233,6 +233,10 @@ Its first run on 9a672f0 shows two types the #282 ruling calls attributes still 
 `revision/comment` (edit-summary text, 5.2% of world events) and `mediainfo/content_size` (a byte
 size, 0.4%).
 
+**2026-09-30, s2w#283 (the allocator ruling).** The allocator swap that the #220 PR C block says
+waits on a ruling is ruled in [0031](0031-mimalloc-global-allocator.md): the `s2w` binary now
+allocates through mimalloc. The limits above stay glibc numbers, asserted by the glibc target.
+
 ## Alternatives considered
 
 - **Keep a base world and advance it at each drop.** Rejected: a second 403 MiB world does not

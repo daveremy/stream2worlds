@@ -5,11 +5,14 @@ The `s2w` command-line tool.
 ## Allowed dependencies
 
 - `s2w-app`, `s2w-log`, `s2w-model`, `serde_json`
+- `mimalloc`, the binary's global allocator (decision 0031)
 
 The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anything else. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
 ## Invariants
 
+- This binary is the only place a global allocator is set (`main.rs`, mimalloc, decision 0031).
+  No library crate sets one; test targets that set their own are measurement targets.
 - Every command is non-interactive and idempotent. Every one-shot command has `--json`.
   `watch --json` (#79) streams NDJSON progress instead of the human eprintln lines. `serve` and
   `mcp` accept prefix-only `--json` (`s2w --json serve` / `s2w --json mcp`) for structured

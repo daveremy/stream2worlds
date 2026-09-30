@@ -1,6 +1,8 @@
 //! Resident memory of a full backfill, split into world state, timeline history and transient
 //! peaks (s2w#216). Ignored: it folds 1.5x10^5 raw events several times. Run with
 //! `cargo test --release -p s2w-app --test backfill_memory -- --ignored --nocapture`.
+//! One invocation per target at a time: concurrent runs share the target's `CARGO_TARGET_TMPDIR`
+//! log directory and silently corrupt both runs' results (s2w#283).
 //!
 //! The demo box was OOM-killed at `MemoryMax=1G` about 6 s into a backfill of 151,331 logged
 //! events (476,795 world events). s2w#208 measured only the folded world (`discover_volume.rs`).

@@ -15,6 +15,12 @@ use std::process::ExitCode;
 use reporter::JsonReporter;
 use s2w_app::{AppError, HumanReporter, WatchArgs};
 
+/// Every Rust allocation in every subcommand goes to mimalloc: it peaks 69-106 MiB lower than glibc
+/// malloc under `serve`'s backfill and may return freed memory to the OS (decision 0031). SQLite's
+/// C heap stays on the system allocator.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// Where `s2w watch` keeps its event log when `--log-dir` is absent, relative to the working
 /// directory.
 const DEFAULT_LOG_DIR: &str = "./s2w-data";
