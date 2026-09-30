@@ -427,3 +427,73 @@ Entity recovery rises from 0.03 to 0.13 and stays below 0.60 under the base key,
 decision table that applies is unchanged ("entity recovery < 0.60: fix H before comparing H with
 H+S2"). This is H-min proper as #4 and decision 0010 define it; the remaining named loss is the
 alias key (#245).
+
+## Addendum 2026-09-30 (UTC): date-times are a format (s2w#291 PR 2, `PROFILER_VERSION` 7)
+
+**Change.** Decision [0030](../docs/decisions/0030-timestamps-are-a-format.md): a path whose
+every value is an RFC 3339 `date-time` gets the role `Timestamp`. It keys no type and is no
+stage-5b candidate, but can still be an attribute. Check 12 shifts date-times by one constant
+instead of hashing them, as the evaluation contract does.
+
+**Why (#291 item 5).** The demo's date-time types reproduce only on live `page_change` logs
+captured by `s2w watch` on 2026-09-27 (21,528 events in one run, 5,232 in a second), never on
+the recorded page-change fixture (11,667 events). At the serve window (10^4), v6 keys a type by
+the prior-state editor's `first_edit_dt` in events 0-10k and in the second run, and by that and
+`revision.rev_dt` in events 10k-20k. A date-time passes the entity test and merges into the
+user's class only while it is one-to-one with the user id; over 10^4 events two users share a
+second (5 to 6 date-times) and one user's date-time differs between wikis (1 to 3), so it keeps
+its own type. On the same windows v7 keys no type by a date-time. Entity rules go 25 → 25,
+24 → 23 and 18 → 18, and relationship rules 77 → 77, 93 → 80 and 45 → 45. The date-time's
+class is replaced by the prior-state editor's `user_id`, which v6 had merged into it. These are
+in-sample reads on data that is not a scored corpus.
+
+**Hygiene.** `reserved-4` (10^5 `recentchange` events, 2026-09-29 23:15 to 2026-09-30 02:15 UTC,
+capture.sh's command) was pinned with role `reserved` in cf9c864 (06:02 UTC); only its summary
+line, size and sha256 were read. v6 was frozen on `dev` at both windows in a280af2 (06:03), before
+any PR 2 profiler change. The predictions were posted on #291
+([comment](https://github.com/daveremy/stream2worlds/issues/291#issuecomment-5905284910), 06:13:40)
+before the rule commit (a99f948, 06:13:57), with the in-sample `dev` reads disclosed: v7's `dev`
+freezes equal v6's except `profiler_version`, and the only `dev` role change is `data.meta.dt`
+(`NearUnique` → `Timestamp`, at both windows; re-measured after the opening, unchanged). The
+tests (0f224b5), check 12 (35f0bdc) and docs (974d6b8) followed with no profiler change, and
+`reserved-4` was opened as held-out in b99c729 (06:25). v7 was frozen on `dev` after the opening;
+each v7 file differs from v6's only in `profiler_version` and the line that records
+`reserved-4`'s role. v6 was scored from a build of a280af2 plus the opening commit. No threshold
+exists to tune, and none changed.
+
+**Result** on `reserved-4`. Every row of every report is the same for v6 and v7; the reports
+differ only in the line naming the mapping file and its sha256.
+
+| key, window | P | R | F1 | false-merge | recovery | `user` P | `user` R |
+|---|---|---|---|---|---|---|---|
+| base, N = 10^4 | 0.9944 | 0.3684 | 0.5376 | 0.0056 | 0.1281 | 0.9761 | 1.0000 |
+| base, N = 2x10^5 | 0.9875 | 0.4254 | 0.5946 | 0.0125 | 0.1281 | 0.9761 | 1.0000 |
+| user-global, N = 10^4 | 0.9994 | 0.3684 | 0.5383 | 0.0006 | 0.1315 | 1.0000 | 1.0000 |
+| user-global, N = 2x10^5 | 0.9916 | 0.4254 | 0.5953 | 0.0084 | 0.1315 | 1.0000 | 1.0000 |
+| ceiling (oracle v0), base | 1.0000 | 0.4015 | 0.5730 | 0.0000 | 0.1347 | | |
+
+**Page-change memory** (`backfill_memory`'s `world` child, the recorded page-change fixture cycled
+to 1.5x10^5, mapping discovered at 10^4; both builds measured on this base):
+
+| | world events | head world | entities | types | entity rules | relationship rules |
+|---|---|---|---|---|---|---|
+| v6 (a280af2) | 14,323,096 | 596.7 MiB | 213,153 | 13 | 27 | 116 |
+| v7 | 14,323,096 | 599.0 MiB | 213,153 | 13 | 27 | 116 |
+
+The mapping differs by four attribute rules: `first_edit_dt` (the performer's and the revision
+editor's) becomes an attribute of the two `origin_rev_id` types as well. They add 2.3 MiB (0.4%)
+and no world event.
+
+**Pre-registered predictions:**
+
+| | prediction | measured | |
+|---|---|---|---|
+| R1 | v7's P, R, F1, false-merge and recovery equal v6's exactly, under every key scored | equal under both keys, both windows | hit |
+| R2 | `user` R >= 0.95 (expected 1.0000), `user` P equal to v6's, both windows | R 1.0000, P 0.9761 (v6 0.9761) | hit |
+| R3 | `data.log_params.img_timestamp` stays an `Entity` type in v6 and v7 | a type in both, both windows | hit |
+| W1 | no stamp-keyed type, 13 types, world events and MiB within ±2% of v6 (posted: 14,323,096 events, 596.8 MiB) | no stamp-keyed type, 13 types, 14,323,096 events (+0%), 599.0 MiB (+0.4%) | hit |
+
+**Reading.** The rule removes the demo's date-time types on live page-change windows and changes
+nothing that `recentchange` scores: its only date-time path (`meta.dt`) was never a type. `user`
+keeps full recall. MediaWiki's 14-digit `img_timestamp` is still a type; decision 0030 names
+that as a limit.

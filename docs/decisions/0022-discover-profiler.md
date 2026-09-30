@@ -465,6 +465,28 @@ The recorded check-12 fixture's mapping is unchanged (7 types, 19 entity rules, 
 Order, presence and value equality only, integer percentages, no tie broken by a name; a unit
 test covers renaming and hashing with a leaf.
 
+## Amendment 2026-09-29: RFC 3339 date-times are a format (s2w#291 PR 2, `PROFILER_VERSION` 7)
+
+Decision [0030](0030-timestamps-are-a-format.md). A path whose every value is an RFC 3339
+`date-time` (`stamp::shaped`; `Column` counts shaped string cells as it reads them) gets the role
+`Timestamp`, decided after `Constant` and `Flag` and before `EventId`. It keys no type and is no
+stage-5b candidate (5b admits only `Entity` and `EventId`); it stays a candidate dependent, so it
+can be an attribute. The invariance contract and check 12 change as the dated note above says.
+
+**Measured.** On live page-change windows at 10^4 (#291 item 5), v6 keyed one, two and one types
+by a date-time; v7 keys none. On `dev` the only role change is `data.meta.dt` (`NearUnique` to
+`Timestamp`) at both windows, and the frozen mappings are unchanged. On the held-out
+`reserved-4` span every score equals v6's under the base and `user-global` keys (`user` R 1.0000
+at both windows). On the page-change fixture at 1.5x10^5 world events (14,323,096), entities
+(213,153) and types (13) are unchanged; four attribute rules are added (`first_edit_dt` on the
+two `origin_rev_id` types) and the head world grows 596.7 to 599.0 MiB. The recorded check-12
+fixture keeps its 7 types, 19 entity rules and 69 relationship rules, but its attributes change:
+the performer's and the revision editor's `first_edit_dt` and `registration_dt` become attributes
+of the three page-key paths (12 rules; in 1,615 events most pages have one editor, so the
+dependency holds there), and `registration_dt` is no longer an attribute of the prior-state
+editor's `user_text`. A date-time was an `Entity` path in v6 and is a plain dependent now, so it
+can follow any key it depends on. Research 0009's #291 addendum has the tables.
+
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a
