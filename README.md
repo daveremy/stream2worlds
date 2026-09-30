@@ -36,7 +36,8 @@
   opened after the predictions, identity F1 rose from 0.2920 to 0.4431 and every prediction hit.
   [#261](https://github.com/daveremy/stream2worlds/pull/261)
 - **In progress:** an owned projection and single-flight `/world`, so a slow reader cannot
-  stall the fold ([#270](https://github.com/daveremy/stream2worlds/issues/270)).
+  stall the fold ([#270](https://github.com/daveremy/stream2worlds/issues/270),
+  [#272](https://github.com/daveremy/stream2worlds/issues/272)).
 
 ## Demos
 
@@ -108,7 +109,8 @@ curl http://localhost:4310/worlds/default/world
 # Or open http://localhost:4310/ in a browser for the web view (evidence table and graph);
 # add ?at=<offset> to the URL to pin a moment.
 # Above 5,000 entities the page shows entity types instead of every entity; set a
-# Focus entity (and Hops) to see its neighbourhood (#262). The Detail selector reads Types while the page shows types.
+# Focus entity (and Hops) to see its neighbourhood (#262).
+# The Detail selector reads Types while the page shows types.
 curl http://localhost:4310/worlds/default/sources
 # serve snapshots the world every 1,000,000 raw events and on Ctrl-C/SIGTERM, and restarts
 # from the newest valid snapshot; tune or disable with --snapshot-every <n> / --no-snapshot
