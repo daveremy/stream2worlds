@@ -121,8 +121,7 @@ pub fn read_sentences(
         .map(|stored| {
             let mapping = mappings.get(&stored.event.source);
             let engine = engines.get(&stored.event.source);
-            let payload =
-                mapping.and_then(|mapping| decoded(&stored.event.payload, &mapping.decode));
+            let payload = mapping.and_then(|m| decoded(&stored.event.payload, &m.decode));
             let source = stored.event.source.as_str();
             SentenceRow {
                 position: stored.position.as_u64(),

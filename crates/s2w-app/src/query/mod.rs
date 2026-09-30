@@ -63,7 +63,7 @@ pub use view::{
 // The parameter validators the HTTP handlers and the MCP tools share, so the two surfaces can
 // never disagree about what a valid `world`, `branch` or `lod` is.
 pub(crate) use http::{check_branch, check_world, parse, parse_links, parse_lod};
-pub(crate) use proposal_store::open_proposal_reader;
+pub(crate) use proposal_store::{open_proposal_reader, read_proposal_rows};
 pub(crate) use view::check_links;
 
 /// Why a query could not be answered. Each variant has a stable `code` for JSON errors.

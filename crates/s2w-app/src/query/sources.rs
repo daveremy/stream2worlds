@@ -29,7 +29,7 @@ impl SourceStats {
     /// events across both. `judge_event` uses this to fold one judged event's local delta into a
     /// batch's per-source stats only after every fallible step of that event has succeeded, so a
     /// mid-event error leaves the batch's counters untouched;
-    /// [`crate::bridge::Bridge::absorb_source_stats`] uses it to fold a committed batch into the
+    /// `Bridge::absorb_source_stats` uses it to fold a committed batch into the
     /// bridge's running totals.
     pub(crate) fn add(&mut self, other: &Self) {
         self.consumed += other.consumed;
