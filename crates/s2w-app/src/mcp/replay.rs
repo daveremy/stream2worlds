@@ -106,7 +106,16 @@ impl LiveReadOnlyWorld {
             .with_log_dir(log_dir);
         let mut last = None;
         if let Some(snapshot_end) = verdicts.cursor()? {
-            catch_up(&state, &reader, &verdicts, &mut last, snapshot_end, None)?;
+            catch_up(
+                &Replay {
+                    state: &state,
+                    reader: &reader,
+                    verdicts: &verdicts,
+                },
+                &mut last,
+                snapshot_end,
+                None,
+            )?;
         }
         Ok((
             state,
@@ -147,9 +156,11 @@ impl LiveReadOnlyWorld {
             CursorUpdate::Regressed(message) => Err(ReadOnlyWorldError::Corrupt(message)),
             CursorUpdate::Advanced(new) => {
                 catch_up(
-                    state,
-                    &self.reader,
-                    &self.verdicts,
+                    &Replay {
+                        state,
+                        reader: &self.reader,
+                        verdicts: &self.verdicts,
+                    },
                     &mut self.last,
                     new,
                     stop,
@@ -190,6 +201,15 @@ fn classify_cursor_update(previous: Option<LogPosition>, new: Option<LogPosition
     }
 }
 
+/// The fixed inputs of every [`catch_up`] call: the state it folds into and the read-only log
+/// and verdict store it reads from.
+#[derive(Clone, Copy)]
+struct Replay<'a> {
+    state: &'a QueryState,
+    reader: &'a ReadOnlySqliteEventLog,
+    verdicts: &'a ReadOnlySqliteVerdictStore,
+}
+
 /// Folds every verdict in `(*from, through]` into `state`, batch by batch, advancing `*from`
 /// after each batch fully resolves (never partially, per stream2worlds#128's round-2 review:
 /// each batch's fallible I/O — the event read and the verdict range read — is collected in
@@ -205,18 +225,17 @@ fn classify_cursor_update(previous: Option<LogPosition>, new: Option<LogPosition
 ///
 /// If `stop` is set and observed true between batches, returns early leaving `*from` at
 /// whatever batch was last fully applied — safe to resume from on the next call.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
-)]
 fn catch_up(
-    state: &QueryState,
-    reader: &ReadOnlySqliteEventLog,
-    verdicts: &ReadOnlySqliteVerdictStore,
+    replay: &Replay<'_>,
     from: &mut Option<LogPosition>,
     through: LogPosition,
     stop: Option<&AtomicBool>,
 ) -> Result<(), ReadOnlyWorldError> {
+    let Replay {
+        state,
+        reader,
+        verdicts,
+    } = *replay;
     let batch_size = BridgeConfig::default().batch;
     while *from != Some(through) {
         if stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {

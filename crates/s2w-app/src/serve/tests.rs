@@ -244,14 +244,16 @@ fn early_bridge_exit_is_fatal_and_signals_http_shutdown() {
             let drained = std::cell::Cell::new(false);
             let mut reporter = TestReporter::default();
             let outcome = supervise(
-                |_| Box::pin(std::future::pending()),
-                async { result },
-                async {
-                    shutdown_signal(rx).await;
-                    drained.set(true);
-                    Ok(())
-                },
-                std::future::pending(),
+                Tasks::new(
+                    |_| Box::pin(std::future::pending()),
+                    async { result },
+                    async {
+                        shutdown_signal(rx).await;
+                        drained.set(true);
+                        Ok(())
+                    },
+                    std::future::pending(),
+                ),
                 tx,
                 &mut reporter,
             )
@@ -281,18 +283,20 @@ fn ingestion_reports_source_errors_and_natural_shutdown_through_one_reporter() {
         let (tx, rx) = watch::channel(false);
         let mut reporter = TestReporter::default();
         let outcome = supervise(
-            |reporter| {
-                Box::pin(async move {
-                    reporter.source_error("stdin: skipped malformed line", false);
+            Tasks::new(
+                |reporter| {
+                    Box::pin(async move {
+                        reporter.source_error("stdin: skipped malformed line", false);
+                        Ok(())
+                    })
+                },
+                std::future::pending(),
+                async {
+                    shutdown_signal(rx).await;
                     Ok(())
-                })
-            },
-            std::future::pending(),
-            async {
-                shutdown_signal(rx).await;
-                Ok(())
-            },
-            std::future::pending(),
+                },
+                std::future::pending(),
+            ),
             tx,
             &mut reporter,
         )
@@ -315,10 +319,12 @@ fn an_open_sse_cannot_block_shutdown_past_the_deadline() {
         let start = tokio::time::Instant::now();
         let mut reporter = TestReporter::default();
         let outcome = supervise(
-            |_| Box::pin(std::future::pending()),
-            std::future::pending(),
-            std::future::pending(),
-            async { Ok(()) },
+            Tasks::new(
+                |_| Box::pin(std::future::pending()),
+                std::future::pending(),
+                std::future::pending(),
+                async { Ok(()) },
+            ),
             tx,
             &mut reporter,
         )
@@ -376,11 +382,13 @@ fn ingestion_reaches_world_over_http_on_an_ephemeral_port() {
                 discover: None,
             },
             started,
-            "stdin",
-            listener,
-            async {
-                stop_rx.await.expect("stop signal");
-                Ok(())
+            Http {
+                name: "stdin",
+                listener,
+                stop: async {
+                    stop_rx.await.expect("stop signal");
+                    Ok(())
+                },
             },
             &mut reporter,
         );
@@ -1115,11 +1123,13 @@ async fn serve_until(dir: &TestDirectory, config: SnapshotConfig, feed: Feed) ->
             discover,
         },
         started,
-        "stdin",
-        listener,
-        async {
-            stop_rx.await.expect("stop signal");
-            Ok(())
+        Http {
+            name: "stdin",
+            listener,
+            stop: async {
+                stop_rx.await.expect("stop signal");
+                Ok(())
+            },
         },
         &mut reporter,
     );

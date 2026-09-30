@@ -72,10 +72,6 @@ pub fn run_serve(
     result
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "start-up in order; one line over since the route watcher (s2w#184); splitting it is s2w#156"
-)]
 async fn run_serve_async(
     state: QueryState,
     args: ServeArgs,
@@ -84,19 +80,7 @@ async fn run_serve_async(
     let filters = parse_filters(&args.filters)?;
     let source =
         resolve(&args.uri, &filters).map_err(|error| AppError::Usage(error.to_string()))?;
-    let mut log = SqliteEventLog::open(&args.log_dir)
-        .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
-    let verdicts = SqliteVerdictStore::open(&args.log_dir)
-        .map_err(|error| open_error(error, &args.log_dir, "verdict store"))?;
-    let manifest = WorldManifest::create_if_absent(
-        &mut log,
-        &args.world,
-        &args.world,
-        Timestamp::from_millis(now_millis()?),
-        // Historical: the defaults at world creation, not the live registry (decision 0023).
-        &EngineRegistry::with_defaults().names(),
-        &[],
-    )?;
+    let (mut log, verdicts, manifest) = open_world(&args)?;
     // Routes resolve before the source starts: a corrupt proposal store fails before it connects.
     let (registry, watcher, discover) =
         routed_registry(&log, &args.log_dir, &args.discover, reporter)?;
@@ -138,12 +122,35 @@ async fn run_serve_async(
             discover: Some(discover),
         },
         started,
-        name,
-        listener,
-        stop_signal(),
+        Http {
+            name,
+            listener,
+            stop: stop_signal(),
+        },
         reporter,
     )
     .await
+}
+
+/// Opens the event log and verdict store under `args.log_dir`, and records the world's manifest
+/// if this is the world's first start.
+fn open_world(
+    args: &ServeArgs,
+) -> Result<(SqliteEventLog, SqliteVerdictStore, WorldManifest), AppError> {
+    let mut log = SqliteEventLog::open(&args.log_dir)
+        .map_err(|error| open_error(error, &args.log_dir, "event log"))?;
+    let verdicts = SqliteVerdictStore::open(&args.log_dir)
+        .map_err(|error| open_error(error, &args.log_dir, "verdict store"))?;
+    let manifest = WorldManifest::create_if_absent(
+        &mut log,
+        &args.world,
+        &args.world,
+        Timestamp::from_millis(now_millis()?),
+        // Historical: the defaults at world creation, not the live registry (decision 0023).
+        &EngineRegistry::with_defaults().names(),
+        &[],
+    )?;
+    Ok((log, verdicts, manifest))
 }
 
 /// The start-up routes (decision 0023) with the learned-mapping producer's start pass (decision
@@ -404,60 +411,31 @@ async fn local_bridge(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
-)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
-)]
+/// The HTTP side of [`serve_live`]: the source name the pump reports under, the bound listener,
+/// and the future that resolves on a stop signal.
+struct Http<F> {
+    name: &'static str,
+    listener: TcpListener,
+    stop: F,
+}
+
 async fn serve_live(
     state: QueryState,
     storage: ServeStorage,
     started: Started,
-    name: &'static str,
-    listener: TcpListener,
-    stop: impl Future<Output = Result<(), AppError>>,
+    http: Http<impl Future<Output = Result<(), AppError>>>,
     reporter: &mut dyn Reporter,
 ) -> Result<(), AppError> {
-    let config = BridgeConfig::default();
     let shared = Rc::new(RefCell::new(storage.log));
-    let reader = SharedLogReader {
-        log: shared.clone(),
-        batch: Rc::new(Cell::new(config.batch.max(1))),
-    };
-    let bridge = match storage.resume {
-        Some(position) => Bridge::resume(
-            reader,
-            storage.verdicts,
-            storage.registry,
-            state.clone(),
-            config,
-            position,
-        ),
-        None => Bridge::new(
-            reader,
-            storage.verdicts,
-            storage.registry,
-            state.clone(),
-            config,
-        ),
-    }
-    .map_err(|error| AppError::BridgeStopped(error.to_string()))?;
+    let (bridge, config) = start_bridge(
+        &shared,
+        storage.verdicts,
+        storage.registry,
+        storage.resume,
+        &state,
+    )?;
     let snapshots = storage.snapshots.map(|s| Rc::new(RefCell::new(s)));
-    // The final snapshot runs inside the stop branch only: after a signal, before supervise
-    // drops the bridge and before the HTTP drain, never after a fatal error (decision 0024).
-    let stop = {
-        let (snapshots, state) = (snapshots.clone(), state.clone());
-        async move {
-            stop.await?;
-            if let Some(snapshotter) = &snapshots {
-                snapshotter.borrow_mut().finish(&state);
-            }
-            Ok(())
-        }
-    };
+    let stop = snapshot_on_stop(http.stop, snapshots.clone(), state.clone());
     let rebuild = storage.watch.map(|(watcher, snapshot_config)| {
         Rebuild::new(
             watcher,
@@ -473,7 +451,6 @@ async fn serve_live(
         .discover
         .and_then(|seed| seed.arm(&started.sources))
         .map(|in_run| (in_run, shared.clone(), SinkReporter(reporter.note_sink())));
-    let writer = SharedLogWriter(shared.clone());
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let app = app(state);
@@ -481,55 +458,101 @@ async fn serve_live(
         // First replay batch gets a head start, but a large history cannot postpone HTTP
         // indefinitely. A synchronous SQLite poll itself cannot be preempted by this timer.
         let _ready = tokio::time::timeout(Duration::from_millis(500), ready_rx).await;
-        axum::serve(listener, app)
+        axum::serve(http.listener, app)
             .with_graceful_shutdown(shutdown_signal(shutdown_rx))
             .into_future()
             .await
             .map_err(AppError::Serve)
     };
     supervise(
-        move |reporter| {
-            Box::pin(async move {
-                let stopped_early = group_commit::pump_events_gated(
-                    |events, generations| {
-                        writer
-                            .0
-                            .borrow_mut()
-                            .append_batch_with_generations(events, generations)
-                    },
-                    started.stream,
-                    crate::status::Progress::named(name)
-                        .with_watermarks(started.watermarks.clone()),
-                    reporter,
-                    group_commit::Membership {
-                        sources: &started.sources,
-                        check: |source: &SourceId| Ok(shared.borrow().source_membership(source)?),
-                    },
-                )
-                .await?;
-                if stopped_early {
-                    report_membership_changed(reporter);
-                    return std::future::pending::<Result<(), AppError>>().await;
-                }
-                match started.ends {
-                    Ending::AtEndOfInput => Ok(()),
-                    Ending::Never => Err(AppError::StreamEnded(name)),
-                }
-            })
-        },
-        local_bridge(
-            bridge,
-            config,
-            ready_tx,
-            bridge_snapshots,
-            (rebuild, in_run),
+        Tasks::new(
+            move |reporter| Box::pin(ingest(shared, started, http.name, reporter)),
+            local_bridge(
+                bridge,
+                config,
+                ready_tx,
+                bridge_snapshots,
+                (rebuild, in_run),
+            ),
+            server,
+            stop,
         ),
-        server,
-        stop,
         shutdown_tx,
         reporter,
     )
     .await
+}
+
+/// Wraps `stop` so the final snapshot runs inside the stop branch only: after a signal, before
+/// supervise drops the bridge and before the HTTP drain, never after a fatal error (decision 0024).
+async fn snapshot_on_stop(
+    stop: impl Future<Output = Result<(), AppError>>,
+    snapshots: Option<Rc<RefCell<Snapshotter>>>,
+    state: QueryState,
+) -> Result<(), AppError> {
+    stop.await?;
+    if let Some(snapshotter) = &snapshots {
+        snapshotter.borrow_mut().finish(&state);
+    }
+    Ok(())
+}
+
+/// Builds the bridge over the shared log, resuming at `resume` when a snapshot covers it.
+fn start_bridge(
+    shared: &Rc<RefCell<SqliteEventLog>>,
+    verdicts: SqliteVerdictStore,
+    registry: EngineRegistry,
+    resume: Option<LogPosition>,
+    state: &QueryState,
+) -> Result<(Bridge<SharedLogReader, SqliteVerdictStore>, BridgeConfig), AppError> {
+    let config = BridgeConfig::default();
+    let reader = SharedLogReader {
+        log: shared.clone(),
+        batch: Rc::new(Cell::new(config.batch.max(1))),
+    };
+    let bridge = match resume {
+        Some(position) => {
+            Bridge::resume(reader, verdicts, registry, state.clone(), config, position)
+        }
+        None => Bridge::new(reader, verdicts, registry, state.clone(), config),
+    }
+    .map_err(|error| AppError::BridgeStopped(error.to_string()))?;
+    Ok((bridge, config))
+}
+
+/// The pump side of [`serve_live`]: consumes `started` into the shared log until the stream
+/// ends, or parks forever (HTTP stays up) once a gated source's membership changes.
+async fn ingest(
+    shared: Rc<RefCell<SqliteEventLog>>,
+    started: Started,
+    name: &'static str,
+    reporter: &mut dyn Reporter,
+) -> Result<(), AppError> {
+    let writer = SharedLogWriter(shared.clone());
+    let stopped_early = group_commit::pump_events_gated(
+        |events, generations| {
+            writer
+                .0
+                .borrow_mut()
+                .append_batch_with_generations(events, generations)
+        },
+        started.stream,
+        crate::status::Progress::named(name).with_watermarks(started.watermarks.clone()),
+        reporter,
+        group_commit::Membership {
+            sources: &started.sources,
+            check: |source: &SourceId| Ok(shared.borrow().source_membership(source)?),
+        },
+    )
+    .await?;
+    if stopped_early {
+        report_membership_changed(reporter);
+        return std::future::pending::<Result<(), AppError>>().await;
+    }
+    match started.ends {
+        Ending::AtEndOfInput => Ok(()),
+        Ending::Never => Err(AppError::StreamEnded(name)),
+    }
 }
 
 fn report_membership_changed(reporter: &mut dyn Reporter) {
@@ -540,18 +563,51 @@ fn report_membership_changed(reporter: &mut dyn Reporter) {
 
 type PumpFuture<'a> = Pin<Box<dyn Future<Output = Result<(), AppError>> + 'a>>;
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each argument is a distinct input; a parameter struct is a follow-up refactor (s2w#156)"
-)]
-async fn supervise(
-    pump: impl for<'a> FnOnce(&'a mut dyn Reporter) -> PumpFuture<'a>,
-    bridge: impl Future<Output = Result<(), BridgeError>>,
-    server: impl Future<Output = Result<(), AppError>>,
-    stop: impl Future<Output = Result<(), AppError>>,
+/// The four futures [`supervise`] races: the pump (built once `reporter` is lent to it), the
+/// bridge, the HTTP server and the stop signal.
+struct Tasks<P, B, S, T> {
+    pump: P,
+    bridge: B,
+    server: S,
+    stop: T,
+}
+
+impl<P, B, S, T> Tasks<P, B, S, T>
+where
+    P: for<'a> FnOnce(&'a mut dyn Reporter) -> PumpFuture<'a>,
+    B: Future<Output = Result<(), BridgeError>>,
+    S: Future<Output = Result<(), AppError>>,
+    T: Future<Output = Result<(), AppError>>,
+{
+    /// Takes the bounds here, where a closure argument can infer its higher-ranked signature;
+    /// a struct literal cannot.
+    fn new(pump: P, bridge: B, server: S, stop: T) -> Self {
+        Self {
+            pump,
+            bridge,
+            server,
+            stop,
+        }
+    }
+}
+
+async fn supervise<P, B, S, T>(
+    tasks: Tasks<P, B, S, T>,
     shutdown: watch::Sender<bool>,
     reporter: &mut dyn Reporter,
-) -> Result<(), AppError> {
+) -> Result<(), AppError>
+where
+    P: for<'a> FnOnce(&'a mut dyn Reporter) -> PumpFuture<'a>,
+    B: Future<Output = Result<(), BridgeError>>,
+    S: Future<Output = Result<(), AppError>>,
+    T: Future<Output = Result<(), AppError>>,
+{
+    let Tasks {
+        pump,
+        bridge,
+        server,
+        stop,
+    } = tasks;
     let mut server = std::pin::pin!(server);
     let (result, ingestion_stopped) = {
         let mut pump = pump(reporter);
