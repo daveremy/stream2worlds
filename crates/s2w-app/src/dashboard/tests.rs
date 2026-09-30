@@ -326,6 +326,40 @@ fn raw(source: &str, i: u64) -> RawEvent {
 }
 
 #[test]
+fn the_sentence_tail_stops_at_n_events_in_total_and_doubles_past_other_sources() {
+    use crate::query::read_last;
+    let dir = TestDirectory::new("sentences-tail");
+    let mut log = SqliteEventLog::open(dir.path()).expect("log");
+    log.append_batch((0..3).map(|i| raw("rare", i)).collect())
+        .expect("rare");
+    log.append_batch((0..50).map(|i| raw("other", i)).collect())
+        .expect("other");
+    log.append_batch((0..4).map(|i| raw("common", i)).collect())
+        .expect("common");
+    let targets: BTreeSet<SourceId> = ["rare", "common"]
+        .into_iter()
+        .map(|s| SourceId::new(s).expect("source"))
+        .collect();
+    let positions = |n: usize| -> Vec<u64> {
+        read_last(&log, &targets, n)
+            .expect("tail")
+            .iter()
+            .map(|s| s.position.as_u64())
+            .collect()
+    };
+    // 4 in total, not 4 per source: all from `common`, the newest.
+    assert_eq!(positions(4), vec![54, 55, 56, 57]);
+    // 6 needs `rare`, 50 non-member events back: the window doubles past them.
+    assert_eq!(positions(6), vec![2, 3, 54, 55, 56, 57]);
+    // More than the log holds: every target event.
+    assert_eq!(positions(200).len(), 7);
+
+    let empty = TestDirectory::new("sentences-tail-empty");
+    let log = SqliteEventLog::open(empty.path()).expect("log");
+    assert!(read_last(&log, &targets, 4).expect("tail").is_empty());
+}
+
+#[test]
 fn the_tail_doubles_its_window_until_a_rare_source_is_full() {
     let dir = TestDirectory::new("dashboard-tail");
     let mut log = SqliteEventLog::open(dir.path()).expect("log");

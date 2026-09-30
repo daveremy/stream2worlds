@@ -32,6 +32,7 @@ use super::generation::{self, Generations};
 use super::projection::HeadView;
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
+use super::sentences::SentencesView;
 use super::stream;
 use super::summary_memo::{SummaryKey, SummaryMemo};
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
@@ -265,6 +266,32 @@ impl QueryState {
             return Ok(DashboardView::default());
         };
         super::dashboard::read_dashboard(log_dir, self.world())
+    }
+
+    /// The last `last` events of the world's member sources as sentences (s2w#302), read
+    /// fresh from the log directory; each entity the head world holds carries its id. Empty
+    /// when no log directory is configured.
+    ///
+    /// # Errors
+    /// [`QueryError::BadParameter`] when `last` is outside `1..=MAX_SENTENCES`;
+    /// [`QueryError::Storage`] if the log or the proposal store cannot be read.
+    pub fn sentences(&self, last: u64) -> Result<SentencesView, QueryError> {
+        let last = super::sentences::check_last(last)?;
+        let Some(log_dir) = self.log_dir() else {
+            return Ok(SentencesView::default());
+        };
+        let mut view = super::sentences::read_sentences(log_dir, self.world(), last)?;
+        self.read(|t| {
+            let world = t.head_world();
+            for entity in view.rows.iter_mut().flat_map(|row| &mut row.entities) {
+                entity.entity = world
+                    .keys()
+                    .get(&s2w_model::NaturalKey::new(entity.key.as_str()))
+                    .map(|id| world.resolve(*id).get());
+            }
+            Ok(())
+        })?;
+        Ok(view)
     }
 
     /// Appends an event (see [`Timeline::append`]) and wakes live subscribers.
@@ -610,6 +637,7 @@ pub fn router(state: QueryState) -> Router {
         .route("/worlds/{world}/presentation", get(world_presentation))
         .route("/worlds/{world}/proposals", get(world_proposals))
         .route("/worlds/{world}/dashboard", get(world_dashboard))
+        .route("/worlds/{world}/sentences", get(world_sentences))
         .with_state(state)
 }
 
@@ -897,6 +925,22 @@ async fn world_dashboard(State(state): State<QueryState>, Path(world): Path<Stri
     let run = || -> Result<_, QueryError> {
         check_world(&state, &world)?;
         state.dashboard()
+    };
+    run().map(Json).into_response()
+}
+
+async fn world_sentences(
+    State(state): State<QueryState>,
+    Path(world): Path<String>,
+    Query(p): Query<Params>,
+) -> Response {
+    let run = || -> Result<_, QueryError> {
+        check_world(&state, &world)?;
+        let last = parse::<u64>("last", p.last.as_deref())?.ok_or(QueryError::BadParameter {
+            name: "last",
+            reason: format!("is required, from 1 to {}", super::sentences::MAX_SENTENCES),
+        })?;
+        state.sentences(last)
     };
     run().map(Json).into_response()
 }

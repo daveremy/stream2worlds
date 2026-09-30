@@ -222,6 +222,147 @@ mod tests {
         Ok(())
     }
 
+    /// [`seed`], with a sentence in the manifest and four logged events, the third without
+    /// the key.
+    fn seed_sentences(dir: &Path) -> TestResult {
+        let mapping_payload = json!({ "format": 1, "source": SOURCE, "mapping": mapping() });
+        let identity = s2w_app::routes::decode_envelope(mapping_payload.to_string().as_bytes())?.2;
+        let mut store = SqliteProposalStore::open(dir)?;
+        propose(
+            &mut store,
+            "m",
+            STREAM_MAPPING_CLASS,
+            mapping_payload.to_string().into_bytes(),
+        )?;
+        accept(&mut store, "m")?;
+        let mut with_sentence = manifest(&identity);
+        with_sentence["events"] = json!([{
+            "source": SOURCE,
+            "sentence": { "text": "item {0} changed", "fields": [["id"]] }
+        }]);
+        propose(
+            &mut store,
+            "d",
+            DASHBOARD_MANIFEST_CLASS,
+            envelope(&with_sentence),
+        )?;
+        accept(&mut store, "d")?;
+        drop(store);
+        let mut log = s2w_log::SqliteEventLog::open(dir)?;
+        let payloads = [
+            json!({"id": "a1"}),
+            json!({"id": "a2"}),
+            json!({"other": 1}),
+            // Not the first payload again: the log keeps one copy of identical content.
+            json!({"id": "a1", "n": 2}),
+        ];
+        let events = payloads
+            .iter()
+            .zip(1_u8..)
+            .map(|(payload, i)| {
+                Ok(s2w_model::RawEvent {
+                    source: s2w_model::SourceId::new(SOURCE)?,
+                    cursor: s2w_model::Cursor::new(vec![i])?,
+                    received_at: s2w_model::Timestamp::from_millis(1_000 + i64::from(i)),
+                    payload: payload.to_string().into_bytes(),
+                })
+            })
+            .collect::<Result<Vec<_>, s2w_model::ModelError>>()?;
+        s2w_log::EventLog::append_batch(&mut log, events)?;
+        Ok(())
+    }
+
+    /// One MCP tool call's text over an in-process transport.
+    async fn mcp_text(state: QueryState, tool: &'static str, args: Value) -> String {
+        let (server_io, client_io) = tokio::io::duplex(1 << 16);
+        let server = WorldMcp::new(state);
+        let task = tokio::spawn(async move {
+            server
+                .serve(server_io)
+                .await
+                .unwrap()
+                .waiting()
+                .await
+                .unwrap();
+        });
+        let client = ().serve(client_io).await.unwrap();
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new(tool).with_arguments(args.as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.is_error, Some(false));
+        let text = result.content[0].as_text().unwrap().text.clone();
+        client.cancel().await.unwrap();
+        task.await.unwrap();
+        text
+    }
+
+    #[test]
+    fn sentences_render_the_tail_and_http_and_mcp_serve_the_same_bytes() -> TestResult {
+        let dir = TestDirectory::new("sentences");
+        seed_sentences(&dir.0)?;
+        let state = QueryState::new(Timeline::new(DEFAULT_HUB_IN_DEGREE_CAP)).with_log_dir(&dir.0);
+        run(async {
+            let (status, http) = http_get(state.clone(), "/worlds/default/sentences?last=3").await;
+            assert_eq!(status, StatusCode::OK);
+            let view: Value = serde_json::from_slice(&http).unwrap();
+            let rows = view["rows"].as_array().unwrap();
+            let positions: Vec<_> = rows
+                .iter()
+                .map(|r| r["position"].as_u64().unwrap())
+                .collect();
+            assert_eq!(positions.len(), 3, "the last 3 of 4: {view}");
+            assert!(positions.windows(2).all(|w| w[0] < w[1]), "oldest first");
+            let sentences: Vec<_> = rows.iter().map(|r| r["sentence"].clone()).collect();
+            assert_eq!(
+                sentences,
+                vec![
+                    json!("item a2 changed"),
+                    Value::Null,
+                    json!("item a1 changed")
+                ]
+            );
+            assert_eq!(rows[1]["entities"], json!([]));
+            let entity = &rows[2]["entities"][0];
+            assert_eq!(entity["type"], "item");
+            assert!(
+                entity.get("entity").is_none(),
+                "the head world is empty: {entity}"
+            );
+            let key = entity["key"].as_str().unwrap().to_owned();
+
+            // Once the head world holds the key, its id is filled in.
+            state
+                .append(
+                    s2w_model::Timestamp::from_millis(1),
+                    s2w_core::WorldEvent::EntityObserved {
+                        key: s2w_core::NaturalKey::new(key),
+                        entity_type: "item".to_owned(),
+                        attrs: std::collections::BTreeMap::new(),
+                    },
+                )
+                .unwrap();
+            let (_, http) = http_get(state.clone(), "/worlds/default/sentences?last=3").await;
+            let view: Value = serde_json::from_slice(&http).unwrap();
+            assert!(view["rows"][2]["entities"][0]["entity"].is_u64(), "{view}");
+            assert!(view["rows"][0]["entities"][0].get("entity").is_none());
+
+            for bad in ["last=0", "last=201", "last=x", ""] {
+                let (status, body) =
+                    http_get(state.clone(), &format!("/worlds/default/sentences?{bad}")).await;
+                assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
+                let body: Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["error"], "bad_parameter", "{bad}");
+            }
+
+            let text = mcp_text(state, "sentences", json!({"world":"default","last":3})).await;
+            assert_eq!(text.as_bytes(), http.as_slice(), "byte-equal to the route");
+        });
+        Ok(())
+    }
+
     #[test]
     fn an_unusable_dashboard_row_can_be_rejected_but_not_accepted() -> TestResult {
         let dir = TestDirectory::new("guard");

@@ -1204,6 +1204,34 @@ fn the_fallback_abstains_past_the_built_on_cap() {
     assert_eq!(m.validate(&input.context()), Ok(()));
 }
 
+/// A fallback sentence names its type in its text and reads paths: rename both.
+fn relabel_sentences(
+    manifest: &mut s2w_model::DashboardManifest,
+    labels: &BTreeMap<String, String>,
+    obf: &Obfuscate,
+) {
+    for event in manifest.events.iter_mut().flatten() {
+        let sentence = &mut event.sentence;
+        let (label, rest) = if let Some(rest) = sentence.text.strip_prefix("{0}: ") {
+            let label = rest.strip_suffix(" {1}").expect("event-type sentence");
+            (label.to_owned(), ("{0}: ", " {1}"))
+        } else {
+            let label = sentence
+                .text
+                .strip_suffix(" {0}")
+                .expect("type-key sentence");
+            (label.to_owned(), ("", " {0}"))
+        };
+        sentence.text = format!("{}{}{}", rest.0, labels[label.as_str()], rest.1);
+        for field in &mut sentence.fields {
+            let s2w_model::SentenceField::Path(p) = field else {
+                panic!("the fallback shows plain paths only");
+            };
+            *p = obf.path(p);
+        }
+    }
+}
+
 #[test]
 fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
     use s2w_model::{DashboardManifest, Label};
@@ -1245,27 +1273,7 @@ fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
             attr.attr = names[attr.attr.as_str()].clone();
         }
     }
-    // A sentence names its type in its text and reads obfuscated paths.
-    for event in expected.events.iter_mut().flatten() {
-        let sentence = &mut event.sentence;
-        let (label, rest) = if let Some(rest) = sentence.text.strip_prefix("{0}: ") {
-            let label = rest.strip_suffix(" {1}").expect("event-type sentence");
-            (label.to_owned(), ("{0}: ", " {1}"))
-        } else {
-            let label = sentence
-                .text
-                .strip_suffix(" {0}")
-                .expect("type-key sentence");
-            (label.to_owned(), ("", " {0}"))
-        };
-        sentence.text = format!("{}{}{}", rest.0, labels[label.as_str()], rest.1);
-        for field in &mut sentence.fields {
-            let s2w_model::SentenceField::Path(p) = field else {
-                panic!("the fallback shows plain paths only");
-            };
-            *p = obf.path(p);
-        }
-    }
+    relabel_sentences(&mut expected, &labels, &obf);
     expected
         .types
         .sort_by(|x, y| x.type_label.cmp(&y.type_label));
@@ -1277,6 +1285,24 @@ fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
     );
     assert!(a.events.is_some(), "vacuous: no sentence");
     assert_eq!(b, expected);
+}
+
+/// Discovery leaves a unique value out of the mapping; an accepted mapping may still read it,
+/// as an attribute of every type and as the key of a type of its own.
+fn read_everywhere(source: &mut s2w_model::SourceInput, at: &FieldPath) {
+    for rule in &mut source.mapping.entities {
+        rule.attrs.push(s2w_model::AttrRule {
+            name: "when".to_owned(),
+            path: at.clone(),
+        });
+    }
+    source.mapping.entities.push(s2w_model::EntityRule {
+        id: "when".to_owned(),
+        type_label: "when".to_owned(),
+        key: vec![at.clone()],
+        attrs: Vec::new(),
+    });
+    source.mapping_identity = source.mapping.identity().expect("valid mapping");
 }
 
 #[test]
@@ -1295,22 +1321,7 @@ fn the_fallback_never_labels_a_type_by_a_date_time() {
         .collect();
     let mut input = manifest_input(&events);
     let when = path(&["when"]);
-    // Discovery leaves a unique value out of the mapping; an accepted mapping may still read
-    // it, as an attribute of every type and as the key of a type of its own.
-    let source = &mut input.sources[0];
-    for rule in &mut source.mapping.entities {
-        rule.attrs.push(s2w_model::AttrRule {
-            name: "when".to_owned(),
-            path: when.clone(),
-        });
-    }
-    source.mapping.entities.push(s2w_model::EntityRule {
-        id: "when".to_owned(),
-        type_label: "when".to_owned(),
-        key: vec![when.clone()],
-        attrs: Vec::new(),
-    });
-    source.mapping_identity = source.mapping.identity().expect("valid mapping");
+    read_everywhere(&mut input.sources[0], &when);
     assert!(
         input.sources[0]
             .paths
