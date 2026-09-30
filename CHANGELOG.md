@@ -19,19 +19,19 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 **Learned:** the screenshot shows the gap honestly. Types that have no manifest row still show raw key text in the graph and legend (for example `editor/first_edit_dt+performer/first_edit_dt · keys`), because the viewer only names what the manifest names ([#351](https://github.com/daveremy/stream2worlds/issues/351)).
 
-**Changed course:** the wording ruling is that the UI says "changes", not "edits". The manifest-driven noun, so a world can say "edits" where that is true, is follow-up [#347](https://github.com/daveremy/stream2worlds/issues/347). The plan for [#289](https://github.com/daveremy/stream2worlds/issues/289) called the feed "Live edits"; it shipped as "Live changes".
+**Changed course:** the wording ruling is that the UI says "changes", not "edits": manifest v0 has no event noun, and hard-coding "edits" would break decision 0018 (no compiled domain vocabulary). The manifest-driven noun, so a world can say "edits" where that is true, is follow-up [#347](https://github.com/daveremy/stream2worlds/issues/347). The plan for [#289](https://github.com/daveremy/stream2worlds/issues/289) called the feed "Live edits"; it shipped as "Live changes".
 
 **Next:** name the unnamed types in the graph and legend ([#351](https://github.com/daveremy/stream2worlds/issues/351)), then the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)). The live-demo label share ([#342](https://github.com/daveremy/stream2worlds/issues/342)) is still open.
 
 ## The demo's display work gets a first leg, with no merge — [#289](https://github.com/daveremy/stream2worlds/issues/289) (2026-09-30)
 
-**Shipped:** no merge. Only the first leg of [#289](https://github.com/daveremy/stream2worlds/issues/289) (names, kind icons and a sentence feed in the viewer) ran this sprint. The change merged in the next sprint ([#350](https://github.com/daveremy/stream2worlds/pull/350)).
+**Shipped:** no merge. Leg A of [#289](https://github.com/daveremy/stream2worlds/issues/289) cleaned the server-side sentence text (`display_text` strips `/* ... */` section markers, spaces underscored titles and drops a trailing separator) so sentences stop carrying raw wiki markup. The viewer work (names, kind icons, the sentence feed) was still owed and merged in the next sprint ([#350](https://github.com/daveremy/stream2worlds/pull/350)).
 
-**Learned:** nothing measured this sprint.
+**Learned:** plan review blocked twice on the viewer design, and both points were folded into the plan: one renderer per mode, so live rows cannot repaint the old table over the sentence list, and an explicit `<tbody>`.
 
-**Changed course:** none.
+**Changed course:** the brief promised "Live edits" wording, but manifest v0 has an entity noun and no event noun, and hard-coding "edits" would break decision 0018 (no compiled domain vocabulary). The page says "Live changes"; the manifest noun is [#347](https://github.com/daveremy/stream2worlds/issues/347).
 
-**Next:** finish and deploy [#289](https://github.com/daveremy/stream2worlds/issues/289), then capture the README screenshot from the live demo.
+**Next:** the viewer work, then the README screenshot from the live demo.
 
 ## A System 2 manifest names the demo's world, and the fallback label needs a floor — [#344](https://github.com/daveremy/stream2worlds/pull/344), [#288](https://github.com/daveremy/stream2worlds/issues/288) (2026-09-30)
 
@@ -932,7 +932,7 @@ the bridge registry (`s2w-app::Bridge`/`EngineRegistry`) remains a documented ga
 **Shipped:** retired the Wikimedia-bound compiled engines (`WikimediaPageChangeEngine`, the
 local-embeddings engine and its `model2vec-rs` dependency), the `Wikimedia` SSE dialect, and
 the `--wiki` flag; the `wikipedia` preset is now URL+settings data over the generic `sse`
-transport, with no domain-named dialect behind it. Two new `cargo xtask check`
+transport, with no domain-named dialect behind it (decision 0018). Two new `cargo xtask check`
 fitness functions enforce the rule going forward: a vocabulary scan (`xtask/src/vocabulary.rs`)
 that denylists domain terms across every crate's `src/` tree and the web view's TypeScript, and
 an obfuscation-replay check (`xtask/src/obfuscation.rs`) that folds the golden event log twice —
