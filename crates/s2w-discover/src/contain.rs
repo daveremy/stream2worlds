@@ -65,6 +65,8 @@ pub(crate) fn measure(
                 let carry_pct = pct(carried, shared);
                 let accepted = coverage_pct >= cfg.contain_pct && carry_pct >= cfg.carry_pct;
                 if accepted {
+                    // `candidates` ascends and `j > i`, so `a < b`: `assemble` binary-searches
+                    // links as `(smaller, larger)`.
                     links.push((a, b));
                 }
                 measured.push(Containment {

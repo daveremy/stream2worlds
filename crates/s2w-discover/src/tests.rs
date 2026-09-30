@@ -659,9 +659,13 @@ fn a_carried_identifier_joins_its_source_in_one_type() {
 
 #[test]
 fn stage_5b_thresholds_are_inclusive() {
-    let events = carried(1200, 30);
+    let mut events = carried(1200, 30);
+    // One value first seen at both paths in the same event counts against carry, so carry sits
+    // below 100 and its inclusive edge is tested, not only coverage's.
+    events[11]["w"] = events[11]["n"].clone();
     let (profile, _) = run(&events, &[]);
     let link = containment(&profile, "w", "n").expect("measured").clone();
+    assert!(link.carry_pct < 100, "{link:?}");
     let at = |cfg: Config| {
         let (p, _) = run_with(&events, &[], &cfg);
         containment(&p, "w", "n").expect("measured").accepted

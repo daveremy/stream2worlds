@@ -329,8 +329,10 @@ plain `recentchange`. `revision.new` and `revision.old` are each unique per even
 correctly calls both `EventId`; a revision recurs only across the two paths (one edit's `new` is a
 later edit of the page's `old`).
 
-A throwaway probe (not committed), then the new profile table, measured every pair of keyable
-paths with at least 20 distinct values on `dev`: shared distinct values, **coverage** (the share
+A throwaway probe (not committed) measured every pair of keyable paths with at least 20 distinct
+values on `dev`; the committed profile table measures only stage 5b's candidates (`Entity` and
+`EventId` paths, below), so its `length` and `log_params.target` rows come from the probe alone.
+Both report shared distinct values, **coverage** (the share
 of one path's distinct values also seen at the other) and **carry** (the share of shared values
 first seen at the other path in a strictly earlier event; a first sighting in the same event
 counts against it).
@@ -363,7 +365,8 @@ order (exact sets, no sketch):
 2. coverage of A is at least `Config::contain_pct` (10) percent;
 3. carry is at least `Config::carry_pct` (95) percent.
 
-Both directions are measured; a pair cannot pass both (the two carry shares sum to at most 100%).
+Both directions are measured; at the default `carry_pct` a pair cannot pass both (the two carry
+shares sum to at most 100%; a threshold at or below 50 could accept both, and the link is the same).
 An accepted pair joins stage 5's alias classes: the key classes are the connected components of
 "aliased, or linked by 5b", and stage 6 (1:1 merge), labels and relationships are unchanged. The
 contained paths become key paths; an `EventId` member carries no attributes (it has no repeat
