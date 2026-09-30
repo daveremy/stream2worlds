@@ -231,7 +231,8 @@ form.addEventListener('submit', event => {
     const value = (form.elements.namedItem(key) as HTMLInputElement).value.trim();
     if (value) params.set(key, value);
   }
-  params.set('lod', submittedLod(lodSelect.value, detail.shown, detail.asked));
+  const lod = submittedLod(lodSelect.value, detail.shown, detail.asked);
+  if (lod) params.set('lod', lod); else params.delete('lod');
   history.replaceState(null, '', visibleUrl(params)); void start();
 });
 document.querySelector('#pin')!.addEventListener('click', () => {
