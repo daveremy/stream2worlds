@@ -559,6 +559,23 @@ mod tests {
         });
     }
 
+    /// Appends `count` relationships among the first `entities` entities, one write
+    /// reservation each, as the bridge does between polls.
+    async fn append_links(state: QueryState, entities: u32, count: u32) {
+        for n in 0..count {
+            let reservation = state.reserve_write().await;
+            let event = WorldEvent::RelationshipObserved {
+                from: NaturalKey::new(format!("e{}", n * 7 % entities)),
+                to: NaturalKey::new(format!("e{}", n * 13 % entities)),
+                kind: "near".into(),
+            };
+            let at = Timestamp::from_millis(i64::from(entities + n));
+            state.append(at, event).expect("append");
+            drop(reservation);
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    }
+
     /// Many readers, prompt and late, across generations while the fold appends (s2w#270's
     /// leg-A panic hunt): every body is whole, bodies under one `ETag` are byte-identical, and
     /// each equals `serde_json::to_vec` of [`world_view`](super::super::view::world_view) at its
@@ -570,23 +587,7 @@ mod tests {
             const ENTITIES: u32 = 3_000;
             let state = state(ENTITIES, 32);
             let app = router(state.clone());
-            let writer = {
-                let state = state.clone();
-                tokio::spawn(async move {
-                    for n in 0..300u32 {
-                        let reservation = state.reserve_write().await;
-                        let event = WorldEvent::RelationshipObserved {
-                            from: NaturalKey::new(format!("e{}", n * 7 % ENTITIES)),
-                            to: NaturalKey::new(format!("e{}", n * 13 % ENTITIES)),
-                            kind: "near".into(),
-                        };
-                        let at = Timestamp::from_millis(i64::from(ENTITIES + n));
-                        state.append(at, event).expect("append");
-                        drop(reservation);
-                        tokio::time::sleep(Duration::from_millis(1)).await;
-                    }
-                })
-            };
+            let writer = tokio::spawn(append_links(state.clone(), ENTITIES, 300));
             let mut by_tag: BTreeMap<String, Bytes> = BTreeMap::new();
             let mut compared = 0;
             for _ in 0..15 {
