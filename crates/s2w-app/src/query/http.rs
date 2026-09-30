@@ -390,16 +390,19 @@ impl QueryState {
     /// Waits, without blocking the runtime, until the timeline can be written, and keeps
     /// `/world` bodies from taking a read guard until the reservation drops (s2w#259).
     ///
-    /// `serve`'s bridge appends on the current-thread runtime, while a `/world` body holds a read
-    /// guard on a blocking thread and waits for that same runtime to drain its channel. A plain
-    /// `write` there blocked the runtime, nothing drained the body, and after [`stream::STALL`]
-    /// the body ended cut short at the channel's capacity (~4 MiB): the demo viewer's "Failed to
-    /// fetch". Hold the reservation across the synchronous section that writes, and take the
-    /// write lock there with no await in between.
+    /// `serve`'s bridge appends on the current-thread runtime, while a `/world` generation holds
+    /// a read guard on a blocking thread for its capture. Before s2w#272 the guard was held
+    /// through the write, which waits for that same runtime to drain the body's channel: a
+    /// plain `write` there blocked the runtime, nothing drained the body, and after
+    /// [`stream::STALL`] the body ended cut short at the channel's capacity (~4 MiB), the demo
+    /// viewer's "Failed to fetch". The capture no longer waits on the runtime, but a plain
+    /// `write` would still block the runtime for a whole capture. Hold the reservation across
+    /// the synchronous section that writes, and take the write lock there with no await in
+    /// between.
     ///
     /// A body already waiting goes first, for at most [`stream::STALL`]: it wakes within
-    /// [`YIELD_MAX_BACKOFF`], so this wait is short unless a body is stuck. A body already
-    /// streaming is waited out: at most [`stream::BODY_BUDGET`], as before this reservation.
+    /// [`YIELD_MAX_BACKOFF`], so this wait is short unless a body is stuck. A capture already
+    /// under way is waited out: the guard is released once the view is copied out.
     pub(crate) async fn reserve_write(&self) -> WriteReservation {
         let until = Instant::now() + stream::STALL;
         let mut backoff = Duration::from_millis(1);
@@ -419,7 +422,8 @@ impl QueryState {
         reservation
     }
 
-    /// The read guard a `/world` body holds while it streams. Taken only while no write is
+    /// The read guard a `/world` generation holds while it captures its view (s2w#272: released
+    /// before the sort and the write). Taken only while no write is
     /// reserved (checked after acquiring, so a reservation made meanwhile is seen): a body never
     /// holds the guard a reserved writer is about to take on the runtime it waits for. Gives up
     /// with [`QueryError::Unavailable`] (503; the viewer retries) after the body wait limit

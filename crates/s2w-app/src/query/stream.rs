@@ -16,16 +16,16 @@ pub(crate) const CHUNK_BYTES: usize = 64 * 1024;
 /// Chunks the channel holds before the writer waits for the client.
 pub(crate) const CHUNKS_IN_FLIGHT: usize = 64;
 
-/// How long the writer waits for room in the channel before giving up. The writer may hold the
-/// timeline's read guard, which blocks every append (`serve`'s bridge waits for it without
-/// blocking the runtime: `QueryState::reserve_write`, s2w#259), so a client that stops reading must not
-/// hold it for longer than this per chunk.
+/// How long the writer waits for room in the channel before giving up. The `/world` writer
+/// holds no timeline guard (s2w#272), so a client that stops reading no longer blocks appends;
+/// this bounds how long it keeps its generation (and every subscriber sharing it, and the
+/// requests queued behind it) waiting per chunk.
 pub(crate) const STALL: Duration = Duration::from_secs(5);
 
 /// How long the writer may wait for the client in total, counted from the channel's creation and
 /// checked whenever the channel is full. [`STALL`] bounds one chunk, so a client reading just
-/// under it per chunk could otherwise hold the read guard for hours on a large body; past this,
-/// the body ends with an error and the guard is released. A client that keeps up is never cut.
+/// under it per chunk could otherwise hold its generation, and the queue behind it, for hours on
+/// a large body; past this, the body ends with an error. A client that keeps up is never cut.
 /// A local read of the recorded load's ~190 MiB world takes 2-4 s (#216).
 pub(crate) const BODY_BUDGET: Duration = Duration::from_secs(60);
 

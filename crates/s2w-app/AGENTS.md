@@ -54,6 +54,10 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   503 `world_queue_full`. Never build a full view outside the queue: each holds about 330 MiB. The
   one exception is the type summary (`lod=type&links=none`), served alone so first paint never
   waits.
+- A `/world` generation holds the timeline read guard for its capture only
+  (`Projection::capture`, `query/projection.rs`, s2w#272, decision 0028 part B): the sort and
+  the write run after the guard is released. Never sort, serialize or wait on a client under the
+  guard, and never borrow the world from a captured view; hold an entity's `Arc<EntityState>`.
 - The System 1 bridge (`bridge/`, decision 0011) writes to `QueryState`'s timeline only
   through `append`, resumes from a log position (never a fold offset), and refuses a non-empty
   timeline (`Bridge::resume` after a snapshot restore: one whose head is past its base). It commits each batch's verdicts to the verdict store before serving any of its

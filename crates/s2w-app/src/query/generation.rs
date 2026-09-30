@@ -4,9 +4,14 @@
 //! four at once (s2w#243: a 1.86 GiB peak). Here at most one full projection is in
 //! flight per [`QueryState`]: a *generation* takes the read guard once, resolves the epoch, the
 //! offset and the `ETag`, answers every subscriber whose `If-None-Match` names that tag with
-//! `304` before building anything, builds the projection only if a subscriber is left, and
+//! `304` before building anything, captures the projection only if a subscriber is left, and
 //! serializes it once into a fan-out writer ([`stream::fan_out`]) that hands each chunk to every
 //! subscriber.
+//!
+//! The guard is held for the capture only (s2w#272, decision 0028 part B): [`capture`] copies
+//! out an owned [`Projection`] and releases the guard; the sort ([`Projection::prepare`]) and
+//! the write run without it. A client that stops reading delays its own generation's fan-out
+//! (up to [`stream::STALL`] per chunk), never an append.
 //!
 //! Requests are grouped by exactly what the `ETag` and the body depend on: the requested epoch,
 //! `at`, `lod`, `focus`, `hops` and `links` ([`Key`]); equal keys produce equal bytes. The key is
