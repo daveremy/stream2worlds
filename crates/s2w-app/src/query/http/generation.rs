@@ -38,13 +38,13 @@ use std::time::Instant;
 
 use tokio::sync::oneshot;
 
-use super::QueryError;
-use super::epoch::Epoch;
-use super::http::{QueryState, WorldAnswer, etag_matches, resolve_offset, write_view};
-use super::projection::Projection;
-use super::read_timings::Phases;
-use super::stream;
-use super::view::{LinkDetail, ViewParams};
+use super::{QueryState, WorldAnswer, etag_matches, resolve_offset, write_view};
+use crate::query::QueryError;
+use crate::query::epoch::Epoch;
+use crate::query::projection::Projection;
+use crate::query::read_timings::Phases;
+use crate::query::stream;
+use crate::query::view::{LinkDetail, ViewParams};
 
 /// The most requests queued for a generation at once; one more answers `503`. The same bound
 /// as the concurrent `/events` streams.
@@ -697,7 +697,7 @@ mod tests {
 
     /// Many readers, prompt and late, across generations while the fold appends (s2w#270's
     /// leg-A panic hunt): every body is whole, bodies under one `ETag` are byte-identical, and
-    /// each equals `serde_json::to_vec` of [`world_view`](super::super::view::world_view) at its
+    /// each equals `serde_json::to_vec` of [`world_view`](crate::query::view::world_view) at its
     /// offset. Entity ids span one to four digits, so the `e:<id>` string sort sees every key
     /// length.
     #[test]

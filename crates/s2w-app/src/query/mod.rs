@@ -10,7 +10,6 @@ mod dashboard;
 mod delta;
 mod diff;
 mod epoch;
-mod generation;
 mod http;
 mod projection;
 mod proposal_store;

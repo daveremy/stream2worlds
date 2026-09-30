@@ -1,6 +1,8 @@
 //! The query API over HTTP (axum), with SSE deltas. Handlers parse parameters and call the
 //! pure functions; every error is `{ "error": <code>, "message": <text> }`.
 
+mod generation;
+
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -28,7 +30,6 @@ use super::dashboard::DashboardView;
 use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
 use super::epoch::Epoch;
-use super::generation::{self, Generations};
 use super::projection::HeadView;
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
@@ -40,6 +41,7 @@ use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{
     ACTUAL_BRANCH, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary, world_view,
 };
+use generation::Generations;
 
 /// How long a `/world` body waits for reserved writes before answering 503 (s2w#259). A
 /// reserved section is one bridge poll; the viewer retries a 503.
