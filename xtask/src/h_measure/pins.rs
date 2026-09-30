@@ -8,7 +8,6 @@ use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 
 use super::key::KeySpec;
 use crate::discover_replay::envelopes;
@@ -67,13 +66,7 @@ pub(crate) struct Pins {
     corpora: BTreeMap<String, CorpusPin>,
 }
 
-/// Lower-case hex sha256 of `bytes`.
-pub(crate) fn sha256(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
+pub(crate) use crate::sha256;
 
 fn toml_file<T: for<'de> Deserialize<'de>>(root: &Path, name: &str) -> Result<T, String> {
     let rel = format!("{DATA}/{name}");

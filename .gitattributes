@@ -1,3 +1,4 @@
 crates/s2w-app/web/dist/** linguist-generated=true diff=generated
 crates/s2w-app/web/package-lock.json linguist-generated=true
 crates/s2w-app/tests/fixtures/*.raw.sse -diff linguist-generated=true
+docs/evaluation-contract.md text eol=lf

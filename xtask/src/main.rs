@@ -57,6 +57,9 @@
 //!     crate target. Edges run from the naming module to the module that defines the item,
 //!     through `use`/`pub use` re-exports and globs; ancestor edges are containment (s2w#67).
 //!     Report-only until s2w#240 and s2w#241.
+//! 16. **Frozen contract** (`contract_frozen.rs`): everything above `## Dated notes after
+//!     sign-off` in `docs/evaluation-contract.md` matches the sha256 of the signed text pinned
+//!     in the source; changes go in dated notes below that heading (s2w#59).
 //!
 //! Escape hatches are not counted here: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -68,8 +71,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 mod clippy_config;
+mod contract_frozen;
 mod decision_numbers;
 mod discover_replay;
 mod golden;
@@ -113,6 +118,14 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Lower-case hex sha256 of `bytes`.
+fn sha256(bytes: &[u8]) -> String {
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 fn workspace_root() -> PathBuf {
@@ -267,6 +280,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(clippy_config::check(root, &meta));
     problems.extend(scale_mem_check::check(root, tighten));
     problems.extend(decision_numbers::check(root));
+    problems.extend(contract_frozen::check(root));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -301,7 +315,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers, frozen contract: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))

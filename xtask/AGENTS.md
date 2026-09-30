@@ -12,7 +12,8 @@ mapping against an answer key (s2w#56).
   11 runs a recorded raw stream through `MappingEngine`), `s2w-discover` (check 12 profiles a
   recorded raw stream twice), `s2w-sources` (checks 12 and 13 and `cargo xtask scale` cut a
   recorded stream into frames with the live SSE adapter's `replay_frames`, s2w#174), `sha2`
-  (`h_measure/pins.rs` checks answer keys and corpora against their sha256 pins, s2w#56)
+  (the crate-root `sha256` helper: `h_measure/pins.rs` checks answer keys and corpora against
+  their sha256 pins, s2w#56; `contract_frozen.rs` hashes the signed evaluation contract, s2w#59)
 
 The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-workspace-layers.md`.
 
@@ -120,6 +121,11 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     does on the plain key's `wiki`). Reports and notes call it the oracle-v0 ceiling (#245).
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
+- `contract_frozen.rs`: check 16, the signed `docs/evaluation-contract.md` only grows by dated
+  notes. Every byte above `## Dated notes after sign-off` must hash to `SIGNED_SHA256`; changes
+  at or below that heading are free. The pin is in the source rather than a tagged commit so the
+  check needs no git history; `.gitattributes` pins the file to LF. A missing file or heading fails. Update the pin only when Dave
+  re-signs the contract (s2w#59).
 - `module_cycles.rs`: check 15, no dependency cycle between the modules of one crate target
   (s2w#67, plan #44 §1c). Edges run leaf to leaf, from the module naming a path to the module
   that defines the item; an edge to or from an ancestor is containment and is dropped. Tarjan
