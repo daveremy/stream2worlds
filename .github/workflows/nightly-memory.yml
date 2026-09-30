@@ -52,6 +52,6 @@ jobs:
           if [ -n "$open" ]; then
             jq -n --arg body "$body" '{body: $body}' | curl -fsS "${auth[@]}" -X POST "${api}/issues/${open}/comments" -d @- > /dev/null
           else
-            jq -n --arg body "$body" '{title: "nightly-memory: backfill_memory sweep failed", body: $body, labels: ["nightly-memory"]}' \
+            jq -n --arg body "$body" '{title: "nightly-memory run failed", body: $body, labels: ["nightly-memory"]}' \
               | curl -fsS "${auth[@]}" -X POST "${api}/issues" -d @- > /dev/null
           fi

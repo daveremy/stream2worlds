@@ -131,10 +131,10 @@ mod backfill {
     /// 780.8 MiB peak on the post-#291 world plus a 29 MiB margin.
     const SERVE_PEAK_LIMIT: usize = 810 * 1024 * 1024;
     /// The most a serve process may hold at its peak with a viewer connected (s2w#216's finish
-    /// line; decision 0026, re-derived 2026-09-30 in s2w#282): the measured 1,280 MiB worst
-    /// peak plus a 40 MiB margin. Above the demo box's `MemoryMax=1G`; s2w#282 proposes the
-    /// box's new value.
-    const VIEWER_PEAK_LIMIT: usize = 1320 * 1024 * 1024;
+    /// line; decision 0026, re-derived 2026-09-30 in s2w#282): the worst measured peak,
+    /// 1,297.1 MiB, plus a 43 MiB margin. Above the demo box's `MemoryMax=1G`; s2w#282 proposes
+    /// the box's new value.
+    const VIEWER_PEAK_LIMIT: usize = 1340 * 1024 * 1024;
     /// How often, in milliseconds, the `viewer` reader asks for the world. Unset: 5000, the
     /// page's `WORLD_REFRESH_MS` (the real client); 1000 is the page's old rate, a worst case.
     const VIEWER_TICK_MS: &str = "S2W_BACKFILL_MEMORY_VIEWER_TICK_MS";
