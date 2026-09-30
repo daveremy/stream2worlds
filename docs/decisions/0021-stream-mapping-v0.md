@@ -73,7 +73,8 @@ that is not a key in the fixture. It also fails when the run is vacuous: pass A 
 entity types, a relationship, a multi-part key, an integer key part and a string attribute, the
 maps must change the claims, and pass B may not carry any original string. Self-tests prove it
 fails for an engine keyed on a raw field name, an obfuscator that skips the decoded string, a
-dropped claim and a changed label.
+dropped claim and a changed label. *(2026-09-29, #245 PR 2: it also replays the linked fixture
+below and requires a merge there; see 0027.)*
 
 **Fixtures.** `raw-sample.jsonl` is the first 20 events of
 `crates/s2w-sources/testdata/wikipedia-page-change.raw.sse` (captured 2026-09-27), each wrapped
@@ -102,6 +103,8 @@ EOF
 `sample.mapping.json` is written by hand. It keys an editor on one path, an edited object on
 two (a site id and an object id) and a site on one, with relationships editor → object and
 object → site. It is recorded domain data under `testdata/` (0018 §4); no Rust source names it.
+*(2026-09-29, #245 PR 2)* `sample-links.mapping.json` is also written by hand: the same mapping
+at version 2 plus a `site-domain` rule keyed on `data.meta.domain`, absorbed by `site`.
 
 ## Consequences
 
@@ -132,6 +135,11 @@ identity. `MappingEngine` is now registered, by `serve`, from stored proposals.
 `links`: pairs of entity rules with one type label whose different keys name one entity. The
 base version stays 1 (`MAPPING_VERSION`) and `MAPPING_VERSION_LINKS = 2`; `validate()` reads
 both, and a version-1 mapping keeps its bytes and identity. Until #245 PR 2, `MappingEngine`
-refuses a mapping with links.
+refused a mapping with links.
+
+**2026-09-29 (s2w#245 PR 2, [0027](0027-stream-mapping-links.md)).** `MappingEngine` claims a
+link's merge between the entities and the relationships. Check 11 also replays
+`sample-links.mapping.json` (version 2, one link) and maps a merge claim's two keys; for that
+fixture pass A must claim a merge that takes effect in the fold (joins two entities).
 
 verify: `cargo test -p s2w-system1 mapping && cargo xtask check` passes.

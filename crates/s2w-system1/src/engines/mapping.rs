@@ -24,9 +24,13 @@ use crate::{AbstainReason, Confidence, Engine, Verdict};
 /// integer or bool); floats, out-of-range numbers, nulls, arrays and objects never match. The
 /// natural key is [`NaturalKey::from_parts`]: the type label, then each key part, joined by
 /// [`s2w_model::KEY_SEPARATOR`], so a string `"7"` and an integer `7` stay distinct keys and
-/// two types never share a key. A relationship is claimed when both endpoint rules matched. No rule
-/// matched abstains `Insufficient`; otherwise the claims are proposed as certain, entities in
-/// rule order then relationships in rule order.
+/// two types never share a key. A link (decision 0027) claims
+/// [`WorldEvent::EntitiesMerged`] when both of its rules matched and gave different keys; the
+/// fold applies it (first merge wins per absorbed key, decision 0005). A relationship is claimed
+/// when both endpoint rules matched. No rule matched abstains `Insufficient`; otherwise the
+/// claims are proposed as certain: entities in rule order, then merges in link order, then
+/// relationships in rule order. Merges precede relationships so this payload's edges bind to
+/// the survivor's entity, since the fold never rewrites an edge.
 #[derive(Debug, Clone)]
 pub struct MappingEngine {
     mapping: StreamMapping,
@@ -46,23 +50,15 @@ pub enum MappingEngineError {
     /// The mapping could not be encoded to compute its digest.
     #[error("mapping could not be encoded: {0}")]
     Encode(#[from] serde_json::Error),
-    /// The mapping has links, which this engine does not execute yet (decision 0027; s2w#245
-    /// PR 2 adds the merge claims). Refused rather than run, so a link is never silently dropped.
-    #[error("mapping has {0} link(s); this engine does not execute links yet (s2w#245)")]
-    LinksNotExecuted(usize),
 }
 
 impl MappingEngine {
     /// Validates `mapping` and computes its identity and provenance digest.
     ///
     /// # Errors
-    /// [`MappingEngineError::Invalid`] for a mapping that fails [`StreamMapping::validate`];
-    /// [`MappingEngineError::LinksNotExecuted`] for a valid mapping with links.
+    /// [`MappingEngineError::Invalid`] for a mapping that fails [`StreamMapping::validate`].
     pub fn new(mapping: StreamMapping) -> Result<Self, MappingEngineError> {
         let name = format!("{NAME_PREFIX}{}", mapping.identity()?);
-        if !mapping.links.is_empty() {
-            return Err(MappingEngineError::LinksNotExecuted(mapping.links.len()));
-        }
         let mapping_hash = fnv1a64_hex(&serde_json::to_vec(&mapping)?);
         let provenance = provenance(&mapping_hash, None);
         Ok(Self {
@@ -109,6 +105,15 @@ impl MappingEngine {
                 })
             })
             .collect();
+        for link in &self.mapping.links {
+            if let (Some(survivor), Some(absorbed)) = (
+                self.matched(&keys, &link.survivor),
+                self.matched(&keys, &link.absorbed),
+            ) && survivor != absorbed
+            {
+                claims.push(WorldEvent::EntitiesMerged { survivor, absorbed });
+            }
+        }
         for rel in &self.mapping.relationships {
             if let (Some(from), Some(to)) =
                 (self.matched(&keys, &rel.from), self.matched(&keys, &rel.to))
@@ -140,6 +145,8 @@ impl Engine for MappingEngine {
     }
     fn version(&self) -> u32 {
         // The executor's code version. It does not identify the mapping; see `provenance`.
+        // Still 1 after links (decision 0027): every mapping that ran before claims exactly what
+        // it claimed, and a linked mapping is a new identity, so a new engine name.
         1
     }
     fn evaluate(&self, event: &RawEvent) -> Verdict {

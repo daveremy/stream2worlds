@@ -1,17 +1,20 @@
 //! Routes from stored stream mappings (decision 0023) at the bridge: a mapping engine is named
 //! by its mapping identity, so a restart under the same mapping replays its stored verdicts,
 //! and a restart under a different mapping never serves the old mapping's verdicts. The
-//! mutant these tests exist for is one bare engine name shared by every mapping.
+//! mutant these tests exist for is one bare engine name shared by every mapping. A stored
+//! version-2 mapping with a link routes too, and its merges reach the served world (decision
+//! 0027).
 
 use s2w_app::bridge::{Bridge, BridgeConfig, BridgeStats, EngineRegistry, Route};
 use s2w_app::query::{QueryState, Timeline};
 use s2w_app::routes::{self, ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS};
 use s2w_app::snapshot::world_hash;
+use s2w_core::{EntityId, NaturalKey, World};
 use s2w_log::{
     Actor, Decider, EventLog, LogPosition, LogReader, NewDecision, NewProposal, Outcome,
     ProposalStore, SqliteEventLog, SqliteProposalStore, SqliteVerdictStore, VerdictStore,
 };
-use s2w_model::{Cursor, RawEvent, SourceId, StreamMapping, Timestamp};
+use s2w_model::{Cursor, KeyPart, RawEvent, SourceId, StreamMapping, Timestamp};
 use s2w_system1::{Engine, MappingEngine, Verdict};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -117,6 +120,12 @@ fn bare(mapping: StreamMapping) -> Fallible<EngineRegistry> {
 
 /// Runs a fresh bridge over `dir` to the end of its log: its totals and its world's hash.
 fn run_bridge(dir: &TestDirectory, registry: EngineRegistry) -> Fallible<(BridgeStats, u64)> {
+    let (stats, world) = served(dir, registry)?;
+    Ok((stats, world_hash(&world)?))
+}
+
+/// Runs a fresh bridge over `dir` to the end of its log: its totals and its world.
+fn served(dir: &TestDirectory, registry: EngineRegistry) -> Fallible<(BridgeStats, World)> {
     let state = QueryState::new(Timeline::new(s2w_app::DEFAULT_HUB_IN_DEGREE_CAP));
     let config = BridgeConfig {
         batch: 4,
@@ -130,7 +139,7 @@ fn run_bridge(dir: &TestDirectory, registry: EngineRegistry) -> Fallible<(Bridge
         config,
     )?;
     drain(&mut bridge)?;
-    Ok((bridge.stats(), world_hash(&state.world_at(None)?)?))
+    Ok((bridge.stats(), state.world_at(None)?))
 }
 
 fn drain<R: LogReader, V: VerdictStore>(bridge: &mut Bridge<R, V>) -> TestResult {
@@ -254,6 +263,80 @@ fn the_feed_fingerprint_differs_between_two_stored_mappings() -> TestResult {
         a.feed_fingerprint(),
         EngineRegistry::with_defaults().feed_fingerprint(),
         "a route changes the fingerprint"
+    );
+    Ok(())
+}
+
+/// The linked fixture: mapping A at version 2 with `site` absorbing `site-domain`.
+fn mapping_links() -> Fallible<StreamMapping> {
+    Ok(serde_json::from_str(include_str!(
+        "../../s2w-system1/testdata/sample-links.mapping.json"
+    ))?)
+}
+
+/// The sample's sites as `(wiki_id key, meta.domain key)`, read from the raw lines directly,
+/// not through the engine: the test's own account of which keys must join.
+fn site_keys() -> Fallible<Vec<(NaturalKey, NaturalKey)>> {
+    let mut pairs = Vec::new();
+    for line in include_str!("../../s2w-system1/testdata/raw-sample.jsonl").lines() {
+        let outer: serde_json::Value = serde_json::from_str(line)?;
+        let data: serde_json::Value =
+            serde_json::from_str(outer["data"].as_str().ok_or("data is not a string")?)?;
+        let key = |value: &serde_json::Value| -> Fallible<NaturalKey> {
+            let text = value.as_str().ok_or("a site key part is not a string")?;
+            Ok(NaturalKey::from_parts(
+                "site",
+                &[KeyPart::Str(text.to_owned())],
+            )?)
+        };
+        let pair = (key(&data["wiki_id"])?, key(&data["meta"]["domain"])?);
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+    }
+    Ok(pairs)
+}
+
+/// A stored version-2 mapping routes in `serve`'s bridge, and its merges join each site's two
+/// encodings into one entity: the survivor's. Every `hosted_on` edge points at a survivor.
+#[test]
+fn a_stored_linked_mapping_routes_and_merges_at_the_bridge() -> TestResult {
+    let dir = TestDirectory::new("linked")?;
+    logged(&dir)?;
+    accept(&dir, "p-linked", mapping_links()?)?;
+    let (stats, world) = served(&dir, stored_routes(&dir)?)?;
+    assert_eq!(stats.evaluated, EVENTS);
+
+    let sites = site_keys()?;
+    assert_eq!(sites.len(), 7, "seven sites in the sample");
+    assert_eq!(world.merges().len(), sites.len(), "one merge per site");
+    let mut survivors = Vec::new();
+    for (survivor, absorbed) in &sites {
+        let id = world.id_of(survivor).ok_or("survivor unknown")?;
+        let absorbed_id = world.id_of(absorbed).ok_or("absorbed unknown")?;
+        assert_ne!(absorbed_id, id, "two keys, two minted ids");
+        assert_eq!(
+            world.resolve(absorbed_id),
+            id,
+            "{absorbed:?} joins {survivor:?}"
+        );
+        survivors.push(id);
+    }
+    let mut targets: Vec<EntityId> = world
+        .relationships()
+        .keys()
+        .filter(|rel| rel.kind == "hosted_on")
+        .map(|rel| rel.to)
+        .collect();
+    targets.extend(
+        world
+            .entities()
+            .filter_map(|(_, state)| state.hub_ref("hosted_on")),
+    );
+    assert!(!targets.is_empty());
+    assert!(
+        targets.iter().all(|to| survivors.contains(to)),
+        "{targets:?} vs {survivors:?}"
     );
     Ok(())
 }

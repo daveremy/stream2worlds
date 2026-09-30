@@ -183,6 +183,42 @@ fn golden_log_restores_to_the_same_world_at_every_split() -> TestResult {
     Ok(())
 }
 
+/// A world holding merges a mapping engine claimed (decision 0027, #245 PR 2) restores to the
+/// same world at every split: the linked fixture over the raw sample, one merge per line.
+#[test]
+fn an_engine_made_merge_restores_to_the_same_world_at_every_split() -> TestResult {
+    use s2w_model::{Cursor, RawEvent, SourceId};
+    use s2w_system1::{Engine, MappingEngine, Verdict};
+
+    let engine = MappingEngine::new(serde_json::from_str(include_str!(
+        "../../s2w-system1/testdata/sample-links.mapping.json"
+    ))?)?;
+    let mut events = Vec::new();
+    for (line, i) in include_str!("../../s2w-system1/testdata/raw-sample.jsonl")
+        .lines()
+        .zip(1_u8..)
+    {
+        let raw = RawEvent {
+            source: SourceId::new("test.linked")?,
+            cursor: Cursor::new(vec![i])?,
+            received_at: Timestamp::from_millis(i64::from(i)),
+            payload: line.as_bytes().to_vec(),
+        };
+        match engine.evaluate(&raw) {
+            Verdict::Propose { claims, .. } => events.extend(claims),
+            Verdict::Abstain { reason } => return Err(format!("{reason:?}").into()),
+        }
+    }
+    let world = fold(World::with_hub_cap(GOLDEN_CAP), &events);
+    assert_eq!(world.merges().len(), 7, "one merge per site");
+    let head = events.len();
+    let ts = wobbly_ts(head);
+    for o in 0..=head {
+        assert_equivalent(GOLDEN_CAP, &events, &ts, o)?;
+    }
+    Ok(())
+}
+
 /// Decision 0026: an entity's history needs every event since offset 0, so a restored
 /// timeline answers `offset_before_base` for it, never a partial or empty list.
 #[test]

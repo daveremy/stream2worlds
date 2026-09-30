@@ -4,6 +4,8 @@ use s2w_system1::AbstainReason;
 
 const RAW_TEXT: &str = include_str!("../../../crates/s2w-system1/testdata/raw-sample.jsonl");
 const MAPPING_TEXT: &str = include_str!("../../../crates/s2w-system1/testdata/sample.mapping.json");
+const LINKS_TEXT: &str =
+    include_str!("../../../crates/s2w-system1/testdata/sample-links.mapping.json");
 
 fn replay_with(harness: &Harness) -> Vec<String> {
     replay(RAW_TEXT, MAPPING_TEXT, harness)
@@ -158,7 +160,7 @@ fn a_key_that_does_not_read_fails_closed() {
     let leaked = rename::leaked_leaves(std::slice::from_ref(&claim), &BTreeSet::new());
     assert_eq!(leaked.len(), 1, "{leaked:?}");
     assert!(leaked[0].contains("key part 0"), "{leaked:?}");
-    let vacuous = rename::non_vacuity(std::slice::from_ref(&claim), &[]);
+    let vacuous = rename::non_vacuity(std::slice::from_ref(&claim), &[], false);
     assert!(
         vacuous.iter().any(|p| p.contains("key part 0")),
         "{vacuous:?}"
@@ -180,4 +182,98 @@ fn the_maps_cover_every_mapping_name_and_decode_into_the_data_string() {
     }
     // Rule ids are not renamed.
     assert_eq!(renamed.entities[0].id, mapping.entities[0].id);
+}
+
+#[test]
+fn the_committed_linked_fixture_replays_clean() {
+    assert_eq!(
+        replay(RAW_TEXT, LINKS_TEXT, &Harness::REAL),
+        Vec::<String>::new()
+    );
+}
+
+/// A pass B that loses its link claims no merge, so its world keeps each site's two keys
+/// apart: the replay sees a different world.
+#[test]
+fn a_pass_b_without_its_merges_is_a_different_world() {
+    let harness = Harness {
+        mutate_b: |mapping| mapping.links.clear(),
+        ..Harness::REAL
+    };
+    assert_different_world(&replay(RAW_TEXT, LINKS_TEXT, &harness));
+}
+
+/// `check` refuses a linked fixture that states no link (it would replay as a version-1
+/// mapping and never exercise a merge); `has_links` is what tells the two apart.
+#[test]
+fn has_links_tells_the_linked_fixture_from_the_first() {
+    assert!(has_links(LINKS_TEXT));
+    assert!(!has_links(MAPPING_TEXT));
+}
+
+/// A link whose two rules always give equal keys claims no merge, and the replay says so
+/// rather than passing.
+#[test]
+fn a_link_whose_keys_never_differ_is_reported() {
+    // `data.performer.wiki_id` equals `data.wiki_id` on every line, so the two keys are equal
+    // text and the engine claims no merge at all.
+    let mapping = LINKS_TEXT.replacen(
+        r#"[["data", "meta", "domain"]]"#,
+        r#"[["data", "performer", "wiki_id"]]"#,
+        1,
+    );
+    assert_ne!(mapping, LINKS_TEXT);
+    let problems = replay(RAW_TEXT, &mapping, &Harness::REAL);
+    assert!(
+        problems.iter().any(|p| p.contains("one merge claim")),
+        "{problems:?}"
+    );
+}
+
+/// A toy engine whose merges name one key twice: it claims merges, but none changes the world.
+struct MergesThatChangeNothing(MappingEngine);
+
+impl Engine for MergesThatChangeNothing {
+    fn name(&self) -> &'static str {
+        "toy_self_merge"
+    }
+    fn version(&self) -> u32 {
+        1
+    }
+    fn evaluate(&self, event: &RawEvent) -> Verdict {
+        match self.0.evaluate(event) {
+            Verdict::Propose { claims, confidence } => Verdict::Propose {
+                claims: claims
+                    .into_iter()
+                    .map(|claim| match claim {
+                        WorldEvent::EntitiesMerged { survivor, .. } => WorldEvent::EntitiesMerged {
+                            absorbed: survivor.clone(),
+                            survivor,
+                        },
+                        other => other,
+                    })
+                    .collect(),
+                confidence,
+            },
+            abstain @ Verdict::Abstain { .. } => abstain,
+        }
+    }
+}
+
+#[test]
+fn merges_that_change_nothing_are_reported() {
+    let harness = Harness {
+        engine: |mapping| {
+            let inner = MappingEngine::new(mapping).map_err(|e| e.to_string())?;
+            Ok(Box::new(MergesThatChangeNothing(inner)))
+        },
+        ..Harness::REAL
+    };
+    let problems = replay(RAW_TEXT, LINKS_TEXT, &harness);
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("merges must change the folded world")),
+        "{problems:?}"
+    );
 }

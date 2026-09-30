@@ -1,6 +1,6 @@
 # 0027: Stream mapping links (format version 2)
 
-Date: 2026-09-29 · Status: accepted (PR 1 of #245: the format) · Gate 3 · Issue #245 · Amends [0021](0021-stream-mapping-v0.md) (version 2), [0023](0023-routes-from-stored-mappings.md) (identity hashes the mapping's own version), [0005](0005-pure-fold.md) (a second producer of merges) · Builds on [0018](0018-no-compiled-domain-code.md)
+Date: 2026-09-29 · Status: accepted (#245 PR 1: the format; PR 2: the executor) · Gate 3 · Issue #245 · Amends [0021](0021-stream-mapping-v0.md) (version 2), [0023](0023-routes-from-stored-mappings.md) (identity hashes the mapping's own version), [0005](0005-pure-fold.md) (a second producer of merges) · Builds on [0018](0018-no-compiled-domain-code.md)
 
 ## Context
 
@@ -103,12 +103,24 @@ most once" and "no repeated link" true by construction. The vector wins on three
 The cost is that the two star rules construction would have given are validation rules
 instead; `validate()` checks both and a test pins each rejection.
 
-### Until the executor runs links
+### The executor (#245 PR 2)
 
-`MappingEngine::new` refuses a mapping with links (`MappingEngineError::LinksNotExecuted`)
-until #245 PR 2 makes it claim merges, and `routes::candidates` excludes a stored linked
-mapping from routing with that reason (`routes::decode_envelope` and its other callers still decode it), so `serve` reports it at start-up and still routes every other
-source. A link is never silently dropped. A version-2 mapping without links runs.
+`MappingEngine` claims the merges of semantics 3: per payload, entities in rule order, then one
+`EntitiesMerged{survivor_key, absorbed_key}` per link whose two rules matched with different
+keys, in link order, then relationships. A stored linked mapping routes like any other.
+`Engine::version()` stays 1: every mapping that ran before claims what it claimed, and a linked
+mapping is a new identity, so a new engine name with no stored verdicts to re-read.
+
+*Until PR 2, `MappingEngine::new` refused a mapping with links (`LinksNotExecuted`) and
+`routes::candidates` excluded a stored linked mapping. PR 2 removed both.*
+
+Check 11 replays a second fixture, `crates/s2w-system1/testdata/sample-links.mapping.json`:
+`sample.mapping.json` at version 2 with a rule `site-domain` (label `site`, key
+`data.meta.domain`) absorbed by `site` (`data.wiki_id`). The two paths determine each other on
+the 20 sample lines and never share text, so every line claims one merge and the fold keeps
+seven, one per site. A merge claim maps both keys through the value map. The linked replay must
+claim at least one merge, and at least one merge must take effect in the fold (join two entities).
+Its identity, `mapping-25768f1123cac8c0`, is pinned.
 
 ## Plan (#245)
 
@@ -129,9 +141,11 @@ included.
 
 - `s2w-model`: `LinkRule`, `MAPPING_VERSION_LINKS`, six `MappingError` variants, identity over
   the mapping's own version.
-- `s2w-system1`: `MappingEngineError::LinksNotExecuted`.
-- `s2w-app`: route resolution excludes a linked mapping until PR 2.
+- `s2w-system1`: `MappingEngine` claims link merges (PR 2); PR 1's `LinksNotExecuted` refusal
+  is gone.
+- `s2w-app`: a stored linked mapping routes (PR 2; PR 1 excluded it).
+- `xtask` check 11: an `EntitiesMerged` arm and the linked fixture (PR 2).
 - Every `StreamMapping` literal gains `links: Vec::new()`; no behaviour change.
 - No new dependencies; the allowlist is unchanged.
 
-verify: `cargo test -p s2w-model mapping && cargo test -p s2w-system1 mapping` passes.
+verify: `cargo test -p s2w-model mapping && cargo test -p s2w-system1 mapping && cargo test -p s2w-app --test mapping_links && cargo test -p xtask obfuscation_raw` passes.
