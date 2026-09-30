@@ -4,7 +4,8 @@
 //! string part is JSON-encoded exactly as `serde_json::to_string` would encode it (so a string
 //! `"7"` and an integer `7` stay distinct keys), an integer part is its decimal text and a bool
 //! part is `true` or `false`. [`NaturalKey::from_parts`] builds this text and
-//! [`NaturalKey::parts`] reads it back; nothing else in the workspace builds or splits it.
+//! [`NaturalKey::parts`] reads it back; nothing else in the workspace builds or splits it but
+//! the viewer's measurement script, `crates/s2w-app/web/scripts/measure-labels.mjs`.
 //!
 //! The format is versioned by [`KEY_FORMAT`] (decision 0023). Key text is persisted in stored
 //! verdicts and world snapshots; both are keyed, through the mapping identity

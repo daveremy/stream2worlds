@@ -5,7 +5,7 @@
 //!
 //! Version 2 skips date-time paths as labels (the profiler's `Timestamp` role, decision
 //! 0030), breaks a distinct-count tie by the shorter mean string length, names each type's
-//! noun after its label, and gives each source a sentence: its event type and its busiest
+//! noun after its type label, and gives each source a sentence: its event type and its busiest
 //! labelled type's key.
 
 use std::cmp::Reverse;
@@ -197,7 +197,7 @@ fn evidence(input: &ManifestInput) -> BTreeMap<&str, TypeEvidence<'_>> {
 /// A type's row: its label is the attribute with the most distinct values, the shorter mean
 /// string length breaking a tie (a unique best), among attributes with at least half as many
 /// distinct values as the type has entities, else its first key part when that is mostly
-/// strings and not a date-time, else none; primary when it has one. Its noun is its label.
+/// strings and not a date-time, else none; primary when it has one. Its noun is its type label.
 fn type_row(label: &str, evidence: &TypeEvidence) -> TypeRow {
     // An attribute with fewer distinct values than half the type's entities names a category
     // (an edit kind, a content model), not an entity.

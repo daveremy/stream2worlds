@@ -5,7 +5,9 @@
 //
 // Each sample fetches `/world` (entity lod) and the last 50 events, feeds them through the
 // viewer's own `ViewState`, and takes the five Active-now rows (`activeNow`, profile.ts). A row
-// shows a human name when its label resolves to a non-empty string that `isIdLike` rejects.
+// shows a human name when its label resolves to a non-empty string that `isIdLike` rejects,
+// that is not an ISO date-time, and that fewer than three entities of its type share in the
+// snapshot (three or more share a category, such as a content model, not a name).
 // It scores three label sources over the same rows:
 //   baseline  the viewer's `pickLabelKeys` guess (what the live page shows today);
 //   manifest  the dashboard manifest's `types[].label`, on every row;
@@ -45,17 +47,18 @@ async function events(last) {
 
 if (rest[0] === '--sentences') {
   const view = await json(url(`sentences?last=${Number(rest[1] ?? 20)}`));
-  for (const row of view.rows) console.log(`${row.position}\t${row.source}\t${row.sentence}`);
+  for (const row of view.rows) console.log(`${row.position}\t${row.source}\t${row.sentence ?? '(no sentence)'}`);
   process.exit(0);
 }
 
 const samples = Number(rest[0] ?? 12);
 const gap = Number(rest[1] ?? 50);
 
-// The key part a `{key: i}` label names: composite keys join their parts with U+001F, and a
-// string part is JSON-encoded.
+// The key part a `{key: i}` label names. A node key is the type label, then each part, joined
+// by U+001F (s2w-model's natural_key.rs); parts count from 0 after the label, and a string part
+// is JSON-encoded.
 function keyPart(node, index) {
-  const part = node.keys[0]?.split('\u001f')[index];
+  const part = node.keys[0]?.split('\u001f')[index + 1];
   if (part === undefined) return undefined;
   try { const value = JSON.parse(part); return typeof value === 'string' ? value : String(value); }
   catch { return part; }
@@ -70,7 +73,21 @@ function manifestLabel(node, row) {
   return keyPart(node, row.label.key);
 }
 
-const human = label => typeof label === 'string' && label.length > 0 && !isIdLike(label);
+const DATE_TIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
+// How many entities of each type carry each label value, per label source, in one snapshot.
+function shares(nodes, labelOf) {
+  const counts = new Map();
+  for (const node of nodes) {
+    if (node.kind === 'type') continue;
+    const label = labelOf(node);
+    if (label === undefined) continue;
+    const key = `${node.entity_type}\u0000${label}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return (node, label) => counts.get(`${node.entity_type}\u0000${label}`) ?? 0;
+}
+const human = (label, node, shared) => typeof label === 'string' && label.length > 0 &&
+  !isIdLike(label) && !DATE_TIME.test(label) && shared(node, label) < 3;
 
 const dashboard = await json(url('dashboard'));
 const typeRows = new Map((dashboard.manifest?.types ?? []).map(row => [row.type, row]));
@@ -82,15 +99,19 @@ for (let sample = 0; sample < samples; sample++) {
   const state = new ViewState(new URLSearchParams({ world }));
   state.snapshot(await json(url('world?lod=entity')));
   for (const message of await events(50)) state.apply(message);
+  const nodes = [...state.nodesById.values()];
+  const baselineShared = shares(nodes, node => pickedLabel(node, state.keyByType));
+  const manifestShared = shares(nodes, node => manifestLabel(node, typeRows.get(node.entity_type)));
   for (const row of activeNow(state.evidence, state.nodesById, state.keyByType, state.labels)) {
     const node = state.nodesById.get(row.id);
     const typeRow = node && node.kind !== 'type' ? typeRows.get(node.entity_type) : undefined;
     const baseline = node === undefined ? undefined : pickedLabel(node, state.keyByType);
     const manifest = manifestLabel(node, typeRow);
     tally.rows++;
-    if (human(baseline)) tally.baseline++;
-    if (human(manifest)) tally.manifest++;
-    if (typeRow?.primary) { tally.primaryRows++; if (human(manifest)) tally.primary++; }
+    if (human(baseline, node, baselineShared)) tally.baseline++;
+    const named = human(manifest, node, manifestShared);
+    if (named) tally.manifest++;
+    if (typeRow?.primary) { tally.primaryRows++; if (named) tally.primary++; }
     examples.push([node?.entity_type ?? '?', baseline ?? '-', manifest ?? '-']);
   }
   console.error(`sample ${sample + 1}/${samples}: ${tally.rows} rows`);
