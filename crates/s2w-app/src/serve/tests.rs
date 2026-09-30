@@ -58,6 +58,27 @@ fn state() -> QueryState {
 }
 
 #[test]
+fn catch_up_batch_halves_at_most_and_grows_back_within_bounds() {
+    let ms = Duration::from_millis;
+    let budget = ms(20);
+    // Twice the budget: scaled to half. Ten times over: still only halved (s2w#331), because a
+    // poll's fixed cost makes a proportional cut undershoot.
+    assert_eq!(next_batch(250, 250, ms(40), budget), 125);
+    assert_eq!(next_batch(250, 250, ms(200), budget), 125);
+    // Slightly over: the proportional cut is the smaller step.
+    assert_eq!(next_batch(200, 250, ms(25), budget), 160);
+    // Never below MIN_BATCH, nor below a smaller configured max.
+    assert_eq!(next_batch(10, 250, ms(500), budget), MIN_BATCH);
+    assert_eq!(next_batch(4, 4, ms(500), budget), 4);
+    // Well under the budget: doubled, capped at max. Within it: unchanged.
+    assert_eq!(next_batch(100, 250, ms(2), budget), 200);
+    assert_eq!(next_batch(200, 250, ms(2), budget), 250);
+    assert_eq!(next_batch(100, 250, ms(10), budget), 100);
+    // A zero budget or zero elapsed time cannot divide by zero.
+    assert_eq!(next_batch(100, 250, Duration::ZERO, Duration::ZERO), 100);
+}
+
+#[test]
 fn startup_notes_preserve_the_source_name() {
     let mut reporter = TestReporter::default();
     report_source_start(
@@ -425,7 +446,7 @@ fn shared_log_ingestion_and_bridge_feed_the_http_router_without_sockets() {
         let mut bridge = Bridge::new(
             SharedLogReader {
                 log: shared,
-                batch: config.batch,
+                batch: Rc::new(Cell::new(config.batch)),
             },
             SqliteVerdictStore::open(dir.path()).expect("verdicts"),
             EngineRegistry::with_defaults(),

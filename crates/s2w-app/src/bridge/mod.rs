@@ -404,6 +404,20 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         })
     }
 
+    /// The most events one [`Self::poll_once`] consumes.
+    #[must_use]
+    pub(crate) const fn batch(&self) -> usize {
+        self.config.batch
+    }
+
+    /// Sets the most events the next [`Self::poll_once`] consumes (at least 1). The reader
+    /// must return at most as many, since a shorter read means the log is exhausted. `serve`'s
+    /// local driver shrinks both during a catch-up so one poll never holds its runtime long
+    /// (s2w#331).
+    pub(crate) fn set_batch(&mut self, batch: usize) {
+        self.config.batch = batch.max(1);
+    }
+
     /// The state this bridge appends to.
     pub(crate) fn state(&self) -> &QueryState {
         &self.state

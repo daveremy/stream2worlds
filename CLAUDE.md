@@ -9,7 +9,7 @@ GitHub (`gh`), private until launch. Work on a branch (`feat/`, `fix/`, `chore/`
 PR; never commit to `main` directly after the bootstrap commit.
 
 ## Build gates (once the workspace exists)
-`~/.cargo/bin/cargo fmt --check && ~/.cargo/bin/cargo clippy --all-targets -- -D warnings && ~/.cargo/bin/cargo test && ~/.cargo/bin/cargo xtask check`
+`~/.cargo/bin/cargo fmt --check && ~/.cargo/bin/cargo clippy --workspace --all-targets -- -D warnings && RUSTDOCFLAGS="-D warnings" ~/.cargo/bin/cargo doc --workspace --no-deps && ~/.cargo/bin/cargo test --workspace && ~/.cargo/bin/cargo xtask check`
 (`cargo` is not on the default PATH on the hub.) Rust target dir: `CARGO_TARGET_DIR=~/.cache/cargo-target/stream2worlds/<branch>`.
 
 ## Architecture rules that fail the build
