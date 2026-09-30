@@ -29,7 +29,8 @@ under obfuscation (0022), since only rule ids and co-occurrence matter.
 
 1. `survivor` and `absorbed` are ids of entity rules that share one `type_label`. A link
    across labels would merge types, and nothing needs that.
-2. Per type the links form a star. `validate()` rejects:
+2. Per type the links form stars: each survivor with the rules it absorbs, and a type may
+   hold several. `validate()` rejects:
    - a link on a version-1 mapping (`LinksNeedVersion`),
    - a link that names no entity rule (`UnknownLinkRule`),
    - a link from a rule to itself (`SelfLink`),
@@ -105,8 +106,8 @@ instead; `validate()` checks both and a test pins each rejection.
 ### Until the executor runs links
 
 `MappingEngine::new` refuses a mapping with links (`MappingEngineError::LinksNotExecuted`)
-until #245 PR 2 makes it claim merges, and `routes::decode_envelope` excludes a stored linked
-mapping from routing with that reason (other callers still decode it), so `serve` reports it at start-up and still routes every other
+until #245 PR 2 makes it claim merges, and `routes::candidates` excludes a stored linked
+mapping from routing with that reason (`routes::decode_envelope` and its other callers still decode it), so `serve` reports it at start-up and still routes every other
 source. A link is never silently dropped. A version-2 mapping without links runs.
 
 ## Plan (#245)

@@ -91,8 +91,8 @@ pub struct RelationshipRule {
 
 /// Two entity rules with one type label whose keys name one entity (decision 0027). When both
 /// match in one payload with different keys, the absorbed key joins the survivor's entity.
-/// Per type the links form a star: a rule is absorbed at most once and is never also a
-/// survivor.
+/// Per type the links form stars (one survivor, its absorbed rules): a rule is absorbed at
+/// most once and is never also a survivor.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LinkRule {
@@ -133,7 +133,7 @@ pub enum MappingError {
     #[error("entity rule {0:?} is absorbed by more than one link")]
     AbsorbedTwice(String),
     /// A rule is both a link's survivor and another link's absorbed rule.
-    #[error("entity rule {0:?} is both a link survivor and absorbed; links form a star per type")]
+    #[error("entity rule {0:?} is both a link survivor and absorbed")]
     SurvivorAbsorbed(String),
     /// Two entity rules share an id.
     #[error("entity rule id {0:?} is used twice; rule ids must be unique")]
