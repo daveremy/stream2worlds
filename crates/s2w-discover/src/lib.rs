@@ -15,6 +15,7 @@
 mod assemble;
 mod contain;
 mod flatten;
+pub mod manifest;
 mod roles;
 
 use s2w_model::{FieldPath, Segment, StreamMapping};
