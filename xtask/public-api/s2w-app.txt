@@ -19,7 +19,6 @@ s2w_app::bridge: # [derive (Clone , Copy , Debug , Default , PartialEq , Eq)] pu
 s2w_app::bridge: # [derive (Clone , Copy , Debug , Default , PartialEq , Eq)] pub struct BridgeStats { pub consumed : u64 , pub proposed_claims : u64 , pub proposed_empty : u64 , pub abstained : AbstainCounts , pub unrouted : u64 , pub engine_panics : u64 , pub replayed : u64 , pub replayed_stale_version : u64 , pub evaluated : u64 }
 s2w_app::bridge: # [derive (Clone , Copy , Debug , PartialEq , Eq)] pub struct BridgeConfig { pub poll : Duration , pub max_backoff : Duration , pub batch : usize }
 s2w_app::bridge: # [derive (Clone , Debug , Default , PartialEq , Eq)] pub struct PollReport { pub stats : BridgeStats , pub error : Option < LogError > }
-s2w_app::bridge: # [derive (Clone , Debug , Default , PartialEq , Eq)] pub struct SourceStats { pub consumed : u64 , pub unrouted : u64 , pub recent_unrouted : VecDeque < StoredEvent > }
 s2w_app::bridge: # [derive (Clone , Debug , PartialEq , Eq)] pub struct VerdictRecord { pub position : LogPosition , pub engine : String , pub version : u32 , pub verdict : Verdict , pub provenance : Option < Vec < u8 > > }
 s2w_app::bridge: # [derive (Debug , thiserror :: Error)] pub enum BridgeError { TimelineNotEmpty { head : u64 , } , Query (QueryError) , Store (LogError) , Task (String) }
 s2w_app::bridge: # [must_use] pub fn evaluate_stored (stored : & StoredEvent , engines : & [& dyn Engine]) -> Vec < VerdictRecord >
@@ -34,7 +33,6 @@ s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pu
 s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pub fn restart (self , registry : EngineRegistry , resume : Option < LogPosition > ,) -> Result < Self , BridgeError > }
 s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pub fn resume (reader : R , verdicts : V , registry : EngineRegistry , state : QueryState , config : BridgeConfig , position : LogPosition ,) -> Result < Self , BridgeError > }
 s2w_app::bridge: impl Default for BridgeConfig
-s2w_app::bridge: pub const RECENT_UNROUTED_CAP : usize = _ ;
 s2w_app::bridge: pub struct Bridge < R : LogReader , V : VerdictStore > { } ..
 s2w_app::bridge: pub use registry :: { EngineRegistry , RegistryError , Route } ;
 s2w_app::bridge::registry: # [derive (Clone , Debug , PartialEq , Eq)] pub enum Route { Exact (String) , Prefix (String) }
@@ -132,6 +130,7 @@ s2w_app::query: pub use proposals :: { ActorDto , DecisionDto , GradeDto , Propo
 s2w_app::query: pub use read_timings :: { PhaseTiming , ReadTimingsSnapshot } ;
 s2w_app::query: pub use resolve :: { ClassResolution , Excluded , Winner , resolve_class } ;
 s2w_app::query: pub use sentences :: { MAX_SENTENCES , SentenceEntity , SentenceRow , SentencesView , check_last as check_sentences_last , read_last , read_sentences , } ;
+s2w_app::query: pub use sources :: { RECENT_UNROUTED_CAP , SourceStats } ;
 s2w_app::query: pub use stream_mapping :: { ENVELOPE_FORMAT , MappingEnvelope , STREAM_MAPPING_CLASS , decode_envelope , proposal_id , } ;
 s2w_app::query: pub use timeline :: { BaseTime , DEFAULT_HISTORY_CAP , HistoryEntry , TimeRange , TimedEvent , Timeline } ;
 s2w_app::query: pub use view :: { ACTUAL_BRANCH , HubRef , Link , LinkDetail , Lod , MAX_HOPS , Node , ViewParams , WorldView , type_summary , world_view , } ;
@@ -202,6 +201,7 @@ s2w_app::query::projection: impl Projection { pub fn capture (world : & World , 
 s2w_app::query::projection: impl Serialize for HeadView
 s2w_app::query::projection: pub struct HeadView { } ..
 s2w_app::query::projection: pub struct Projection { } ..
+s2w_app::query::proposal_store: (private alias) pub (crate) type ProposalRows = (Vec < StoredProposal > , Vec < StoredDecision >) ;
 s2w_app::query::proposal_store: pub fn read_view (log_dir : & Path) -> Result < ProposalsView , QueryError >
 s2w_app::query::proposals: # [derive (Debug , Clone , Copy , PartialEq , Eq , Serialize)] pub struct TallyDto { pub accepted : u64 , pub rejected : u64 , pub fraction : [u64 ; 2] }
 s2w_app::query::proposals: # [derive (Debug , Clone , Default , PartialEq , Eq , Serialize)] pub struct ProposalsView { pub proposals : Vec < ProposalDto > , pub decisions : Vec < DecisionDto > , pub grades : Vec < GradeDto > }
@@ -230,6 +230,8 @@ s2w_app::query::sentences: pub const MAX_SENTENCES : u64 = _ ;
 s2w_app::query::sentences: pub fn check_last (last : u64) -> Result < usize , QueryError >
 s2w_app::query::sentences: pub fn read_last (log : & impl LogReader , targets : & BTreeSet < SourceId > , n : usize ,) -> Result < Vec < StoredEvent > , LogError >
 s2w_app::query::sentences: pub fn read_sentences (log_dir : & Path , world : & str , last : usize ,) -> Result < SentencesView , QueryError >
+s2w_app::query::sources: # [derive (Clone , Debug , Default , PartialEq , Eq)] pub struct SourceStats { pub consumed : u64 , pub unrouted : u64 , pub recent_unrouted : VecDeque < StoredEvent > }
+s2w_app::query::sources: pub const RECENT_UNROUTED_CAP : usize = _ ;
 s2w_app::query::stream_mapping: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct MappingEnvelope { pub format : u32 , pub source : String , pub mapping : StreamMapping }
 s2w_app::query::stream_mapping: # [must_use] pub fn proposal_id (actor : & Actor , source : & SourceId , first : LogPosition , last : LogPosition , identity : & str ,) -> String
 s2w_app::query::stream_mapping: pub const ENVELOPE_FORMAT : u32 = _ ;
