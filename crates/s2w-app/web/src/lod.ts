@@ -58,3 +58,17 @@ export async function loadWorld(params: URLSearchParams,
 export function outgrown(request: URLSearchParams, view: WorldView): boolean {
   return !bounded(request) && view.nodes.length > ENTITY_VIEW_LIMIT;
 }
+
+/// The Detail level `loaded` actually shows (#269): `type` when a large world fell back to the type
+/// view, whatever the page asked for, so the Detail selector matches what is drawn. Pure.
+export function servedLod(loaded: Loaded): string {
+  return loaded.request.get('lod') ?? 'entity';
+}
+
+/// The `lod` a form submit sends (#269). When the selector still shows a fallback the page set
+/// (`shown` differs from the `asked` level), the user did not choose it: submit what they asked
+/// for, so adding a Focus to the default page still gets that entity's neighbourhood rather than
+/// a type view. A level the user picks goes as picked. Pure.
+export function submittedLod(selected: string, shown: string, asked: string): string {
+  return selected === shown && shown !== asked ? asked : selected;
+}

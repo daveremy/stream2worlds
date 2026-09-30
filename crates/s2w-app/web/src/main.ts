@@ -8,11 +8,12 @@ import { renderProposals } from './proposals';
 import { activeNow, linkColor, typeColor } from './profile';
 import { applyPresentation } from './presentation';
 import { buildUrl, parseWorldFromPath, worldPathFor } from './url';
-import { loadWorld, outgrown } from './lod';
+import { loadWorld, outgrown, servedLod, submittedLod } from './lod';
 const status = document.querySelector<HTMLElement>('#status')!;
 const graph = document.querySelector<HTMLElement>('#graph')!;
 const table = document.querySelector<HTMLTableElement>('#evidence')!;
 const form = document.querySelector<HTMLFormElement>('#controls')!;
+const lodSelect = form.elements.namedItem('lod') as HTMLSelectElement;
 const position = document.querySelector<HTMLElement>('#position')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
 const active = document.querySelector<HTMLElement>('#active')!;
@@ -41,6 +42,9 @@ const PROPOSALS_POLL_MS = 5000;
 // projected under the server's read lock, which blocks the fold (#216), so a busy stream must
 // not trigger one per second; deltas still apply locally between refetches.
 const WORLD_REFRESH_MS = 5000;
+// The Detail level the page asked for and the one the selector shows (#269); they differ when a
+// large world fell back to the type view.
+let detail = { asked: 'entity', shown: 'entity' };
 function describe(error: unknown): string {
   return error instanceof ApiError && error.code === 'offset_beyond_head' ? 'No data at this offset' :
     error instanceof Error ? error.message : String(error);
@@ -83,6 +87,7 @@ async function start(): Promise<void> {
   status.textContent = 'Connecting'; position.textContent = ''; table.replaceChildren(); proposalsPanel.replaceChildren();
   for (const key of keys) (form.elements.namedItem(key) as HTMLInputElement).value =
     params.get(key) ?? ({ branch: 'actual', lod: 'entity', hops: '1' }[key] ?? '');
+  detail = { asked: lodSelect.value, shown: lodSelect.value };
   function paint(): void {
     renderTable(table, state);
     renderLegend(legend, state);
@@ -190,6 +195,8 @@ async function start(): Promise<void> {
       status.textContent = 'Loading world…';
       const loaded = await loadWorld(params, served => snapshot(served, signal)); lastFetch = Date.now();
       const { view } = loaded; request = loaded.request; note = loaded.note;
+      // Show the level actually served: `Types` when a large world fell back to the type view.
+      lodSelect.value = detail.shown = servedLod(loaded);
       const seed = await evidence(params, view.offset, view.epoch, signal);
       if (signal.aborted) return;
       state.epoch = view.epoch;
@@ -224,6 +231,7 @@ form.addEventListener('submit', event => {
     const value = (form.elements.namedItem(key) as HTMLInputElement).value.trim();
     if (value) params.set(key, value);
   }
+  params.set('lod', submittedLod(lodSelect.value, detail.shown, detail.asked));
   history.replaceState(null, '', visibleUrl(params)); void start();
 });
 document.querySelector('#pin')!.addEventListener('click', () => {

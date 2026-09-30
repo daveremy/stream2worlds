@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ENTITY_VIEW_LIMIT, bounded, entityCount, loadWorld, outgrown } from '../src/lod.ts';
+import { ENTITY_VIEW_LIMIT, bounded, entityCount, loadWorld, outgrown, servedLod, submittedLod } from '../src/lod.ts';
 
 // #262: the demo world's default entity view was 370 MB / 310,669 nodes and hung the browser.
 const typeView = count => ({ offset: 9, lod: 'type', focus: null, links: [], nodes: [
@@ -87,4 +87,33 @@ test('outgrown flags an unfocused entity view past the limit, and nothing else',
   assert.equal(outgrown(unfocused, entityView(ENTITY_VIEW_LIMIT + 1)), true);
   assert.equal(outgrown(new URLSearchParams('lod=entity&focus=1'), entityView(ENTITY_VIEW_LIMIT + 1)), false);
   assert.equal(outgrown(new URLSearchParams('lod=type'), entityView(ENTITY_VIEW_LIMIT + 1)), false);
+});
+
+// #269: the Detail selector read "Entities" while the page drew the type view of a huge world.
+test('the Detail selector shows Types when a large world falls back, and Entities stays bounded', async () => {
+  for (const lod of [undefined, 'entity']) {
+    const params = new URLSearchParams('world=default');
+    if (lod) params.set('lod', lod);
+    const { sent, fetchView } = server(LARGE);
+    const loaded = await loadWorld(params, fetchView);
+    assert.equal(servedLod(loaded), 'type');
+    assert.match(loaded.note, /too many to draw/);
+    for (const request of sent) assert.ok(bounded(request), `unbounded request: ${request}`);
+  }
+});
+
+test('the Detail selector shows what was served on small worlds and focused views', async () => {
+  assert.equal(servedLod(await loadWorld(new URLSearchParams('world=default'), server(SMALL).fetchView)), 'entity');
+  assert.equal(servedLod(await loadWorld(new URLSearchParams('world=default&lod=type'), server(SMALL).fetchView)), 'type');
+  assert.equal(servedLod(await loadWorld(new URLSearchParams('world=default&focus=7'), server(LARGE).fetchView)), 'entity');
+});
+
+test('a submit keeps the asked level while the selector shows an untouched fallback', () => {
+  // Fallback left as shown: adding a Focus must still ask for the entity neighbourhood.
+  assert.equal(submittedLod('type', 'type', 'entity'), 'entity');
+  // The user re-picks Entities on the huge world: sent as entity, and loadWorld bounds it again.
+  assert.equal(submittedLod('entity', 'type', 'entity'), 'entity');
+  // No fallback: the selection goes as picked.
+  assert.equal(submittedLod('type', 'entity', 'entity'), 'type');
+  assert.equal(submittedLod('entity', 'type', 'type'), 'entity');
 });
