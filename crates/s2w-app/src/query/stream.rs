@@ -41,28 +41,25 @@ enum Chunk {
     End,
 }
 
-/// A connected writer and body stream.
-pub(crate) fn channel() -> (ChunkWriter, ChunkStream) {
-    let (writer, mut streams) = fan_out_within(&[BODY_BUDGET]);
-    let stream = streams
-        .pop()
-        .unwrap_or_else(|| unreachable!("one budget makes one stream"));
-    (writer, stream)
+/// A connected writer and one body stream.
+#[cfg(test)]
+fn channel() -> (ChunkWriter, ChunkStream) {
+    let (writer, mut streams) = fan_out(1);
+    (writer, streams.remove(0))
 }
 
 /// One writer feeding `count` body streams (s2w#270): every stream gets every chunk, each
 /// through its own bounded channel with its own [`STALL`] and [`BODY_BUDGET`] cut.
 pub(crate) fn fan_out(count: usize) -> (ChunkWriter, Vec<ChunkStream>) {
-    fan_out_within(&vec![BODY_BUDGET; count])
+    fan_out_within(std::iter::repeat_n(BODY_BUDGET, count))
 }
 
 /// [`fan_out`] with one whole-body budget per stream.
-fn fan_out_within(budgets: &[Duration]) -> (ChunkWriter, Vec<ChunkStream>) {
+fn fan_out_within(budgets: impl Iterator<Item = Duration>) -> (ChunkWriter, Vec<ChunkStream>) {
     let now = Instant::now();
     let (subscribers, streams) = budgets
-        .iter()
         .map(|budget| {
-            let body_deadline = now + *budget;
+            let body_deadline = now + budget;
             let (tx, rx) = mpsc::channel(CHUNKS_IN_FLIGHT);
             (
                 Subscriber { tx, body_deadline },
@@ -277,7 +274,7 @@ mod tests {
     fn a_slow_client_is_cut_off_at_the_body_budget() {
         // A zero budget: the first full channel ends the body even though no single chunk
         // waited out STALL.
-        let (mut writer, _streams) = fan_out_within(&[Duration::ZERO]);
+        let (mut writer, _streams) = fan_out_within(std::iter::once(Duration::ZERO));
         let started = Instant::now();
         let chunk = vec![0; CHUNK_BYTES];
         let err = (0..=CHUNKS_IN_FLIGHT)
@@ -318,7 +315,7 @@ mod tests {
     #[test]
     fn a_cut_stream_leaves_the_others_whole() {
         // The first stream is never read and has no budget: the first full channel cuts it.
-        let (mut writer, mut streams) = fan_out_within(&[Duration::ZERO, BODY_BUDGET]);
+        let (mut writer, mut streams) = fan_out_within([Duration::ZERO, BODY_BUDGET].into_iter());
         let mut reading = streams.pop().expect("second");
         let mut stalled = streams.pop().expect("first");
         let bytes: Vec<u8> = (0..(CHUNKS_IN_FLIGHT + 3) * CHUNK_BYTES)

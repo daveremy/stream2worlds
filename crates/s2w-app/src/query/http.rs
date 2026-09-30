@@ -89,8 +89,8 @@ pub struct QueryState {
     read_timings: Option<Arc<ReadTimings>>,
     /// The single-flight gate for `lod=entity` bodies (s2w#270).
     generations: Arc<Generations>,
-    /// How long a `/world` request waits for its answer before a 503: [`BODY_YIELD_LIMIT`],
-    /// shorter in tests.
+    /// How long a `/world` request waits for its answer, and a body for writers, before a 503:
+    /// [`BODY_YIELD_LIMIT`], shorter in tests.
     body_wait: Duration,
 }
 
@@ -172,7 +172,7 @@ impl QueryState {
         &self.generations
     }
 
-    /// Shortens how long a `/world` request waits for its answer before a 503.
+    /// Shortens how long a `/world` request waits before a 503.
     #[cfg(test)]
     pub(super) fn with_body_wait(mut self, wait: Duration) -> Self {
         self.body_wait = wait;
@@ -394,9 +394,13 @@ impl QueryState {
     /// The read guard a `/world` body holds while it streams. Taken only while no write is
     /// reserved (checked after acquiring, so a reservation made meanwhile is seen): a body never
     /// holds the guard a reserved writer is about to take on the runtime it waits for. Gives up
-    /// after [`BODY_YIELD_LIMIT`] with [`QueryError::Unavailable`] (503; the viewer retries).
-    pub(super) fn read_for_body(&self) -> Result<RwLockReadGuard<'_, Timeline>, QueryError> {
-        let until = Instant::now() + BODY_YIELD_LIMIT;
+    /// with [`QueryError::Unavailable`] (503; the viewer retries) after the body wait limit
+    /// ([`BODY_YIELD_LIMIT`]), or as soon as `wanted` says no client is waiting any more.
+    pub(super) fn read_for_body(
+        &self,
+        wanted: impl Fn() -> bool,
+    ) -> Result<RwLockReadGuard<'_, Timeline>, QueryError> {
+        let until = Instant::now() + self.body_wait;
         let mut backoff = Duration::from_millis(1);
         let mut waiting = None;
         loop {
@@ -408,7 +412,7 @@ impl QueryState {
             if waiting.is_none() {
                 waiting = Some(Counted::enter(&self.bodies_waiting));
             }
-            if Instant::now() >= until {
+            if Instant::now() >= until || !wanted() {
                 return Err(QueryError::Unavailable);
             }
             std::thread::sleep(backoff);
@@ -449,58 +453,6 @@ impl QueryState {
                 ..world_view(&world, params)?
             })
         })
-    }
-
-    /// `/world`'s blocking half for the requests that bypass the single-flight gate
-    /// (`lod=type`, a small owned view): under one read guard, resolves the offset, answers
-    /// `304` or an error through `answer`, then serializes the view into the body it answered
-    /// with. The guard is taken only while no write is reserved ([`Self::read_for_body`],
-    /// s2w#259) and held until the last chunk is handed over, so appends wait for the whole
-    /// body; the writer gives up on a client that stops reading ([`stream::STALL`]) or reads
-    /// too slowly ([`stream::BODY_BUDGET`]). `lod=entity` goes through [`generation`].
-    fn stream_world(
-        &self,
-        request: &WorldRequest,
-        answer: oneshot::Sender<Result<WorldAnswer, QueryError>>,
-    ) {
-        let fail = |answer: oneshot::Sender<_>, error| {
-            let _ = answer.send(Err(error));
-        };
-        let started = Instant::now();
-        let t = match self.read_for_body() {
-            Ok(t) => t,
-            Err(error) => return fail(answer, error),
-        };
-        let guarded = Instant::now();
-        let (tag, offset) = match resolve_offset(&t, request.epoch, request.at, &request.params) {
-            Ok(resolved) => resolved,
-            Err(error) => return fail(answer, error),
-        };
-        if request
-            .if_none_match
-            .as_deref()
-            .is_some_and(|inm| etag_matches(inm, &tag))
-        {
-            let _ = answer.send(Ok(WorldAnswer::NotModified(tag)));
-            return;
-        }
-        let world = match t.world_at(offset) {
-            Ok(world) => world,
-            Err(error) => return fail(answer, error),
-        };
-        let view = match HeadView::new(&world, &request.params, t.epoch()) {
-            Ok(view) => view,
-            Err(error) => return fail(answer, error),
-        };
-        let built = Instant::now();
-        let (writer, body) = stream::channel();
-        if answer.send(Ok(WorldAnswer::Body(tag, body))).is_ok() {
-            write_view(&view, writer);
-            // Recorded only when a measurement opted in (s2w#243).
-            if let Some(timings) = &self.read_timings {
-                timings.record(1, guarded - started, built - guarded, built.elapsed());
-            }
-        }
     }
 
     /// The one branch served, with its head and fold version.
@@ -720,26 +672,15 @@ async fn world(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let (answer_tx, answer_rx) = oneshot::channel();
+    let key = generation::Key { epoch, at, params };
+    let waiter = generation::Waiter::new(if_none_match, answer_tx);
     if params.lod == Lod::Entity {
-        let key = generation::Key {
-            epoch,
-            at,
-            focus: params.focus,
-            hops: params.hops,
-        };
-        let waiter = generation::Waiter::new(if_none_match, answer_tx);
         if let Err(error) = generation::submit(&state, key, waiter) {
             return error.into_response();
         }
     } else {
-        let request = WorldRequest {
-            at,
-            epoch,
-            params,
-            if_none_match,
-        };
         let state = state.clone();
-        tokio::task::spawn_blocking(move || state.stream_world(&request, answer_tx));
+        tokio::task::spawn_blocking(move || generation::serve_alone(&state, key, waiter));
     }
     // Giving up drops the receiver: a queued request is then dropped before it is built.
     match tokio::time::timeout(state.body_wait, answer_rx).await {
@@ -748,7 +689,7 @@ async fn world(
     }
 }
 
-/// The response for `/world`'s answer; a dropped sender means the blocking task panicked.
+/// The response for `/world`'s answer; a dropped sender means the generation panicked.
 fn world_response(
     answer: Result<Result<WorldAnswer, QueryError>, oneshot::error::RecvError>,
 ) -> Response {
@@ -768,17 +709,9 @@ fn world_response(
         )
             .into_response(),
         Ok(Err(error)) => error.into_response(),
-        // The blocking task panicked before answering.
+        // The generation panicked before answering.
         Err(_) => QueryError::Unavailable.into_response(),
     }
-}
-
-/// `/world`'s parsed request.
-struct WorldRequest {
-    at: Option<u64>,
-    epoch: Option<Epoch>,
-    params: ViewParams,
-    if_none_match: Option<String>,
 }
 
 /// Checks the epoch and the offset (in that order, as every offset read does) and returns the
@@ -1697,7 +1630,7 @@ mod membership_tests {
             let body = {
                 let state = state.clone();
                 std::thread::spawn(move || {
-                    let guard = state.read_for_body().expect("read");
+                    let guard = state.read_for_body(|| true).expect("read");
                     tx.send(()).expect("send");
                     std::thread::sleep(Duration::from_millis(50));
                     drop(guard);

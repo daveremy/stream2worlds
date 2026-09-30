@@ -9,16 +9,22 @@
 //! subscriber.
 //!
 //! Requests are grouped by exactly what the `ETag` and the body depend on: the requested epoch,
-//! `at`, `focus` and `hops` ([`Key`]); equal keys produce equal bytes. A request arriving while
-//! a generation runs joins the queued group with its key, or starts one; it never joins the
-//! generation already under way, so it never gets half a body. When a generation ends the
-//! driver serves the group whose oldest waiter has waited longest, so no key starves.
+//! `at`, `lod`, `focus` and `hops` ([`Key`]); equal keys produce equal bytes. The key is the
+//! literal request, so `?at=<head>` and no `at` build separately: that loses sharing, never
+//! correctness. A request arriving while a generation runs joins the queued group with its
+//! key, or starts one; it never joins the generation already under way, so it never gets half
+//! a body. When a generation ends the driver serves the group whose oldest waiter has waited
+//! longest, so no key starves.
 //!
 //! Bounds: at most [`QUEUE_LIMIT`] queued requests (more answer `503`,
 //! [`QueryError::WorldQueueFull`]), and the handler gives a request that is not answered within
-//! its wait limit (30 s) a `503`, as a body stuck behind writers got before. A request whose
-//! client left is dropped before its generation starts. The driver runs on one blocking thread
-//! at a time, and the queue's mutex is never held across a send or the timeline guard.
+//! its wait limit (30 s) a `503`. A request whose client left is dropped before its generation
+//! starts, and a generation whose clients all left stops waiting for the guard. The driver runs
+//! on one blocking thread at a time, and the queue's mutex is never held across a send or the
+//! timeline guard.
+//!
+//! `lod=type` (a small owned view) bypasses the queue: [`serve_alone`] runs the same
+//! generation for one request on its own blocking thread.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -30,7 +36,7 @@ use super::QueryError;
 use super::epoch::Epoch;
 use super::http::{QueryState, WorldAnswer, etag_matches, resolve_offset, write_view};
 use super::stream;
-use super::view::{HeadView, Lod, ViewParams};
+use super::view::{HeadView, ViewParams};
 
 /// The most requests queued for a generation at once; one more answers `503`. The same bound
 /// as the concurrent `/events` streams.
@@ -44,24 +50,11 @@ pub(super) struct Key {
     pub(super) epoch: Option<Epoch>,
     /// The requested offset; absent means the head when the generation runs.
     pub(super) at: Option<u64>,
-    /// The requested focus entity.
-    pub(super) focus: Option<u64>,
-    /// The requested neighbourhood radius.
-    pub(super) hops: u32,
+    /// The requested view: level of detail, focus and hops.
+    pub(super) params: ViewParams,
 }
 
-impl Key {
-    /// The view parameters this key projects (always `lod=entity`).
-    fn params(self) -> ViewParams {
-        ViewParams {
-            lod: Lod::Entity,
-            focus: self.focus,
-            hops: self.hops,
-        }
-    }
-}
-
-/// One queued `/world` request: its `If-None-Match` and where its answer goes.
+/// One `/world` request waiting for a generation: its `If-None-Match` and where its answer goes.
 pub(super) struct Waiter {
     if_none_match: Option<String>,
     answer: oneshot::Sender<Result<WorldAnswer, QueryError>>,
@@ -86,7 +79,14 @@ impl Waiter {
         !self.answer.is_closed()
     }
 
-    /// Answers the request; a client that already left is not an error.
+    /// Whether the client already has this tag, so the answer is `304`.
+    fn has(&self, tag: &axum::http::HeaderValue) -> bool {
+        self.if_none_match
+            .as_deref()
+            .is_some_and(|inm| etag_matches(inm, tag))
+    }
+
+    /// Answers the request; `false` when the client already left, which is not an error.
     fn answer(self, answer: Result<WorldAnswer, QueryError>) -> bool {
         self.answer.send(answer).is_ok()
     }
@@ -95,14 +95,8 @@ impl Waiter {
 /// Requests with one key, served by one generation.
 struct Group {
     key: Key,
+    /// In arrival order: the first is the oldest.
     waiters: Vec<Waiter>,
-}
-
-impl Group {
-    /// When this group's longest-waiting request was queued.
-    fn oldest(&self) -> Option<Instant> {
-        self.waiters.iter().map(|w| w.queued).min()
-    }
 }
 
 /// The queued groups and whether a driver is running.
@@ -127,7 +121,8 @@ impl Queue {
 
     /// Removes the group whose oldest request has waited longest.
     fn take_oldest(&mut self) -> Option<Group> {
-        let index = (0..self.groups.len()).min_by_key(|&i| self.groups[i].oldest())?;
+        let index = (0..self.groups.len())
+            .min_by_key(|&i| self.groups[i].waiters.first().map(|waiter| waiter.queued))?;
         Some(self.groups.remove(index))
     }
 }
@@ -140,7 +135,7 @@ pub(crate) struct Generations {
 
 impl Generations {
     fn lock(&self) -> MutexGuard<'_, Queue> {
-        // Nothing panics while the lock is held; a poisoned queue is still consistent.
+        // A poisoned queue is still consistent: every change to it is one assignment or push.
         self.queue.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -158,7 +153,8 @@ impl Generations {
 }
 
 /// Queues `waiter` for a generation of `key` and starts the driver on a blocking thread unless
-/// one is running. Must be called inside a tokio runtime.
+/// one is running. Must be called inside a tokio runtime. (If the runtime shuts down before
+/// the driver runs, `running` stays set; nothing is served after shutdown anyway.)
 ///
 /// # Errors
 /// [`QueryError::WorldQueueFull`] when [`QUEUE_LIMIT`] requests are already queued.
@@ -185,6 +181,17 @@ pub(super) fn submit(state: &QueryState, key: Key, waiter: Waiter) -> Result<(),
     Ok(())
 }
 
+/// Serves one request outside the queue, on the calling (blocking) thread: `lod=type`.
+pub(super) fn serve_alone(state: &QueryState, key: Key, waiter: Waiter) {
+    generate(
+        state,
+        Group {
+            key,
+            waiters: vec![waiter],
+        },
+    );
+}
+
 /// Runs generations until the queue is empty, oldest waiter first.
 fn drive(state: &QueryState) {
     loop {
@@ -199,8 +206,8 @@ fn drive(state: &QueryState) {
                 }
             }
         };
-        // A panic drops the group's answers unsent, and each handler answers 503; the next
-        // group is still served.
+        // A panic drops the group's answers unsent, and each of its handlers answers 503; the
+        // next group is still served.
         let _ = catch_unwind(AssertUnwindSafe(|| generate(state, group)));
     }
 }
@@ -215,33 +222,25 @@ fn generate(state: &QueryState, group: Group) {
         }
     };
     let started = Instant::now();
-    let timeline = match state.read_for_body() {
+    // Stops waiting for the guard once every client has left.
+    let timeline = match state.read_for_body(|| waiters.iter().any(Waiter::waiting)) {
         Ok(timeline) => timeline,
         Err(error) => return answer_all(waiters, &error),
     };
     let guarded = Instant::now();
-    let params = key.params();
-    let (tag, offset) = match resolve_offset(&timeline, key.epoch, key.at, &params) {
+    let (tag, offset) = match resolve_offset(&timeline, key.epoch, key.at, &key.params) {
         Ok(resolved) => resolved,
         Err(error) => return answer_all(waiters, &error),
     };
     // 304 before anything is built; a client that left while the guard was awaited is dropped.
-    let fresh: Vec<Waiter> = waiters
-        .into_iter()
-        .filter(Waiter::waiting)
-        .filter_map(|waiter| {
-            let not_modified = waiter
-                .if_none_match
-                .as_deref()
-                .is_some_and(|inm| etag_matches(inm, &tag));
-            if not_modified {
-                waiter.answer(Ok(WorldAnswer::NotModified(tag.clone())));
-                None
-            } else {
-                Some(waiter)
-            }
-        })
-        .collect();
+    let mut fresh = Vec::with_capacity(waiters.len());
+    for waiter in waiters.into_iter().filter(Waiter::waiting) {
+        if waiter.has(&tag) {
+            waiter.answer(Ok(WorldAnswer::NotModified(tag.clone())));
+        } else {
+            fresh.push(waiter);
+        }
+    }
     if fresh.is_empty() {
         return;
     }
@@ -249,7 +248,7 @@ fn generate(state: &QueryState, group: Group) {
         Ok(world) => world,
         Err(error) => return answer_all(fresh, &error),
     };
-    let view = match HeadView::new(&world, &params, timeline.epoch()) {
+    let view = match HeadView::new(&world, &key.params, timeline.epoch()) {
         Ok(view) => view,
         Err(error) => return answer_all(fresh, &error),
     };
@@ -257,7 +256,8 @@ fn generate(state: &QueryState, group: Group) {
     let (writer, bodies) = stream::fan_out(fresh.len());
     let mut served = 0;
     for (waiter, body) in fresh.into_iter().zip(bodies) {
-        // A failed answer drops its body stream, and the writer drops that subscriber.
+        // A failed answer drops its body stream, and the writer drops that subscriber. (A
+        // handler that times out just after a successful answer still counts as served.)
         if waiter.answer(Ok(WorldAnswer::Body(tag.clone(), body))) {
             served += 1;
         }
