@@ -66,6 +66,9 @@
 //!   Compare its `max_bytes` with this target's `bridge` `VmHWM`: the gap is non-heap resident
 //!   memory (SQLite's C heap, stacks, the binary) plus allocator overhead and fragmentation.
 //!   (dhat's own bookkeeping makes that target's `VmHWM` meaningless.)
+//! - The `backfill_memory_mimalloc` target includes this file with mimalloc as the global
+//!   allocator: the same variants with every Rust allocation off glibc malloc (SQLite's C heap
+//!   stays on it). Its children never assert, and it refuses `+<allocator>` glibc tunings.
 //!
 //! Every child prints one `result {json}` line for aggregation. Run one variant per invocation:
 //! the bridge child stores verdicts in the shared log directory, so a second bridge-type child
@@ -192,6 +195,12 @@ mod backfill {
     /// global allocator.
     fn heap_target() -> bool {
         env!("CARGO_CRATE_NAME") == "backfill_memory_heap"
+    }
+
+    /// True in the `backfill_memory_mimalloc` target, which includes this file with mimalloc as
+    /// the global allocator.
+    fn mimalloc_target() -> bool {
+        env!("CARGO_CRATE_NAME") == "backfill_memory_mimalloc"
     }
 
     fn mib(bytes: usize) -> String {
@@ -759,14 +768,15 @@ mod backfill {
             "{VIEWERS}=0: the viewer child needs a reader"
         );
         // Only the default configuration asserts: a knob, an allocator tuning (named or
-        // inherited), another thread topology, more than one reader or dhat measures
+        // inherited), another thread topology, more than one reader, dhat or mimalloc measures
         // something else.
         let measuring = (variant != "bridge" && variant != "viewer")
             || history_cap.is_some()
             || batch_knob.is_some()
             || viewers.is_some_and(|n| n != 1)
             || allocator_env().is_some()
-            || heap_target();
+            || heap_target()
+            || mimalloc_target();
         let (log, verdicts, registry) = bridge_inputs(directory);
         let mut timeline = Timeline::new(CAP);
         if let Some(cap) = history_cap {
@@ -800,7 +810,11 @@ mod backfill {
         };
         let (consumed, slowest_poll) = match &runtime {
             Some(runtime) => poll_to_end_blocking(runtime, bridge),
-            None => poll_to_end(&mut bridge),
+            None => {
+                let polled = poll_to_end(&mut bridge);
+                drop(bridge);
+                polled
+            }
         };
         stop.store(true, Ordering::Relaxed);
         let viewed: Vec<Viewed> = readers.into_iter().map(|r| r.join().unwrap()).collect();
@@ -816,6 +830,12 @@ mod backfill {
         );
         let peak = status("VmHWM:");
         let heap_max = heap_target().then(|| dhat::HeapStats::get().max_bytes);
+        // What the process still holds once the backfill's state is gone: the demo box kept
+        // 906 MiB resident with no world loaded (s2w#220), which the peak cannot show.
+        drop(state);
+        drop(runtime);
+        std::thread::sleep(Duration::from_secs(2));
+        let rss_after_drop = status("VmRSS:");
         eprintln!(
             "{name}: whole-process peak {} (baseline {} before the bridge), slowest poll_once {} ms",
             mib(peak),
@@ -830,6 +850,7 @@ mod backfill {
                 "history_cap": history_cap.unwrap_or(DEFAULT_HISTORY_CAP),
                 "batch": batch,
                 "peak_bytes": peak,
+                "rss_after_drop_bytes": rss_after_drop,
                 "baseline_bytes": before,
                 "heap_max_bytes": heap_max,
                 "heap_baseline_bytes": heap_before,
@@ -917,18 +938,26 @@ mod backfill {
             .1
     }
 
+    /// The mimalloc target measures mimalloc's defaults: mimalloc reads `MIMALLOC_*` options
+    /// from the environment, which the children inherit.
+    fn refuse_mimalloc_options() {
+        assert!(
+            !mimalloc_target()
+                || !std::env::vars_os().any(|(k, _)| k.to_string_lossy().starts_with("MIMALLOC_")),
+            "a MIMALLOC_* variable is set: the mimalloc target measures mimalloc's defaults"
+        );
+    }
+
     #[test]
     #[ignore = "folds 1.5x10^5 events in five children; run by hand with --release"]
     fn backfill_memory_breakdown() {
+        refuse_mimalloc_options();
         let events = load().unwrap();
         let discovered = mapping(events);
         let id = discovered.identity().unwrap();
         eprintln!("mapping {id} (window {DISCOVER_WINDOW}), {EVENTS} raw events, fresh cycles");
-        let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(if heap_target() {
-            "backfill-memory-heap-sqlite-log"
-        } else {
-            "backfill-memory-sqlite-log"
-        });
+        let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("{}-sqlite-log", env!("CARGO_CRATE_NAME")).replace('_', "-"));
         let _ignored = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
         let started = Instant::now();
@@ -964,6 +993,10 @@ mod backfill {
             assert!(
                 !heap_target() || matches!(variant, "bridge" | "queries"),
                 "{variant}: the heap target measures bridge and queries only"
+            );
+            assert!(
+                !mimalloc_target() || tuning.is_empty(),
+                "{variant}: a glibc tuning means nothing to Rust allocations under mimalloc"
             );
             let output = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([filter.as_str(), "--exact", "--ignored", "--nocapture"])

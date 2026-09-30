@@ -157,6 +157,24 @@ slope), stays under 570 MiB (a 30 MiB margin under the asserted 600 MiB). `bridg
 includes serve's snapshot encode, HTTP server or SSE, so the demo box holding at 1 GiB is inferred
 from these runs rather than measured there. The allocator swap is #220's PR C.
 
+**2026-09-29, #220 PR C (mimalloc measurement target; the head world has grown).** Re-measured
+on `main` @ f6900a3, with no product change. The recorded fixture's discovered mapping
+now yields 20,040,997 world events and 224,586 entities (PR B: 11,266,766 world events). The head
+world alone is **887.3 MiB** resident (PR B: 403 MiB; the change is in discovery since PR B, likely #261 or #276, not bisected), so the 600 MiB budget no longer holds
+even at history cap 2. The default `bridge` assertion fails on `main`. It is `#[ignore]`d, so CI
+does not run it. Batch 250, cap 2, release build, 3 runs each, interleaved on a shared host:
+
+| Whole-process peak, cap 2 | glibc malloc | mimalloc (`backfill_memory_mimalloc`) |
+|---|---|---|
+| `bridge` (main thread) | 1,027.4 [1,027.2-1,027.8] MiB | **943.7 [942.8-945.7] MiB** |
+| `bridge-run` (blocking pool) | 1,055.6 [1,055.4-1,055.8] MiB | **954.1 [952.7-957.1] MiB** |
+| Resident 2 s after the backfill's state is dropped, `bridge-run` | 1,021.6-1,048.9 MiB | 71.0-932.6 MiB (2 of 3 runs under 83 MiB) |
+
+mimalloc saves 84 MiB on the main thread and 102 MiB on the blocking pool, which clears the
+≥40 MiB bar #220's plan set for an allocator swap. Under glibc, the memory stays resident after
+the drop, as it did on the demo box (906 MiB with no world). The cap was not raised: no cap fits
+600 MiB at this world size. The budget and the product allocator swap wait on a ruling in #220.
+
 **2026-09-29, s2w#243 (PR 1 of s2w#235: where the `/world` hold goes).** The `viewer` child
 now runs `S2W_BACKFILL_MEMORY_VIEWERS=N` phase-staggered readers and records each body's hold on
 the server (`QueryState::with_read_timings`, opt-in): `build` (guard to `HeadView::new`) and
