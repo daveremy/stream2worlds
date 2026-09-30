@@ -5,6 +5,7 @@
 //! (routed `stdin`, unrouted preset traffic, unrouted other sources).
 
 use std::cell::Cell;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use s2w_app::bridge::{Bridge, BridgeConfig, BridgeError, BridgeStats, EngineRegistry, Route};
@@ -347,6 +348,9 @@ fn run_drains_the_log_and_stops_on_shutdown() -> TestResult {
         .block_on(async {
             let mut log = InMemoryEventLog::new();
             log.append_batch(fixture_events()?)?;
+            let end = log.head()?;
+            assert!(end.is_some(), "the fixture log is not empty");
+            let committed = Arc::new(Mutex::new(None));
             let state = new_state();
             let observer = state.clone();
             let config = BridgeConfig {
@@ -356,7 +360,10 @@ fn run_drains_the_log_and_stops_on_shutdown() -> TestResult {
             };
             let bridge = Bridge::new(
                 log,
-                InMemoryVerdictStore::new(),
+                CommitProbe {
+                    inner: InMemoryVerdictStore::new(),
+                    through: Arc::clone(&committed),
+                },
                 EngineRegistry::with_defaults(),
                 state,
                 config,
@@ -364,18 +371,59 @@ fn run_drains_the_log_and_stops_on_shutdown() -> TestResult {
             let (stop, shutdown) = tokio::sync::watch::channel(false);
             let task = tokio::spawn(bridge.run(shutdown));
 
-            for _ in 0..200 {
-                if observer.branches()?[0].head == 1 {
-                    break;
+            // Shut down only once the bridge has committed through the log's last position, not
+            // when the claim lands: the claim is event 6 of 7, so stopping on `head == 1` raced
+            // the read of event 7 (s2w#258). `run` checks shutdown only between polls, so the
+            // poll that committed the final position still counts it in the returned stats.
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while *committed.lock().map_err(|e| e.to_string())? < end {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
+                Ok::<_, String>(())
+            })
+            .await
+            .map_err(|_| "bridge never committed through the log's last position")??;
+            assert_eq!(observer.branches()?[0].head, 1);
             stop.send(true)?;
             let stats = task.await??;
             assert_eq!(stats.consumed, 7);
             assert_eq!(stats.proposed_claims, 1);
             Ok(())
         })
+}
+
+/// Passes every call through to `inner` and records the last position a batch committed
+/// through, so a test on a moved bridge can wait for it to reach the log's end.
+struct CommitProbe<V> {
+    inner: V,
+    through: Arc<Mutex<Option<LogPosition>>>,
+}
+
+impl<V: VerdictStore> VerdictStore for CommitProbe<V> {
+    fn cursor(&self) -> Result<Option<LogPosition>, LogError> {
+        self.inner.cursor()
+    }
+
+    fn read_range(
+        &self,
+        after: Option<LogPosition>,
+        through: LogPosition,
+    ) -> Result<Vec<s2w_log::StoredVerdict>, LogError> {
+        self.inner.read_range(after, through)
+    }
+
+    fn commit_batch(
+        &mut self,
+        rows: &[s2w_log::StoredVerdict],
+        through: LogPosition,
+    ) -> Result<(), LogError> {
+        self.inner.commit_batch(rows, through)?;
+        *self
+            .through
+            .lock()
+            .map_err(|e| LogError::Io(e.to_string()))? = Some(through);
+        Ok(())
+    }
 }
 
 /// Answers `inner`'s real rows, plus one bogus `json_claims` row bound to a real event (so it
