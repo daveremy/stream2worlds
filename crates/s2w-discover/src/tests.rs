@@ -1055,6 +1055,27 @@ fn the_fallback_abstains_with_no_mapped_source() {
 }
 
 #[test]
+fn the_fallback_abstains_past_the_built_on_cap() {
+    use s2w_model::{MAX_BUILT_ON, ManifestOutcome, ManifestProposer};
+    let mut input = manifest_input(&stream(1200));
+    let one = input.sources[0].clone();
+    input.sources = (0..=MAX_BUILT_ON)
+        .map(|i| {
+            let mut s = one.clone();
+            s.source = format!("s{i}");
+            s
+        })
+        .collect();
+    assert!(matches!(
+        manifest::FallbackProposer.propose(&input),
+        ManifestOutcome::Abstain(_)
+    ));
+    input.sources.truncate(MAX_BUILT_ON);
+    let m = fallback_manifest(&input);
+    assert_eq!(m.validate(&input.context()), Ok(()));
+}
+
+#[test]
 fn renaming_keys_and_hashing_strings_only_renames_the_fallback_manifest() {
     use s2w_model::{DashboardManifest, Label};
     let plain = stream(1200);

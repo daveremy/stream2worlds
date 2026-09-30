@@ -51,6 +51,8 @@ every level:
 `s2w_app::dashboard::propose` with a `ManifestProposer` (trait and input DTOs in `s2w-model`).
 PR 1 ships one proposer, `FallbackProposer` in `s2w-discover` (actor `dashboard-fallback/1`):
 the `feed` projection, one default role, a label per type where the statistics support one.
+It abstains with no mapped source, with no type label a manifest can hold, and with more
+mapped sources than `built_on`'s cap of 32.
 
 - **Input.** The member sources (0025's membership; every source when the log has no
   membership rows) that have an accepted `stream-mapping`, sorted by id. Per source: its

@@ -7,9 +7,9 @@ use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use s2w_model::{
-    AttrLabel, BuiltOn, DashboardManifest, Domain, KeyLabel, Kind, Label, MAX_TYPES, ManifestInput,
-    ManifestOutcome, ManifestProposer, PathStats, Projection, ProposerId, ProposerTrace,
-    QuintessentialProjection, Role, Slots, Template, TypeRow, fits_text,
+    AttrLabel, BuiltOn, DashboardManifest, Domain, KeyLabel, Kind, Label, MAX_BUILT_ON, MAX_TYPES,
+    ManifestInput, ManifestOutcome, ManifestProposer, PathStats, Projection, ProposerId,
+    ProposerTrace, QuintessentialProjection, Role, Slots, Template, TypeRow, fits_text,
 };
 
 use crate::Profile;
@@ -52,6 +52,14 @@ impl ManifestProposer for FallbackProposer {
     }
 
     fn propose(&self, input: &ManifestInput) -> ManifestOutcome {
+        // `built_on` names every mapped source, so past its cap no manifest could validate:
+        // abstain rather than file a proposal that burns an attempt.
+        if input.sources.len() > MAX_BUILT_ON {
+            return ManifestOutcome::Abstain(format!(
+                "{} mapped sources exceed the manifest's {MAX_BUILT_ON}",
+                input.sources.len()
+            ));
+        }
         match fallback(input) {
             Ok(manifest) => ManifestOutcome::Manifest {
                 manifest: Box::new(manifest),
