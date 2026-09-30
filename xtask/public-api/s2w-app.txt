@@ -70,7 +70,7 @@ s2w_app::discover: pub const DISCOVER_WINDOW : usize = _ ;
 s2w_app::discover: pub const POLICY : & str = _ ;
 s2w_app::group_commit: # [derive (Default)] pub struct HumanReporter ;
 s2w_app::group_commit: impl Reporter for HumanReporter
-s2w_app::group_commit: pub trait Reporter : Send { fn flushed (& mut self , appended : u64 , duplicates : u64 , reconnects : u64 , cursor : Option < & str >) ; fn duplicate (& mut self , position : u64) ; fn note (& mut self , message : & str) ; fn source_error (& mut self , message : & str , retry : bool) ; fn wants_ticker (& self) -> bool ; fn note_sink (& self) -> NoteSink ; }
+s2w_app::group_commit: pub trait Reporter : Send { fn flushed (& mut self , appended : u64 , duplicates : u64 , reconnects : u64 , cursor : Option < & str >) ; fn duplicate (& mut self , position : u64) ; fn note (& mut self , message : & str) ; fn source_error (& mut self , message : & str , retry : bool) ; fn wants_ticker (& self) -> bool { } fn note_sink (& self) -> NoteSink { } }
 s2w_app::group_commit: pub type NoteSink = Arc < dyn Fn (& str) + Send + Sync > ;
 s2w_app::mcp: # [derive (Clone)] pub struct WorldMcp { } ..
 s2w_app::mcp: impl ServerHandler for WorldMcp

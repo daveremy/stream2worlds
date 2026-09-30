@@ -19,7 +19,7 @@ s2w_sources::source: impl SourceError { # [must_use] pub fn is_usage (& self) ->
 s2w_sources::source: impl std :: fmt :: Debug for Started
 s2w_sources::source: pub fn refuse_since_with_stored (since : Option < & str > , cursors : & dyn CursorLookup , ids : & [SourceId] ,) -> Result < () , SourceError >
 s2w_sources::source: pub struct Started { pub sources : Vec < SourceId > , pub stream : EventStream , pub ends : Ending , pub notes : Vec < String > , pub watermarks : Watermarks }
-s2w_sources::source: pub trait CursorLookup { fn is_member (& self , _source : & SourceId) -> Result < bool , SourceError > ; fn cursor (& self , source : & SourceId) -> Result < Option < Cursor > , SourceError > ; }
+s2w_sources::source: pub trait CursorLookup { fn is_member (& self , _source : & SourceId) -> Result < bool , SourceError > { } fn cursor (& self , source : & SourceId) -> Result < Option < Cursor > , SourceError > ; }
 s2w_sources::source: pub trait Source { fn name (& self) -> & 'static str ; fn start < 'a > (self : Box < Self > , since : Option < & 'a str > , cursors : & 'a dyn CursorLookup ,) -> StartFuture < 'a > ; }
 s2w_sources::source: pub type EventStream = Pin < Box < dyn Stream < Item = Result < RawEvent , SourceError > > > > ;
 s2w_sources::source: pub type StartFuture < 'a > = Pin < Box < dyn Future < Output = Result < Started , SourceError > > + 'a > > ;

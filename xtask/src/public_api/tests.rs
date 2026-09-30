@@ -111,3 +111,16 @@ fn compare_names_the_next_action() {
             .any(|p| p.contains("gone.txt") && p.contains("delete"))
     );
 }
+
+#[test]
+fn trait_default_methods_and_deprecation_are_api() {
+    assert!(differs(
+        "pub trait T { fn f(&self) {} }",
+        "pub trait T { fn f(&self); }"
+    ));
+    assert!(!differs(
+        "pub trait T { fn f(&self) { let _ = 1; } }",
+        "pub trait T { fn f(&self) {} }"
+    ));
+    assert!(differs("pub fn f() {}", "#[deprecated] pub fn f() {}"));
+}

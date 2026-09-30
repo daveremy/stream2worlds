@@ -68,7 +68,7 @@ s2w_model::dashboard::propose: # [derive (Clone , Debug , PartialEq , Eq , Seria
 s2w_model::dashboard::propose: # [derive (Clone , Debug , PartialEq , Eq)] pub enum ManifestOutcome { Manifest { manifest : Box < DashboardManifest > , trace : ProposerTrace , } , Invalid { error : String , trace : ProposerTrace , } , Abstain (String) }
 s2w_model::dashboard::propose: # [derive (Clone , Debug , PartialEq , Eq)] pub struct ProposerId { pub model : String , pub version : String }
 s2w_model::dashboard::propose: impl ManifestInput { # [must_use] pub fn context (& self) -> ManifestContext }
-s2w_model::dashboard::propose: pub trait ManifestProposer { fn id (& self) -> ProposerId ; fn prompt_hash (& self) -> Option < String > ; fn propose (& self , input : & ManifestInput) -> ManifestOutcome ; }
+s2w_model::dashboard::propose: pub trait ManifestProposer { fn id (& self) -> ProposerId ; fn prompt_hash (& self) -> Option < String > { } fn propose (& self , input : & ManifestInput) -> ManifestOutcome ; }
 s2w_model::dashboard::render: # [must_use] pub fn render_sentence (sentence : & Sentence , payload : & Value) -> Option < String >
 s2w_model::dashboard::render: # [must_use] pub fn sentence_for (events : & [EventSentence] , source : & str , payload : & Value) -> Option < String >
 s2w_model::dashboard::render: pub const TRUNCATE_CHARS : usize = _ ;

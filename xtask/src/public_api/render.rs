@@ -78,6 +78,10 @@ fn keep_attrs(attrs: &mut Vec<Attribute>) {
             "cfg",
             "cfg_attr",
             "must_use",
+            "deprecated",
+            "proc_macro",
+            "proc_macro_derive",
+            "proc_macro_attribute",
         ]
         .iter()
         .any(|k| p.is_ident(k))
@@ -244,13 +248,18 @@ fn trait_line(mut t: syn::ItemTrait) -> String {
     t.items.retain(|i| !excluded(trait_item_attrs(i)));
     for i in &mut t.items {
         match i {
+            // A default body renders as `{ }`, a required method as `;`: dropping a default
+            // is a break, so the presence is recorded; the body is not.
             TraitItem::Fn(f) => {
-                f.default = None;
-                f.semi_token = Some(parse_quote!(;));
+                if let Some(body) = &mut f.default {
+                    body.stmts.clear();
+                }
                 keep_attrs(&mut f.attrs);
             }
             TraitItem::Const(c) => {
-                c.default = None;
+                if let Some((_, value)) = &mut c.default {
+                    *value = hole();
+                }
                 keep_attrs(&mut c.attrs);
             }
             TraitItem::Type(ty) => keep_attrs(&mut ty.attrs),
