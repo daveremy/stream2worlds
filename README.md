@@ -159,6 +159,10 @@ falls behind `replay_base`. The MCP tools share this contract.
 
 `/world` takes `lod=entity` (the default, every entity) or `lod=type` (one node per entity
 type with its member `count`; hub entities stay as themselves); `lod=cluster` answers 501.
+`lod=type&links=none` is the type summary: the same nodes and counts with no links (hubs carry
+`hub_refs: []`), built without reading relationships and memoised by (epoch, hub cap,
+offset), so it is the cheap first request on a large world. `links=none` with `lod=entity` or
+`focus` is a 400 `bad_parameter`; MCP `world_view` takes the same optional `links`.
 A `/world` response that waits more than 30 s for the bridge's current write answers 503;
 retry it (the web view does).
 

@@ -32,8 +32,12 @@ use super::generation::{self, Generations};
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
 use super::stream;
+use super::summary_memo::{SummaryKey, SummaryMemo};
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
-use super::view::{ACTUAL_BRANCH, HeadView, Lod, ViewParams, WorldView, world_view};
+use super::view::{
+    ACTUAL_BRANCH, HeadView, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary,
+    world_view,
+};
 use crate::bridge::SourceStats;
 
 /// How long a `/world` body waits for reserved writes before answering 503 (s2w#259). A
@@ -89,6 +93,8 @@ pub struct QueryState {
     read_timings: Option<Arc<ReadTimings>>,
     /// The single-flight gate for `lod=entity` bodies (s2w#270).
     generations: Arc<Generations>,
+    /// The last type summary built (s2w#296).
+    summaries: Arc<SummaryMemo>,
     /// How long a `/world` request waits for its answer, and a body for writers, before a 503:
     /// [`BODY_YIELD_LIMIT`], shorter in tests.
     body_wait: Duration,
@@ -115,6 +121,7 @@ impl QueryState {
             log_dir: None,
             read_timings: None,
             generations: Arc::default(),
+            summaries: Arc::default(),
             body_wait: BODY_YIELD_LIMIT,
         }
     }
@@ -170,6 +177,28 @@ impl QueryState {
     /// The single-flight gate for `lod=entity` bodies.
     pub(super) fn generations(&self) -> &Generations {
         &self.generations
+    }
+
+    /// The type summary of `t` at `offset`, labelled with the served epoch: the memo's copy
+    /// when it holds that (epoch, hub cap, offset), else a fresh build that replaces it.
+    ///
+    /// # Errors
+    /// As [`Timeline::check_offset`], checked before the memo so an offset that fell below the
+    /// base is refused even when its summary is memoised.
+    pub(super) fn summary_at(&self, t: &Timeline, offset: u64) -> Result<WorldView, QueryError> {
+        t.check_offset(offset)?;
+        let key = SummaryKey {
+            epoch: t.epoch(),
+            hub_cap: t.hub_cap(),
+            offset,
+        };
+        self.summaries.get_or_build(key, || {
+            let world = t.world_at(offset)?;
+            Ok(WorldView {
+                epoch: t.epoch(),
+                ..type_summary(&world)
+            })
+        })
     }
 
     /// Shortens how long a `/world` request waits before a 503.
@@ -447,7 +476,12 @@ impl QueryState {
     ) -> Result<WorldView, QueryError> {
         self.read(|t| {
             t.check_epoch(epoch)?;
-            let world = t.world_at(at.unwrap_or_else(|| t.head()))?;
+            let at = at.unwrap_or_else(|| t.head());
+            if params.links == LinkDetail::None {
+                check_links(params)?;
+                return self.summary_at(t, at);
+            }
+            let world = t.world_at(at)?;
             Ok(WorldView {
                 epoch: t.epoch(),
                 ..world_view(&world, params)?
@@ -587,6 +621,7 @@ struct Params {
     ts: Option<String>,
     epoch: Option<String>,
     last: Option<String>,
+    links: Option<String>,
 }
 
 pub(crate) fn parse<T: std::str::FromStr>(
@@ -639,6 +674,17 @@ pub(crate) fn parse_lod(raw: Option<&str>) -> Result<Lod, QueryError> {
     }
 }
 
+pub(crate) fn parse_links(raw: Option<&str>) -> Result<LinkDetail, QueryError> {
+    match raw {
+        None | Some("all") => Ok(LinkDetail::All),
+        Some("none") => Ok(LinkDetail::None),
+        Some(other) => Err(QueryError::BadParameter {
+            name: "links",
+            reason: format!("'{other}' is not one of all, none"),
+        }),
+    }
+}
+
 /// `/world`: the view, streamed (#216). The projection and serialization run on a blocking
 /// thread holding the read guard, and the JSON reaches the client in bounded chunks, so neither
 /// a [`WorldView`] nor the whole body is ever resident. Answers `304` to a matching
@@ -659,7 +705,10 @@ async fn world(
             lod: parse_lod(p.lod.as_deref())?,
             focus: parse("focus", p.focus.as_deref())?,
             hops: parse("hops", p.hops.as_deref())?.unwrap_or(1),
+            links: parse_links(p.links.as_deref())?,
         };
+        // Before any guard, tag or 304: an invalid `links` never answers `Not Modified`.
+        check_links(&params)?;
         let at = parse("at", p.at.as_deref())?;
         Ok((at, parse("epoch", p.epoch.as_deref())?, params))
     };
@@ -745,7 +794,8 @@ pub(super) enum WorldAnswer {
 /// `/world`'s entity tag: the view is a pure function of (epoch, fold, offset, params), so equal
 /// tags name equal bytes. The epoch names the feed, not the fold, so the tag also carries
 /// [`FOLD_VERSION`] and the hub cap: a deploy that changes either under the same mapping must
-/// not answer 304 to a page that still holds an old tag.
+/// not answer 304 to a page that still holds an old tag. The type summary (`links=none`,
+/// s2w#296) adds `-nolinks`; every other tag is unchanged by it.
 fn world_etag(epoch: Epoch, hub_cap: u64, offset: u64, params: &ViewParams) -> HeaderValue {
     let lod = match params.lod {
         Lod::Type => "type",
@@ -754,8 +804,12 @@ fn world_etag(epoch: Epoch, hub_cap: u64, offset: u64, params: &ViewParams) -> H
     let focus = params
         .focus
         .map_or_else(|| "-".to_owned(), |f| f.to_string());
+    let links = match params.links {
+        LinkDetail::All => "",
+        LinkDetail::None => "-nolinks",
+    };
     let tag = format!(
-        "\"{epoch}-f{FOLD_VERSION}-c{hub_cap}-{offset}-{lod}-{focus}-{}\"",
+        "\"{epoch}-f{FOLD_VERSION}-c{hub_cap}-{offset}-{lod}-{focus}-{}{links}\"",
         params.hops
     );
     // Hex, digits, letters, dashes and quotes only: always a valid header value.

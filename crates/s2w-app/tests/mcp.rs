@@ -203,6 +203,32 @@ mod tests {
         });
     }
 
+    /// The type summary (s2w#296): `links` has the route's default and values.
+    #[test]
+    fn world_view_links_match_http_bytes() {
+        run(async {
+            let state = golden();
+            let server = WorldMcp::new(state.clone());
+            for (uri, args) in [
+                (
+                    "/worlds/default/world?lod=type&links=none",
+                    json!({"world":"default","lod":"type","links":"none"}),
+                ),
+                (
+                    "/worlds/default/world?at=14&lod=type&links=none",
+                    json!({"world":"default","at":14,"lod":"type","links":"none"}),
+                ),
+                (
+                    "/worlds/default/world?at=14&lod=type&links=all",
+                    json!({"world":"default","at":14,"lod":"type","links":"all"}),
+                ),
+            ] {
+                let result = call(&server, "world_view", args);
+                assert_http(&state, uri, &result, None).await;
+            }
+        });
+    }
+
     #[test]
     #[expect(
         clippy::too_many_lines,
@@ -241,6 +267,30 @@ mod tests {
                     "world_view",
                     "/worlds/default/world?lod=invalid",
                     json!({"world":"default","lod":"invalid"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?links=none",
+                    json!({"world":"default","links":"none"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?lod=entity&links=none",
+                    json!({"world":"default","lod":"entity","links":"none"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?lod=type&focus=1&links=none",
+                    json!({"world":"default","lod":"type","focus":1,"links":"none"}),
+                    "bad_parameter",
+                ),
+                (
+                    "world_view",
+                    "/worlds/default/world?lod=type&links=some",
+                    json!({"world":"default","lod":"type","links":"some"}),
                     "bad_parameter",
                 ),
                 (

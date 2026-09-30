@@ -52,7 +52,7 @@ I/O and is callable directly; `router` serves it over HTTP with `axum` 0.8 and a
 
 | Endpoint | Returns |
 |---|---|
-| `GET /world?at=&branch=&lod=&focus=&hops=&epoch=` | d3 `{nodes, links}` at a fold offset, plus `offset`, `epoch`, `fold_version`, `hub_in_degree_cap` |
+| `GET /world?at=&branch=&lod=&focus=&hops=&epoch=&links=` | d3 `{nodes, links}` at a fold offset, plus `offset`, `epoch`, `fold_version`, `hub_in_degree_cap`. Amended 2026-09-30 (s2w#296): `links=none` with `lod=type` and no `focus` is the type summary (no links, hubs' `hub_refs` empty, ETag suffix `-nolinks`); otherwise 400 `bad_parameter` |
 | `GET /events?from=` (or `Last-Event-ID`) | SSE, exactly one typed delta per offset: `entity`, `link`, `hub_ref` (with `tripped`), `merge`, `split`, `noop`; `id:` is `<epoch>:<offset>`, the offset after the event (decision 0023) |
 | `GET /branches` | `[{name: "actual", world_id: 0, head, fold_version, hub_in_degree_cap}]` |
 | `GET /diff?from=&to=` | entity-level nodes, links and merges added, removed, changed |
