@@ -120,6 +120,10 @@ fn a_command_that_prints_a_manifest_is_filed_accepted_under_the_given_model() ->
     let dry = propose(&dir, &[&["--dry-run"][..], &run[..]].concat())?;
     assert_eq!(dry["action"], json!("dry_run"), "{dry}");
     assert_eq!(dry["decision"], json!("accept"), "{dry}");
+    let provenance = &dry["envelope"]["provenance"];
+    assert_eq!(provenance["input_tokens"], Value::Null, "{dry}");
+    assert_eq!(provenance["output_tokens"], Value::Null, "{dry}");
+    assert!(provenance["latency_ms"].is_u64(), "{dry}");
     assert_eq!(store_entries(&dir.0)?, before, "a dry run writes nothing");
 
     let report = propose(&dir, &run)?;
@@ -184,6 +188,7 @@ fn bad_system2_flags_exit_2_and_an_unset_variable_exits_1_before_anything_opens(
         args.extend_from_slice(bad);
         let out = s2w(&args)?;
         assert_eq!(out.status.code(), Some(2), "{bad:?}: {}", text(&out.stderr));
+        assert_eq!(store_entries(&dir.0)?, 0, "{bad:?} opened nothing");
     }
     let out = s2w(&[
         "dashboard",

@@ -477,6 +477,7 @@ fn a_replayed_system2_manifest_is_filed_accepted_with_its_prompt_hash_and_cost()
     let (proposals, decisions) = dashboard_rows(dir.path());
     assert_filed_by_system2(&proposals, &proposer, &manifest);
     assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].outcome, Outcome::Accept);
     let view = read_dashboard(dir.path(), WORLD).expect("view");
     assert_eq!(view.proposal_id, report.proposal_id);
 
@@ -552,8 +553,9 @@ fn a_system2_command_that_cannot_be_set_up_is_a_bad_parameter_before_the_log_ope
         ..empty.clone()
     };
     let semicolon = System2Command {
+        argv: vec!["/bin/true".to_owned()],
         version: "v;x".to_owned(),
-        ..spaced.clone()
+        ..empty.clone()
     };
     for (command, name) in [
         (empty, "system2-cmd"),

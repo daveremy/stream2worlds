@@ -265,12 +265,11 @@ can run beside `s2w serve`; a held lock exits 1 with `store_locked`.
 With `--system2-model M/V [--system2-env NAME]... --system2-cmd <program> [<arg>...] [--]` the
 manifest comes from a model instead: `s2w` runs the command without a shell, in an empty
 directory, with only the named variables, writes the prompt to its stdin and reads the reply
-from its stdout (180 s, 1 MiB), and allows one repair call when the reply is not a manifest
-that validates.
-The row's actor is `M/V` as given. `--system2-cmd` takes every token after it up to a
-standalone `--`, so put it last or end it with `--`. A `--dry-run` that would file still runs
-the command. The
-command must be tool-less; the operator recipe is in
+from its stdout (180 s, 1 MiB of stdout, 64 KiB of stderr), and allows one repair call when
+the reply is not a manifest that validates. The row's actor is `M/V` as given. `--system2-cmd`
+takes every token after it up to a standalone `--` or the end, so put it last or end it with
+`--`. A `--dry-run` that would file still runs the command. The command must be tool-less;
+the operator recipe is in
 [decision 0029](docs/decisions/0029-dashboard-manifest-v0.md#the-system-2-proposer-311-2026-09-30).
 
 ## Planned interface
