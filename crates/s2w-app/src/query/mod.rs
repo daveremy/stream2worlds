@@ -12,6 +12,7 @@ mod diff;
 mod epoch;
 mod generation;
 mod http;
+mod projection;
 mod proposal_store;
 mod proposals;
 mod read_timings;
@@ -37,6 +38,7 @@ pub use http::{
     Branch, QueryState, RawEventInfo, Rebuilding, SourceInfo, TimeAt, TimeResult, WorldSummary,
     router,
 };
+pub use projection::{HeadView, Projection};
 pub use proposal_store::read_view;
 pub use proposals::{
     ActorDto, DecisionDto, GradeDto, ProposalDto, ProposalsView, TallyDto, proposals_view,
@@ -48,7 +50,7 @@ pub use stream_mapping::{
 };
 pub use timeline::{BaseTime, DEFAULT_HISTORY_CAP, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
-    ACTUAL_BRANCH, HeadView, HubRef, Link, LinkDetail, Lod, MAX_HOPS, Node, ViewParams, WorldView,
+    ACTUAL_BRANCH, HubRef, Link, LinkDetail, Lod, MAX_HOPS, Node, ViewParams, WorldView,
     type_summary, world_view,
 };
 

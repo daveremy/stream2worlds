@@ -29,14 +29,14 @@ use super::delta::Delta;
 use super::diff::{WorldDiff, diff};
 use super::epoch::Epoch;
 use super::generation::{self, Generations};
+use super::projection::HeadView;
 use super::proposals::ProposalsView;
 use super::read_timings::{ReadTimings, ReadTimingsSnapshot};
 use super::stream;
 use super::summary_memo::{SummaryKey, SummaryMemo};
 use super::timeline::{BaseTime, HistoryEntry, TimeRange, Timeline};
 use super::view::{
-    ACTUAL_BRANCH, HeadView, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary,
-    world_view,
+    ACTUAL_BRANCH, LinkDetail, Lod, ViewParams, WorldView, check_links, type_summary, world_view,
 };
 use crate::bridge::SourceStats;
 
@@ -88,7 +88,7 @@ pub struct QueryState {
     /// The event-log directory, so presentation can be read fresh per request rather than
     /// cached at startup — a live `s2w presentation set` is visible without a restart.
     log_dir: Option<Arc<PathBuf>>,
-    /// Where each `/world` body's read-guard hold went (s2w#243); `None` unless a measurement
+    /// Where each `/world` generation's time went (s2w#243); `None` unless a measurement
     /// opts in with [`Self::with_read_timings`].
     read_timings: Option<Arc<ReadTimings>>,
     /// The single-flight gate for full `/world` bodies (s2w#270, s2w#297).
@@ -154,8 +154,9 @@ impl QueryState {
         self
     }
 
-    /// Records where each `/world` body's read-guard hold goes: the wait for the guard, the
-    /// view build, and the write with the guard held (s2w#243). A measurement hook: serve
+    /// Records where each `/world` generation's time goes: the wait for the guard, the capture
+    /// under it, then the sort and the write after it is released (s2w#243, s2w#272). A
+    /// measurement hook: serve
     /// never calls it, and it changes no response byte.
     #[must_use]
     pub fn with_read_timings(mut self) -> Self {
@@ -391,16 +392,19 @@ impl QueryState {
     /// Waits, without blocking the runtime, until the timeline can be written, and keeps
     /// `/world` bodies from taking a read guard until the reservation drops (s2w#259).
     ///
-    /// `serve`'s bridge appends on the current-thread runtime, while a `/world` body holds a read
-    /// guard on a blocking thread and waits for that same runtime to drain its channel. A plain
-    /// `write` there blocked the runtime, nothing drained the body, and after [`stream::STALL`]
-    /// the body ended cut short at the channel's capacity (~4 MiB): the demo viewer's "Failed to
-    /// fetch". Hold the reservation across the synchronous section that writes, and take the
-    /// write lock there with no await in between.
+    /// `serve`'s bridge appends on the current-thread runtime, while a `/world` generation holds
+    /// a read guard on a blocking thread for its capture. Before s2w#272 the guard was held
+    /// through the write, which waits for that same runtime to drain the body's channel: a
+    /// plain `write` there blocked the runtime, nothing drained the body, and after
+    /// [`stream::STALL`] the body ended cut short at the channel's capacity (~4 MiB), the demo
+    /// viewer's "Failed to fetch". The capture no longer waits on the runtime, but a plain
+    /// `write` would still block the runtime for a whole capture. Hold the reservation across
+    /// the synchronous section that writes, and take the write lock there with no await in
+    /// between.
     ///
     /// A body already waiting goes first, for at most [`stream::STALL`]: it wakes within
-    /// [`YIELD_MAX_BACKOFF`], so this wait is short unless a body is stuck. A body already
-    /// streaming is waited out: at most [`stream::BODY_BUDGET`], as before this reservation.
+    /// [`YIELD_MAX_BACKOFF`], so this wait is short unless a body is stuck. A capture already
+    /// under way is waited out: the guard is released once the view is copied out.
     pub(crate) async fn reserve_write(&self) -> WriteReservation {
         let until = Instant::now() + stream::STALL;
         let mut backoff = Duration::from_millis(1);
@@ -420,7 +424,8 @@ impl QueryState {
         reservation
     }
 
-    /// The read guard a `/world` body holds while it streams. Taken only while no write is
+    /// The read guard a `/world` generation holds while it captures its view (s2w#272: released
+    /// before the sort and the write). Taken only while no write is
     /// reserved (checked after acquiring, so a reservation made meanwhile is seen): a body never
     /// holds the guard a reserved writer is about to take on the runtime it waits for. Gives up
     /// with [`QueryError::Unavailable`] (503; the viewer retries) after the body wait limit
@@ -685,9 +690,9 @@ pub(crate) fn parse_links(raw: Option<&str>) -> Result<LinkDetail, QueryError> {
     }
 }
 
-/// `/world`: the view, streamed (#216). The projection and serialization run on a blocking
-/// thread holding the read guard, and the JSON reaches the client in bounded chunks, so neither
-/// a [`WorldView`] nor the whole body is ever resident. Answers `304` to a matching
+/// `/world`: the view, streamed (#216). The projection runs on a blocking thread: captured
+/// under the read guard, then sorted and serialized after it is released (s2w#272). The JSON
+/// reaches the client in bounded chunks, so the whole body is never resident. Answers `304` to a matching
 /// `If-None-Match` before projecting anything. Every full view (`lod=entity`, and `lod=type`
 /// since s2w#297) goes through the single-flight gate (s2w#270, [`generation`]): at most one
 /// full projection is in flight, shared by every request with the same parameters. The type
@@ -781,7 +786,7 @@ pub(super) fn resolve_offset(
 
 /// Serializes `view` into `writer`. A failed write (client gone or stalled) drops `writer`
 /// unfinished, which ends the body with an error; there is no one left to report it to.
-pub(super) fn write_view(view: &HeadView<'_>, mut writer: stream::ChunkWriter) {
+pub(super) fn write_view(view: &HeadView, mut writer: stream::ChunkWriter) {
     if serde_json::to_writer(&mut writer, view).is_ok() {
         let _ = writer.finish();
     }

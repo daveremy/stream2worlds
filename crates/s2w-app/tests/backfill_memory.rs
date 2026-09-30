@@ -31,16 +31,21 @@
 //!   tick and draining each body, as a page does. The `/world` carries the last `ETag` in
 //!   `If-None-Match`, so an unchanged head answers 304 before any projection, as the page's
 //!   refresh does. The tick is [`VIEWER_TICK_MS`] milliseconds: 5000 by default (the page's
-//!   `WORLD_REFRESH_MS`), 1000 for the page's old rate, a worst case. It asserts the whole-process peak stays under [`VIEWER_PEAK_LIMIT`], and
-//!   reports the slowest `/world` (an upper bound on how long one read held the fold's lock:
-//!   the guard is held until the last chunk is queued, and the reader drains as it goes) and
-//!   the slowest `poll_once`, which is where the fold waits for that lock. The server side
-//!   splits each `/world` body's hold (`QueryState::with_read_timings`, s2w#243): `wait` for
-//!   the guard, `build` under it (`HeadView::new`: `Graph::new` and the sorts), `write` with it
-//!   still held (serialization, which still reads each node out of the world). `build share`
-//!   is `build / (build + write)`: the part of the hold a handoff that releases the guard after
-//!   the projection keeps. Since s2w#270 one hold (a single-flight generation) can serve several
-//!   readers' bodies: `builds` counts holds, `bodies` what they served.
+//!   `WORLD_REFRESH_MS`), 1000 for the page's old rate, a worst case. It asserts the
+//!   whole-process peak stays under [`VIEWER_PEAK_LIMIT`], and reports the slowest `/world`
+//!   and the slowest `poll_once`, which is where the fold waits for a reader's lock. The
+//!   server side splits each `/world` generation (`QueryState::with_read_timings`, s2w#243):
+//!   `wait` for the guard, `build` under it (`Projection::capture`: `Graph::new` and the copy
+//!   out), then, with the guard released (s2w#272), `prepare` (the sorts) and `write`
+//!   (serialization of the owned view). Only `build` holds the fold's lock. `build share` is
+//!   `build / (build + prepare + write)`. `diverged` counts entity states a body kept alive after the
+//!   fold replaced them (a second copy for the body's lifetime); `diverged_max` is the most
+//!   for one body. Since s2w#270 one generation can serve several readers' bodies: `builds`
+//!   counts generations, `bodies` what they served.
+//! - `viewers4`: `viewer` with four readers, the demo check's `--viewers 4` (s2w#272), under
+//!   the same [`VIEWER_PEAK_LIMIT`] assertion: s2w#235's acceptance row. Run only when named: it
+//!   is red today. Measured 2026-09-30 on hub (release, load ~5): 1353 MiB peak, 109 s wall;
+//!   main a58d945 (`viewer` with `S2W_BACKFILL_MEMORY_VIEWERS=4`) 1635 MiB, 783 s.
 //!
 //! `S2W_BACKFILL_MEMORY_VARIANTS=bridge,viewer` runs only the named variants;
 //! `S2W_BACKFILL_MEMORY_VIEWER_TICK_MS=1000` sets the `viewer` tick;
@@ -148,6 +153,8 @@ mod backfill {
     }
     /// The variants the default sweep (no `VARIANTS`) runs.
     const DEFAULT_VARIANTS: [&str; 5] = ["world", "timeline", "queries", "bridge", "viewer"];
+    /// How many readers the `viewers4` variant runs: the demo check's `--viewers 4` (s2w#272).
+    const VIEWERS4: usize = 4;
     /// The bridge child's timeline history cap, when set (s2w#220).
     const HISTORY_CAP: &str = "S2W_BACKFILL_MEMORY_HISTORY_CAP";
     /// The bridge child's `BridgeConfig::batch`, when set (s2w#220).
@@ -689,10 +696,14 @@ mod backfill {
             "wait_ms_max": ms(timings.wait.max),
             "build_ms_sum": ms(timings.build.total),
             "build_ms_max": ms(timings.build.max),
+            "prepare_ms_sum": ms(timings.prepare.total),
+            "prepare_ms_max": ms(timings.prepare.max),
             "write_ms_sum": ms(timings.write.total),
             "write_ms_max": ms(timings.write.max),
             "build_share": timings.build_share(),
             "build_share_of_max": timings.build_share_of_max(),
+            "diverged": timings.diverged,
+            "diverged_max": timings.diverged_max,
         })
     }
 
@@ -702,17 +713,22 @@ mod backfill {
         let share = |s: Option<f64>| s.map_or_else(|| "-".to_owned(), |s| format!("{s:.2}"));
         eprintln!(
             "/world hold over {} builds serving {} bodies: wait total {} ms (max {}), \
-             build total {} ms (max {}), write total {} ms (max {}); build share {} (of maxima {})",
+             build total {} ms (max {}), prepare total {} ms (max {}), write total {} ms (max {}); \
+             build share {} (of maxima {}); diverged states {} (max per body {})",
             timings.builds,
             timings.bodies,
             timings.wait.total.as_millis(),
             timings.wait.max.as_millis(),
             timings.build.total.as_millis(),
             timings.build.max.as_millis(),
+            timings.prepare.total.as_millis(),
+            timings.prepare.max.as_millis(),
             timings.write.total.as_millis(),
             timings.write.max.as_millis(),
             share(timings.build_share()),
             share(timings.build_share_of_max()),
+            timings.diverged,
+            timings.diverged_max,
         );
     }
 
@@ -882,7 +898,8 @@ mod backfill {
     )]
     fn bridge(directory: &PathBuf, variant: &str) {
         let (base, _) = split(variant);
-        let with_viewer = base == "viewer";
+        let with_viewer = matches!(base, "viewer" | "viewers4");
+        let four = base == "viewers4";
         let blocking = base == "bridge-run";
         let history_cap = knob(HISTORY_CAP);
         let batch_knob = knob(BATCH);
@@ -894,10 +911,10 @@ mod backfill {
         // Only the default configuration asserts: a knob, an allocator tuning (named or
         // inherited), another thread topology, more than one reader, dhat or mimalloc measures
         // something else.
-        let measuring = (variant != "bridge" && variant != "viewer")
+        let measuring = !matches!(variant, "bridge" | "viewer" | "viewers4")
             || history_cap.is_some()
             || batch_knob.is_some()
-            || viewers.is_some_and(|n| n != 1)
+            || viewers.is_some_and(|n| four || n != 1)
             || allocator_env().is_some()
             || heap_target()
             || mimalloc_target();
@@ -928,7 +945,8 @@ mod backfill {
         let mut bridge = Bridge::new(log, verdicts, registry, state.clone(), config).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let readers = if with_viewer {
-            spawn_viewers(&state, &stop, viewers.unwrap_or(1), viewer_tick())
+            let readers = if four { VIEWERS4 } else { viewers.unwrap_or(1) };
+            spawn_viewers(&state, &stop, readers, viewer_tick())
         } else {
             Vec::new()
         };
@@ -944,7 +962,7 @@ mod backfill {
         let viewed: Vec<Viewed> = readers.into_iter().map(|r| r.join().unwrap()).collect();
         let timings = state.read_timings();
         let (_, head, _) = state.bounds().unwrap();
-        let name = if with_viewer { "viewer" } else { variant };
+        let name = if with_viewer { base } else { variant };
         let seconds = started.elapsed().as_secs_f64();
         report(
             name,
@@ -1100,7 +1118,7 @@ mod backfill {
         let measurement = variants.iter().any(|v| !DEFAULT_VARIANTS.contains(v));
         let bridges = variants
             .iter()
-            .filter(|v| matches!(split(v).0, "bridge" | "bridge-run" | "viewer"))
+            .filter(|v| matches!(split(v).0, "bridge" | "bridge-run" | "viewer" | "viewers4"))
             .count();
         assert!(
             !measurement || bridges <= 1,
@@ -1155,7 +1173,10 @@ mod backfill {
                 .trim_backtraces(Some(1))
                 .build()
         });
-        if matches!(split(&variant).0, "bridge" | "bridge-run" | "viewer") {
+        if matches!(
+            split(&variant).0,
+            "bridge" | "bridge-run" | "viewer" | "viewers4"
+        ) {
             bridge(&PathBuf::from(std::env::var(LOG_DIR).unwrap()), &variant);
             return;
         }

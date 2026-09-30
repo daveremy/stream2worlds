@@ -1,11 +1,11 @@
 # 0028: Shared entity states, owned projections, single-flight `/world`
 
-Date: 2026-09-29 · Status: accepted; part A landed (#271, PR 3 of #235), parts B and C pending · Gate 2 · Issue #235 · Builds on [0026](0026-bounded-timeline-history.md) (one resident world, no world clone on a request path)
+Date: 2026-09-29 · Status: accepted; part A landed (#271, PR 3 of #235), C landed (#270, PR 2), B landed (#272, PR 4) · Gate 2 · Issue #235 · Builds on [0026](0026-bounded-timeline-history.md) (one resident world, no world clone on a request path)
 
 ## Context
 
-A `/world?lod=entity` body is built and written while the reader holds the timeline guard, so
-the fold waits for every client (#235). s2w#243 measured the recorded backfill (base main
+Before part B, a `/world?lod=entity` body was built and written while the reader held the
+timeline guard, so the fold waited for every client (#235). s2w#243 measured the recorded backfill (base main
 156903a, 3 runs per row, busy host):
 
 | Row | wall s | peak MiB | build share of the hold |
@@ -41,12 +41,17 @@ still holds it. `World::entity_arc` hands a reader the shared handle.
   untouched. serde's `rc` feature is not used.
 - `World::clone` is now shallow for entity states. No request path clones a world.
 
-**B. Owned projection, guard released before sorting and writing** (pending, PR 4). A
-projection captures the header scalars, owned keys, interned relationship kinds and the kept
-nodes' `Arc`s under the guard, then sorts and serializes after releasing it. The `Arc`s are
-immutable, so the body still describes one (epoch, offset).
+**B. Owned projection, guard released before sorting and writing** (landed, #272). A
+projection (`query/projection.rs`) captures the header scalars, owned keys, interned
+relationship kinds and the kept nodes' `Arc`s under the guard, then sorts and serializes after
+releasing it. The `Arc`s are immutable, so the body still describes one (epoch, offset). The
+guard is held for the capture only: a client that stops reading never delays an append.
 
-**C. Single-flight generations** (pending, PR 2). At most one `lod=entity` projection is in
+*Amended 2026-09-30 (s2w#272):* a full `lod=type` view is all build (leg-A measurement on the
+recorded backfill head: ~1.5 s build, 0.1 ms write), so B does not shorten its hold. Its lever
+is a cheaper type build, s2w#325.
+
+**C. Single-flight generations** (landed, #270). At most one `lod=entity` projection is in
 flight; requests with equal ETag inputs share one build and one serialization through a
 fan-out writer. `If-None-Match` is answered under the guard before any build.
 
@@ -63,10 +68,11 @@ s2w#296) is served outside the queue, so first paint never waits behind a full b
   projection holds the old ones. It lives as long as one generation and is bounded by the whole
   entity set (~169 MiB on the recorded backfill). A stream that rewrites every entity every
   batch reaches that bound; the no-op skip keeps an unchanged re-observation from counting.
-  PR 4 measures it (`diverged`).
-- Once C lands: a stalled subscriber holds the fan-out writer for up to `STALL` (5 s) per
+  `QueryState::with_read_timings` reports it (`diverged`, `diverged_max`), and
+  `backfill_memory` prints it.
+- With B and C: a stalled subscriber holds the fan-out writer for up to `STALL` (5 s) per
   chunk before it is cut; no guard is held, so the fold is unaffected, but the other
-  subscribers wait. With many distinct keys (per-focus views) the FIFO can push a waiter past
+  subscribers and the queued requests wait. With many distinct keys (per-focus views) the FIFO can push a waiter past
   the 30 s limit, and it gets 503.
 - The no-op check costs one type compare and one binary search per incoming attribute before a
   write. A local `cargo xtask scale` on hub measured 5770 Ir per event against the 5764
