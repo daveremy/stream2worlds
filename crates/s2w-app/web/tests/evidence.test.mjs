@@ -44,3 +44,10 @@ test('pinned evidence reads the headers, and a 410 below the base is an empty se
   const gone = await evidence(new URLSearchParams('world=w'), 7, undefined, new AbortController().signal);
   assert.deepEqual(gone, { messages: [], head: 7, epoch: '' });
 });
+
+test('a response without the headers fails rather than reading as head 0', async () => {
+  globalThis.location = { origin: 'http://s2w.test' };
+  const { evidenceTail } = await import('../src/api.ts');
+  globalThis.fetch = async () => new Response('', { status: 200 });
+  await assert.rejects(evidenceTail(new URLSearchParams('world=w'), new AbortController().signal), /S2W-Head/);
+});

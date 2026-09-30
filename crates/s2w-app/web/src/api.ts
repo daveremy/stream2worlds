@@ -101,9 +101,12 @@ export function eventsUrl(params: URLSearchParams, from: number, at?: number, ep
 // A finite SSE response's messages plus the history (`S2W-Epoch`) and head (`S2W-Head`) the
 // server resolved it under; every `/events` response carries both (s2w#294).
 export type Evidence = { messages: Message[]; head: number; epoch: string };
+const EVIDENCE_DEPTH = 500;
 async function readEvidence(response: Response): Promise<Evidence> {
-  const head = Number(response.headers.get('S2W-Head'));
-  const epoch = response.headers.get('S2W-Epoch') ?? '';
+  const rawHead = response.headers.get('S2W-Head'), epoch = response.headers.get('S2W-Epoch');
+  // A proxy that strips them must fail loudly, never read as an empty world at offset 0.
+  if (rawHead === null || epoch === null) throw new Error('/events response without S2W-Head/S2W-Epoch');
+  const head = Number(rawHead);
   const text = await response.text();
   const messages = text.split(/\r?\n\r?\n/).flatMap(block => {
     const data = block.split(/\r?\n/).filter(line => line.startsWith('data:'))
@@ -118,7 +121,7 @@ async function readEvidence(response: Response): Promise<Evidence> {
 export async function evidenceTail(params: URLSearchParams, signal: AbortSignal): Promise<Evidence> {
   const url = endpoint(params, 'events');
   for (const name of ['from', 'at', 'epoch']) url.searchParams.delete(name);
-  url.searchParams.set('last', '500');
+  url.searchParams.set('last', String(EVIDENCE_DEPTH));
   return readEvidence(await checked(url, signal));
 }
 // A pinned page's evidence: the 500 events through `at`. The server keeps only recent events
@@ -128,7 +131,7 @@ export async function evidenceTail(params: URLSearchParams, signal: AbortSignal)
 export async function evidence(params: URLSearchParams, at: number, epoch: string | undefined,
   signal: AbortSignal): Promise<Evidence> {
   let response: Response;
-  try { response = await checked(eventsUrl(params, Math.max(0, at - 500), at, epoch), signal); }
+  try { response = await checked(eventsUrl(params, Math.max(0, at - EVIDENCE_DEPTH), at, epoch), signal); }
   catch (error) {
     if (error instanceof ApiError && error.code === 'offset_before_base') return { messages: [], head: at, epoch: epoch ?? '' };
     throw error;

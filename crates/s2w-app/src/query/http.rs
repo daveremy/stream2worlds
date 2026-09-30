@@ -1014,16 +1014,8 @@ async fn events(
         Err(e) => return e.into_response(),
     };
     let resolved = [
-        (
-            HeaderName::from_static("s2w-epoch"),
-            // 16 hex digits: always a valid header value.
-            HeaderValue::from_str(&cursor.epoch.to_string())
-                .unwrap_or_else(|_| HeaderValue::from_static("")),
-        ),
-        (
-            HeaderName::from_static("s2w-head"),
-            HeaderValue::from(cursor.head),
-        ),
+        ("s2w-epoch", cursor.epoch.to_string()),
+        ("s2w-head", cursor.head.to_string()),
     ];
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
     tokio::spawn(follow(state, cursor, tx));
