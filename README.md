@@ -21,22 +21,20 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **The demo page opens on a world.** It opens on entity types (6 KB, first paint in about 3 s)
-  instead of a 370 MB graph, and every type is a labelled node; set a Focus entity to see a
-  neighbourhood.
-  [#263](https://github.com/daveremy/stream2worlds/pull/263)
+- **The world is a third smaller.** The profiler stops treating edit counters as entity types:
+  on the recorded fixture the head world falls from 887 to 597 MiB with `user` recall unchanged.
+  [#306](https://github.com/daveremy/stream2worlds/pull/306)
+- **The page can paint before the graph arrives.** `/events?last=N` serves the latest N events, and
+  the viewer shows the evidence table from them while `/world` loads.
+  [#305](https://github.com/daveremy/stream2worlds/pull/305)
+- **A world can have a dashboard manifest.** `s2w dashboard show`, `GET /worlds/{world}/dashboard`
+  and the MCP `dashboard` tool read the accepted one; nothing proposes one yet.
+  [#307](https://github.com/daveremy/stream2worlds/pull/307)
 - **A mapping can now merge entities.** When a link's two rules match with different keys, the
-  engine emits a merge, so two names for one wiki become one entity; mappings without links are
-  unchanged.
+  engine emits a merge, so two names for one wiki become one entity.
   [#279](https://github.com/daveremy/stream2worlds/pull/279)
-- **Containment lifts H-lite on held-out data.** Identity F1 rose from 0.44 to 0.53 and every
-  pre-registered prediction hit.
-  [#276](https://github.com/daveremy/stream2worlds/pull/276)
-- **Source lag is reported per partition.** Kafka shows lag for each partition; SSE and stdin say
-  "not reported" rather than 0.
-  [#286](https://github.com/daveremy/stream2worlds/pull/286)
-- **In progress:** single-flight `/world` and progressive rendering, so first paint stays fast as
-  the world grows ([#270](https://github.com/daveremy/stream2worlds/issues/270), [#292](https://github.com/daveremy/stream2worlds/issues/292)).
+- **In progress:** single-flight `/world` and the rest of progressive rendering, so first paint stays
+  fast as the world grows ([#270](https://github.com/daveremy/stream2worlds/issues/270), [#292](https://github.com/daveremy/stream2worlds/issues/292)).
 
 ## Demos
 
@@ -283,7 +281,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
-- [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold instructions per event, whose baseline is set from the first CI run (parse and fork not yet measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
+- [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold and parse instructions per event against CI-measured baselines (fork not yet measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
