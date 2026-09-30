@@ -244,19 +244,59 @@ fn score_refuses_a_changed_key_before_reading_the_corpus() {
     );
 }
 
-#[test]
-fn score_refuses_a_corpus_relabelled_since_the_freeze() {
-    let (root, dir, out) = frozen("relabel");
+/// Rewrites one corpus row of the fixture's `corpora.toml` after the freeze.
+fn edit_corpus(root: &Path, from: &str, to: &str) {
     let path = root.join(DATA).join("corpora.toml");
     let text = fs::read_to_string(&path).unwrap();
-    fs::write(
-        &path,
-        text.replace("role = \"reserved\"", "role = \"heldout\""),
-    )
-    .unwrap();
+    assert!(text.contains(from), "{text}");
+    fs::write(&path, text.replace(from, to)).unwrap();
+}
+
+const RES: &str = "[corpus.res]\nrole = \"reserved\"\nfile = \"c.sse\"\nevents = 3";
+
+#[test]
+fn score_accepts_a_corpus_opened_since_the_freeze() {
+    let (root, dir, out) = frozen("opened");
+    edit_corpus(&root, RES, &RES.replace("reserved", "heldout"));
+    let markdown = score(&root, &dir, &out, "res", &[KEY]).expect("scores an opened span");
+    assert!(markdown.contains(KEY), "{markdown}");
+}
+
+#[test]
+fn score_refuses_an_opened_corpus_whose_pin_also_changed() {
+    let (root, dir, out) = frozen("opened-sha");
+    let hash = sha256(fs::read(dir.join("c.sse")).unwrap().as_slice());
+    let res = format!("{RES}\nsha256 = \"{hash}\"");
+    let opened = res
+        .replace("reserved", "heldout")
+        .replace(&hash, &"0".repeat(64));
+    edit_corpus(&root, &res, &opened);
     refused(
         score(&root, &dir, &out, "res", &[KEY]),
-        "changed or was removed since",
+        "corpus res: its row in keys.toml or corpora.toml changed or was removed since",
+    );
+}
+
+#[test]
+fn score_refuses_a_development_corpus_relabelled_heldout_since_the_freeze() {
+    // `short` is a development span the mapping's author could have seen; relabelling it
+    // held out after the freeze is not an opening. Its pin refuses before its bytes are read.
+    let (root, dir, out) = frozen("dev-to-held");
+    let short = "[corpus.short]\nrole = \"development\"";
+    edit_corpus(&root, short, &short.replace("development", "heldout"));
+    refused(
+        score(&root, &dir, &out, "short", &[KEY]),
+        "corpus short: its row in keys.toml or corpora.toml changed or was removed since",
+    );
+}
+
+#[test]
+fn score_refuses_a_reserved_corpus_relabelled_development_since_the_freeze() {
+    let (root, dir, out) = frozen("res-to-dev");
+    edit_corpus(&root, RES, &RES.replace("reserved", "development"));
+    refused(
+        score(&root, &dir, &out, "res", &[KEY]),
+        "corpus res: its row in keys.toml or corpora.toml changed or was removed since",
     );
 }
 

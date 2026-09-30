@@ -88,8 +88,9 @@ impl Pins {
     }
 
     /// Every pin, as `key <file>` to its sha256 and `corpus <name>` to its role, file, event
-    /// count and sha256: what `freeze` records and `score` compares against, so relabelling a
-    /// corpus's role after a freeze counts as a changed pin.
+    /// count and sha256: what `freeze` records and `score` compares against. A role change after
+    /// a freeze counts as a changed pin, except `reserved` to `heldout` (opening the span,
+    /// s2w#277): see [`opened`].
     pub(crate) fn all(&self) -> BTreeMap<String, String> {
         let keys = self
             .keys
@@ -159,4 +160,17 @@ fn matches(what: &str, bytes: &[u8], pinned: &str) -> Result<(), String> {
             "{what}: sha256 {got} does not match its pin {pinned}; a pinned file never changes (a new key is a new file and a new pin, a re-captured corpus a new manifest entry)"
         ))
     }
+}
+
+/// True when a corpus pin, as [`Pins::all`] writes it (`"{role:?} {file} {events} {sha256}"`),
+/// differs from its recorded value only by the role going from `Reserved` to `Heldout`: the
+/// span was opened after the freeze (s2w#277).
+pub(crate) fn opened(name: &str, then: &str, now: &str) -> bool {
+    let reserved = format!("{:?} ", Role::Reserved);
+    let heldout = format!("{:?} ", Role::Heldout);
+    name.starts_with("corpus ")
+        && matches!(
+            (then.strip_prefix(&reserved), now.strip_prefix(&heldout)),
+            (Some(rest_then), Some(rest_now)) if rest_then == rest_now
+        )
 }

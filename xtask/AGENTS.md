@@ -98,7 +98,9 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     not frozen on the pinned development corpus, a `reserved` corpus, no key, a key given
     twice, an unpinned or mismatched key, a change since the freeze to a pin it uses (the
     freeze corpus, the scored corpus if the freeze recorded it, each key, which the freeze must
-    have recorded; other rows are ignored), and a file that is not what `freeze` (via
+    have recorded; other rows are ignored; a corpus whose role went from `reserved` to
+    `heldout` with the same file, events and sha256 is an opened span, not a change, s2w#277),
+    and a file that is not what `freeze` (via
     `freeze::derive`) writes for its recorded corpus and window under this build (s2w#238).
     That last check re-reads the development corpus. An abstention is graded as the
     empty prediction. Writes a markdown report (alias limit first; per key the mapping and
@@ -114,8 +116,9 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     alters the mapping written, makes those files refuse to score; that is intended (the commit that froze them names the build). A new profiler version
     is frozen to a new file and scored on a span pinned before it and never read, never on the
     spans 0009 already read (#244 used `reserved`, #250 `reserved-2` and `reserved-3`). Opening
-    a span changes its pin, so a freeze made before the opening must be re-frozen under the
-    current pins to score it (#244: `h-lite-v4.dev-N.pins-244.json`).
+    a span changes only its role, and `score` accepts a freeze made before the opening
+    (s2w#277). Before that fix #244 re-froze v4 under the new pins to score it
+    (`h-lite-v4.dev-N.pins-244.json`); those files stay as the record of what #244 scored.
   - The ceiling row is `KeySpec::oracle()`'s mapping, not the best v0 mapping for the key: a
     mapping that joins two alias paths holding equal values can beat it on that type (H-lite
     does on the plain key's `wiki`). Reports and notes call it the oracle-v0 ceiling (#245).

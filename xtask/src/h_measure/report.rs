@@ -17,7 +17,7 @@ use serde::Serialize;
 
 use super::freeze::{Frozen, derive};
 use super::grade::{Grade, grade};
-use super::pins::{Pins, Role, sha256};
+use super::pins::{Pins, Role, opened, sha256};
 use super::score::{Bcubed, Score, shown};
 
 /// The report's first paragraph: the mapping format's alias limit (ruling on s2w#56,
@@ -135,6 +135,12 @@ fn admissible(
 /// `--key`, which the freeze must have recorded (a key pinned later could be fitted to the
 /// mapping). Any other row may be added, removed or changed (s2w#238). The recorded pins are
 /// taken as written: code cannot prove when a pin existed, the commit history does.
+///
+/// A corpus row may differ in one way: a span recorded `reserved` that is `heldout` now, with
+/// the same file, event count and sha256. That is the span being opened after the freeze, and
+/// it needs no re-freeze (s2w#277). Whether a span may be scored now is `admissible`'s check on
+/// the current manifest. Any other role change still refuses, so a span that was `development`
+/// when the mapping was frozen never scores as held out.
 fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), String> {
     let current = pins.all();
     let file = request.frozen.display();
@@ -150,6 +156,7 @@ fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), 
                     "{name} was not pinned when {file} was frozen; a scored key and the freeze corpus are pinned before the freeze"
                 ));
             }
+            (Some(then), Some(now)) if opened(&name, then, now) => {}
             (Some(then), now) if Some(then) != now => {
                 return Err(format!(
                     "{name}: its row in keys.toml or corpora.toml changed or was removed since {file} was frozen; freeze again under the current pins"
