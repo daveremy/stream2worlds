@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::Config;
-use crate::flatten::{Column, Table, pct};
+use crate::flatten::{Column, INT, Table, pct};
 
 /// What the profiler decided a path is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,7 +237,10 @@ pub(crate) fn dependency_role(table: &Table, k: usize, cfg: &Config) -> (Role, V
 /// - no such path sees `k` churn (`churns`, s2w#291): under a follower, a key that names a thing
 ///   comes back to earlier values (one member of a group turns up in it again and again), while a
 ///   counter or a size of the follower's thing moves on and never returns. Every such follower counts, not the best one: a
-///   counter looks stable under a coarse follower whose groups mix many owners.
+///   counter looks stable under a coarse follower whose groups mix many owners, and
+/// - when every value of `k` is an integer, `k` comes back under some follower (`returns`,
+///   s2w#327): a size can pass the churn guard with half its changes superseded, and the kind is
+///   what separates it, since obfuscation leaves numbers as they are (evaluation contract §2).
 ///
 /// Returns the paths that follow `k`, or none when `k` fails.
 /// `dependents` are the candidate dependents `dependency_role` measured under `groups`.
@@ -273,16 +276,39 @@ fn recurs(
     if followers.iter().any(|f| churns(table, k, f.path, cfg)) {
         return Vec::new();
     }
+    if table.columns[k].kinds == INT && !returns(table, k, &followers, cfg) {
+        return Vec::new();
+    }
     followers
 }
 
-/// Whether `k`'s values move on under `a` and do not come back: in each of `a`'s repeat groups,
-/// `k`'s values in stream order (events that do not carry `k` are skipped), each change from one
-/// value to the next that has a further value after it counts, and it is superseded when the
-/// value it replaced never appears later in that group. At least `churn_pct` of at least
-/// `min_support` counted changes, pooled over the groups, are superseded. A group's last change
-/// does not count: nothing follows it, so its old value is never seen again whatever `k` is.
+/// Whether an integer key `k` comes back under some follower: under at least one follower with at
+/// least `min_support` counted changes (`churn`), fewer than `return_pct` of them are superseded.
+/// With no such follower there is no evidence either way, and `k` is not held back.
+fn returns(table: &Table, k: usize, followers: &[Follower], cfg: &Config) -> bool {
+    let judged: Vec<usize> = followers
+        .iter()
+        .map(|f| churn(table, k, f.path))
+        .filter(|&(changes, _)| changes >= cfg.min_support)
+        .map(|(_, superseded)| superseded)
+        .collect();
+    judged.is_empty() || judged.iter().any(|&superseded| superseded < cfg.return_pct)
+}
+
+/// Whether `k`'s values move on under `a` and do not come back: at least `churn_pct` of at least
+/// `min_support` counted changes (`churn`) are superseded.
 fn churns(table: &Table, k: usize, a: usize, cfg: &Config) -> bool {
+    let (changes, superseded) = churn(table, k, a);
+    changes >= cfg.min_support && superseded >= cfg.churn_pct
+}
+
+/// `k`'s counted changes under `a`, and the share of them superseded: in each of `a`'s repeat
+/// groups, `k`'s values in stream order (events that do not carry `k` are skipped), each change
+/// from one value to the next that has a further value after it counts, and it is superseded when
+/// the value it replaced never appears later in that group. Pooled over the groups. A group's
+/// last change does not count: nothing follows it, so its old value is never seen again whatever
+/// `k` is.
+pub(crate) fn churn(table: &Table, k: usize, a: usize) -> (usize, usize) {
     let (mut changes, mut superseded) = (0, 0);
     for group in repeat_groups(&table.columns[a]) {
         let seen: Vec<u32> = group.iter().filter_map(|&e| table.rows[e][k]).collect();
@@ -296,7 +322,7 @@ fn churns(table: &Table, k: usize, a: usize, cfg: &Config) -> bool {
             }
         }
     }
-    changes >= cfg.min_support && pct(superseded, changes) >= cfg.churn_pct
+    (changes, pct(superseded, changes))
 }
 
 /// Whether no one value of `a` is carried by more than half of the events that carry both `k`

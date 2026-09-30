@@ -782,6 +782,11 @@ enum Own {
     Counter,
     /// Cycles through three values: each value comes back.
     Cycling,
+    /// Steps forward, back once, then on for good (0, 1, 0, 2, 3, 2, 4, ...): two of every three
+    /// changes are superseded, below `churn_pct` and above `return_pct`, like a size.
+    Drifting,
+    /// `Drifting`, with every value a string.
+    DriftingText,
 }
 
 /// `u` (eight owners, named by `un`), and with `pair` also `v` (eight more, named by `vn`), at
@@ -799,11 +804,13 @@ fn owned(n: u64, mode: Own, period: u64, pair: bool) -> Vec<Value> {
             let owner = usize::try_from(u * 8 + v).unwrap();
             let step = seen[owner] / period;
             seen[owner] += 1;
-            let q = 1000 * u64::try_from(owner).unwrap()
-                + match mode {
-                    Own::Counter => step,
-                    Own::Cycling => step % 3,
-                };
+            let base = 1000 * u64::try_from(owner).unwrap();
+            let q = match mode {
+                Own::Counter => json!(base + step),
+                Own::Cycling => json!(base + step % 3),
+                Own::Drifting => json!(base + drift(step)),
+                Own::DriftingText => json!(format!("q{}", base + drift(step))),
+            };
             let p = rng.below(40);
             let mut event = json!({
                 "u": format!("u{u}"),
@@ -819,6 +826,11 @@ fn owned(n: u64, mode: Own, period: u64, pair: bool) -> Vec<Value> {
             event
         })
         .collect()
+}
+
+/// `Own::Drifting`'s `step`th value.
+fn drift(step: u64) -> u64 {
+    2 * (step / 3) + u64::from(step % 3 == 1)
 }
 
 /// The other end of every relationship that names `id`.
@@ -911,12 +923,15 @@ fn too_few_changes_are_no_evidence_of_churn() {
 #[test]
 fn the_churn_threshold_is_inclusive() {
     let events = owned(3000, Own::Counter, 50, false);
+    // The integer return floor would fail `q` either way (s2w#327); it is off here.
     let at = Config {
         churn_pct: 100,
+        return_pct: 101,
         ..Config::default()
     };
     let above = Config {
         churn_pct: 101,
+        return_pct: 101,
         ..Config::default()
     };
     assert_eq!(
@@ -927,6 +942,32 @@ fn the_churn_threshold_is_inclusive() {
         role(&run_with(&events, &[], &above).0, &["q"]),
         Role::Entity
     );
+}
+
+#[test]
+fn an_integer_key_that_rarely_comes_back_under_its_follower_is_no_entity() {
+    let events = owned(3000, Own::Drifting, 50, false);
+    let (profile, _) = run(&events, &[]);
+    assert_eq!(role(&profile, &["q"]), Role::NoDependents);
+    // The churn guard alone passes it: with the floor off, it is an entity.
+    let off = Config {
+        return_pct: 101,
+        ..Config::default()
+    };
+    assert_eq!(role(&run_with(&events, &[], &off).0, &["q"]), Role::Entity);
+}
+
+#[test]
+fn the_return_floor_reads_only_integer_keys() {
+    let (profile, _) = run(&owned(3000, Own::DriftingText, 50, false), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::Entity);
+}
+
+#[test]
+fn too_few_changes_are_no_evidence_against_an_integer_key() {
+    // As in `too_few_changes_are_no_evidence_of_churn`: 16 counted changes, below `min_support`.
+    let (profile, _) = run(&owned(3000, Own::Drifting, 130, false), &[]);
+    assert_eq!(role(&profile, &["q"]), Role::Entity);
 }
 
 #[test]

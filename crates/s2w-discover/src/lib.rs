@@ -16,6 +16,7 @@
 
 mod assemble;
 mod contain;
+mod diag;
 mod flatten;
 pub mod manifest;
 mod roles;
@@ -24,6 +25,7 @@ pub mod stamp;
 use s2w_model::{FieldPath, Segment, StreamMapping};
 
 pub use contain::Containment;
+pub use diag::key_report;
 pub use roles::Role;
 
 /// The profiler's name, recorded on every proposal it makes (`Actor::Agent { model, version }`,
@@ -35,7 +37,7 @@ pub const PROFILER_MODEL: &str = "h-min";
 /// PROFILER_MODEL, version }`, decision 0025). Bump it with any change to `Config::default()` or to a rule, so
 /// grading by (actor, version) (decision 0019) never pools two profilers' proposals. Not the
 /// crate version: the workspace keeps every crate at 0.0.0.
-pub const PROFILER_VERSION: &str = "7";
+pub const PROFILER_VERSION: &str = "8";
 
 /// Thresholds. Percentages are whole percent, compared on integer ratios rounded down.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,6 +80,10 @@ pub struct Config {
     /// follows it, at least this share of its counted value changes replace a value that never
     /// comes back in that follower's group (a counter or a size, not a thing that recurs).
     pub churn_pct: usize,
+    /// The second entity test's return floor for integer keys (s2w#327): a key whose every value
+    /// is an integer fails it unless, under some follower with at least `min_support` counted
+    /// changes, fewer than this share of them are superseded (a size moves on; an id comes back).
+    pub return_pct: usize,
     /// Stage 5b: share of a path's distinct values that must also appear at another identifier
     /// path before the two can share one value domain (research 0002 §3's "about 10%").
     pub contain_pct: usize,
@@ -106,6 +112,7 @@ impl Default for Config {
             spread_groups_pct: 25,
             spread_window_pct: 10,
             churn_pct: 90,
+            return_pct: 30,
             contain_pct: 10,
             carry_pct: 95,
             contain_cap: 250_000,

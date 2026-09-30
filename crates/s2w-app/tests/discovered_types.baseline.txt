@@ -8,7 +8,6 @@ editor/user_text
 editor/user_text+performer/user_text
 main/content_model
 main/origin_rev_id+mediainfo/origin_rev_id+revert/rev_original_id+revert/rev_reverted_newest_id+revert/rev_reverted_oldest_id+revision/rev_id
-mediainfo/content_size
 mediainfo/origin_rev_id
 page/wikibase_concept_uri
 page/wikibase_item_id
