@@ -23,7 +23,7 @@ use crate::query::resolve_class;
 use s2w_log::{Decider, Outcome};
 
 pub use crate::query::{
-    ENVELOPE_FORMAT, Excluded, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope,
+    ENVELOPE_FORMAT, Excluded, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope, proposal_id,
 };
 
 /// A source's effective mapping.

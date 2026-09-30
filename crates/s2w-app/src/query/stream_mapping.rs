@@ -3,7 +3,8 @@
 //! It lives in `query` so the dashboard read can resolve the current mappings without
 //! depending on `routes`; `routes` re-exports every item here, so its callers are unchanged.
 
-use s2w_model::{SourceId, StreamMapping};
+use s2w_log::{Actor, LogPosition};
+use s2w_model::{SourceId, StreamMapping, fnv1a64_hex};
 use serde::{Deserialize, Serialize};
 
 /// The proposal class whose payloads are [`MappingEnvelope`]s. One class for every source, so
@@ -45,4 +46,30 @@ pub fn decode_envelope(payload: &[u8]) -> Result<(SourceId, StreamMapping, Strin
         .identity()
         .map_err(|error| format!("mapping: {error}"))?;
     Ok((source, envelope.mapping, identity))
+}
+
+/// `fnv1a64_hex` over the actor, source, window bounds and mapping identity, each length-
+/// prefixed so no two tuples share an encoding. The same log gives the same id; a moved window
+/// gives another. Shared by every `stream-mapping` producer: discover's window proposals and a
+/// human's `s2w proposals propose` (whose window is the single position 1).
+#[must_use]
+pub fn proposal_id(
+    actor: &Actor,
+    source: &SourceId,
+    first: LogPosition,
+    last: LogPosition,
+    identity: &str,
+) -> String {
+    let actor = match actor {
+        Actor::Human { id } => format!("human:{id}"),
+        Actor::Agent { model, version } => format!("agent:{model}/{version}"),
+    };
+    let first = first.as_u64().to_string();
+    let last = last.as_u64().to_string();
+    let mut bytes = Vec::new();
+    for field in [actor.as_str(), source.as_str(), &first, &last, identity] {
+        bytes.extend_from_slice(&u64::try_from(field.len()).unwrap_or(u64::MAX).to_le_bytes());
+        bytes.extend_from_slice(field.as_bytes());
+    }
+    fnv1a64_hex(&bytes)
 }

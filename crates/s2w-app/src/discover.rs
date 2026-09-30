@@ -18,10 +18,12 @@ use s2w_log::{
     PROPOSAL_DATABASE_FILE, ProposalStore, ReadOnlySqliteProposalStore, SqliteEventLog,
     SqliteProposalStore, StoredProposal, members_at,
 };
-use s2w_model::{SourceId, StreamMapping, fnv1a64_hex};
+use s2w_model::{SourceId, StreamMapping};
 
 use crate::Reporter;
-use crate::routes::{self, ENVELOPE_FORMAT, MappingEnvelope, Resolution, STREAM_MAPPING_CLASS};
+use crate::routes::{
+    self, ENVELOPE_FORMAT, MappingEnvelope, Resolution, STREAM_MAPPING_CLASS, proposal_id,
+};
 
 /// Events profiled per source: the first this many of the source, by log position.
 pub const DISCOVER_WINDOW: usize = 10_000;
@@ -75,31 +77,6 @@ pub fn actor() -> Actor {
         model: PROFILER_MODEL.to_owned(),
         version: PROFILER_VERSION.to_owned(),
     }
-}
-
-/// `fnv1a64_hex` over the actor, source, window bounds and mapping identity, each length-
-/// prefixed so no two tuples share an encoding. The same log gives the same id; a moved window
-/// gives another.
-#[must_use]
-pub fn proposal_id(
-    actor: &Actor,
-    source: &SourceId,
-    first: LogPosition,
-    last: LogPosition,
-    identity: &str,
-) -> String {
-    let actor = match actor {
-        Actor::Human { id } => format!("human:{id}"),
-        Actor::Agent { model, version } => format!("agent:{model}/{version}"),
-    };
-    let first = first.as_u64().to_string();
-    let last = last.as_u64().to_string();
-    let mut bytes = Vec::new();
-    for field in [actor.as_str(), source.as_str(), &first, &last, identity] {
-        bytes.extend_from_slice(&u64::try_from(field.len()).unwrap_or(u64::MAX).to_le_bytes());
-        bytes.extend_from_slice(field.as_bytes());
-    }
-    fnv1a64_hex(&bytes)
 }
 
 /// The policy decision's basis: the policy, the profiler, the window and the mapping's size.

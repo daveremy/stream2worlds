@@ -11,16 +11,17 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use s2w_log::{
-    Decider, LogError, NewDecision, Outcome, ProposalStore, SqliteProposalStore, StoredProposal,
+    Actor, Decider, LogError, LogPosition, NewDecision, NewProposal, Outcome, ProposalStore,
+    SqliteProposalStore, StoredProposal,
 };
-use s2w_model::SourceId;
+use s2w_model::{SourceId, StreamMapping};
 use serde::Serialize;
 
 use crate::query::{
-    DASHBOARD_MANIFEST_CLASS, DecisionDto, QueryError, decode_dashboard_envelope,
+    DASHBOARD_MANIFEST_CLASS, DecisionDto, ProposalDto, QueryError, decode_dashboard_envelope,
     open_proposal_reader,
 };
-use crate::routes::{self, STREAM_MAPPING_CLASS};
+use crate::routes::{self, ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS};
 
 pub use crate::query::read_view;
 
@@ -80,19 +81,32 @@ pub fn parse_outcome(raw: &str) -> Result<Outcome, QueryError> {
 /// # Errors
 /// [`QueryError::BadParameter`] naming `reviewer`.
 pub fn check_reviewer(reviewer: &str) -> Result<(), QueryError> {
-    if reviewer.is_empty() {
+    check_identity("reviewer", reviewer)
+}
+
+/// Checks a human proposal author's identity by the same rule as [`check_reviewer`], so one
+/// person has one spelling on both sides of a proposal.
+///
+/// # Errors
+/// [`QueryError::BadParameter`] naming `author`.
+pub fn check_author(author: &str) -> Result<(), QueryError> {
+    check_identity("author", author)
+}
+
+fn check_identity(name: &'static str, value: &str) -> Result<(), QueryError> {
+    if value.is_empty() {
         return Err(QueryError::BadParameter {
-            name: "reviewer",
+            name,
             reason: "must not be empty".to_owned(),
         });
     }
-    if reviewer
+    if value
         .chars()
         .any(|ch| ch.is_whitespace() || ch.is_control() || ch == ';')
     {
         return Err(QueryError::BadParameter {
-            name: "reviewer",
-            reason: format!("'{reviewer}' must not contain whitespace, control characters or ';'"),
+            name,
+            reason: format!("'{value}' must not contain whitespace, control characters or ';'"),
         });
     }
     Ok(())
@@ -172,6 +186,85 @@ pub fn record_decision(
     Ok(Recorded {
         decision: DecisionDto::from(&stored),
         mapping_source,
+    })
+}
+
+/// A stored human `stream-mapping` proposal and the mapping identity it carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Proposed {
+    /// The stored row (an identical earlier row on a re-run).
+    pub proposal: ProposalDto,
+    /// The mapping's identity, the key routing and revocation bind to (decision 0023).
+    pub identity: String,
+}
+
+/// Appends one human-authored `stream-mapping` proposal for `source` to `log_dir`'s store,
+/// creating the store if needed. The mapping is `mapping_json`, a `StreamMapping` document
+/// (decision 0021). Nothing is decided: routing needs a separate human accept
+/// ([`record_decision`]), exactly as for a producer's proposal.
+///
+/// The id is [`routes::proposal_id`] over the human actor, the source and the mapping
+/// identity, so the same author proposing the same mapping for the same source gets the same
+/// id, and a re-run is an identical retry that returns the stored row. A hand-authored mapping
+/// is not derived from a log window, so `snapshot_offset` is the log's first position; routing
+/// never reads it (decision 0023).
+///
+/// # Errors
+/// [`QueryError::BadParameter`] for an invalid author, source or mapping;
+/// [`QueryError::StoreLocked`] when another writer holds the store; [`QueryError::Storage`]
+/// otherwise.
+pub fn record_mapping_proposal(
+    log_dir: &Path,
+    author: &str,
+    source: &str,
+    mapping_json: &[u8],
+) -> Result<Proposed, QueryError> {
+    check_author(author)?;
+    let source = SourceId::new(source).map_err(|error| QueryError::BadParameter {
+        name: "source",
+        reason: error.to_string(),
+    })?;
+    let bad_mapping = |reason: String| QueryError::BadParameter {
+        name: "mapping",
+        reason,
+    };
+    let mapping: StreamMapping =
+        serde_json::from_slice(mapping_json).map_err(|error| bad_mapping(error.to_string()))?;
+    let payload = serde_json::to_vec(&MappingEnvelope {
+        format: ENVELOPE_FORMAT,
+        source: source.as_str().to_owned(),
+        mapping,
+    })
+    .map_err(|error| bad_mapping(error.to_string()))?;
+    // The one decoder routing uses: a row it would exclude is never stored.
+    let (_, _, identity) = routes::decode_envelope(&payload).map_err(bad_mapping)?;
+    let actor = Actor::Human {
+        id: author.to_owned(),
+    };
+    let first = LogPosition::from_u64(1)
+        .ok_or_else(|| QueryError::Storage("log position 1 is out of range".to_owned()))?;
+    let id = routes::proposal_id(&actor, &source, first, first, &identity);
+    let mut store = SqliteProposalStore::open(log_dir).map_err(|error| match error {
+        LogError::Locked => QueryError::StoreLocked,
+        other => other.into(),
+    })?;
+    let stored = store
+        .append_proposal(&NewProposal {
+            id: id.clone(),
+            class: STREAM_MAPPING_CLASS.to_owned(),
+            actor,
+            snapshot_offset: first,
+            payload,
+            proposed_at_ms: now_ms()?,
+        })
+        .map_err(|error| match error {
+            LogError::Locked => QueryError::StoreLocked,
+            other => other.into(),
+        })?;
+    drop(store);
+    Ok(Proposed {
+        proposal: ProposalDto::from(&stored.summary()),
+        identity,
     })
 }
 

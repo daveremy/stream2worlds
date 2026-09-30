@@ -41,7 +41,9 @@ pub use proposals::{
 };
 pub use read_timings::{PhaseTiming, ReadTimingsSnapshot};
 pub use resolve::{ClassResolution, Excluded, Winner, resolve_class};
-pub use stream_mapping::{ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope};
+pub use stream_mapping::{
+    ENVELOPE_FORMAT, MappingEnvelope, STREAM_MAPPING_CLASS, decode_envelope, proposal_id,
+};
 pub use timeline::{BaseTime, DEFAULT_HISTORY_CAP, HistoryEntry, TimeRange, TimedEvent, Timeline};
 pub use view::{
     ACTUAL_BRANCH, HeadView, HubRef, Link, Lod, MAX_HOPS, Node, ViewParams, WorldView, world_view,

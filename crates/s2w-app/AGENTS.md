@@ -37,7 +37,12 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   `reviewer=<id>; <basis>`) both call `record_decision`. An unknown id or missing store never
   creates the store; an accept on an undecodable `stream-mapping` envelope is refused, and so is
   an accept on a `dashboard-manifest` row whose envelope does not decode or whose manifest is
-  null (decision 0029).
+  null (decision 0029). It is also the one human proposal-write service (#309):
+  `record_mapping_proposal` (the `s2w proposals propose` CLI) appends a `stream-mapping`
+  proposal with a `human` actor and decides nothing. Unlike a decision, it creates the store on
+  a fresh log dir, and only after the author, source and mapping validate; it stores only a
+  payload `decode_envelope` accepts. Its id is `routes::proposal_id` (shared with `discover`,
+  window = position 1), so a re-run is an identical retry.
 - Local by default: nothing leaves the machine without an approved export manifest.
 - A stored cursor beats `--since`: passing both is a usage error, never a silent ignore, and a
   cursor that cannot be decoded is a loud error, never a fresh start.
@@ -67,7 +72,7 @@ violations; it is report-only until s2w#240 flips `ENFORCE`.
   It runs between `serve`'s two route resolutions, profiles only member sources with no
   effective mapping, writes nothing when a `stream-mapping` proposal for the same (source,
   identity) exists from any actor (looked up under the writer lock), mints the proposal id from
-  (actor, source, window, identity), opens the proposal writer per run and drops it (never held
+  (actor, source, window, identity) with `routes::proposal_id`, opens the proposal writer per run and drops it (never held
   by `serve`), and turns every failure into a `discover:` note, never an error.
   `discover::in_run` (#197 PR 4b) runs it once per source from the bridge loop, for a source
   unrouted at start that reaches the window mid-run; it notes through `Reporter::note_sink`,
