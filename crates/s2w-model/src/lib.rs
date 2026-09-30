@@ -5,10 +5,18 @@
 //! Types arrive here when a second crate needs them, not before.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+mod dashboard;
 mod event;
 mod hash;
 mod mapping;
 mod natural_key;
+pub use dashboard::{
+    AcceptedMapping, AttrLabel, BuiltOn, DASHBOARD_FORMAT, DashboardError, DashboardManifest,
+    DeltaField, Domain, EventSentence, KeyLabel, Kind, Label, MAX_BUILT_ON, MAX_EVENTS,
+    MAX_QUESTIONS, MAX_ROLES, MAX_SENTENCE_FIELDS, MAX_SLOT_ITEMS, MAX_STRING_CHARS, MAX_TYPES,
+    ManifestContext, Projection, QuintessentialProjection, Role, Sentence, SentenceField, Slots,
+    Template, TruncateField, TypeRow, When,
+};
 pub use event::{AttrValue, WorldEvent};
 pub use hash::{Fnv64, fnv1a64, fnv1a64_hex};
 pub use mapping::{
