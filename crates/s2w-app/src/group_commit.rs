@@ -141,9 +141,10 @@ struct Totals {
     last_cursor: Option<String>,
 }
 
-/// Consumes `source` into `log` with group commit until the stream ends.
+/// Consumes `source` into the log through `write` with group commit until the stream ends.
 ///
-/// `convert` turns a source item into a log event; its error stops the pump. `on_error` sees
+/// `decode.convert` turns a source item into a log event; its error stops the pump.
+/// `decode.on_error` sees
 /// every source error: `Ok((message, retry))` for one that was reported and skipped (`retry`
 /// marks a transient failure retried from the same position), or the error that stops the pump.
 /// The buffer is flushed, and `report` told about it, before any error is returned.
@@ -289,6 +290,9 @@ pub(crate) async fn pump_events<L: EventLog>(
     .map(|_stopped_early| ())
 }
 
+/// [`pump_events`] with a membership gate: `membership` is checked before every poll (see
+/// [`Membership`]).
+///
 /// Returns `Ok(true)` if `pump` stopped early on a membership change rather than a natural end
 /// of stream — see [`pump`]'s doc comment.
 pub(crate) async fn pump_events_gated(

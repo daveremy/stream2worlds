@@ -591,6 +591,8 @@ where
     }
 }
 
+/// Races the [`Tasks`] until one ends, then shuts HTTP down and drains it for at most
+/// [`DRAIN_TIMEOUT`].
 async fn supervise<P, B, S, T>(
     tasks: Tasks<P, B, S, T>,
     shutdown: watch::Sender<bool>,

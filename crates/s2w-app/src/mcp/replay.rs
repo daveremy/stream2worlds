@@ -107,7 +107,7 @@ impl LiveReadOnlyWorld {
         let mut last = None;
         if let Some(snapshot_end) = verdicts.cursor()? {
             catch_up(
-                &Replay {
+                Replay {
                     state: &state,
                     reader: &reader,
                     verdicts: &verdicts,
@@ -156,7 +156,7 @@ impl LiveReadOnlyWorld {
             CursorUpdate::Regressed(message) => Err(ReadOnlyWorldError::Corrupt(message)),
             CursorUpdate::Advanced(new) => {
                 catch_up(
-                    &Replay {
+                    Replay {
                         state,
                         reader: &self.reader,
                         verdicts: &self.verdicts,
@@ -210,7 +210,7 @@ struct Replay<'a> {
     verdicts: &'a ReadOnlySqliteVerdictStore,
 }
 
-/// Folds every verdict in `(*from, through]` into `state`, batch by batch, advancing `*from`
+/// Folds every verdict in `(*from, through]` into `replay.state`, batch by batch, advancing `*from`
 /// after each batch fully resolves (never partially, per stream2worlds#128's round-2 review:
 /// each batch's fallible I/O — the event read and the verdict range read — is collected in
 /// full before any claim is appended to `state`, so a read failure mid-batch never leaves a
@@ -226,7 +226,7 @@ struct Replay<'a> {
 /// If `stop` is set and observed true between batches, returns early leaving `*from` at
 /// whatever batch was last fully applied — safe to resume from on the next call.
 fn catch_up(
-    replay: &Replay<'_>,
+    replay: Replay<'_>,
     from: &mut Option<LogPosition>,
     through: LogPosition,
     stop: Option<&AtomicBool>,
@@ -235,7 +235,7 @@ fn catch_up(
         state,
         reader,
         verdicts,
-    } = *replay;
+    } = replay;
     let batch_size = BridgeConfig::default().batch;
     while *from != Some(through) {
         if stop.is_some_and(|stop| stop.load(Ordering::Relaxed)) {
