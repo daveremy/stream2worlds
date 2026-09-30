@@ -280,10 +280,11 @@ fn churns(table: &Table, k: usize, a: usize, cfg: &Config) -> bool {
     let (mut changes, mut superseded) = (0, 0);
     for group in repeat_groups(&table.columns[a]) {
         let seen: Vec<u32> = group.iter().filter_map(|&e| table.rows[e][k]).collect();
+        let last: BTreeMap<u32, usize> = seen.iter().enumerate().map(|(i, &v)| (v, i)).collect();
         for i in 1..seen.len().saturating_sub(1) {
             if seen[i] != seen[i - 1] {
                 changes += 1;
-                if !seen[i + 1..].contains(&seen[i - 1]) {
+                if last[&seen[i - 1]] < i {
                     superseded += 1;
                 }
             }
