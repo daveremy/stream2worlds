@@ -160,7 +160,7 @@ struct Totals {
 ///
 /// # Errors
 ///
-/// Returns the first error from the log, `convert` or `on_error`.
+/// Returns the first error from the log, `decode.convert` or `decode.on_error`.
 #[expect(
     clippy::too_many_lines,
     reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"

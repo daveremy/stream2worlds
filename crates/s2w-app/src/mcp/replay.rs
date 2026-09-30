@@ -213,7 +213,7 @@ struct Replay<'a> {
 /// Folds every verdict in `(*from, through]` into `replay.state`, batch by batch, advancing `*from`
 /// after each batch fully resolves (never partially, per stream2worlds#128's round-2 review:
 /// each batch's fallible I/O — the event read and the verdict range read — is collected in
-/// full before any claim is appended to `state`, so a read failure mid-batch never leaves a
+/// full before any claim is appended to `replay.state`, so a read failure mid-batch never leaves a
 /// partial append behind to duplicate on retry).
 ///
 /// `batch_end` is always the position of the last event actually read in the batch (never a
