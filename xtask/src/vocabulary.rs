@@ -5,7 +5,9 @@
 //! The denylist is data, `xtask/vocabulary-denylist.txt` read at run time, never a `const` in
 //! this file: the check scans its own source like any other, and a baked-in list would match
 //! itself. Rust is read as `syn` ASTs, never as text; the web view's TypeScript is read a line
-//! at a time, because no TypeScript parser is a dependency here.
+//! at a time, because no TypeScript parser is a dependency here. Committed prompt files (every
+//! file under a crate's `prompts/` tree) are read the same way, but the per-line opt-out below
+//! does not reach them: every word in a prompt is sent to a model.
 //!
 //! An entry matches when its tokens appear as a contiguous run of the candidate's tokens, so an
 //! entry written `x_y` catches `xY`, `x-y`, `x.y` and the literal `"x_y"`, but not `x_other_y`.
@@ -68,6 +70,7 @@ pub(crate) fn check(root: &Path) -> Vec<String> {
     }
     problems.extend(rust_problems(root, &entries));
     problems.extend(ts_problems(root, &entries));
+    problems.extend(prompt_problems(root, &entries));
     problems
 }
 
@@ -520,9 +523,25 @@ fn ts_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
     (files, problems)
 }
 
+/// Every committed prompt file: each crate's `prompts/` tree, whatever the extension. A prompt
+/// is data a model reads, so it ships domain words as surely as source does. A crate with no
+/// `prompts/` directory has none to scan; that is not a failure.
+fn prompt_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for dir in crate_dirs(root) {
+        collect_matching(&dir.join("prompts"), &|_| true, &mut files);
+    }
+    files
+}
+
 /// `exts` files under `dir`, depth-first and sorted. `tests/`, `benches/` and `examples/` are
 /// not shipped source; `target/`, `node_modules/` and `dist/` are build output.
 fn collect_files(dir: &Path, exts: &[&str], files: &mut Vec<PathBuf>) {
+    collect_matching(dir, &|path| has_ext(path, exts), files);
+}
+
+/// The files under `dir` that `keep` accepts, depth-first and sorted, skipping excluded dirs.
+fn collect_matching(dir: &Path, keep: &dyn Fn(&Path) -> bool, files: &mut Vec<PathBuf>) {
     let Ok(read) = fs::read_dir(dir) else {
         return;
     };
@@ -531,9 +550,9 @@ fn collect_files(dir: &Path, exts: &[&str], files: &mut Vec<PathBuf>) {
     for path in paths {
         if path.is_dir() {
             if !excluded_dir(&path) {
-                collect_files(&path, exts, files);
+                collect_matching(&path, keep, files);
             }
-        } else if has_ext(&path, exts) {
+        } else if keep(&path) {
             files.push(path);
         }
     }
@@ -562,22 +581,41 @@ fn has_ext(path: &Path, exts: &[&str]) -> bool {
 /// is a dependency, and line-by-line keeps `file:line` reportable.
 fn ts_problems(root: &Path, denylist: &[Entry]) -> Vec<String> {
     let (files, mut problems) = ts_files(root);
+    problems.extend(text_problems(root, &files, denylist, Opt::Allowed));
+    problems
+}
+
+/// Prompt files are read the same way, but the per-line opt-out does not apply: every word in
+/// a prompt reaches the model, so a comment marker is just more prompt text.
+fn prompt_problems(root: &Path, denylist: &[Entry]) -> Vec<String> {
+    text_problems(root, &prompt_files(root), denylist, Opt::Refused)
+}
+
+/// Whether a line carrying the `vocabulary: allow` marker is exempt.
+#[derive(Clone, Copy)]
+enum Opt {
+    Allowed,
+    Refused,
+}
+
+fn text_problems(root: &Path, files: &[PathBuf], denylist: &[Entry], opt: Opt) -> Vec<String> {
+    let mut problems = Vec::new();
     for file in files {
-        match fs::read_to_string(&file) {
-            Ok(text) => problems.extend(scan_ts(&text, rel(root, &file), denylist)),
+        match fs::read_to_string(file) {
+            Ok(text) => problems.extend(scan_text(&text, rel(root, file), denylist, opt)),
             Err(e) => problems.push(format!(
                 "{}: {e}; make it readable UTF-8",
-                rel(root, &file).display()
+                rel(root, file).display()
             )),
         }
     }
     problems
 }
 
-fn scan_ts(text: &str, rel: &Path, denylist: &[Entry]) -> Vec<String> {
+fn scan_text(text: &str, rel: &Path, denylist: &[Entry], opt: Opt) -> Vec<String> {
     let mut problems = Vec::new();
     for (index, line) in text.lines().enumerate() {
-        if line.contains(ALLOW) {
+        if matches!(opt, Opt::Allowed) && line.contains(ALLOW) {
             continue;
         }
         let tokens = tokenize(line);
@@ -727,7 +765,12 @@ mod tests {
     #[test]
     fn typescript_is_scanned_line_by_line_with_the_same_rules() {
         let text = "const a = 1;\nconst wikiId = 2; // vocabulary: allow\nconst wiki_id = 3;\n";
-        let problems = scan_ts(text, Path::new("crates/demo/web/src/app.ts"), &denylist());
+        let problems = scan_text(
+            text,
+            Path::new("crates/demo/web/src/app.ts"),
+            &denylist(),
+            Opt::Allowed,
+        );
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
             problems[0].contains("crates/demo/web/src/app.ts:3"),
@@ -822,6 +865,43 @@ mod tests {
                 "{hit}:{line} missing from {problems:?}"
             );
         }
+    }
+
+    #[test]
+    fn prompt_files_are_scanned_and_the_opt_out_does_not_reach_them() {
+        let scratch = Scratch::new();
+        scratch.write("xtask/vocabulary-denylist.txt", "wiki_id\n");
+        scratch.write("crates/demo/prompts/clean.txt", "Propose a manifest.\n");
+        assert!(check(&scratch.0).is_empty());
+        scratch.write(
+            "crates/demo/prompts/p.txt",
+            "Line one.\nKey rows by wiki_id.\nUse wikiId. vocabulary: allow\n",
+        );
+        let problems = check(&scratch.0);
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        for line in [2, 3] {
+            assert!(
+                problems
+                    .iter()
+                    .any(|p| p.contains(&format!("crates/demo/prompts/p.txt:{line}"))),
+                "line {line} missing from {problems:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_prompt_file_that_is_not_utf8_fails() {
+        let scratch = Scratch::new();
+        scratch.write("xtask/vocabulary-denylist.txt", "wiki_id\n");
+        let path = scratch.write("crates/demo/prompts/bin.txt", "");
+        fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
+        let problems = check(&scratch.0);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("crates/demo/prompts/bin.txt") && problems[0].contains("UTF-8"),
+            "{}",
+            problems[0]
+        );
     }
 
     #[test]

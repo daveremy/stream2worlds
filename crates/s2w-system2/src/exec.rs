@@ -359,5 +359,6 @@ impl Drop for EmptyDir {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests;
