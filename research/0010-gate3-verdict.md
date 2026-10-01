@@ -130,9 +130,10 @@ Nothing was re-tuned. These are findings.
 - **`private-test-2` was opened before the mappings** (s2w#375 PR 2, for H's score; sanctioned by
   the plan). It is not one of the five obfuscated test spans.
 - **Identical r2-r5 H+S2/B3 obfuscated scores are a real outcome.** Each replicate is scored with
-  its own mapping, key and corpus (distinct sha256s); the mappings cover the same structural
-  classes (one user path, one page path, one wiki alias), and B-cubed is alias-invariant. Low-digit
-  F1 values and relationship F1 differ per replicate.
+  its own mapping, key and corpus (distinct sha256s). The mappings cover the same structural
+  classes (H+S2: one user path, one page path, one wiki alias; B3: one user path and one wiki
+  alias), and B-cubed is alias-invariant, so equal coverage gives equal scores. Some replicates
+  still differ in low digits (H+S2 r4, B3 r2-r3) and in H+S2 relationship F1.
 - **Plain `reserved-6` was already open** (s2w#375 PR 2). The obfuscated test span's blindness rests
   on the unseen replicate key and field table, which the held-out metadata (`obfuscation/rK.meta.json`,
   committed by this PR after every mapping) provide, not on the underlying events being unseen.
