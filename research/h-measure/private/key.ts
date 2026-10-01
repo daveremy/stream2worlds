@@ -226,7 +226,10 @@ export function shape(s: Spec, frames: Frame[]) {
 export const SHAPE_PATH = fileURLToPath(new URL("./fixture/synthetic-20.key-shape.json", import.meta.url));
 export function fixtureShape(): string {
   const { frames } = parseSse(readFileSync(FIXTURE_PATH, "utf8"));
-  return JSON.stringify({ base: shape(spec("base"), frames), "context-scored": shape(spec("context-scored"), frames) }, null, 2) + "\n";
+  // One line per variant and section, so a drift diff names the section that moved.
+  const variant = (v: "base" | "context-scored") => Object.entries(shape(spec(v), frames))
+    .map(([k, x]) => `    ${JSON.stringify(k)}: ${JSON.stringify(x)}`).join(",\n");
+  return `{\n  "base": {\n${variant("base")}\n  },\n  "context-scored": {\n${variant("context-scored")}\n  }\n}\n`;
 }
 
 // ---- verification against the provenance sidecar ----
