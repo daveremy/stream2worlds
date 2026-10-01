@@ -99,7 +99,7 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
 | `commit` | the 40-hex sha | `sha`, `head_sha`, `merge_commit_sha`, `commit_sha`, `parents.0`, `parents.1` |
 | `branch` | `(repo, name)` | `branch`, `head_ref` |
 | `sprint` | the sprint number | `sprint`, `slot`, `file_id` |
-| `seat` | `seat_id` | `seat_id` (singleton-only type) |
+| `seat` | `seat_id` | `seat_id` (one seat across its fallback or re-run attempts, so it can have several mentions; a `null` id is no mention) |
 | `comment` | `comment_id` | `comment_id` (singleton-only type) |
 
 - **Unscored:** plumbing and values (`kind`, `ts`, `step`, `verdict`, `engine`, `model`, `pts`,
