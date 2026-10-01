@@ -191,7 +191,7 @@ pub(crate) fn mapping_mentions(
                 }
                 Entry::Occupied(slot) if slot.get().0 != *key => {
                     return Err(format!(
-                        "record {record}: rules {:?} and {:?} place the mention at {:?} in different clusters",
+                        "record {record}: rules {:?} and {:?} place the mention at {:?} under different keys",
                         slot.get().1,
                         rule.id,
                         slot.key().1

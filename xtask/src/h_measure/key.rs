@@ -142,11 +142,13 @@ impl KeySpec {
     }
 
     /// The oracle with links (s2w#245, decision 0027): [`Self::oracle`]'s rules, plus for each
-    /// alias mention rule (its path is not an identity path) of a type that has an oracle rule,
-    /// an entity rule keyed by the alias path alone and a link absorbing it into the type's
-    /// first oracle rule. The fold then joins an alias value to the identity it co-occurs with
-    /// first, so this is the ceiling for a mapping that may state links. Graded as the
-    /// "oracle with links" row beside the oracle-v0 row, never in place of it.
+    /// alias mention rule (its path is not an identity path) an entity rule keyed by the alias
+    /// path alone and a link absorbing it into the first oracle rule on the same identity paths
+    /// (an alias with no such rule gets nothing). The fold then joins an alias value to the
+    /// identity it co-occurs with first, so this is the ceiling for a mapping that may state
+    /// links. Graded as the "ceiling with links" row beside the oracle-v0 row, never in place of
+    /// it. An alias key has the type's label and one part, so an alias value textually equal to
+    /// another one-part key of that type is the same entity (decision 0027's shared label).
     pub(crate) fn oracle_with_links(&self) -> Result<StreamMapping, String> {
         self.oracle_mapping(true)
     }
@@ -156,7 +158,8 @@ impl KeySpec {
         let mut entities = Vec::new();
         let mut aliases = Vec::new();
         for kind in &self.types {
-            let mut survivor: Option<String> = None;
+            // Each oracle rule's id and the identity paths it keys, in rule order.
+            let mut identities: Vec<(String, BTreeSet<&FieldPath>)> = Vec::new();
             for rule in &kind.mentions {
                 let Some(at) = rule.identity.iter().position(|p| *p == rule.path) else {
                     continue;
@@ -165,7 +168,7 @@ impl KeySpec {
                 let mention = key.remove(at);
                 key.push(mention);
                 let id = format!("oracle-{}", entities.len());
-                survivor.get_or_insert_with(|| id.clone());
+                identities.push((id.clone(), rule.identity.iter().collect()));
                 entities.push(EntityRule {
                     id,
                     type_label: kind.label.clone(),
@@ -173,11 +176,16 @@ impl KeySpec {
                     attrs: Vec::new(),
                 });
             }
-            let Some(survivor) = survivor.filter(|_| with_links) else {
+            if !with_links {
                 continue;
-            };
+            }
+            // An alias links into the first oracle rule on its own identity paths; with none,
+            // no rule keys that identity and the alias gets no rule.
             for rule in &kind.mentions {
-                if !rule.identity.contains(&rule.path) {
+                let wanted: BTreeSet<&FieldPath> = rule.identity.iter().collect();
+                let survivor = identities.iter().find(|(_, paths)| *paths == wanted);
+                if let (false, Some((survivor, _))) = (rule.identity.contains(&rule.path), survivor)
+                {
                     aliases.push((survivor.clone(), kind.label.clone(), rule.path.clone()));
                 }
             }

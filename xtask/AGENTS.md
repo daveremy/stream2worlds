@@ -107,7 +107,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     whose path is an identity path, mention path last; alias mentions get no rule, and two mention rules on one
     multi-path identity are split by the reordering), graded as the ceiling row; and
     `oracle_with_links`: the same rules plus, per alias mention rule, a rule keyed by the alias
-    path linked into its type's first oracle rule, graded as the "ceiling with links" row.
+    path linked into the first oracle rule on the same identity paths, graded as the "ceiling with links" row.
     Domain knowledge lives in the spec file, never here.
     - `h_measure/key/unscored.rs`: `unscored` entries, an exact path (every format) or
       `{"prefix": path}` (format 2: the path and every path under it), and `Unscored`, the

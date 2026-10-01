@@ -150,9 +150,11 @@ included.
   fold's merge rule, not a copy. `KeySpec::oracle_with_links` and a "ceiling with links" report
   row. Control (2026-09-30): the committed v4 frozen mappings re-scored on `reserved-3` match
   their committed reports line for line except the preamble and the new row. That row, base
-  key: P 0.9991, R 0.9992 at both windows, so P7's R holds and its P = 1.0 does not. The
-  likely cause, not yet measured per type: first link wins joins an alias value that two
-  identities share to the first one only.
+  key: P 0.9991, R 0.9992 at both windows, so P7's R holds and its P = 1.0 does not. Two
+  candidate causes, not yet measured per type: first link wins joins an alias value that two
+  identities share to the first one only, and an alias key (label plus one value) equals
+  another one-part key of its type. Those numbers predate the survivor rule (the oracle rule
+  on the alias's own identity paths, not the type's first rule); leg B re-runs the control.
 - Every `StreamMapping` literal gains `links: Vec::new()`; no behaviour change.
 - No new dependencies; the allowlist is unchanged.
 

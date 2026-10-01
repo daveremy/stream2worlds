@@ -203,3 +203,36 @@ fn a_key_without_aliases_has_the_v0_oracle_as_its_oracle_with_links() {
     .expect("the spec deserializes");
     assert_eq!(spec.oracle_with_links(), spec.oracle());
 }
+
+#[test]
+fn an_alias_seen_alone_before_its_link_resolves_to_the_survivor() {
+    let payloads = [
+        json!({ "url": "https://en" }),
+        json!({ "name": "en", "url": "https://en" }),
+    ];
+    let got = mentions(
+        &linked(&json!([{ "survivor": "name", "absorbed": "url" }])),
+        &payloads,
+    );
+    assert_eq!(cluster(&got, 0, "url"), cluster(&got, 1, "name"));
+}
+
+#[test]
+fn an_alias_links_into_the_oracle_rule_on_its_own_identity() {
+    let spec: KeySpec = serde_json::from_value(json!({
+        "version": 0,
+        "decode": [],
+        "types": [{ "type": "T", "mentions": [
+            { "path": ["a"], "identity": [["a"]] },
+            { "path": ["b"], "identity": [["b"]] },
+            { "path": ["c"], "identity": [["b"]] },
+            { "path": ["d"], "identity": [["z"]] }
+        ] }],
+        "unscored": []
+    }))
+    .expect("the spec deserializes");
+    let with = spec.oracle_with_links().expect("an oracle with links");
+    // `c` joins the rule keyed by `b`, the second oracle rule; `d` has no rule on `z`.
+    assert_eq!(with.links.len(), 1);
+    assert_eq!(with.links[0].survivor, "oracle-1");
+}
