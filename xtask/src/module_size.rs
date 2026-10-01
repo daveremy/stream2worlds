@@ -46,7 +46,9 @@ mod depinfo;
 mod ratchet;
 pub(crate) mod walk;
 
-use depinfo::{dep_check, dep_files};
+#[cfg(test)]
+use depinfo::dep_check;
+use depinfo::{dep_files, package_dep_check};
 use ratchet::growth;
 pub(super) use ratchet::{git, trailer};
 use walk::Scan;
@@ -92,19 +94,21 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
         findings.push(e);
     }
     for pkg in &meta.packages {
-        for target in &pkg.targets {
-            if !target.walked() {
-                continue;
-            }
+        let mut walked = Vec::new();
+        for target in pkg.targets.iter().filter(|t| t.walked()) {
             let mut target_scan = Scan::default();
             if let Err(e) = target_scan.file(&target.src_path, target.name.replace('-', "_"), true)
             {
                 findings.push(e);
             }
+            walked.push((target, target_scan));
+        }
+        if built {
             let src = super::crate_dir(&pkg.manifest_path).join("src");
-            if built && let Err(e) = dep_check(root, target, &src, &files, &target_scan.visited) {
-                findings.push(e);
-            }
+            let visited: Vec<_> = walked.iter().map(|(t, s)| (*t, &s.visited)).collect();
+            findings.extend(package_dep_check(root, &src, &files, &visited));
+        }
+        for (_, target_scan) in walked {
             for (key, row) in target_scan.rows {
                 if scan.rows.insert(key.clone(), row).is_some() {
                     findings.push(format!("{key}: two targets resolve to the same module key, so one row would hide the other; rename one target"));
@@ -400,6 +404,51 @@ mod tests {
         println!(
             "Growth: absent base/new entry and increased ceiling FAIL; trailer behind merge PASS; missing origin/main FAIL"
         );
+    }
+    #[test]
+    fn lib_and_bin_of_one_package_are_checked_against_their_union() {
+        let scratch = Scratch::new();
+        let lib = scratch.write("src/lib.rs", "mod a;");
+        let a = scratch.write("src/a.rs", "");
+        let main = scratch.write("src/main.rs", "fn main() {}");
+        let hidden = scratch.write("src/hidden.rs", "");
+        let lib_dep = scratch.write(
+            "target/debug/libdemo.d",
+            &format!("out: {} {}\n", lib.display(), a.display()),
+        );
+        let bin_text = format!(
+            "out: {} {} {}\n",
+            main.display(),
+            lib.display(),
+            a.display()
+        );
+        let bin_dep = scratch.write("target/debug/demo.d", &bin_text);
+        let target = |kind: &str, src_path: &PathBuf| Target {
+            name: "demo".into(),
+            kind: vec![kind.into()],
+            src_path: src_path.clone(),
+        };
+        let (lib_target, bin_target) = (target("lib", &lib), target("bin", &main));
+        let lib_visited = BTreeSet::from([lib.clone(), a.clone()]);
+        let bin_visited = BTreeSet::from([main.clone()]);
+        let files = [lib_dep.clone(), bin_dep.clone()];
+        let src = scratch.0.join("src");
+        // The bin's dep-info matches the lib target by name and lists main.rs.
+        assert!(dep_check(&scratch.0, &lib_target, &src, &files, &lib_visited).is_err());
+        let both = [(&lib_target, &lib_visited), (&bin_target, &bin_visited)];
+        let found = package_dep_check(&scratch.0, &src, &files, &both);
+        assert!(found.is_empty(), "{found:?}");
+        // A file compiled into the bin that neither target walked still fails.
+        scratch.write(
+            "target/debug/demo.d",
+            &format!("{} {}\n", bin_text.trim_end(), hidden.display()),
+        );
+        let found = package_dep_check(&scratch.0, &src, &files, &both);
+        assert!(
+            !found.is_empty() && found.iter().all(|f| f.contains("did not visit")),
+            "{found:?}"
+        );
+        println!("{}", found.join("\n"));
     }
     #[test]
     fn dep_info_escaped_paths_continuations_and_compiled_unvisited_files() {
