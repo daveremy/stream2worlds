@@ -683,3 +683,5 @@ It changes no arm, metric, threshold or stream; B2.3 stands as signed.
   held-out `private-test`, 2026-09-29T00:00Z to 2026-10-01T00:00Z (5,501 events), captured after it
   ended and pinned `reserved` in `research/h-measure/corpora.toml` until a score opens it. The raw
   events are never committed or published.
+- **Order.** The scored run on `private-test` precedes any publication of the source repos; if
+  that order ever has to break, Dave rules on §B2.3 first (karpathy ruling, s2w#371, 2026-10-01).
