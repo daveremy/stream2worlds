@@ -191,9 +191,11 @@ for (const repo of REPOS) {
     commits.set(c.sha, c);
 }
 
+const sprints = sprintRows(readFileSync(a.sprints!, "utf8"));
+if (sprints.unparsed) drop("sprint-unparsed", sprints.unparsed);
 const events: Event[] = [
   ...legEvents(workers, joins), ...seatEvents(seatRows, joins, branchPr), ...itemEvents(items, joins),
-  ...timelineEvents(timeline, joins), ...sprintEvents(sprintRows(readFileSync(a.sprints!, "utf8"))),
+  ...timelineEvents(timeline, joins), ...sprintEvents(sprints.rows),
 ];
 const inSpan = window(events, since, until);
 const named = new Set<string>();
