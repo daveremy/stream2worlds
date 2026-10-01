@@ -354,6 +354,8 @@ fn every_pinned_key_file_is_a_valid_key() {
             .unwrap_or_else(|e| panic!("{}: invalid: {e}", pin.file));
         spec.oracle()
             .unwrap_or_else(|e| panic!("{}: no oracle mapping: {e}", pin.file));
+        spec.oracle_with_links()
+            .unwrap_or_else(|e| panic!("{}: no oracle mapping with links: {e}", pin.file));
         // A file's format is part of its pin: a `-v0` file is format 0, whatever came later.
         if pin.file.starts_with("dev-key-v0") {
             assert_eq!(spec.version, 0, "{}", pin.file);
