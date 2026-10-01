@@ -27,7 +27,12 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 ## Internal modules
 
-- `main.rs`: CLI, metadata, dependency and workspace checks.
+- `main.rs`: CLI, Cargo metadata, the shared helpers (`cargo`, `read_toml`, `crate_dir`,
+  `sha256`) and the check orchestrator, including check 3 (AGENTS.md).
+- `deps.rs`: the allowlist types, the per-crate edge check (check 1) and the README stack-table
+  reader (check 2); `main.rs` still runs the allowlist's cross-crate loops and the row lookups.
+- `lints.rs`: the manifest `[lints]` type `main.rs` reads for check 4, and check 5 (no
+  dependency overrides).
 - `golden.rs`: deterministic golden replay.
 - `obfuscation.rs`: check 10, obfuscation replay of the golden log through the fold and the
   claim-reading engines.
@@ -44,8 +49,11 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   decision 0030; check 11 still hashes every string), comparing the mapping, the event-type field
   and every path's role (decision 0022). Self-tests live in `discover_replay/tests.rs`.
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
-  - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal.
+  - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal (`include_str!`/`include_bytes!` are expressions that add no module line and are not refused, s2w#66).
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.
+    Every walked target of a package is checked against the union of the package's walks: a
+    lib+bin package's bin dep-info lists the lib's sources, and both targets share the
+    package's name (s2w#66).
   - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer; its `git` and `trailer` helpers are shared with `scale.rs`.
 - `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64, `[ir.recorded] events` and `[parse] events`), the pure `[ir]`/`[parse]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
   - `scale/supply.rs`: the two event supplies each scale number is measured on, the seeded generator (`[ir]`, `[memory]`) and the recorded fixture (`[ir.recorded]`, `[memory.recorded]`), gated side by side (s2w#174).

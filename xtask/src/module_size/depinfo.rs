@@ -103,3 +103,26 @@ pub(super) fn dep_check(
         ))
     }
 }
+
+/// Runs [`dep_check`] for every walked target of one package against the union of their
+/// visited files. A lib+bin package's bin dep-info lists the lib's sources, and both targets
+/// carry the package's name, so each target matches the other's dep-info; a file compiled into
+/// a target must still have been walked by some target of the package (s2w#66). The cost: a
+/// file one target reaches in a way the walker misses passes if another target walks it. Both
+/// targets can match one dep-info file, so a finding is reported once, not per target.
+pub(super) fn package_dep_check(
+    root: &Path,
+    src: &Path,
+    files: &[PathBuf],
+    targets: &[(&Target, &BTreeSet<PathBuf>)],
+) -> Vec<String> {
+    let union: BTreeSet<PathBuf> = targets
+        .iter()
+        .flat_map(|(_, visited)| visited.iter().cloned())
+        .collect();
+    let found: BTreeSet<String> = targets
+        .iter()
+        .filter_map(|(target, _)| dep_check(root, target, src, files, &union).err())
+        .collect();
+    found.into_iter().collect()
+}

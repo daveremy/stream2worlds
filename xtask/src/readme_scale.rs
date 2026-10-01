@@ -188,7 +188,7 @@ mod tests {
         let root = crate::workspace_root();
         let readme = fs::read_to_string(root.join("README.md")).unwrap();
         let text = fs::read_to_string(root.join(BASELINE)).unwrap();
-        let row = crate::stack_table(&readme).remove("Scale").unwrap();
+        let row = crate::deps::stack_table(&readme).remove("Scale").unwrap();
         (row, scale::parse(&text).unwrap())
     }
 
