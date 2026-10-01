@@ -72,10 +72,10 @@
 //!     `Baseline-growth: s2w#<N>` trailer (s2w#156).
 //! 19. **Public API** (`public_api.rs`, snapshots in `xtask/public-api/`): every lib crate's
 //!     `pub` items match its committed snapshot; `cargo xtask api --update` rewrites them (s2w#68).
-//! 20. **No private capture** (`private_capture.rs`): no `*.sse` or `*.provenance.jsonl` under
-//!     `research/` except the synthetic fixture (which must carry the synthetic header), and no
-//!     file anywhere in the working tree with a line starting with the private capture header
-//!     (s2w#371).
+//! 20. **No private capture** (`private_capture.rs`): over `git ls-files -co --exclude-standard`,
+//!     no `*.sse` under `research/` except the synthetic fixture (which must carry the synthetic
+//!     header), no `*.provenance.jsonl` anywhere, and no non-Rust file with a line starting with
+//!     the private capture header (s2w#371).
 //!
 //! Escape hatches: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a

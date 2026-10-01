@@ -49,6 +49,22 @@ if (!a.name || !/^[a-z0-9-]+$/.test(a.name) || !ISO.test(a.since ?? "") || !ISO.
   process.exit(2);
 }
 const since = a.since!, until = a.until!;
+// The DB writes `toISOString()` text (`...SS.mmmZ`); compare in that form, or `.` < `Z` drops
+// the first second of the span.
+const isoMs = (t: string) => new Date(t).toISOString();
+const other = (r: Repo): Repo => (r === "lifeos" ? "s2w" : "lifeos");
+// Seat fields are copied only in the shape a seat log writes them; anything else becomes null
+// and is counted, so one odd value never reaches the scrub gate as free text.
+const SHAPE = {
+  word: /^[A-Za-z0-9_.:+-]{1,64}$/, verdict: /^[A-Z][A-Z-]{1,19}$/, hex: /^[0-9a-f]{7,40}$/,
+  branch: /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/, script: /^[A-Za-z0-9_.-]{1,64}$/,
+};
+const shaped = (re: RegExp, v: unknown): string | null => {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "string" && re.test(v)) return v;
+  drop("seat-field-shape");
+  return null;
+};
 const clone: Record<Repo, string> = { lifeos: a["clone-lifeos"]!, s2w: a["clone-s2w"]! };
 const ghRepo: Record<Repo, string> = { lifeos: a["gh-lifeos"]!, s2w: a["gh-s2w"]! };
 const dropped = new Map<string, number>();
@@ -76,7 +92,7 @@ const joins: Joins = {
 const dbUri = `file:${a.db}?mode=ro`;
 const sql = (q: string) => JSON.parse(run("sqlite3", ["-json", dbUri, q]) || "[]");
 const workers: WorkerRow[] = sql(
-  `select id, key, step, detail, timestamp from worker_history where timestamp >= '${since}' and timestamp < '${until}' order by id`);
+  `select id, key, step, detail, timestamp from worker_history where timestamp >= '${isoMs(since)}' and timestamp < '${isoMs(until)}' order by id`);
 for (const r of workers) if (!repoOfKey(r.key)) drop("worker-other-repo");
 const maxWorkerId = sql("select max(id) as m from worker_history")[0]?.m ?? 0;
 
@@ -106,21 +122,22 @@ for (const repo of REPOS) {
     const rows = jsonl<any>(run("gh", ["api", "--paginate", `repos/${R}/issues/${it.number}/timeline?per_page=100`, "--jq", ".[]"]));
     let closedBy: string | null = null;
     rows.forEach((t, ordinal) => {
+      if (!TIMELINE_KINDS.has(t.event)) return drop("timeline-other-kind");
       if (!t.created_at) return drop("timeline-undated");
       if (t.event === "closed" || t.event === "merged") closedBy = t.actor?.login ?? null;
       const src = t.source?.issue;
-      const sameRepo = src?.repository_url?.endsWith(`/repos/${R}`);
+      const refRepo = REPOS.find((x) => src?.repository_url?.endsWith(`/repos/${ghRepo[x]}`));
       timeline.push({
         repo, number: it.number, ordinal, id: typeof t.id === "number" ? t.id : null, event: t.event,
         created_at: t.created_at, actor: t.actor?.login ?? t.user?.login ?? null,
-        label: t.label?.name ?? null, ref_number: src && sameRepo ? src.number : null,
+        label: t.label?.name ?? null, ref_repo: refRepo ?? null, ref_number: src && refRepo ? src.number : null,
         commit_sha: t.event === "referenced" ? (t.commit_id ?? null) : null,
         comment_bytes: t.event === "commented" ? Buffer.byteLength(t.body ?? "") : null,
       });
     });
     items.push({
       repo, id: it.id, number: it.number, is_pr: Boolean(p), created_at: it.created_at,
-      actor: it.user?.login ?? "", labels: (it.labels ?? []).map((l: any) => l.name), body: p ? p.body : null,
+      actor: it.user?.login ?? "", body: p ? p.body : null,
       head_sha: p?.head?.sha, head_ref: p?.head?.ref, base_ref: p?.base?.ref, merged_at: p?.merged_at ?? null,
       closed_at: p ? p.closed_at : null, merge_commit_sha: p?.merge_commit_sha ?? null, closed_by: closedBy,
     });
@@ -146,9 +163,10 @@ for (const { offset, r } of rawSeats) {
   if (!repo) { drop(cwd ? "seat-other-repo" : "seat-repo-unknown"); continue; }
   const issue = typeof r.issue === "number" ? r.issue : /^\d+$/.test(String(r.issue ?? "")) ? Number(r.issue) : null;
   seatRows.push({
-    offset, repo, ts_start: r.ts_start, ts_end: r.ts_end ?? null, engine: r.engine ?? null, model: r.model ?? null,
-    tier: r.tier ?? null, verdict: r.verdict ?? null, issue, branch: r.branch ?? null, head_sha: r.head_sha ?? null,
-    seat_id: r.seat_id ?? null, script: r.script ?? null,
+    offset, repo, ts_start: r.ts_start, ts_end: r.ts_end ?? null, engine: shaped(SHAPE.word, r.engine),
+    model: shaped(SHAPE.word, r.model), tier: shaped(SHAPE.word, r.tier), verdict: shaped(SHAPE.verdict, r.verdict), issue,
+    branch: shaped(SHAPE.branch, r.branch), head_sha: shaped(SHAPE.hex, r.head_sha), seat_id: shaped(SHAPE.word, r.seat_id),
+    script: shaped(SHAPE.script, r.script),
   });
 }
 
@@ -169,7 +187,6 @@ const events: Event[] = [
   ...legEvents(workers, joins), ...seatEvents(seatRows, joins, branchPr), ...itemEvents(items, joins),
   ...timelineEvents(timeline, joins), ...sprintEvents(sprintRows(readFileSync(a.sprints!, "utf8"))),
 ];
-for (const r of timeline) if (!TIMELINE_KINDS.has(r.event)) drop("timeline-other-kind");
 const inSpan = window(events, since, until);
 const named = new Set<string>();
 for (const e of inSpan) for (const k of ["sha", "head_sha", "merge_commit_sha", "commit_sha"]) {
@@ -179,8 +196,12 @@ for (const e of inSpan) for (const k of ["sha", "head_sha", "merge_commit_sha", 
 for (const k of named) {
   const [repo, sha] = k.split(":") as [Repo, string];
   if (commits.has(sha)) continue;
-  try { for (const c of parseLog(repo, run("git", ["-C", clone[repo], "show", "-s", `--format=${FMT}`, sha]))) commits.set(c.sha, c); }
-  catch { drop("named-sha-not-in-clone"); }
+  // A commit can be named across repositories (a lifeos commit referencing an s2w issue).
+  const found = [repo, other(repo)].some((x) => {
+    try { for (const c of parseLog(x, run("git", ["-C", clone[x], "show", "-s", `--format=${FMT}`, sha]))) commits.set(c.sha, c); return true; }
+    catch { return false; }
+  });
+  if (!found) drop("named-sha-not-in-clone");
 }
 const commitEv = commitEvents([...commits.values()], joins);
 const isNamed = (e: Event) => e.topic === "commits" && named.has(`${e.data.repo}:${e.data.sha}`);
@@ -197,17 +218,17 @@ const { sse, provenance } = render([
 assertClean(sse);
 assertClean(provenance);
 
-for (const dir of [a.dir!, ...(a["copy-dir"] ? [a["copy-dir"]] : [])]) {
+// Check every target before writing anything, so a refusal never leaves a partial capture.
+const dirs = [a.dir!, ...(a["copy-dir"] ? [a["copy-dir"]] : [])];
+const outputs = [["raw.sse", sse], ["provenance.jsonl", provenance]] as const;
+for (const dir of dirs) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   let inRepo = true;
   try { run("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]); } catch { inRepo = false; }
   if (inRepo) throw new Error("refusing to write a private capture inside a git work tree");
-  for (const [ext, body] of [["raw.sse", sse], ["provenance.jsonl", provenance]] as const) {
-    const p = join(dir, `${a.name}.${ext}`);
-    if (existsSync(p)) throw new Error(`refusing to overwrite ${a.name}.${ext}`);
-    writeFileSync(p, body, { mode: 0o600, flag: "wx" });
-  }
+  for (const [ext] of outputs) if (existsSync(join(dir, `${a.name}.${ext}`))) throw new Error(`refusing to overwrite ${a.name}.${ext}`);
 }
+for (const dir of dirs) for (const [ext, body] of outputs) writeFileSync(join(dir, `${a.name}.${ext}`), body, { mode: 0o600, flag: "wx" });
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 process.stdout.write(`\n[corpus.${a.name}]\nrole = "<development|reserved>"\nfile = "${a.name}.raw.sse"\nstream = "private"\n` +
   `since = "${since}"\nuntil = "${until}"\nevents = ${kept.length}\nbytes = ${Buffer.byteLength(sse)}\nsha256 = "${sha(sse)}"\n` +

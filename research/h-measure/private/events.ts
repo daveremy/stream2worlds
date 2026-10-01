@@ -24,14 +24,14 @@ export interface SeatRow {
 }
 export interface GhItem {
   repo: Repo; id: number; number: number; is_pr: boolean; created_at: string; actor: string;
-  labels: string[]; body: string | null;
+  body: string | null;
   head_sha?: string; head_ref?: string; base_ref?: string;
   merged_at?: string | null; closed_at?: string | null; merge_commit_sha?: string | null;
   closed_by?: string | null;
 }
 export interface TimelineRow {
   repo: Repo; number: number; ordinal: number; id: number | null; event: string; created_at: string;
-  actor: string; label?: string | null; ref_number?: number | null; commit_sha?: string | null;
+  actor: string; label?: string | null; ref_repo?: Repo | null; ref_number?: number | null; commit_sha?: string | null;
   comment_bytes?: number | null;
 }
 export interface CommitRow {
@@ -116,13 +116,12 @@ export function itemEvents(items: GhItem[], j: Joins): Event[] {
   const out: Event[] = [];
   for (const it of items) {
     const base = { repo: it.repo, number: it.number, is_pr: it.is_pr };
-    const pts = ptsFromLabels(it.labels);
+    // Only what was true at open time: labels (and `pts`) arrive as timeline `labeled` events,
+    // and the head sha is today's, so it goes on the merge or close, never on the open.
     const opened: Event["data"] = {
-      kind: it.is_pr ? "pr.opened" : "issue.opened", ...base, ts: iso(it.created_at),
-      actor: j.actor(it.actor), labels: [...it.labels].sort(), ...(pts !== undefined ? { pts } : {}),
+      kind: it.is_pr ? "pr.opened" : "issue.opened", ...base, ts: iso(it.created_at), actor: j.actor(it.actor),
     };
     if (it.is_pr) {
-      opened.head_sha = it.head_sha ?? null;
       opened.head_ref = it.head_ref ?? null;
       opened.base_ref = it.base_ref ?? null;
       opened.refs = issueRefs(it.body);
@@ -145,17 +144,21 @@ export function itemEvents(items: GhItem[], j: Joins): Event[] {
 }
 
 export function timelineEvents(rows: TimelineRow[], j: Joins): Event[] {
-  return rows.filter((r) => TIMELINE_KINDS.has(r.event)).map((r) => ({
+  return rows.filter((r) => TIMELINE_KINDS.has(r.event)).map((r) => {
+    const pts = r.label ? ptsFromLabels([r.label]) : undefined;
+    return {
     topic: "timeline",
     offset: r.id ?? `${r.repo}#${r.number}/${r.ordinal}`,
     provenance: { source: "github-timeline", event_id: r.id, ordinal: r.ordinal },
     data: {
       kind: "issue.event", repo: r.repo, ts: iso(r.created_at), number: r.number, event: r.event,
-      actor: j.actor(r.actor), label: r.label ?? null, ref_number: r.ref_number ?? null,
+      actor: j.actor(r.actor), label: r.label ?? null, ...(pts !== undefined ? { pts } : {}),
+      ref_repo: r.ref_number != null ? (r.ref_repo ?? r.repo) : null, ref_number: r.ref_number ?? null,
       commit_sha: r.commit_sha ?? null,
       ...(r.event === "commented" ? { comment_id: r.id, comment_bytes: r.comment_bytes ?? null } : {}),
     },
-  }));
+  };
+  });
 }
 
 export function commitEvents(rows: CommitRow[], j: Joins): Event[] {
@@ -188,7 +191,7 @@ export function window(events: Event[], since: string, until: string, keepEarly?
           : String(a.offset).localeCompare(String(b.offset), "en", { numeric: true }));
 }
 
-export function idLine(e: Event): string {
+function idLine(e: Event): string {
   return JSON.stringify([{ topic: e.topic, partition: 0, offset: e.offset }]);
 }
 

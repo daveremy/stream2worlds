@@ -50,14 +50,18 @@ the s2w#371 issue comments.
 - **What survives:** fields only. Titles, bodies, comment text, commit subjects, the raw `detail`
   text, paths and emails are dropped; `detail` contributes only the fields in `extract.ts`'s
   table, which the capture header repeats. Logins other than the maintainer's public handle
-  become `other`. Rows from other projects are dropped and counted in the header.
+  become `other`. Review-seat fields keep only their logged shape (a word, a verdict, a hex sha, a
+  branch, a script basename); anything else becomes `null`. An `*.opened` event carries only what
+  was true at open time: labels (and `pts`) arrive as timeline `labeled` events, the head sha on the
+  merge or close. Rows from other projects are dropped; every drop is counted in the header.
 - **Scrub gate:** every line the capture would write passes `scrub.ts` first: home paths, `~`,
   `obsidian`, `op://` references, emails, phone numbers and the high-confidence secret shapes.
   One match and nothing is written; the error names the rule and line, never the text. Each rule
   has a planted-sample test.
-- **Never in the repository:** `cargo xtask check` (check 20) fails on any `*.sse` or
-  `*.provenance.jsonl` under `research/` except the synthetic fixture, and on any file with a line
-  that starts with the private capture header.
+- **Never in the repository:** `cargo xtask check` (check 20), over every file `git ls-files -co
+  --exclude-standard` lists, fails on any `*.sse` under `research/` except the synthetic fixture,
+  any `*.provenance.jsonl` anywhere, and any non-Rust file with a line that starts with the
+  private capture header.
 - **Tests:** `node --experimental-strip-types --test research/h-measure/private/capture.test.ts`
   (CI runs it in the `bundle` job). The fixture test fails if `fixture/synthetic-20.sse` differs
   from what `fixture.ts` prints; regenerate with `fixture.ts --write`, never by hand.

@@ -11,7 +11,7 @@ export interface Rule {
 }
 
 export const RULES: readonly Rule[] = [
-  { name: "home-path", re: /\/home\// },
+  { name: "home-path", re: /\/(?:home|Users|root)\// },
   { name: "tilde", re: /~/ },
   { name: "obsidian", re: /obsidian/i },
   { name: "op-ref", re: /op:\/\//i },
