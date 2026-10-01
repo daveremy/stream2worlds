@@ -11,9 +11,11 @@ mod fixture;
 mod manifest;
 mod prompt;
 mod provider;
+mod record;
 mod replay;
 
 pub use exec::{ExecLimits, ExecProvider, ExecSetupError, ReplyFormat};
 pub use manifest::System2Proposer;
 pub use provider::{Provider, ProviderError, Reply};
-pub use replay::{ReplayError, ReplayProvider};
+pub use record::CallRecord;
+pub use replay::{ReplayError, ReplayProvider, recording_json};
