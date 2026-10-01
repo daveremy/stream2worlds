@@ -76,7 +76,7 @@ fn target_key(targets: &[Target], target: &Target) -> String {
     let shared = !target.is_lib()
         && targets
             .iter()
-            .any(|t| t.is_lib() && t.walked() && t.name.replace('-', "_") == name);
+            .any(|t| t.is_lib() && t.name.replace('-', "_") == name);
     if shared { format!("{name}[bin]") } else { name }
 }
 pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<String> {
@@ -136,7 +136,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
 
 /// Tightens `module-size.toml` when allowed, then reports. The refusal to tighten over this
 /// ratchet's own findings is itself one of those findings, so it blocks exactly when they do:
-/// report-only findings leave the file untouched without failing another ratchet's
+/// with `enforce = false` they leave the file untouched without failing another ratchet's
 /// `--tighten-baseline` run (s2w#192), and growth always blocks.
 fn settle(
     config_path: &Path,

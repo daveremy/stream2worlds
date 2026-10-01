@@ -196,8 +196,8 @@ it never raises anything and never touches `[ir]` or `[parse]`. Each ratchet ref
 measured by `cargo xtask check` on any machine, so tightening it is automatic, while `[ir]` is
 owned by the CI image, so an `[ir]` or `[parse]` improvement past tolerance stays a printed hint to lower
 `fold_ir_per_event` or `parse_ir_per_event` by hand from the CI job's number. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
-dep-info, build failure) block: `module-size.toml` has `enforce = true` since s2w#66 PR 4, so a
-module-size finding also makes `--tighten-baseline` refuse and exit non-zero for every ratchet; baseline growth always blocks without an authorized
+dep-info, build failure) block, because `module-size.toml` has `enforce = true` since s2w#66
+PR 4; baseline growth always blocks without an authorized
 `Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`; the same trailer rule covers
 raising `fold_ir_per_event`, `parse_ir_per_event`, any events or entities size, `bytes_per_entity`, `target_bytes_per_entity`,
 `budget_bytes_per_entity` or `tolerance_percent` in `xtask/scale-baseline.toml` (a file absent on `origin/main` is all growth). CI needs full git history.
