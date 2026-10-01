@@ -1,0 +1,68 @@
+{
+  "version": 2,
+  "decode": [["data"]],
+  "types": [
+    { "type": "item", "mentions": [
+      { "path": ["data", "number"], "identity": [["data", "repo"], ["data", "number"]] },
+      { "path": ["data", "issue"], "identity": [["data", "repo"], ["data", "issue"]] },
+      { "path": ["data", "key"], "identity": [["data", "repo"], ["data", "issue"]] },
+      { "path": ["data", "pr"], "identity": [["data", "repo"], ["data", "pr"]] },
+      { "path": ["data", "ref_number"], "identity": [["data", "ref_repo"], ["data", "ref_number"]] }
+    ] },
+    { "type": "commit", "mentions": [
+      { "path": ["data", "sha"], "identity": [["data", "sha"]] },
+      { "path": ["data", "head_sha"], "identity": [["data", "head_sha"]] },
+      { "path": ["data", "merge_commit_sha"], "identity": [["data", "merge_commit_sha"]] },
+      { "path": ["data", "commit_sha"], "identity": [["data", "commit_sha"]] },
+      { "path": ["data", "parents", 0], "identity": [["data", "parents", 0]] },
+      { "path": ["data", "parents", 1], "identity": [["data", "parents", 1]] }
+    ] },
+    { "type": "branch", "mentions": [
+      { "path": ["data", "branch"], "identity": [["data", "repo"], ["data", "branch"]] },
+      { "path": ["data", "head_ref"], "identity": [["data", "repo"], ["data", "head_ref"]] }
+    ] },
+    { "type": "sprint", "mentions": [
+      { "path": ["data", "sprint"], "identity": [["data", "sprint"]] },
+      { "path": ["data", "slot"], "identity": [["data", "sprint"]] },
+      { "path": ["data", "file_id"], "identity": [["data", "sprint"]] }
+    ] },
+    { "type": "seat", "mentions": [
+      { "path": ["data", "seat_id"], "identity": [["data", "seat_id"]] }
+    ] },
+    { "type": "comment", "mentions": [
+      { "path": ["data", "comment_id"], "identity": [["data", "comment_id"]] }
+    ] },
+    { "type": "repo", "mentions": [
+      { "path": ["data", "repo"], "identity": [["data", "repo"]] },
+      { "path": ["data", "ref_repo"], "identity": [["data", "ref_repo"]] }
+    ] },
+    { "type": "actor", "mentions": [
+      { "path": ["data", "actor"], "identity": [["data", "actor"]], "no_identity": ["other"] },
+      { "path": ["data", "author"], "identity": [["data", "author"]], "no_identity": ["other"] }
+    ] }
+  ],
+  "unscored": [
+    ["data", "kind"],
+    ["data", "ts"],
+    ["data", "ts_start"],
+    ["data", "ts_end"],
+    ["data", "is_pr"],
+    ["data", "step"],
+    ["data", "leg"],
+    ["data", "round"],
+    ["data", "verdict"],
+    ["data", "engines"],
+    ["data", "engine"],
+    ["data", "model"],
+    ["data", "tier"],
+    ["data", "script"],
+    ["data", "event"],
+    ["data", "label"],
+    ["data", "pts"],
+    ["data", "comment_bytes"],
+    ["data", "co_authored"],
+    ["data", "base_ref"],
+    ["data", "row_id"],
+    { "prefix": ["data", "refs"] }
+  ]
+}

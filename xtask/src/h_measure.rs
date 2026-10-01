@@ -291,6 +291,8 @@ mod freeze_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]
+mod private_key_tests;
+#[cfg(test)]
 mod report_tests;
 #[cfg(test)]
 mod tests;
