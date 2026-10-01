@@ -255,7 +255,7 @@ fn a_probe_that_sees_context_writes_nothing() {
 #[test]
 fn commit_refusals_before_any_call() {
     let run = setup("refuse", &[]);
-    refused(run.commit(&["--arm", "b3"]), "B3 arm ships in PR 3");
+    refused(run.commit(&["--arm", "b4"]), "the arms are h-s2 and b3");
     refused(
         run.commit(&["--temperature", "1"]),
         "takes no --temperature",
@@ -380,3 +380,6 @@ fn argv_is_the_clean_session_command() {
         ]
     );
 }
+
+mod b3;
+mod private_probe;

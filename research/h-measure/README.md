@@ -198,10 +198,11 @@ exists (a report is recomputable; a frozen mapping is the file that is never ove
 ## Committing a System 2 mapping (gate 3)
 
 ```
-cargo xtask gate3 commit --corpus NAME --window N --replicate K --model SNAPSHOT [--out FILE] [--dir DIR] [--claude PATH] [--credentials PATH]
+cargo xtask gate3 commit --corpus NAME --window N --replicate K --model SNAPSHOT [--arm h-s2|b3] [--h-s2 FILE] [--out FILE] [--dir DIR] [--claude PATH] [--credentials PATH]
 ```
 
-One replicate of the "H plus System 2" arm (s2w#373, decision 0032). `commit` derives H exactly
+One replicate of an arm of gate 3 (s2w#373, decision 0032): `h-s2` ("H plus System 2", the
+default) or `b3` (the raw-sample baseline, below). `commit` derives H exactly
 as `h-measure freeze` does, builds the arm's input from the same profiler run (the 60 newest
 events of the window as the sample), and asks the model for a mapping through the Claude CLI in a
 clean session: no tools, no MCP servers, no saved session, and a scratch `HOME` holding only a
@@ -214,14 +215,26 @@ Every call goes through a $5 budget gate charged at `prices.toml` (an unknown `-
 refused). A call that could take the replicate past $5 is not made, and the replicate is
 committed with `failure: "budget: ..."`. `commit` writes the committed file and its transcript,
 both new (an existing file is refused before any call), to
-`committed/h-s2.<corpus>.r<K>.json` by default.
+`committed/<arm>.<corpus>.r<K>.json` by default.
+
+`--arm b3` gives the model raw events of the same window instead of H's result, up to the
+input-token budget of the h-s2 replicate with the same corpus, window, replicate and model
+(`--h-s2 FILE`, default `committed/h-s2.<corpus>.r<K>.json`). Before any call it replays that
+file as `score` would and takes its budget from it: T, the prompt tokens the h-s2 first call
+reported (input plus cache read plus cache write), and B, the h-s2 first prompt's length in
+bytes. The sample is every k-th event of the window from the first, each frame's `data` exactly
+as the stream carried it, for the smallest k whose prompt is at most B bytes. When the model
+reports that a fit's first prompt read more than 105% of T, that fit is spent and the next k
+that fits is tried, under the same $5 gate; when no larger k gives a new sample, the replicate is
+committed with `failure: "budget-fit: ..."`. The committed file records the budget and every
+fit in `budget`, and the transcript holds every fit's calls.
 
 Commit both files to git before scoring: the git log is the order proof. Then score the committed
 file like a frozen mapping (`score --mapping committed/...json`). `score` checks its `heuristic`
 as a freeze, checks the transcript against its sha256, rebuilds the input, replays the probe and
 the transcript, and refuses unless the result, attempts and spend match. It grades the committed
-mapping, or the empty mapping when the replicate failed. `--arm b3` is refused until s2w#373
-PR 3.
+mapping, or the empty mapping when the replicate failed. For a b3 file it also replays every
+fit and refuses unless the fits match `budget`.
 
 ## Context collisions
 

@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::freeze::Frozen;
-use super::b3::Budget;
 use super::ledger::{BudgetGate, Spend};
 use super::prices::Price;
 
@@ -69,6 +68,33 @@ pub(crate) struct Committed {
     /// B3 only: the budget it was sized to and every sample it tried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<Budget>,
+}
+
+/// What a B3 replicate was sized to, and every sample it tried.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Budget {
+    /// sha256 of the h-s2 committed file the budget came from.
+    pub h_s2_sha256: String,
+    /// The h-s2 first prompt's tokens as the model reported them (`b3::prompt_tokens`).
+    pub input_tokens: u64,
+    /// The h-s2 first prompt's length in bytes, rebuilt from the heuristic.
+    pub prompt_bytes: usize,
+    /// Each sample sent, in order; the last one's proposal is the result.
+    pub fits: Vec<Fit>,
+}
+
+/// One sample the arm sent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Fit {
+    pub k: usize,
+    pub events: usize,
+    pub prompt_bytes: usize,
+    /// Calls the fit's proposal made.
+    pub calls: usize,
+    /// Its first prompt's reported tokens; `None` when no call reported any.
+    pub input_tokens: Option<u64>,
 }
 
 /// The arm's input, built from one profiler run over the window (`freeze::derived`).

@@ -10,44 +10,16 @@
 //! and the next one tries the smallest k above it that fits. Every fit's calls stay in the
 //! transcript and the ledger, under one $5 budget.
 
-use s2w_model::RawMappingInput;
+use s2w_model::{MappingInput, RawMappingInput};
 use s2w_system2::{CallGate, CallRecord, MappingProposer, Provider, raw_mapping_prompt};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::committed::Proposed;
+use super::committed::{Budget, Fit, Proposed, hash_fields, json};
 use super::ledger::BudgetGate;
 use super::prices::Price;
 
 /// How far, in percent of the h-s2 prompt's tokens, a fit's first prompt may run over.
 pub(crate) const TOLERANCE_PERCENT: u64 = 105;
-
-/// What a B3 replicate was sized to, and every sample it tried.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Budget {
-    /// sha256 of the h-s2 committed file the budget came from.
-    pub h_s2_sha256: String,
-    /// The h-s2 first prompt's tokens as the model reported them ([`prompt_tokens`]).
-    pub input_tokens: u64,
-    /// The h-s2 first prompt's length in bytes, rebuilt from the heuristic.
-    pub prompt_bytes: usize,
-    /// Each sample sent, in order; the last one's proposal is the result.
-    pub fits: Vec<Fit>,
-}
-
-/// One sample the arm sent.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Fit {
-    pub k: usize,
-    pub events: usize,
-    pub prompt_bytes: usize,
-    /// Calls the fit's proposal made.
-    pub calls: usize,
-    /// Its first prompt's reported tokens; `None` when no call reported any.
-    pub input_tokens: Option<u64>,
-}
 
 /// What a fit is sized against.
 pub(crate) struct Target<'a> {
@@ -56,6 +28,53 @@ pub(crate) struct Target<'a> {
     pub replicate: u32,
     pub prompt_bytes: usize,
     pub input_tokens: u64,
+}
+
+/// A B3 replicate's budget, read from its h-s2 replicate before any call, and the window's
+/// raw events it samples.
+pub(crate) struct Sized {
+    pub h_s2_sha256: String,
+    pub input_tokens: u64,
+    pub prompt_bytes: usize,
+    pub raw: Vec<String>,
+}
+
+impl Sized {
+    /// What each fit is sized against; `input` is the h-s2 input (its corpus, window and
+    /// replicate are this replicate's).
+    pub(crate) fn target<'a>(&self, input: &'a MappingInput) -> Target<'a> {
+        Target {
+            corpus: &input.corpus,
+            window: input.window,
+            replicate: input.replicate,
+            prompt_bytes: self.prompt_bytes,
+            input_tokens: self.input_tokens,
+        }
+    }
+
+    /// The committed budget, with the fits the run made.
+    pub(crate) fn budget(self, fits: Vec<Fit>) -> Budget {
+        Budget {
+            h_s2_sha256: self.h_s2_sha256,
+            input_tokens: self.input_tokens,
+            prompt_bytes: self.prompt_bytes,
+            fits,
+        }
+    }
+}
+
+/// B3's input hash: the h-s2 input its budget was built from, the last raw input it sent, and
+/// `prompt_files_hash`.
+///
+/// # Errors
+///
+/// An input does not serialize.
+pub(crate) fn input_hash(
+    h_s2: &MappingInput,
+    last: &RawMappingInput,
+    prompt_files_hash: &str,
+) -> Result<String, String> {
+    Ok(hash_fields(&[json(h_s2)?, json(last)?], prompt_files_hash))
 }
 
 /// The tokens a call's prompt was read as: input plus cache read plus cache write (the CLI
@@ -140,6 +159,27 @@ pub(crate) struct Fitted {
     pub last: RawMappingInput,
 }
 
+/// Why nothing more is proposed: not even one event fits, or the last fit was over the
+/// tolerance and no larger k gives a new sample.
+fn budget_fit(fits: &[Fit], target: &Target<'_>) -> String {
+    fits.last().map_or_else(
+        || {
+            format!(
+                "budget-fit: one event's prompt is over the {} bytes of the h-s2 prompt",
+                target.prompt_bytes
+            )
+        },
+        |last| {
+            format!(
+                "budget-fit: fit k={} read {} prompt tokens, over {TOLERANCE_PERCENT}% of {}, and no larger k fits",
+                last.k,
+                last.input_tokens.unwrap_or(0),
+                target.input_tokens
+            )
+        },
+    )
+}
+
 /// The B3 proposal: fit, propose, check, and refit until a fit's first prompt is within the
 /// budget, a proposal fails, or nothing larger fits. Each fit's calls pass a budget gate seeded
 /// with everything spent before them (`prior_usd` is the probe).
@@ -158,22 +198,7 @@ pub(crate) fn propose<Q: Provider>(
     let mut sent: Option<RawMappingInput> = None;
     loop {
         let Some((k, input, prompt_bytes)) = fit(events, from, target) else {
-            let reason = fits.last().map_or_else(
-                || {
-                    format!(
-                        "budget-fit: one event's prompt is over the {} bytes of the h-s2 prompt",
-                        target.prompt_bytes
-                    )
-                },
-                |last| {
-                    format!(
-                        "budget-fit: fit k={} read {} prompt tokens, over {TOLERANCE_PERCENT}% of {}, and no larger k fits",
-                        last.k,
-                        last.input_tokens.unwrap_or(0),
-                        target.input_tokens
-                    )
-                },
-            );
+            let reason = budget_fit(&fits, target);
             let last = sent.unwrap_or_else(|| sample(events, events.len().max(1), target));
             let outcome = proposer.propose_raw(&last, &mut Stop(reason));
             let proposed = Proposed {
@@ -208,7 +233,12 @@ pub(crate) fn propose<Q: Provider>(
             };
             return (proposed, Fitted { fits, last: input });
         }
-        from = k + 1;
+        // A one-event sample is the first event alone for every larger k too: nothing smaller fits.
+        from = if input.events.len() <= 1 {
+            events.len() + 1
+        } else {
+            k + 1
+        };
         sent = Some(input);
     }
 }
