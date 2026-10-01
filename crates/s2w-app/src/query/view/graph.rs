@@ -214,10 +214,6 @@ impl<'w> Graph<'w> {
 /// [`world_view`](super::world_view) over the whole resolved [`Graph`]: `lod=entity`, and
 /// `lod=type` with a focus. Without a focus its `lod=type` equals [`type_view`](super::type_view),
 /// byte for byte.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
-)]
 pub(super) fn graph_view(world: &World, params: &ViewParams) -> Result<WorldView, QueryError> {
     let graph = Graph::new(world);
     let subset = graph.subset(params)?;
@@ -226,65 +222,8 @@ pub(super) fn graph_view(world: &World, params: &ViewParams) -> Result<WorldView
     let mut nodes: BTreeMap<String, Node> = BTreeMap::new();
     let mut links: BTreeMap<(String, String, String), u64> = BTreeMap::new();
     match params.lod {
-        Lod::Entity => {
-            for (&id, members) in graph.members.iter().filter(|(id, _)| keep(id)) {
-                let node = graph.entity_node(id, members);
-                nodes.insert(node.id().to_owned(), node);
-            }
-            for ((s, t, kind), &w) in &graph.links {
-                if keep(s) && keep(t) {
-                    links.insert((node_id(*s), node_id(*t), (*kind).to_owned()), w);
-                }
-            }
-        }
-        Lod::Type => {
-            let group = |id: EntityId| {
-                if graph.hubs.contains_key(&id) {
-                    node_id(id)
-                } else {
-                    format!("type:{}", graph.entity_type(id))
-                }
-            };
-            for (&id, members) in graph.members.iter().filter(|(id, _)| keep(id)) {
-                if graph.hubs.contains_key(&id) {
-                    let node = graph.entity_node(id, members);
-                    nodes.insert(node.id().to_owned(), node);
-                } else {
-                    let entity_type = graph.entity_type(id);
-                    let node = nodes
-                        .entry(format!("type:{entity_type}"))
-                        .or_insert_with(|| Node::Type {
-                            id: format!("type:{entity_type}"),
-                            entity_type,
-                            count: 0,
-                        });
-                    if let Node::Type { count, .. } = node {
-                        *count = count.saturating_add(1);
-                    }
-                }
-            }
-            for ((s, t, kind), &w) in &graph.links {
-                if keep(s) && keep(t) {
-                    let total = links
-                        .entry((group(*s), group(*t), (*kind).to_owned()))
-                        .or_insert(0);
-                    *total = total.saturating_add(w);
-                }
-            }
-            let mut hub_sources: BTreeMap<(String, String, String), BTreeSet<EntityId>> =
-                BTreeMap::new();
-            for (s, h, kind) in &graph.hub_edges {
-                if keep(s) && keep(h) {
-                    hub_sources
-                        .entry((group(*s), node_id(*h), (*kind).to_owned()))
-                        .or_default()
-                        .insert(*s);
-                }
-            }
-            for (key, sources) in hub_sources {
-                links.insert(key, u64::try_from(sources.len()).unwrap_or(u64::MAX));
-            }
-        }
+        Lod::Entity => entity_level(&graph, &keep, &mut nodes, &mut links),
+        Lod::Type => type_level(&graph, &keep, &mut nodes, &mut links),
     }
     Ok(WorldView {
         offset: world.offset(),
@@ -305,4 +244,86 @@ pub(super) fn graph_view(world: &World, params: &ViewParams) -> Result<WorldView
             })
             .collect(),
     })
+}
+
+/// `lod=entity`: one node per resolved entity in the subset, one link per kept edge.
+fn entity_level(
+    graph: &Graph<'_>,
+    keep: &impl Fn(&EntityId) -> bool,
+    nodes: &mut BTreeMap<String, Node>,
+    links: &mut BTreeMap<(String, String, String), u64>,
+) {
+    for (&id, members) in graph.members.iter().filter(|(id, _)| keep(id)) {
+        let node = graph.entity_node(id, members);
+        nodes.insert(node.id().to_owned(), node);
+    }
+    for ((s, t, kind), &w) in &graph.links {
+        if keep(s) && keep(t) {
+            links.insert((node_id(*s), node_id(*t), (*kind).to_owned()), w);
+        }
+    }
+}
+
+/// `lod=type`: non-hub entities collapse into one node per type; hubs stay entity nodes.
+fn type_level(
+    graph: &Graph<'_>,
+    keep: &impl Fn(&EntityId) -> bool,
+    nodes: &mut BTreeMap<String, Node>,
+    links: &mut BTreeMap<(String, String, String), u64>,
+) {
+    let group = |id: EntityId| {
+        if graph.hubs.contains_key(&id) {
+            node_id(id)
+        } else {
+            format!("type:{}", graph.entity_type(id))
+        }
+    };
+    for (&id, members) in graph.members.iter().filter(|(id, _)| keep(id)) {
+        if graph.hubs.contains_key(&id) {
+            let node = graph.entity_node(id, members);
+            nodes.insert(node.id().to_owned(), node);
+        } else {
+            let entity_type = graph.entity_type(id);
+            let node = nodes
+                .entry(format!("type:{entity_type}"))
+                .or_insert_with(|| Node::Type {
+                    id: format!("type:{entity_type}"),
+                    entity_type,
+                    count: 0,
+                });
+            if let Node::Type { count, .. } = node {
+                *count = count.saturating_add(1);
+            }
+        }
+    }
+    for ((s, t, kind), &w) in &graph.links {
+        if keep(s) && keep(t) {
+            let total = links
+                .entry((group(*s), group(*t), (*kind).to_owned()))
+                .or_insert(0);
+            *total = total.saturating_add(w);
+        }
+    }
+    type_hub_links(graph, keep, &group, links);
+}
+
+/// Hub edges at `lod=type`: one link per (group, hub, kind), weighted by distinct sources.
+fn type_hub_links(
+    graph: &Graph<'_>,
+    keep: &impl Fn(&EntityId) -> bool,
+    group: &impl Fn(EntityId) -> String,
+    links: &mut BTreeMap<(String, String, String), u64>,
+) {
+    let mut hub_sources: BTreeMap<(String, String, String), BTreeSet<EntityId>> = BTreeMap::new();
+    for (s, h, kind) in &graph.hub_edges {
+        if keep(s) && keep(h) {
+            hub_sources
+                .entry((group(*s), node_id(*h), (*kind).to_owned()))
+                .or_default()
+                .insert(*s);
+        }
+    }
+    for (key, sources) in hub_sources {
+        links.insert(key, u64::try_from(sources.len()).unwrap_or(u64::MAX));
+    }
 }
