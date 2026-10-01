@@ -125,7 +125,8 @@ With `--meta` naming an existing metadata file, the run reuses its field table a
 field path the table does not hold, a different key, a different rules file, a different
 replicate, or a corpus or answer key the metadata already records. It then appends its inputs
 and outputs (window name, file, sha256) to the metadata, unites the per-path treatments and
-undeclared numbers, and sums the fallback counts, so the metadata stays the complete record of
+undeclared numbers, sums the fallback counts, and keeps a rule listed as unused only if no
+run's input held its path, so the metadata stays the complete record of
 the replicate. An output that exists is refused; nothing is written unless every input
 transforms.
 
