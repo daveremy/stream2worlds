@@ -46,8 +46,6 @@ mod depinfo;
 mod ratchet;
 pub(crate) mod walk;
 
-#[cfg(test)]
-use depinfo::dep_check;
 use depinfo::{dep_files, package_dep_check};
 use ratchet::growth;
 pub(super) use ratchet::{git, trailer};
@@ -188,7 +186,7 @@ fn settle(
 
 #[cfg(test)]
 mod tests {
-    use super::depinfo::dep_paths;
+    use super::depinfo::{dep_check, dep_paths};
     use super::ratchet::{git, trailer};
     use super::walk::test_only;
     use super::*;
@@ -445,7 +443,7 @@ mod tests {
         );
         let found = package_dep_check(&scratch.0, &src, &files, &both);
         assert!(
-            !found.is_empty() && found.iter().all(|f| f.contains("did not visit")),
+            found.len() == 1 && found[0].contains("did not visit"),
             "{found:?}"
         );
         println!("{}", found.join("\n"));

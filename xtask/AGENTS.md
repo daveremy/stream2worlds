@@ -29,9 +29,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 - `main.rs`: CLI, Cargo metadata, the shared helpers (`cargo`, `read_toml`, `crate_dir`,
   `sha256`) and the check orchestrator, including check 3 (AGENTS.md).
-- `deps.rs`: checks 1 and 2, the dependency allowlist (`xtask/allowlist.toml`) and the README
-  stack table.
-- `lints.rs`: checks 4 and 5, lint inheritance and no dependency overrides.
+- `deps.rs`: the allowlist types, the per-crate edge check (check 1) and the README stack-table
+  reader (check 2); `main.rs` still runs the allowlist's cross-crate loops and the row lookups.
+- `lints.rs`: the manifest `[lints]` type `main.rs` reads for check 4, and check 5 (no
+  dependency overrides).
 - `golden.rs`: deterministic golden replay.
 - `obfuscation.rs`: check 10, obfuscation replay of the golden log through the fold and the
   claim-reading engines.

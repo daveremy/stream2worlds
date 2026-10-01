@@ -123,3 +123,6 @@ expression and add no module line, so the walker no longer refuses them. `s2w-sy
 prompt depends on this: decision 0029 keeps the prompt as a committed file that check 9 reads,
 and inlining it as a literal would break that. `include!` stays refused, and the dep-info
 cross-check still catches any `.rs` file an `include!` nested inside another macro pulls in.
+A `.rs` file read with `include_str!` under `src/` also appears in dep-info, so the cross-check
+reports it as unvisited; read Rust-looking fixtures from outside `src/` or give them another
+extension.
