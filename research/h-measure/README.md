@@ -108,9 +108,11 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
   capture's sidecar: `sidecar-aligned` (one sidecar line per frame, same id), `sha-shape` (every
   commit mention is 40 lowercase hex), `sha-resolved` (a leg's `sha` or a seat's `head_sha` is
   the sidecar's `sha_resolved`), `ref-repo`, `seat-issue` (a seat without an issue is marked
-  `issue_unobservable` exactly when no PR has its branch) and `leg-key`. It prints counts only
-  (mentions per path, entity sizes per type, abstentions, rule failures, observed edges) and
-  exits 1 on any failure; that report is the publishable summary of the key.
+  `issue_unobservable` exactly when no PR has its branch) and `leg-key` (a leg's `key` is
+  `repo#issue`). It prints counts (mentions per path, entity sizes per type, abstentions, rule
+  failures, observed edges, and legs naming a PR opened outside the span, which is counted but
+  not a failure) and the capture header's command, window and drop counts, never a frame's
+  value, and exits 1 on any failure; that report is the publishable summary of the key.
 - **Hand-inspection sample:** `key.ts --sample N --seed S --corpus … --provenance … --out FILE`
   draws N mentions stratified by mention path and writes a worksheet with each mention's frame
   id, value, sidecar line and the exact source lookup to run. It holds values, so it refuses a

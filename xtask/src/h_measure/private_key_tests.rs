@@ -16,9 +16,11 @@ fn data() -> PathBuf {
     crate::workspace_root().join("research/h-measure")
 }
 
+/// The key through its `keys.toml` pin, so a key file edited without a new pin fails here too.
 fn key(file: &str) -> KeySpec {
-    let text = std::fs::read_to_string(data().join(file)).expect("the key file reads");
-    serde_json::from_str(&text).expect("the key parses")
+    let root = crate::workspace_root();
+    let pins = super::pins::Pins::load(&root).expect("the pins load");
+    pins.key(&root, file).expect("the key matches its pin").1
 }
 
 fn fixture() -> Vec<Value> {

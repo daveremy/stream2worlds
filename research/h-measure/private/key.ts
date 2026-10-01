@@ -16,8 +16,10 @@
 //                                            write the hand-inspection worksheet (outside any
 //                                            git work tree, mode 0600, never over a file)
 //
-// --check prints counts and rule names only, never a value, so its output is the publishable
-// summary of the key. The worksheet holds values and stays under the h-measure --dir.
+// --check prints counts, rule names and the capture's own header lines 2-3 (the command with
+// its window, the drop counts, the extraction table), never a value from a frame, so its output
+// is the publishable summary of the key. The worksheet holds values and stays under the
+// h-measure --dir.
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -70,7 +72,7 @@ const CONTEXT_TYPES: KeyType[] = [
     { ...rule(d("actor")), no_identity: ["other"] }, { ...rule(d("author")), no_identity: ["other"] },
   ] },
 ];
-const CONTEXT_PATHS: Path[] = [d("repo"), d("ref_repo"), d("actor"), d("author")];
+const CONTEXT_PATHS: Path[] = CONTEXT_TYPES.flatMap((t) => t.mentions.map((m) => m.path));
 
 /** Unscored in both (contract B3 "ambiguous or unobservable"): plumbing, values and transport.
  * `refs` is ambiguous by construction: `issueRefs` keeps `#n` and drops a `lifeos#`/`s2w#`
@@ -150,7 +152,7 @@ function lookup(value: unknown, path: Path): unknown {
   let at = value;
   for (const s of path) {
     if (typeof s === "number") at = Array.isArray(at) ? at[s] : undefined;
-    else at = at !== null && typeof at === "object" && !Array.isArray(at) ? (at as Record<string, unknown>)[s] : undefined;
+    else at = at !== null && typeof at === "object" && !Array.isArray(at) && Object.hasOwn(at, s) ? (at as Record<string, unknown>)[s] : undefined;
     if (at === undefined) return undefined;
   }
   return at;
@@ -241,9 +243,9 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
   const s = spec("base");
   const failures: Record<RuleName, number> = Object.fromEntries(RULES.map((r) => [r, 0])) as Record<RuleName, number>;
   const side = provenanceText.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as Record<string, unknown>);
-  if (side.length !== frames.length) failures["sidecar-aligned"] += Math.abs(side.length - frames.length) || 1;
+  if (side.length !== frames.length) failures["sidecar-aligned"] += Math.abs(side.length - frames.length);
   frames.forEach((f, i) => { if (side[i] && side[i].id !== f.id) failures["sidecar-aligned"] += 1; });
-  const { mentions } = execute(s, frames);
+  const { mentions, undecodable } = execute(s, frames);
   const commitPaths = new Set(s.types.find((t) => t.type === "commit")!.mentions.map((m) => pathId(m.path)));
   for (const m of mentions) if (commitPaths.has(m.path) && !/^[0-9a-f]{40}$/.test(String(m.value))) failures["sha-shape"] += 1;
   const opened = new Set<string>();
@@ -279,6 +281,7 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
   const failed = Object.values(failures).reduce((a, b) => a + b, 0);
   return {
     frames: frames.length,
+    undecodable,
     capture_header: header.slice(1), // line 1 is the provenance line; 2-3 are the command and the drop counts
     key: shape(s, frames),
     context_scored: shape(spec("context-scored"), frames),
