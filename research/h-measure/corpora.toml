@@ -229,9 +229,9 @@ dropped = "outside-span:717,timeline-other-kind:1168,worker-other-repo:191"
 # against the first capture, counts only: private-dev-2 adds 5 `sprint.boundary` frames
 # (57 -> 62; 8,067 + 5 = 8,072 events) and private-test-2 adds 23 (0 -> 23; 5,501 + 23 = 5,524);
 # no frame of any kind is removed; the only changed field is `refs`, on `commit` and `pr.opened`
-# frames (699 + 209 and 716 + 161), which the s2w#375 Q3 amendment expects. `outside-span` and
-# `timeline-other-kind` grew because GitHub timelines gained events after the first capture;
-# `ref-other-repo` and `refs-overflow` are s2w#395's new counters. `key.ts --check` on
+# frames (699 + 209 and 716 + 161), which the s2w#375 Q3 amendment expects. `outside-span` grew
+# with the sprint rows outside each span and with timeline events GitHub recorded after the first
+# capture; `timeline-other-kind` grew with the latter; `ref-other-repo` and `refs-overflow` are s2w#395's new counters. `key.ts --check` on
 # private-dev-2 and its sidecar: 0 failed rules. private-test-2 stays reserved: only its stanza
 # (counts, size, sha256) and the counts-only frame diff were read.
 [corpus.private-dev-2]

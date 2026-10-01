@@ -106,9 +106,10 @@ stay as the record.
 
 A frame-level diff against the first capture, reported as counts only, adds 5 and 23
 `sprint.boundary` frames and removes nothing; the only changed field is `refs` on `commit` and
-`pr.opened` frames, as s2w#395 intends. The timeline drop counts grew because GitHub timelines
-gained events after the first capture. Every sprint row parsed (`unparsed` 0); seven rows carry an
-off-hour start (sprints 66 and 68 to 73), and since s2w#405 the capture uses it, so sprint 66
+`pr.opened` frames, as s2w#395 intends. `outside-span` grew with the sprint rows outside each span
+and with timeline events GitHub recorded after the first capture; `timeline-other-kind` grew with
+the latter. Every sprint row parsed (`unparsed` 0); seven rows carry an off-hour
+`(slot HH:MM–)` start (sprints 66 and 68 to 73), which the capture reads since s2w#405, so sprint 66
 (12:30Z) falls outside `private-dev-2` and sprint 72 (2026-09-28T23:36Z) outside
 `private-test-2`. `key.ts --check` on `private-dev-2` fails no rule. `private-test-2` stays
 `reserved`: only its stanza and the counts-only diff were read.
