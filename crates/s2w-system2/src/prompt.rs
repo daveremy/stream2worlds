@@ -24,6 +24,10 @@ const MAPPING_FORMAT: &str = include_str!("../prompts/mapping-format.txt");
 /// Appended to either mapping prompt for the one repair call of an attempt.
 const MAPPING_REPAIR: &str = include_str!("../prompts/mapping-repair.txt");
 
+/// The fault of the no-match repair call (s2w#409): fixed text, identical for both arms, filled
+/// into `mapping-repair.txt`'s `{{FAULT}}`.
+pub(crate) const MAPPING_NO_MATCH: &str = include_str!("../prompts/mapping-no-match.txt");
+
 /// The clean-session probe (decision 0032): sent as is, it carries no data.
 pub(crate) const PROBE: &str = include_str!("../prompts/clean-session-probe.txt");
 
@@ -34,14 +38,15 @@ pub(crate) fn prompt_hash() -> String {
     files_hash(&[MANIFEST, REPAIR])
 }
 
-/// The hash of the files behind [`mapping_prompt`] and its repair, 16 lowercase hex digits.
+/// The hash of the files behind [`mapping_prompt`] and its two repairs, 16 lowercase hex digits.
 pub(crate) fn mapping_prompt_files_hash() -> String {
-    files_hash(&[MAPPING, MAPPING_FORMAT, MAPPING_REPAIR])
+    files_hash(&[MAPPING, MAPPING_FORMAT, MAPPING_REPAIR, MAPPING_NO_MATCH])
 }
 
-/// The hash of the files behind [`raw_mapping_prompt`] and its repair, 16 lowercase hex digits.
+/// The hash of the files behind [`raw_mapping_prompt`] and its two repairs, 16 lowercase hex
+/// digits.
 pub(crate) fn raw_mapping_prompt_files_hash() -> String {
-    files_hash(&[MAPPING_RAW, MAPPING_FORMAT, MAPPING_REPAIR])
+    files_hash(&[MAPPING_RAW, MAPPING_FORMAT, MAPPING_REPAIR, MAPPING_NO_MATCH])
 }
 
 fn files_hash(files: &[&str]) -> String {
@@ -116,7 +121,8 @@ pub(crate) fn repair_prompt(
     repair_with(REPAIR, first, reply, fault)
 }
 
-/// A mapping repair call's prompt, for either arm.
+/// A mapping repair call's prompt, for either arm: the format repair with the decode or
+/// validation fault, or the no-match repair with [`MAPPING_NO_MATCH`] as the fault.
 pub(crate) fn mapping_repair_prompt(
     first: &str,
     reply: &str,

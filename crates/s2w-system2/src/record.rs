@@ -12,7 +12,8 @@ use crate::provider::{ProviderError, Reply};
 pub struct CallRecord {
     /// The attempt, from 1.
     pub attempt: u32,
-    /// The call within the attempt, from 1: 1 is the first prompt, 2 the repair.
+    /// The call within the attempt: 1 is the first prompt, 2 the format repair, 3 the no-match
+    /// repair (s2w#409). An attempt that needed no format repair goes from 1 to 3.
     pub call: u32,
     /// The hash of the prompt as sent, 16 lowercase hex digits: the replay key.
     pub prompt_hash: String,
