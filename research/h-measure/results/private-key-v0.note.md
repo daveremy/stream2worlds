@@ -1,13 +1,14 @@
 # private-key-v0: verifier report and hand-inspected sample on private-test
 
 Answer key `private-key-v0.json` (base, sha256 `f5e283b98e6022bf530527857ef63b2100bead90f80661785546954981f411c2`)
-and its `context-scored` variant, checked on the reserved corpus `private-test` (s2w#372 PR 2,
-plan §5 row 2 and Q6). Run 2026-10-01 (MST) on hub from `main` @ `1e2e9bd`.
+and its `context-scored` variant (`private-key-v0.context-scored.json`, sha256
+`87ecdf88ce87cf7aef810486ac120ed9399b2311d575b689a740eac523005ee9`), checked on the reserved corpus `private-test` (s2w#372 PR 2,
+plan §5 row 2 and Q6). Run 2026-10-01T09:06Z on hub from `main` @ `1e2e9bd`.
 
 **Result:** the verifier passes with 0 rule failures, and the hand inspection agrees with the
 key on 60 of 60 sampled mentions. The key stays at v0. The inspection found one capture bug
 (sprint rows dropped, filed as s2w#398, a #371 follow-up) and one wrong description in the
-README (the `seat` type is not singleton-only). Neither changes a key rule.
+README and in a `private/key.ts` comment (the `seat` type is not singleton-only). Neither changes a key rule.
 
 This note holds counts, rule names and paths only. It holds no frame value and no `detail` text;
 the 60-item worksheet stayed in `~/.local/share/stream2worlds/h-measure/` (mode 0600, outside
@@ -386,13 +387,13 @@ written.
 
 Two observations that are not disagreements:
 
-- Two of the four `data.branch` samples are a lifeos seat on the trunk (`master`, no issue). The
-  key reads them as one `branch` entity `(lifeos, master)`, which is the source's identity. That
+- Two of the four `data.branch` samples are review seats on one repository's trunk branch (no
+  issue). The key reads them as one `(repo, trunk)` entity, which is the source's identity. That
   entity is the largest `branch` entity in the report (43 mentions). A system that keeps the
   trunk apart from feature branches is still scored correctly; one that merges seats by branch
   will merge every trunk review, which is what the key says.
-- The sample cannot reach the `sprint` type (no mentions in the span) or the `pr.closed` kind
-  (one frame in the span, no path drawn from it).
+- The sample cannot reach the `sprint` type (no mentions in the span) and none of the 60
+  came from the span's one `pr.closed` frame.
 
 ## Capture bug: no sprint frames in private-test (s2w#398)
 
