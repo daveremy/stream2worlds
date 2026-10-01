@@ -168,7 +168,8 @@ sha256 = "2df0593c1e3121808a0e5df237f6fb3efdb9cd99170ed584a6bf0679f63619f4"
 # Obfuscated replicates (s2w#370 PR 2; contract B2.2). Written by `cargo xtask h-measure
 # obfuscate` from a pinned corpus with research/h-measure/obfuscation/recentchange.rules.toml;
 # the replicate's metadata (field table, shift, input and output sha256) is
-# research/h-measure/obfuscation/<replicate>.meta.json. The key bytes are outside the repo.
+# research/h-measure/obfuscation/<replicate>.meta.json (r2-r6: held outside the repo until
+# s2w#374 PR 3, see below). The key bytes are outside the repo.
 # Times inside these files are shifted by the replicate's secret constant, so no
 # since/until/first_dt/last_dt are given: they would publish the shift.
 [corpus.obf-r1-dev]
@@ -209,6 +210,7 @@ replicate = "r2"
 events = 100000
 bytes = 70709703
 sha256 = "5e5d714e83d44b397dd2f1fb407f26b350100db82c92c64f1cc4eae25081905c"
+
 [corpus.obf-r3-dev]
 role = "development"
 file = "dev.obf-r3.raw.sse"
@@ -229,6 +231,7 @@ replicate = "r3"
 events = 100000
 bytes = 69898137
 sha256 = "46581df299a1ed4572fcc107e1a93ddea5b1676a58e8ba158872240e1b9422e2"
+
 [corpus.obf-r4-dev]
 role = "development"
 file = "dev.obf-r4.raw.sse"
@@ -249,6 +252,7 @@ replicate = "r4"
 events = 100000
 bytes = 70652447
 sha256 = "ce13f3b89acea1c88965982c9cd324f2d42b3cdc2bc309d4f4fff96e0942f783"
+
 [corpus.obf-r5-dev]
 role = "development"
 file = "dev.obf-r5.raw.sse"
@@ -269,6 +273,7 @@ replicate = "r5"
 events = 100000
 bytes = 70447884
 sha256 = "56409c818602faf076f993c6623465452fbe155dd916220e52375e0c90c94df9"
+
 [corpus.obf-r6-dev]
 role = "development"
 file = "dev.obf-r6.raw.sse"

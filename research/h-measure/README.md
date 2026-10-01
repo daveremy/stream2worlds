@@ -460,7 +460,7 @@ on the test window in one respect: the 17 field numbers of `log_params` paths th
 `reserved-6` never occur in it. That reveals a count, not names or values, and `dev-key-v3.json`
 leaves `log_params` unscored. The frozen H is `frozen/h-min-v9.obf-rK-dev-10000.json`, with its
 profile in `results/h-min-v9.obf-rK-dev-10000.profile.md`. The r2-r6 metadata files are held
-outside the repository until every mapping is committed; s2w#374 PR 3 commits them and checks
+outside the repository until every mapping is committed (contract B2.2); s2w#374 PR 3 commits them and checks
 them against the sha256 values in PR 1's description.
 
 ## How the base key was written
@@ -606,7 +606,7 @@ comments of 2026-10-01.
   (`targets`), `log_id -> user` (`logged-by`), `title -> wiki` (`page-on`) and `user -> wiki`
   (`user-on`); `event` (`meta.id`) has none. The four other Wikipedia variants stay format 2:
   they vary identity readings, and a format-2 key reports "No relationships declared".
-  `private-key-v1*.json` and `private-key-v2*.json` are above; `dev-key-v3.obf-r1.json` and `dev-key-v3.obf-r2.json`..`r6` are under "Obfuscating a
+  `private-key-v1*.json` and `private-key-v2*.json` are above; `dev-key-v3.obf-r1.json` and `dev-key-v3.obf-r2.json` to `dev-key-v3.obf-r6.json` are under "Obfuscating a
   replicate".
 
 ### Scoring edges (contract §B3 "Relationships")
