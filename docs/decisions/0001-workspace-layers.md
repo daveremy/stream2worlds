@@ -113,3 +113,13 @@ no unauthorised growth and prints its cause.
 core: no I/O, no clock, no randomness, no hash-order iteration, its own `clippy.toml` with the
 core's bans. It profiles raw payloads and proposes a `StreamMapping`. No crate depends on it yet;
 wiring it into `serve` is #163 PR 4, which amends this record again if the layer line changes.
+
+### Amendment, 2026-09-30: only `include!` is refused (s2w#66)
+
+The 2026-09-27 amendment refused `include!`, `include_str!` and `include_bytes!` alike. Only
+`include!` splices Rust tokens into the module, so only it can hide items and lines from the
+size count. `include_str!` and `include_bytes!` evaluate to a `&'static str` or `&[u8]`
+expression and add no module line, so the walker no longer refuses them. `s2w-system2`'s
+prompt depends on this: decision 0029 keeps the prompt as a committed file that check 9 reads,
+and inlining it as a literal would break that. `include!` stays refused, and the dep-info
+cross-check still catches any `.rs` file an `include!` nested inside another macro pulls in.
