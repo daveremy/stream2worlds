@@ -210,8 +210,9 @@ export function render(header: [string, string, string], events: Event[]): { sse
 /**
  * Sprint table rows: `| N | YYYY-MM-DD-<h>a|p [(…)] | ... | [file](YYYY-MM-DD-K-...md) ... |`,
  * local time MST. The slot cell's parenthetical takes any form; its start time is `ran HH:MM`,
- * else `ran <h>a|p`, else the slot hour (so `(slot 09:00–11:00)` and `(ran 21:25; stalled …)`
- * both parse). A row shaped `| N | YYYY-MM-DD` that still fails the pattern is counted in
+ * else `ran <h>a|p`, else `slot HH:MM–` (the actual start, which an early or late sprint records
+ * there: `(slot 16:36–19:00; early start)`), else the slot hour (s2w#405). Any other parenthetical,
+ * e.g. `(stalled …)`, falls back to the slot hour. A row shaped `| N | YYYY-MM-DD` that still fails the pattern is counted in
  * `unparsed`, so a future table-format change shows as a `sprint-unparsed:N` drop (s2w#398).
  */
 export function sprintRows(md: string): { rows: SprintRow[]; unparsed: number } {
@@ -228,8 +229,10 @@ export function sprintRows(md: string): { rows: SprintRow[]; unparsed: number } 
     let min = 0;
     const ran24 = /^ran (\d{1,2}):(\d{2})\b/.exec(paren ?? "");
     const ran12 = /^ran (\d{1,2})([ap])\b/.exec(paren ?? "");
+    const slot24 = /^slot (\d{1,2}):(\d{2})[–-]/.exec(paren ?? "");
     if (ran24) [hour, min] = [Number(ran24[1]), Number(ran24[2])];
     else if (ran12) hour = (Number(ran12[1]) % 12) + (ran12[2] === "p" ? 12 : 0);
+    else if (slot24) [hour, min] = [Number(slot24[1]), Number(slot24[2])];
     const ts = `${date}T${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}:00-07:00`;
     const file = /\((\d{4}-\d{2}-\d{2}-\d+)-[^)]*\.md\)/.exec(line)?.[1] ?? null;
     rows.push({ sprint: Number(n), slot: `${date}-${h}${ap}`, ts, file_id: file });

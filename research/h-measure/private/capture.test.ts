@@ -78,9 +78,16 @@ test("sprint rows: every slot-cell form parses; the ran time wins over the slot 
     "| 19 | 2026-09-22-1a (ran 7a) | x | [file](2026-09-22-19-c.md) |",
     // `(ran HH:MM; …)`, sprint 48's form.
     "| 48 | 2026-09-25-9p (ran 21:25; stalled 21:30→22:10 on a permission prompt) | x | — |",
-    // `(slot HH:MM–HH:MM)`, sprints 63 onward: the start is the slot hour.
+    // `(slot HH:MM–HH:MM)`, sprints 63 onward: the start is the slot cell's `HH:MM–` (s2w#405).
     "| 63 | 2026-09-29-9a (slot 09:00–11:00) | x | [file](2026-09-29-63-d.md) |",
     "| 70 | 2026-09-30-3p (slot 15:00–17:00; early start) | x | — |",
+    // Sprint 72's real row: an early start, 24 minutes before the 5p slot hour.
+    "| 72 | 2026-09-28-5p (slot 16:36–19:00; early start) | x | — |",
+    // Sprint 66's real row: a late start.
+    "| 66 | 2026-09-28-5a (slot 05:30–07:00; late start from the S65 stall) | x | — |",
+    // `ran` outranks `slot`; a parenthetical that is neither keeps the slot hour.
+    "| 90 | 2026-09-30-5a (ran 05:10; slot 05:00–07:00) | x | — |",
+    "| 91 | 2026-09-30-7a (stalled, slot 06:40–09:00) | x | — |",
   ].join("\n");
   assert.deepEqual(sprintRows(md), { unparsed: 0, rows: [
     { sprint: 1, slot: "2026-09-20-10a", ts: "2026-09-20T10:00:00-07:00", file_id: "2026-09-20-1" },
@@ -90,6 +97,10 @@ test("sprint rows: every slot-cell form parses; the ran time wins over the slot 
     { sprint: 48, slot: "2026-09-25-9p", ts: "2026-09-25T21:25:00-07:00", file_id: null },
     { sprint: 63, slot: "2026-09-29-9a", ts: "2026-09-29T09:00:00-07:00", file_id: "2026-09-29-63" },
     { sprint: 70, slot: "2026-09-30-3p", ts: "2026-09-30T15:00:00-07:00", file_id: null },
+    { sprint: 72, slot: "2026-09-28-5p", ts: "2026-09-28T16:36:00-07:00", file_id: null },
+    { sprint: 66, slot: "2026-09-28-5a", ts: "2026-09-28T05:30:00-07:00", file_id: null },
+    { sprint: 90, slot: "2026-09-30-5a", ts: "2026-09-30T05:10:00-07:00", file_id: null },
+    { sprint: 91, slot: "2026-09-30-7a", ts: "2026-09-30T07:00:00-07:00", file_id: null },
   ] });
 });
 
