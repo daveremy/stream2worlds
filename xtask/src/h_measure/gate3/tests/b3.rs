@@ -6,7 +6,7 @@ use std::fs;
 use super::{MATCHING_REPLY, MODEL, Run, envelope, refused, setup};
 
 /// An envelope whose prompt reported `cache_write` cache-write tokens (input 2, cache read 531).
-fn cached(result: &str, cache_write: u64) -> String {
+pub(super) fn cached(result: &str, cache_write: u64) -> String {
     serde_json::json!({
         "type": "result", "subtype": "success", "is_error": false, "result": result,
         "total_cost_usd": 0.03,
@@ -18,11 +18,11 @@ fn cached(result: &str, cache_write: u64) -> String {
 }
 
 /// The h-s2 envelope's first-prompt tokens: 2 + 5431 + 531.
-const T: u64 = 5964;
+pub(super) const T: u64 = 5964;
 
 /// The same run as `run`, writing the b3 replicate beside the h-s2 one; `extra` replaces or
 /// adds flags.
-fn b3(run: &Run, extra: &[(&str, &str)]) -> (Run, Result<String, String>) {
+pub(super) fn b3(run: &Run, extra: &[(&str, &str)]) -> (Run, Result<String, String>) {
     let out = run.out.with_file_name("b3.dev.r1.json");
     let mut args = run.args.clone();
     let mut set = |name: &str, value: String| {
@@ -49,7 +49,7 @@ fn b3(run: &Run, extra: &[(&str, &str)]) -> (Run, Result<String, String>) {
     (b3, said)
 }
 
-fn calls_made(run: &Run) -> u32 {
+pub(super) fn calls_made(run: &Run) -> u32 {
     fs::read_to_string(run.root.join("fake/count")).map_or(0, |n| n.trim().parse().unwrap())
 }
 

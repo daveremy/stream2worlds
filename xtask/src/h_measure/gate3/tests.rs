@@ -383,4 +383,5 @@ fn argv_is_the_clean_session_command() {
 
 mod b3;
 mod b3_view;
+mod no_match;
 mod private_probe;
