@@ -67,7 +67,7 @@ impl Keyed {
         input.extend(parts.iter().map(|part| part.as_bytes()));
         let digest = self.prf("value", &input);
         let short = digest[..self.width].to_vec();
-        let shown = format!("h{}", hex(&short));
+        let shown = format!("h{}", crate::hex(&short));
         match self.seen.insert(short, digest) {
             Some(old) if old != digest => Err(format!(
                 "two different values hash to {shown}: a {}-bit collision. Rerun with a new replicate key",
@@ -129,10 +129,6 @@ fn hmac(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
         .chain_update(inner)
         .finalize()
         .into()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// The key bytes from a key file's text: 64 hex digits, surrounding whitespace ignored.

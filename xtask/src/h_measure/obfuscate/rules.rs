@@ -107,8 +107,8 @@ impl Rules {
     pub(super) fn load(path: &Path) -> Result<Self, String> {
         let shown = path.display();
         let bytes = fs::read(path).map_err(|e| format!("{shown}: {e}"))?;
-        let text = String::from_utf8(bytes.clone()).map_err(|e| format!("{shown}: {e}"))?;
-        Self::parse(&text, crate::sha256(&bytes)).map_err(|e| format!("{shown}: {e}"))
+        let text = std::str::from_utf8(&bytes).map_err(|e| format!("{shown}: {e}"))?;
+        Self::parse(text, crate::sha256(&bytes)).map_err(|e| format!("{shown}: {e}"))
     }
 
     /// Parses and validates rules-file text.
