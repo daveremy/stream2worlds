@@ -91,24 +91,23 @@ fn mib(bytes: u64) -> String {
 /// Judges the measurement against `[discover_volume]`: report lines, then problems.
 pub(crate) fn judge(b: &Baseline, m: &VolumeMeasurement) -> (Vec<String>, Vec<String>) {
     let base = &b.discover_volume;
-    let name = NAME;
     let (mut report, mut problems) = (Vec::new(), Vec::new());
     if m.heap_bytes == 0 || m.entities == 0 {
         problems.push(format!(
-            "{name}: UNKNOWN (the test measured 0; is dhat its global allocator?); fix the discover_volume_heap target, an unknown never passes"
+            "{NAME}: UNKNOWN (the test measured 0; is dhat its global allocator?); fix the discover_volume_heap target, an unknown never passes"
         ));
         return (report, problems);
     }
     if m.variant != "fresh" {
         problems.push(format!(
-            "{name}: the test folded the '{}' variant; the gate reads the fresh upper bound, so run the fresh child",
+            "{NAME}: the test folded the '{}' variant; the gate reads the fresh upper bound, so run the fresh child",
             m.variant
         ));
         return (report, problems);
     }
     problems.extend(pins(base, m));
     report.push(format!(
-        "{name}: {} B ({}) vs baseline {} B, budget {} B ({}); {} entities, {} relationships, {} links, profiler version {}; resident {} under dhat (inflated, not judged; {TABLE} rss_bytes_reported {} from the plain target)",
+        "{NAME}: {} B ({}) vs baseline {} B, budget {} B ({}); {} entities, {} relationships, {} links, profiler version {}; resident {} under dhat (inflated, not judged; {TABLE} rss_bytes_reported {} from the plain target)",
         m.heap_bytes,
         mib(m.heap_bytes),
         base.heap_bytes,
@@ -123,7 +122,7 @@ pub(crate) fn judge(b: &Baseline, m: &VolumeMeasurement) -> (Vec<String>, Vec<St
     ));
     if m.heap_bytes > base.budget_bytes {
         problems.push(format!(
-            "{name} {} B exceeds the hard budget {} B ({TABLE} budget_bytes, decision 0025's deploy line); shrink what the fold keeps, or amend decision 0025 before raising the budget with a Baseline-growth: s2w#<N> trailer",
+            "{NAME} {} B exceeds the hard budget {} B ({TABLE} budget_bytes, decision 0025's deploy line); shrink what the fold keeps, or amend decision 0025 before raising the budget with a Baseline-growth: s2w#<N> trailer",
             m.heap_bytes, base.budget_bytes
         ));
     }
@@ -133,16 +132,16 @@ pub(crate) fn judge(b: &Baseline, m: &VolumeMeasurement) -> (Vec<String>, Vec<St
     );
     if change > tol {
         problems.push(format!(
-            "{name} regressed {change:+.1}%: measured {} B vs baseline {} B (tolerance {tol}%); find what the profiler or fold change added, or if the cost is intended raise {TABLE} heap_bytes to {} in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer",
+            "{NAME} regressed {change:+.1}%: measured {} B vs baseline {} B (tolerance {tol}%); find what the profiler or fold change added, or if the cost is intended raise {TABLE} heap_bytes to {} in {BASELINE}, say why, and add a Baseline-growth: s2w#<N> trailer",
             m.heap_bytes, base.heap_bytes, m.heap_bytes
         ));
     } else if change < -tol {
         report.push(format!(
-            "{name} improved {change:+.1}% past tolerance; run cargo xtask discover-volume --tighten-baseline to lower {TABLE} heap_bytes"
+            "{NAME} improved {change:+.1}% past tolerance; run cargo xtask discover-volume --tighten-baseline to lower {TABLE} heap_bytes"
         ));
     } else {
         report.push(format!(
-            "{name}: {change:+.1}% against the baseline, tolerance {tol}%"
+            "{NAME}: {change:+.1}% against the baseline, tolerance {tol}%"
         ));
     }
     (report, problems)

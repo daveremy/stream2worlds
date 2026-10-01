@@ -1,18 +1,33 @@
 //! `--tighten-baseline` text rewriting for `xtask/scale-baseline.toml`: lowers named keys of one
 //! table to a measurement, never raises one, and keeps every comment and every other line.
-use super::{MemMeasurement, Supply};
+use std::path::Path;
 
-/// One supply's `[memory]` table: lowers `bytes_per_entity` and
-/// `bytes_per_relationship_reported` to the measurement. `None` when nothing is lower.
-pub(crate) fn tighten_text(text: &str, supply: Supply, m: &MemMeasurement) -> Option<String> {
-    lower_in(
-        text,
-        supply.memory(),
-        &[
-            ("bytes_per_entity", m.bytes_per_entity),
-            ("bytes_per_relationship_reported", m.bytes_per_relationship),
-        ],
-    )
+use super::BASELINE;
+
+/// Rewrites `xtask/scale-baseline.toml` under `root` with `rewrite` (one of the table wrappers
+/// over [`lower_in`]); `table` names what was lowered. Problems, if the file could not be
+/// rewritten.
+pub(crate) fn tighten_file(
+    root: &Path,
+    table: &str,
+    rewrite: impl FnOnce(&str) -> Option<String>,
+) -> Vec<String> {
+    let path = root.join(BASELINE);
+    let result = std::fs::read_to_string(&path).and_then(|text| match rewrite(&text) {
+        Some(lowered) => std::fs::write(&path, lowered).map(|()| true),
+        None => Ok(false),
+    });
+    match result {
+        Ok(true) => {
+            println!("scale: lowered {table} in {BASELINE} to the measurement");
+            Vec::new()
+        }
+        Ok(false) => Vec::new(),
+        Err(e) => vec![format!(
+            "cannot tighten {}: {e}; check the file is writable and retry",
+            path.display()
+        )],
+    }
 }
 
 /// Lowers each `(key, measured)` in `table` (its `[name]` header line, exactly) to `measured`

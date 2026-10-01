@@ -1,6 +1,6 @@
 //! The two event supplies a scale measurement folds, and which `[memory]` table each is judged
 //! against (s2w#174). Their `[ir]` tables are in `ir_bench.rs`.
-use super::Baseline;
+use super::{Baseline, MemMeasurement};
 
 /// The event supply a measurement folds: the seeded generator, or the recorded fixture (s2w#174).
 /// Two implementations of one seam; both are gated and neither replaces the other.
@@ -72,4 +72,17 @@ impl Baseline {
             },
         }
     }
+}
+
+/// `--tighten-baseline` for one supply's `[memory]` table: lowers `bytes_per_entity` and
+/// `bytes_per_relationship_reported` to the measurement. `None` when nothing is lower.
+pub(crate) fn tighten_text(text: &str, supply: Supply, m: &MemMeasurement) -> Option<String> {
+    super::tighten::lower_in(
+        text,
+        supply.memory(),
+        &[
+            ("bytes_per_entity", m.bytes_per_entity),
+            ("bytes_per_relationship_reported", m.bytes_per_relationship),
+        ],
+    )
 }
