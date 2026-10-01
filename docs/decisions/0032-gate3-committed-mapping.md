@@ -139,19 +139,23 @@ above. It differs from them in these ways:
   transcript through the same function and budget gate as the live run, and also refuses a
   replay whose spend differs from the recorded `spend`.
 - **Budget failure text.** The failure is `budget: spent $X, next call estimated $Y, cap $5.00`,
-  with fixed decimals so a replay writes it byte for byte. The estimate charges input at the
-  higher of the input and cache-write rates, because the CLI may cache-write the prompt. A call
-  that reported no tokens is charged its estimate.
+  with fixed decimals so a replay writes it byte for byte. The estimate is more conservative
+  than the section above: one input token per 2 prompt bytes (JSON with ids and hashes
+  tokenizes near that) plus 8,192 tokens for the CLI's built-in system prompt, all charged at
+  the higher of the input and cache-write rates, because the CLI may cache-write the prompt.
+  The session sets `CLAUDE_CODE_MAX_OUTPUT_TOKENS` to 16,384, so the output part is a bound. A
+  call that reported no tokens is charged its estimate.
 - **CLI cap.** `--max-budget-usd` is fixed at 5, the whole cap. `ExecProvider`'s argv is fixed per
   provider, so the CLI cannot be given the per-call remainder; the gate enforces that.
 - **Credentials.** The scratch `HOME` gets a copy of the operator's credentials file only when
-  its access token stays valid for at least 30 more minutes. The CLI then never refreshes it:
+  its access token stays valid for at least 90 more minutes (five calls at the 15-minute call
+  timeout, plus 15 minutes). The CLI then never refreshes it:
   OAuth refresh tokens are single-use, and a refresh inside the copy would spend the token the
   operator's own sessions hold (lifeos#1252). A copy the CLI rewrote anyway is reported loudly
-  after the run.
+  after the run and kept beside the operator's file, since it then holds the live refresh token.
 - **Probe wording.** The probe asks for anything besides the model's built-in system prompt and
   the probe itself, because the CLI always sends a built-in system prompt.
 - **Call timeout.** Each call may run 15 minutes (`ExecLimits` default is 3), because a mapping
   reply may use 16k output tokens.
 - **Probe failure.** A failed probe writes no file: the session is not proven clean, so there is
-  no replicate.
+  no replicate. The error names what the probe was charged.

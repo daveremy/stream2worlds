@@ -31,6 +31,7 @@ impl<'a> BudgetGate<'a> {
 
     /// What each of `calls` is charged: its reported cost, or its estimate when it reported none.
     pub(crate) fn charged(&self, calls: &[CallRecord]) -> Vec<f64> {
+        debug_assert_eq!(calls.len(), self.estimates.len(), "one estimate per call");
         calls
             .iter()
             .zip(&self.estimates)

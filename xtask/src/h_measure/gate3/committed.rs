@@ -141,7 +141,10 @@ pub(crate) fn run<P: Provider, Q: Provider>(
     input: &MappingInput,
 ) -> Result<Ran, String> {
     let mut gate = BudgetGate::new(price, 0.0);
-    let probe = clean_session_probe(probe_provider, &mut gate).map_err(|(reason, _)| reason)?;
+    let probe = clean_session_probe(probe_provider, &mut gate).map_err(|(reason, call)| {
+        let charged: f64 = call.map_or(0.0, |call| gate.charged(&[*call]).iter().sum());
+        format!("{reason} (the probe was charged ${charged:.4})")
+    })?;
     let probe_charged = gate.charged(std::slice::from_ref(&probe));
     let mut gate = BudgetGate::new(price, probe_charged.iter().sum());
     let outcome = proposer.propose(input, &mut gate);

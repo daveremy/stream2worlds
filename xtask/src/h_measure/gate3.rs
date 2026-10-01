@@ -170,8 +170,12 @@ pub(crate) fn commit(root: &Path, flags: &Flags) -> Result<String, String> {
     let proposer = MappingProposer::new(session.provider(&request.claude, request.model)?);
     let ran = run_arm(proposer.provider(), &proposer, &price, &input);
     if session.credentials_changed() {
+        let kept = session.keep_credentials(&request.credentials).map_or_else(
+            |e| format!("it could not be kept ({e})"),
+            |path| format!("it is kept at {}", path.display()),
+        );
         eprintln!(
-            "⚠ gate3: the CLI rewrote the credentials copy in {}: it refreshed the token, and {} may now hold a spent refresh token; check the operator's sessions",
+            "⚠ gate3: the CLI rewrote the credentials copy in {}: it refreshed the token, so {} may now hold a spent refresh token and the copy holds the live one; {kept}. Check the operator's sessions",
             session.home().display(),
             request.credentials.display()
         );

@@ -135,8 +135,9 @@ as `h-measure freeze` does, builds the arm's input from the same profiler run (t
 events of the window as the sample), and asks the model for a mapping through the Claude CLI in a
 clean session: no tools, no MCP servers, no saved session, and a scratch `HOME` holding only a
 copy of `--credentials` (default `~/.claude/.credentials.json`). It refuses to start when that
-file's access token expires within 30 minutes, so the CLI never refreshes it in the copy. The
-first call is a probe; the run stops, writing nothing, unless the model replies `none`.
+file's access token expires within 90 minutes, so the CLI never refreshes it in the copy. The
+first call is a probe; the run stops, writing nothing, unless the model replies `none`; the
+error names what the probe was charged.
 
 Every call goes through a $5 budget gate charged at `prices.toml` (an unknown `--model` is
 refused). A call that could take the replicate past $5 is not made, and the replicate is

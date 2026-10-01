@@ -291,9 +291,9 @@ fn usd_is_tokens_times_the_table() {
     // The recorded envelope's own total_cost_usd.
     assert!((price().usd(&call).unwrap() - 0.021_874_2).abs() < 1e-12);
     assert_eq!(price().usd(&record(None, None)), None);
-    // 30 bytes: 10 input tokens at the cache-write rate, 16384 output tokens.
+    // 30 bytes: 15 input tokens plus the system allowance at the cache-write rate, 16384 output.
     let estimate = price().estimate(&"x".repeat(30));
-    assert!((estimate - (10.0 * 4.0 + 16_384.0 * 10.0) / 1e6).abs() < 1e-12);
+    assert!((estimate - ((15.0 + 8_192.0) * 4.0 + 16_384.0 * 10.0) / 1e6).abs() < 1e-12);
 }
 
 #[test]
@@ -342,6 +342,12 @@ fn the_session_holds_only_fresh_credentials_and_is_removed() {
     assert!(!session.credentials_changed());
     fs::write(home.join(".claude/.credentials.json"), "{}").unwrap();
     assert!(session.credentials_changed());
+    // The rewritten copy outlives the session, beside the operator's file.
+    let kept = session.keep_credentials(&creds).unwrap();
+    assert!(kept.starts_with(&dir));
+    assert_eq!(fs::read(&kept).unwrap(), b"{}");
+    // A 90-minute guard: five calls at the 15-minute timeout, plus 15 minutes.
+    assert_eq!(MIN_TOKEN_LIFE_MS, 90 * 60 * 1000);
     drop(session);
     assert!(!home.exists());
     let _ = fs::remove_dir_all(&dir);

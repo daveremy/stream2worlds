@@ -13,8 +13,13 @@ use super::super::pins::toml_file;
 /// The price table's file name, under the measurement's data directory.
 pub(crate) const FILE: &str = "prices.toml";
 
-/// Output tokens a call is estimated at before it is made: the most a reply may use.
+/// Output tokens a call is estimated at before it is made: the most a reply may use. The
+/// session sets the CLI's output limit to this, so a reply cannot run past it.
 pub(crate) const ESTIMATED_OUTPUT_TOKENS: u64 = 16_384;
+
+/// Input tokens every call is estimated to carry besides its prompt: the CLI's built-in system
+/// prompt, which recorded envelopes show cache-writes about 5.4k tokens per call.
+pub(crate) const ESTIMATED_SYSTEM_TOKENS: u64 = 8_192;
 
 /// One `[model."<snapshot>"]` row, as it is copied into a committed file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -90,11 +95,14 @@ impl Price {
         )
     }
 
-    /// The most a call with `prompt` is expected to cost: one input token per 3 prompt bytes,
-    /// rounded up, at the higher of the input and cache-write rates (the CLI may cache-write
-    /// the prompt), and [`ESTIMATED_OUTPUT_TOKENS`] at the output rate.
+    /// The most a call with `prompt` is expected to cost: one input token per 2 prompt bytes,
+    /// rounded up (JSON with ids and hashes tokenizes near that), plus
+    /// [`ESTIMATED_SYSTEM_TOKENS`], at the higher of the input and cache-write rates (the CLI
+    /// may cache-write the prompt), and [`ESTIMATED_OUTPUT_TOKENS`] at the output rate.
     pub(crate) fn estimate(&self, prompt: &str) -> f64 {
-        let input = u64::try_from(prompt.len().div_ceil(3)).unwrap_or(u64::MAX);
+        let input = u64::try_from(prompt.len().div_ceil(2))
+            .unwrap_or(u64::MAX)
+            .saturating_add(ESTIMATED_SYSTEM_TOKENS);
         let rate = self.input.max(self.cache_write);
         (tokens(input) * rate + tokens(ESTIMATED_OUTPUT_TOKENS) * self.output) / 1e6
     }

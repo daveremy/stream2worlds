@@ -16,15 +16,20 @@ use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use s2w_system2::{ExecLimits, ExecProvider, ReplyFormat};
+use s2w_system2::{ExecLimits, ExecProvider, MAX_ATTEMPTS, ReplyFormat};
 
 use super::ledger::CAP_USD;
-
-/// How long the access token must stay valid when the run starts.
-pub(crate) const MIN_TOKEN_LIFE_MS: u64 = 30 * 60 * 1000;
+use super::prices::ESTIMATED_OUTPUT_TOKENS;
 
 /// One call's wall-clock limit: a mapping reply may run to 16k output tokens.
 const CALL_TIMEOUT: Duration = Duration::from_secs(900);
+
+/// The most calls a run makes: the probe, then a first call and a repair per attempt.
+const MAX_CALLS: u64 = 1 + 2 * MAX_ATTEMPTS as u64;
+
+/// How long the access token must stay valid when the run starts: every call at its timeout,
+/// plus 15 minutes.
+pub(crate) const MIN_TOKEN_LIFE_MS: u64 = (MAX_CALLS * CALL_TIMEOUT.as_secs() + 15 * 60) * 1000;
 
 /// Where the CLI reads its credentials, under `HOME`.
 const CREDENTIALS: &str = ".claude/.credentials.json";
@@ -57,8 +62,9 @@ impl Session {
             })?;
         if expires < now_ms.saturating_add(MIN_TOKEN_LIFE_MS) {
             return Err(format!(
-                "{shown}: the access token expires in {} min, under the 30 min a run needs; the CLI would refresh it inside the scratch copy and burn the single-use refresh token (lifeos#1252). Let a normal session refresh it, then run again",
-                expires.saturating_sub(now_ms) / 60_000
+                "{shown}: the access token expires in {} min, under the {} min a run needs; the CLI would refresh it inside the scratch copy and burn the single-use refresh token (lifeos#1252). Let a normal session refresh it, then run again",
+                expires.saturating_sub(now_ms) / 60_000,
+                MIN_TOKEN_LIFE_MS / 60_000
             ));
         }
         let nanos = std::time::SystemTime::now()
@@ -88,8 +94,10 @@ impl Session {
         &self.home
     }
 
-    /// The provider: `claude` run with [`argv`], its environment exactly this `HOME` and the
-    /// caller's `PATH` (the CLI needs its runtime), reading the CLI's JSON envelope.
+    /// The provider: `claude` run with [`argv`], its environment exactly this `HOME`, the
+    /// caller's `PATH` (the CLI needs its runtime) and the CLI's output limit at
+    /// [`ESTIMATED_OUTPUT_TOKENS`] (so no reply costs more than the gate estimated), reading the
+    /// CLI's JSON envelope.
     ///
     /// # Errors
     ///
@@ -99,6 +107,10 @@ impl Session {
         let env = vec![
             ("HOME".to_owned(), OsString::from(self.home.as_os_str())),
             ("PATH".to_owned(), path),
+            (
+                "CLAUDE_CODE_MAX_OUTPUT_TOKENS".to_owned(),
+                OsString::from(ESTIMATED_OUTPUT_TOKENS.to_string()),
+            ),
         ];
         let limits = ExecLimits {
             timeout: CALL_TIMEOUT,
@@ -113,6 +125,33 @@ impl Session {
     /// Whether the CLI rewrote the scratch credentials during the run.
     pub(crate) fn credentials_changed(&self) -> bool {
         fs::read(self.home.join(CREDENTIALS)).map_or(true, |now| now != self.copied)
+    }
+
+    /// Copies the scratch credentials to a new file beside `credentials` before the scratch
+    /// `HOME` is removed: after a refresh it holds the only refresh token that still works.
+    ///
+    /// # Errors
+    ///
+    /// The scratch copy cannot be read or the new file cannot be written.
+    pub(crate) fn keep_credentials(&self, credentials: &Path) -> Result<PathBuf, String> {
+        let from = self.home.join(CREDENTIALS);
+        let bytes = fs::read(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+        let name = self.home.file_name().map_or_else(
+            || OsString::from("s2w-gate3"),
+            std::ffi::OsStr::to_os_string,
+        );
+        let mut kept = credentials.as_os_str().to_os_string();
+        kept.push(".");
+        kept.push(name);
+        let kept = PathBuf::from(kept);
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&kept)
+            .and_then(|mut f| f.write_all(&bytes))
+            .map_err(|e| format!("{}: {e}", kept.display()))?;
+        Ok(kept)
     }
 }
 
