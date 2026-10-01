@@ -60,7 +60,7 @@ const BASE_TYPES: KeyType[] = [
     rule(d("head_ref"), d("repo"), d("head_ref")),
   ] },
   { type: "sprint", mentions: [rule(d("sprint")), rule(d("slot"), d("sprint")), rule(d("file_id"), d("sprint"))] },
-  { type: "seat", mentions: [rule(d("seat_id"))] }, // singleton type, as Wikipedia's `event`
+  { type: "seat", mentions: [rule(d("seat_id"))] }, // one seat across its fallback attempts (not singleton-only; s2w#372 note)
   { type: "comment", mentions: [rule(d("comment_id"))] }, // singleton type
 ];
 
