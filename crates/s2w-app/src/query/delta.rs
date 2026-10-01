@@ -106,7 +106,7 @@ pub fn fold_with_delta(prev: World, event: &WorldEvent) -> (World, Delta) {
     match event {
         WorldEvent::EntityObserved { key, .. } => fold_entity(prev, event, key),
         WorldEvent::RelationshipObserved { from, to, kind } => {
-            fold_relationship(prev, event, (from, to), kind)
+            fold_relationship(prev, event, from, to, kind)
         }
         WorldEvent::EntitiesMerged { survivor, absorbed } => {
             fold_merge(prev, event, survivor, absorbed)
@@ -136,7 +136,8 @@ fn fold_entity(prev: World, event: &WorldEvent, key: &NaturalKey) -> (World, Del
 fn fold_relationship(
     prev: World,
     event: &WorldEvent,
-    (from, to): (&NaturalKey, &NaturalKey),
+    from: &NaturalKey,
+    to: &NaturalKey,
     kind: &str,
 ) -> (World, Delta) {
     let before = prev
