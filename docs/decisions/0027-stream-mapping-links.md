@@ -153,8 +153,8 @@ included.
   key: P 0.9991, R 0.9992 at both windows, so P7's R holds and its P = 1.0 does not. Two
   candidate causes, not yet measured per type: first link wins joins an alias value that two
   identities share to the first one only, and an alias key (label plus one value) equals
-  another one-part key of its type. Those numbers predate the survivor rule (the oracle rule
-  on the alias's own identity paths, not the type's first rule); leg B re-runs the control.
+  another one-part key of its type. Re-run on the 10,000-event window after the survivor rule
+  became "the oracle rule on the alias's own identity paths": the same row.
 - Every `StreamMapping` literal gains `links: Vec::new()`; no behaviour change.
 - No new dependencies; the allowlist is unchanged.
 
