@@ -107,7 +107,8 @@ pub(crate) struct GoldEdges<'a> {
     pub edges: &'a BTreeSet<Edge>,
     /// The observable edge types the key declares, so a type with no edge in the corpus shows.
     pub declared: BTreeSet<String>,
-    /// Each unobservable row's endpoint key types `(from, to)`, when both are mention paths.
+    /// Each unobservable row's endpoint key types `(from, to)`, when both are mention paths. A
+    /// row with an endpoint that is no mention path blinds nothing: edges there stay false.
     pub blind: BTreeSet<(String, String)>,
     /// The key's unobservable rows.
     pub unobservable: usize,
@@ -195,15 +196,14 @@ fn align(gold: &GoldEdges<'_>, typed: &[Typed<'_>]) -> BTreeMap<String, String> 
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    let column: BTreeMap<&str, usize> = guesses.iter().enumerate().map(|(p, g)| (*g, p)).collect();
+    // Each (key type, predicted type, key edge) once: a key edge hit twice by one type adds 1.
     let mut hits: BTreeSet<(usize, usize, &str, &str)> = BTreeSet::new();
     for t in typed {
         let Some((from, to)) = t.mapped else { continue };
-        let Ok(p) = guesses.binary_search(&t.kind.as_str()) else {
-            continue;
-        };
         for (k, label) in keys.iter().enumerate() {
             if gold.edges.contains(&edge(label, from, to)) {
-                hits.insert((k, p, from, to));
+                hits.insert((k, column[t.kind.as_str()], from, to));
             }
         }
     }

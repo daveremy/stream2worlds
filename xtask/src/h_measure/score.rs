@@ -113,8 +113,8 @@ struct PathSums {
     recall: f64,
 }
 
-/// The type a gold cluster belongs to: its natural key's label. A cluster that is not a
-/// natural key (hand-built fixtures) is its own type.
+/// The type a cluster belongs to (gold or predicted): its natural key's label. A cluster that
+/// is not a natural key (hand-built fixtures) is its own type.
 pub(super) fn type_of(cluster: &str) -> String {
     NaturalKey::new(cluster)
         .parts()

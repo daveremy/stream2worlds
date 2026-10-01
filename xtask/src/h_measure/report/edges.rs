@@ -62,6 +62,16 @@ fn type_row(name: &str, t: &TypeRow, ceiling: Option<&TypeRow>) -> Vec<String> {
     .concat()
 }
 
+/// Names joined with "; ", or "none".
+fn listed(names: impl Iterator<Item = String>) -> String {
+    let names: Vec<String> = names.collect();
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join("; ")
+    }
+}
+
 /// The section, or the one "No relationships declared" line for a key without them.
 pub(super) fn section(g: &Grade) -> String {
     let (Some(mapping), Some(ceiling), Some(linked)) =
@@ -78,15 +88,21 @@ pub(super) fn section(g: &Grade) -> String {
         .per_type
         .iter()
         .map(|(name, t)| type_row(name, t, ceiling.per_type.get(name)));
-    let empty: Vec<&String> = mapping
-        .per_type
-        .iter()
-        .filter(|(_, t)| t.key_edges == 0)
-        .map(|(name, _)| name)
-        .collect();
-    let unaligned: Vec<(&String, &usize)> = mapping.unaligned_predicted.iter().collect();
+    let empty = listed(
+        mapping
+            .per_type
+            .iter()
+            .filter(|(_, t)| t.key_edges == 0)
+            .map(|(name, _)| name.clone()),
+    );
+    let unaligned = listed(
+        mapping
+            .unaligned_predicted
+            .iter()
+            .map(|(name, n)| format!("{name} ({n})")),
+    );
     format!(
-        "Relationships (contract B3, unique typed directed edges):\n\n{}\n{}\nUnaligned predicted edge types (all false): {unaligned:?}. Predicted edges with a no-majority endpoint: {}. Dropped (unscored endpoint): {}. Unobservable key rows: {} (predicted edges dropped on them: {}). Key edge types with no edge in this corpus: {empty:?}.\n\n",
+        "Relationships (contract B3, unique typed directed edges):\n\n{}\n{}\nUnaligned predicted edge types (all false): {unaligned}. Predicted edges with a no-majority endpoint: {}. Dropped (unscored endpoint): {}. Unobservable key rows: {} (predicted edges dropped on them: {}). Key edge types with no edge in this corpus: {empty}.\n\n",
         table(&ROWS, rows),
         table(&TYPES, types),
         mapping.no_majority,

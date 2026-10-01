@@ -147,8 +147,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/score.rs`: B-cubed P/R/F1 (micro, per type, and without singleton-only types),
     the mention-weighted false-merge rate, entity recovery (≥ 90% both ways, integer
     comparisons), the per-path table and spurious mentions. A zero denominator is `None`
-    (undefined). Fixtures live in `h_measure/score/tests.rs`.
-    `majority` gives each scored predicted cluster its strict-majority key entity, for edges.
+    (undefined). Its unit fixtures live in `h_measure/score/tests.rs`; the contract's frozen
+    ones in `h_measure/fixtures.rs`. `majority` gives each scored predicted cluster its strict-majority key entity, for edges.
   - `h_measure/edges.rs` (s2w#388): the §B3 edge scorer: strict-majority endpoint mapping,
     predicted type `(from type, to type, kind)`, one-to-one type alignment by the in-house
     Hungarian solver in `h_measure/edges/hungarian.rs` (tie: the lexicographically smallest
