@@ -217,4 +217,24 @@ fn the_v2_key_scores_refs_edges_on_the_fixture() {
         v1.key_edges + 4,
         "the fixture's 4 ref edges"
     );
+    // The negative control for the two-label design: one `names` label over both source
+    // types gives two predicted kinds for one key type, and one-to-one alignment drops one.
+    let mut one_label = spec.clone();
+    for row in &mut one_label.relationships {
+        if row.label == "commit-names" {
+            row.label = "names".to_owned();
+        }
+    }
+    let merged = grade(
+        &one_label,
+        &item_mapping(&json!([["data", "repo"], ["data", "number"]])),
+        &fixture(),
+    )
+    .expect("grades")
+    .ceiling_links_edges
+    .expect("a one-label key scores edges");
+    assert!(
+        merged.micro.recall.is_some_and(|r| r < 1.0),
+        "one `names` label must cap recall: {merged:?}"
+    );
 }

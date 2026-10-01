@@ -343,7 +343,8 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
     }
     if (x.ref_number != null && !REPOS.includes(x.ref_repo as never)) failures["ref-repo"] += 1;
     // every kept `{repo, number}` ref names a repo the capture knows (the capture drops and
-    // counts any other). A bare number is the first capture's shape, which v2 does not score.
+    // counts any other). A bare number is the first capture's shape, which v2 does not score;
+    // a null ref is not a known-repo ref and counts as a failure.
     for (const r of Array.isArray(x.refs) ? x.refs : []) {
       const repo = r !== null && typeof r === "object" ? (r as { repo?: unknown }).repo : undefined;
       if (typeof r === "object" && !REPOS.includes(repo as never)) failures["ref-repo-known"] += 1;
