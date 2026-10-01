@@ -59,13 +59,9 @@ mod volume {
         env!("CARGO_CRATE_NAME") == "discover_volume_heap"
     }
 
-    /// dhat's live heap bytes; 0 outside the heap target, which has no profiler to ask.
-    fn live_heap() -> usize {
-        if heap_target() {
-            dhat::HeapStats::get().curr_bytes
-        } else {
-            0
-        }
+    /// dhat's live heap bytes; `None` outside the heap target, which has no profiler to ask.
+    fn live_heap() -> Option<usize> {
+        heap_target().then(|| dhat::HeapStats::get().curr_bytes)
     }
 
     fn status(field: &str) -> usize {
@@ -75,13 +71,9 @@ mod volume {
         kib * 1024
     }
 
-    /// The heap figure for the human-readable line, in the heap target only.
-    fn heap_note(heap_bytes: usize) -> String {
-        if heap_target() {
-            format!(", world heap {heap_bytes} B ({})", mib(heap_bytes))
-        } else {
-            String::new()
-        }
+    /// The heap figure for the human-readable line, when there is one.
+    fn heap_note(heap_bytes: Option<usize>) -> String {
+        heap_bytes.map_or_else(String::new, |b| format!(", world heap {b} B ({})", mib(b)))
     }
 
     fn mib(bytes: usize) -> String {
@@ -162,7 +154,9 @@ mod volume {
         let secs = started.elapsed().as_secs_f64();
         // Live heap now minus before the world existed: the world's own bytes, since the engine
         // and the loaded fixture were live on both sides and every event clone has been freed.
-        let heap_bytes = live_heap().saturating_sub(heap_before);
+        let heap_bytes = live_heap()
+            .zip(heap_before)
+            .map(|(after, before)| after.saturating_sub(before));
         let world_bytes = status("VmRSS:").saturating_sub(before);
         #[expect(clippy::cast_precision_loss, reason = "display only")]
         let (per_event, rate) = (claims as f64 / EVENTS as f64, EVENTS as f64 / secs);
@@ -177,7 +171,7 @@ mod volume {
         println!(
             "{}",
             serde_json::json!({
-                "heap_bytes": heap_bytes,
+                "heap_bytes": heap_bytes.unwrap_or(0),
                 "rss_bytes": world_bytes,
                 "entities": entities,
                 "relationships": relationships,

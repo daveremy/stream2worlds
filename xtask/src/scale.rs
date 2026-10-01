@@ -15,11 +15,10 @@ use crate::module_size::{git, trailer};
 pub(super) mod discover_volume;
 mod ir_bench;
 mod supply;
-mod tighten;
+pub(super) mod tighten;
 pub(super) use discover_volume::{DiscoverVolumeBaseline, VolumeMeasurement};
 pub(super) use ir_bench::IrBench;
-pub(super) use supply::Supply;
-pub(super) use tighten::tighten_text;
+pub(super) use supply::{Supply, tighten_text};
 
 /// The baseline file, relative to the workspace root.
 pub(super) const BASELINE: &str = "xtask/scale-baseline.toml";

@@ -11,7 +11,7 @@
 use std::path::Path;
 use std::process::{ExitCode, Stdio};
 
-use crate::scale::{self, BASELINE, VolumeMeasurement};
+use crate::scale::{self, VolumeMeasurement};
 
 /// The fold child, by its path in the heap target; run with `--exact`, so a rename matches
 /// nothing and fails for want of a JSON line.
@@ -54,7 +54,11 @@ fn gate(root: &Path, tighten: bool) -> Vec<String> {
     if tighten && !problems.is_empty() {
         problems.push("cannot tighten [discover_volume] while its check fails; resolve the findings and retry".into());
     } else if tighten {
-        problems.extend(tighten_file(root, &m));
+        problems.extend(scale::tighten::tighten_file(
+            root,
+            scale::discover_volume::TABLE,
+            |text| scale::discover_volume::tighten_text(text, &m),
+        ));
     }
     problems
 }
@@ -97,28 +101,4 @@ fn measure(root: &Path) -> Result<VolumeMeasurement, String> {
             args.join(" ")
         )
     })
-}
-
-fn tighten_file(root: &Path, m: &VolumeMeasurement) -> Vec<String> {
-    let path = root.join(BASELINE);
-    let result =
-        std::fs::read_to_string(&path).and_then(|text| match scale::discover_volume::tighten_text(
-            &text, m,
-        ) {
-            Some(lowered) => std::fs::write(&path, lowered).map(|()| true),
-            None => Ok(false),
-        });
-    match result {
-        Ok(true) => {
-            println!(
-                "discover-volume: lowered [discover_volume] heap_bytes in {BASELINE} to the measurement"
-            );
-            Vec::new()
-        }
-        Ok(false) => Vec::new(),
-        Err(e) => vec![format!(
-            "cannot tighten {}: {e}; check the file is writable and retry",
-            path.display()
-        )],
-    }
 }
