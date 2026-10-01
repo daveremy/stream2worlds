@@ -25,6 +25,7 @@ pub use exec::{ExecLimits, ExecProvider, ExecSetupError, ReplyFormat};
 pub use manifest::System2Proposer;
 pub use mapping::{CallGate, MAX_ATTEMPTS, MappingOutcome, MappingProposer, MappingResult, NoGate};
 pub use probe::{PROBE_CALL, clean_session_probe};
+pub use prompt::{mapping_prompt, raw_mapping_prompt};
 pub use provider::{Provider, ProviderError, Reply};
 pub use record::CallRecord;
 pub use replay::{ReplayError, ReplayProvider, recording_json};
