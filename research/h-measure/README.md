@@ -335,9 +335,11 @@ hashed as their own for an absent `from` path, rules that matched no path, the u
 rows, and the sha256 of the key, the rules, every input and every output. It never records the key itself.
 
 A replicate's windows share one key and one field table. A later window can be obfuscated under
-an existing replicate only when it adds no field path (correction, 2026-10-01, s2w#374: every
-recentchange window adds paths under `log_params`, so for this stream a replicate obfuscates its
-development and test windows in one run; see the gate-3 replicates below). With `--meta` naming an existing metadata file, the run reuses its field table and refuses a
+an existing replicate only when it adds no field path. For recentchange the test window can add
+paths under `log_params` (`reserved-6` adds 18 to `dev`, s2w#374, 2026-10-01), so the gate-3
+replicates obfuscate their development and test windows in one run; see below.
+
+With `--meta` naming an existing metadata file, the run reuses its field table and refuses a
 field path the table does not hold, a different key, a different rules file, a different
 replicate, or a corpus or answer key the metadata already records. Such a run may name only
 `--key` files, with no `--corpus`: it renames keys under the recorded table (a format-3 key added
@@ -446,7 +448,7 @@ Replicate r1 (s2w#370) covers the development window: `[corpus.obf-r1-dev]` in `
 `dev-key-v2.obf-r1.json` in `keys.toml`, and `obfuscation/r1.meta.json`, from
 `obfuscation/recentchange.rules.toml`. Its key is outside the repository. r1 is the #402 dry-run
 replicate, not a gate-3 replicate: its field table holds only the development window's paths, so
-it cannot obfuscate `reserved-6` (17 `log_params` paths are absent). `dev-key-v3.obf-r1.json` (s2w#388) is
+it cannot obfuscate `reserved-6` (18 `log_params` paths are absent). `dev-key-v3.obf-r1.json` (s2w#388) is
 `dev-key-v3.json` renamed by a keys-only run under that metadata (`--replicate r1 --key
 dev-key-v3.json`); its identity rows equal `dev-key-v2.obf-r1.json`'s, and no rule in the rules
 file hides any of its seven edges (the four relationship rules name text and URL fields).
@@ -456,7 +458,8 @@ The gate-3 replicates are r2-r6 (s2w#374 PR 1). Each is one `obfuscate` run with
 field table (contract B2.2). That run writes `[corpus.obf-rK-dev]` (development),
 `[corpus.obf-rK-reserved-6]` (reserved until s2w#374 PR 3 opens it) and `dev-key-v3.obf-rK.json`.
 The field table is ranked over both windows' paths, so the obfuscated development window depends
-on the test window in one respect: the 17 field numbers of `log_params` paths that occur only in
+on the test window in one respect: the 18 field numbers of `log_params` paths (17 leaves and the
+`restrictions` object) that occur only in
 `reserved-6` never occur in it. That reveals a count, not names or values, and `dev-key-v3.json`
 leaves `log_params` unscored. The frozen H is `frozen/h-min-v9.obf-rK-dev-10000.json`, with its
 profile in `results/h-min-v9.obf-rK-dev-10000.profile.md`. The r2-r6 metadata files are held
@@ -606,7 +609,7 @@ comments of 2026-10-01.
   (`targets`), `log_id -> user` (`logged-by`), `title -> wiki` (`page-on`) and `user -> wiki`
   (`user-on`); `event` (`meta.id`) has none. The four other Wikipedia variants stay format 2:
   they vary identity readings, and a format-2 key reports "No relationships declared".
-  `private-key-v1*.json` and `private-key-v2*.json` are above; `dev-key-v3.obf-r1.json` and `dev-key-v3.obf-r2.json` to `dev-key-v3.obf-r6.json` are under "Obfuscating a
+  `private-key-v1*.json` and `private-key-v2*.json` are above; `dev-key-v3.obf-r{1..6}.json` are under "Obfuscating a
   replicate".
 
 ### Scoring edges (contract §B3 "Relationships")

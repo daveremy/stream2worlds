@@ -184,9 +184,9 @@ sha256 = "cf60870b00ac6ca36dcc4d47fdd9cbd1b329be46a261d4be46b58f65096a2284"
 
 # Gate-3 replicates r2-r6 (s2w#374 PR 1, ruling Q1 = A): each is ONE obfuscate run over dev AND
 # reserved-6 with a fresh key, so both windows share one key and one field table (contract B2.2).
-# The field table is ranked over the union of both windows' paths: 17 leaf paths under
-# data.log_params occur only in reserved-6, so their field numbers never occur in the obf dev
-# window (a count, no names or values; log_params is an unscored prefix in dev-key-v3.json).
+# The field table is ranked over the union of both windows' paths: 18 paths under
+# data.log_params (17 leaves and the log_params.restrictions object) occur only in reserved-6,
+# so their 18 field numbers never occur in the obf dev window (a count, no names or values; log_params is an unscored prefix in dev-key-v3.json).
 # obf-r1-dev above is the #402 dry-run replicate, not a gate replicate. The r2-r6 metadata files
 # are held outside the repo until s2w#374 PR 3 commits them (contract B2.2: identifier domains
 # are published only after every mapping is committed); their sha256 are in PR 1's description.
