@@ -258,7 +258,8 @@ cargo xtask h-measure obfuscate --rules FILE --key-file FILE --replicate NAME \
 ```
 
 The keyed transformation of contract B2.2 (s2w#370). The key file holds 64 hex digits and
-must be outside the repository; one key is one replicate. Each `--corpus` (a pinned corpus,
+must be outside the repository; one key is one replicate. On hub a replicate's key lives at
+`~/.local/share/stream2worlds/h-measure/replicates/<replicate>.key` (for example `r1.key`). Each `--corpus` (a pinned corpus,
 checked against its pin) is written to `DIR/<corpus>.obf-<replicate>.raw.sse`, and each `--key`
 (a pinned answer key) is renamed to the obfuscated paths and written to
 `research/h-measure/<key stem>.obf-<replicate>.json`. The metadata file (default
