@@ -1,6 +1,6 @@
 use super::*;
 
-const TEXT: &str = "# header\ntolerance_percent = 5\nset_by = \"s2w#32\"\n\n[recorded]\nfixture_fnv1a64 = 0x10\n\n[ir]\nfold_ir_per_event = 10000\nci_image = \"ubuntu-24.04\"\nevents = 100000\nrustc = \"rustc 1.98.1\"\nprofile = \"bench\"\n\n[ir.recorded]\nfold_ir_per_event = 20000\nevents = 2\n\n[parse]\nparse_ir_per_event = 30000\nevents = 2\n\n[memory]\nbytes_per_entity = 830 # measured\ntarget_bytes_per_entity = 300\nbudget_bytes_per_entity = 900\nbytes_per_relationship_reported = 234\nentities = 100000\n\n[memory.recorded]\nbytes_per_entity = 400 # recorded\nbytes_per_relationship_reported = 500\nentities = 3\nrelationships = 4\n";
+pub(super) const TEXT: &str = "# header\ntolerance_percent = 5\nset_by = \"s2w#32\"\n\n[recorded]\nfixture_fnv1a64 = 0x10\n\n[ir]\nfold_ir_per_event = 10000\nci_image = \"ubuntu-24.04\"\nevents = 100000\nrustc = \"rustc 1.98.1\"\nprofile = \"bench\"\n\n[ir.recorded]\nfold_ir_per_event = 20000\nevents = 2\n\n[parse]\nparse_ir_per_event = 30000\nevents = 2\n\n[memory]\nbytes_per_entity = 830 # measured\ntarget_bytes_per_entity = 300\nbudget_bytes_per_entity = 900\nbytes_per_relationship_reported = 234\nentities = 100000\n\n[memory.recorded]\nbytes_per_entity = 400 # recorded\nbytes_per_relationship_reported = 500\nentities = 3\nrelationships = 4\n\n[discover_volume]\nheap_bytes = 400000000 # measured\nbudget_bytes = 490000000\nrss_bytes_reported = 409000000\nentities = 154018\nrelationships = 1412074\nevents = 100000\nwindow = 10000\n";
 
 /// Two complete events and a comment: what [`judge_fixture`] counts.
 const FIXTURE_BYTES: &[u8] = b": header\nid: 1\ndata: {}\n\nid: 2\ndata: {}\n\n";
@@ -119,7 +119,7 @@ fn summary_ir_reads_the_callgrind_total() {
 fn growth_counts_raised_and_new_values() {
     let b = baseline();
     assert_eq!(grown_keys(Some(&b), &b), Vec::<&str>::new());
-    assert_eq!(grown_keys(None, &b).len(), 13);
+    assert_eq!(grown_keys(None, &b).len(), 17);
     let mut raised = b.clone();
     raised.memory.budget_bytes_per_entity = 1000;
     raised.tolerance_percent = 6;

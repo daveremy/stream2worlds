@@ -1,7 +1,8 @@
 # xtask
 
 The workspace's fitness functions: `cargo xtask check`, `cargo xtask scale` for the
-Valgrind-measured scale numbers (s2w#32), and `cargo xtask h-measure` for grading a stream
+Valgrind-measured scale numbers (s2w#32), `cargo xtask discover-volume` for the world heap a
+discovered mapping costs (s2w#392), and `cargo xtask h-measure` for grading a stream
 mapping against an answer key (s2w#56).
 
 ## Allowed dependencies
@@ -64,6 +65,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `module_size/ratchet.rs`: exemption-growth check against `origin/main` and the `Baseline-growth:` trailer; its `git` and `trailer` helpers are shared with `scale.rs`.
 - `scale.rs`: `xtask/scale-baseline.toml` (every key required), the recorded fixture's pin check (`[recorded]` FNV-1a 64, `[ir.recorded] events` and `[parse] events`), the pure `[ir]`/`[parse]` and `[memory]` judges, the gungraun summary reader, the scale-baseline growth check and `[memory]` tightening (s2w#32, decision 0004).
   - `scale/supply.rs`: the two event supplies each scale number is measured on, the seeded generator (`[ir]`, `[memory]`) and the recorded fixture (`[ir.recorded]`, `[memory.recorded]`), gated side by side (s2w#174).
+  - `scale/discover_volume.rs`: `[discover_volume]` (s2w#392), its pure judge (a zero is UNKNOWN; a moved `events`, `window`, `entities` or `relationships` pin says re-measure; over `budget_bytes` or over tolerance fails; past tolerance below hints `--tighten-baseline`) and its guarded keys. Self-tests in `scale/discover_volume/tests.rs`.
+  - `scale/tighten.rs`: the `--tighten-baseline` text rewrite shared by `[memory]` and `[discover_volume]` (lowers named keys of one table, keeps comments).
   - `scale/ir_bench.rs`: the three gated instruction counts (fold on each supply, and System 1's parse of the recorded fixture, s2w#166), each with its table, key and gungraun summary path.
 - `expect_count.rs`: check 18, a shrink-only per-lint count of `#[expect]` attributes in every
   workspace package's `*.rs` files, tests and benches included, against
@@ -235,11 +238,12 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     globs to the defining module. Extern crates (Cargo metadata), prelude names, primitives,
     generic parameters, `Self`, leading `::` and extern-crate globs are not this crate's; any
     other multi-segment path that does not resolve is a finding.
+- `discover_volume_run.rs`: `cargo xtask discover-volume [--tighten-baseline]` (s2w#392, decisions 0022 and 0025). Runs `s2w-app`'s `discover_volume_heap` test (dhat as the global allocator) as a nested `cargo test --release`, its `discover_volume::volume::fold_child` alone with `S2W_DISCOVER_VOLUME_VARIANT=fresh`: the recorded fixture cycled to 10^5 events with fresh strings per cycle, folded under the mapping serve's profiler settings (links off) discover from the first 10k. Reads the last JSON line and judges `heap_bytes`, dhat's live bytes after the fold minus before it, which reproduce to the byte. The JSON line's `rss_bytes` is dhat-inflated there and only printed; `[discover_volume] rss_bytes_reported` is set by hand from the plain `discover_volume` target. Too slow for `check`; CI job `discover-volume`. `check` runs the table's growth rule with the rest of the file.
 - `scale_run.rs`: `cargo xtask scale`. Preflight (`valgrind` and `gungraun-runner` on PATH, the runner at the `gungraun` pin in `crates/s2w-app/Cargo.toml`; missing is a failure with the install command), then `cargo bench -p s2w-app --bench scale_ir` from a deleted output directory after checking the recorded fixture's pin, the `[ir]`, `[ir.recorded]` and `[parse]` judgments, and the `scale_wall` append rate, which must run (a failed run or unreadable JSON line fails) but whose value is reported, not judged; on tmpfs it prints the bench's own `warning` field. Linux only; CI job `scale`. The `[ir]` and `[parse]` baselines belong to that job's image.
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual
 counts, and also rewrites `[memory]` in `xtask/scale-baseline.toml` down to the measurement;
-it never raises anything and never touches `[ir]` or `[parse]`. Each ratchet refuses to tighten over its own findings only, and the refusal carries those findings' severity (s2w#192): module-size findings leave `module-size.toml` untouched, and since module sizes are enforced (s2w#66) that refusal blocks and the run exits non-zero. The asymmetry is deliberate: `[memory]` is
+it never raises anything and never touches `[ir]` or `[parse]`. `cargo xtask discover-volume --tighten-baseline` lowers `[discover_volume] heap_bytes` the same way. Each ratchet refuses to tighten over its own findings only, and the refusal carries those findings' severity (s2w#192): module-size findings leave `module-size.toml` untouched, and since module sizes are enforced (s2w#66) that refusal blocks and the run exits non-zero. The asymmetry is deliberate: `[memory]` is
 measured by `cargo xtask check` on any machine, so tightening it is automatic, while `[ir]` is
 owned by the CI image, so an `[ir]` or `[parse]` improvement past tolerance stays a printed hint to lower
 `fold_ir_per_event` or `parse_ir_per_event` by hand from the CI job's number. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
@@ -247,5 +251,5 @@ dep-info, build failure) block, because `module-size.toml` has `enforce = true` 
 PR 4; baseline growth always blocks without an authorized
 `Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`; the same trailer rule covers
 raising `fold_ir_per_event`, `parse_ir_per_event`, any events or entities size, `bytes_per_entity`, `target_bytes_per_entity`,
-`budget_bytes_per_entity` or `tolerance_percent` in `xtask/scale-baseline.toml` (a file absent on `origin/main` is all growth). CI needs full git history.
+`budget_bytes_per_entity`, `[discover_volume]` `heap_bytes`, `budget_bytes`, `events` or `window`, or `tolerance_percent` in `xtask/scale-baseline.toml` (a file absent on `origin/main` is all growth). CI needs full git history.
 - No domain knowledge in this crate; see decision 0018.
