@@ -60,7 +60,13 @@ the s2w#371 issue comments.
   was true at open time: labels (and `pts`) arrive as timeline `labeled` events, the head sha on the
   merge or close. Two exceptions GitHub does not timestamp: a PR's `refs` (from its body) and
   `base_ref` are as of capture, not as of open. `pts` appears only on `labeled` events, so an
-  issue labelled before the span starts has no `pts` inside it. Rows from other projects are dropped; every drop is counted in the header.
+  issue labelled before the span starts has no `pts` inside it. `refs` (on `pr.opened` and
+  `commit`) is a list of `{repo, number}`, deduplicated and sorted by repo then number (s2w#395):
+  a bare `#n` is the event's own repo, `lifeos#n`, `s2w#n` and their `daveremy/...` long forms
+  name that repo, and any other prefix is dropped and counted as `ref-other-repo`. A frame keeps
+  at most 8 refs; the rest are counted as `refs-overflow`. Captures before s2w#395 carry `refs` as
+  bare numbers with every prefixed ref dropped uncounted. Rows from other projects are dropped;
+  every drop is counted in the header.
 - **Scrub gate:** every line the capture would write passes `scrub.ts` first: home paths, `~`,
   `obsidian`, `op://` references, emails, phone numbers and the high-confidence secret shapes.
   One match and nothing is written; the error names the rule and line, never the text. Each rule
@@ -104,8 +110,9 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
 | `comment` | `comment_id` | `comment_id` (singleton-only type) |
 
 - **Unscored:** plumbing and values (`kind`, `ts`, `step`, `verdict`, `engine`, `model`, `pts`,
-  `base_ref`, `row_id` and the rest of the key file's list), and `refs`: the capture keeps `#n`
-  and drops a `lifeos#`/`s2w#` prefix, so a ref's repository is unknown by construction.
+  `base_ref`, `row_id` and the rest of the key file's list), and `refs`: the captures v0 was
+  pinned against keep a bare `#n` and drop every prefixed ref, so a ref's repository is unknown
+  there. The capture now carries it (Private stream above); a later key version scores it (s2w#395).
 - **Two pinned readings:** the base key leaves `repo` and `actor` unscored (two repo values and
   one observable actor would carry a large share of the micro score for a trivially keyed
   field). `private-key-v0.context-scored.json` (variant `context-scored`) scores `repo` (alias

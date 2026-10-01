@@ -94,6 +94,7 @@ const joins: Joins = {
     return shaCache.get(k);
   },
   actor: (l) => (l === a.actor || l === a.author ? a.actor! : "other"),
+  drop,
 };
 
 // ---- dev-worker status DB (read-only URI) ----

@@ -4,7 +4,7 @@
 // events, the provenance sidecar and the SSE text. No I/O, so the synthetic fixture and the
 // tests run the same code as a real capture.
 
-import { extractDetail, issueRefs, ptsFromLabels } from "./extract.ts";
+import { extractDetail, issueRefs, ptsFromLabels, type Ref } from "./extract.ts";
 
 /** Header line 1 starts with this plus `private` (a capture) or `synthetic` (the fixture);
  * `cargo xtask check` refuses any repository file with a line starting `: ` + MARK + `private`. */
@@ -54,6 +54,20 @@ export interface Joins {
   sha(repo: Repo, sha: string): string | undefined;
   /** Login -> the public handle kept in the capture ("other" for everyone else). */
   actor(login: string | null | undefined): string;
+  /** Count a drop in the capture header's `dropped=` list (`ref-other-repo`, `refs-overflow`). */
+  drop(why: string, n?: number): void;
+}
+
+/** A key enumerates `refs.0` .. `refs.7`, so a frame carries at most this many (s2w#395 Q2). */
+export const MAX_REFS = 8;
+
+/** `issueRefs` with its drops counted: an unknown prefix is `ref-other-repo`, a ref past
+ * `MAX_REFS` is `refs-overflow`. */
+function refsOf(text: string | null, own: Repo, j: Joins): Ref[] {
+  const { refs, dropped } = issueRefs(text, own);
+  if (dropped) j.drop("ref-other-repo", dropped);
+  if (refs.length > MAX_REFS) j.drop("refs-overflow", refs.length - MAX_REFS);
+  return refs.slice(0, MAX_REFS);
 }
 
 export const TIMELINE_KINDS: ReadonlySet<string> = new Set([
@@ -126,7 +140,7 @@ export function itemEvents(items: GhItem[], j: Joins): Event[] {
     if (it.is_pr) {
       opened.head_ref = it.head_ref ?? null;
       opened.base_ref = it.base_ref ?? null;
-      opened.refs = issueRefs(it.body);
+      opened.refs = refsOf(it.body, it.repo, j);
     }
     const prov = { source: "github", item_id: it.id };
     out.push({ topic: it.is_pr ? "pulls" : "issues", offset: it.id, provenance: prov, data: opened });
@@ -169,7 +183,7 @@ export function commitEvents(rows: CommitRow[], j: Joins): Event[] {
     topic: "commits", offset: c.sha, provenance: { source: "git", sha: c.sha },
     data: {
       kind: "commit", repo: c.repo, ts: iso(c.committed), sha: c.sha, parents: c.parents,
-      author: j.actor(c.author), refs: issueRefs(c.subject), co_authored: c.co_authored,
+      author: j.actor(c.author), refs: refsOf(c.subject, c.repo, j), co_authored: c.co_authored,
     },
   }));
 }
