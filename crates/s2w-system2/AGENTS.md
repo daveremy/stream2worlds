@@ -28,7 +28,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - A gate-3 run's first call is the clean-session probe (`prompts/clean-session-probe.txt`,
   decision 0032): the run goes on only when the reply is `none`.
 - One proposal attempt makes at most two model calls: the first, and one repair when the reply
-  fails to decode or validate.
+  fails to decode or validate. A mapping attempt (s2w#409) may make a third: one no-match repair
+  when the injected `MappingCheck` finds that the first valid mapping matches no sampled record.
+  The crate never applies a mapping itself; the check is the caller's.
 - A mapping proposal (decision 0032) makes at most two attempts; only a provider failure starts
   the second. Every call, failures included, is a `CallRecord`, and a `CallGate` is asked before
-  each one. Both gate-3 arms share `mapping-format.txt` and `mapping-repair.txt`.
+  each one. Both gate-3 arms share `mapping-format.txt`, `mapping-repair.txt` and
+  `mapping-no-match.txt`.

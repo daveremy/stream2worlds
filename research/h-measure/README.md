@@ -263,7 +263,10 @@ clean session: no tools, no MCP servers, no saved session, and a scratch `HOME` 
 copy of `--credentials` (default `~/.claude/.credentials.json`). It refuses to start when that
 file's access token expires within 90 minutes, so the CLI never refreshes it in the copy. The
 first call is a probe; the run stops, writing nothing, unless the model replies `none`; the
-error names what the probe was charged.
+error names what the probe was charged. Both arms check the attempt's first valid mapping against
+the arm's sampled records as stored (`gate3/no_match.rs`); a mapping that claims nothing from any
+of them gets one further no-match repair call, and the committed file's `no_match` block records
+the result before and after (decision 0032, dated note 2026-10-01, s2w#409).
 
 Every call goes through a $5 budget gate charged at `prices.toml` (an unknown `--model` is
 refused). A call that could take the replicate past $5 is not made, and the replicate is
