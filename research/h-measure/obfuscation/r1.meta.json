@@ -1430,6 +1430,10 @@
     "dev-key-v2.json": {
       "file": "dev-key-v2.obf-r1.json",
       "sha256": "b98c0030c6695c20ea31fee09517c021964c8a3888db7060fcf3542ff757132f"
+    },
+    "dev-key-v3.json": {
+      "file": "dev-key-v3.obf-r1.json",
+      "sha256": "e52d2415a7541fc180b97d13cbd9cee53ed3ad714986fd2118e99ae87056c1cd"
     }
   }
 }

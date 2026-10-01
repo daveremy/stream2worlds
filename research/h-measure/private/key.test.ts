@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { FIXTURE_PATH, FIXTURE_PROVENANCE_PATH, syntheticCapture } from "./fixture.ts";
 import {
-  BASE_FILE, CONTEXT_FILE, EDGES, KEY_DIR, RULES, SHAPE_PATH, check, draw, execute, fixtureShape, parseSse,
+  EDGES, KEY_DIR, KEY_FILES, RULES, SHAPE_PATH, check, draw, execute, fixtureShape, parseSse,
   pathId, render, spec, worksheet,
 } from "./key.ts";
 
@@ -18,8 +18,9 @@ const prov = readFileSync(FIXTURE_PROVENANCE_PATH, "utf8");
 const { header, frames } = parseSse(sse);
 
 test("the committed key files and fixture shape are exactly what key.ts generates", () => {
-  assert.equal(readFileSync(join(KEY_DIR, BASE_FILE), "utf8"), render(spec("base")), REGEN);
-  assert.equal(readFileSync(join(KEY_DIR, CONTEXT_FILE), "utf8"), render(spec("context-scored")), REGEN);
+  // v0 (format 2) is pinned and never rewritten; it must still be what format 2 renders.
+  for (const version of [2, 3] as const) for (const v of ["base", "context-scored"] as const)
+    assert.equal(readFileSync(join(KEY_DIR, KEY_FILES[version][v]), "utf8"), render(spec(v, version)), REGEN);
   assert.equal(readFileSync(SHAPE_PATH, "utf8"), fixtureShape(), REGEN);
 });
 
@@ -30,7 +31,7 @@ test("the committed fixture sidecar is exactly what fixture.ts generates", () =>
 // Names only: the sha256 pin itself is checked by xtask's private_key_tests (Pins::key).
 test("the keys are pinned in keys.toml", () => {
   const toml = readFileSync(join(KEY_DIR, "keys.toml"), "utf8");
-  for (const f of [BASE_FILE, CONTEXT_FILE]) assert.ok(toml.includes(`file = "${f}"`), f);
+  for (const f of Object.values(KEY_FILES).flatMap(Object.values)) assert.ok(toml.includes(`file = "${f}"`), f);
 });
 
 test("repo and actor are unscored in the base key and scored in the variant (ruling 4)", () => {
@@ -121,6 +122,25 @@ test("every declared edge joins two mention paths of the base key, or names an u
     if (e.observable) assert.ok(scored.has(pathId(e.to)), `${e.label}: ${pathId(e.to)}`);
     else assert.ok(pathId(e.to).startsWith("data.refs"), e.label);
   }
+});
+
+test("format 3 carries every edge as a row; format 2 carries none", () => {
+  assert.equal(spec("base", 2).relationships, undefined);
+  const rows = spec("base").relationships ?? [];
+  assert.equal(rows.length, EDGES.length);
+  for (const [i, e] of EDGES.entries()) {
+    assert.deepEqual([rows[i].type, rows[i].from, rows[i].to], [e.label, e.from, e.to]);
+    assert.equal(rows[i].unobservable === undefined, e.observable, e.label);
+  }
+  assert.deepEqual(spec("context-scored").relationships, rows);
+});
+
+test("a gold edge needs both mentions in one frame, and repeats count once", () => {
+  const s = { ...spec("base"), relationships: [{ type: "leg-pr", from: ["data", "key"], to: ["data", "pr"] }] };
+  const f = (data: Record<string, unknown>) => ({ id: "1", record: { data } });
+  const leg = { repo: "lifeos", issue: 1, key: "lifeos#1", pr: 2 };
+  const { edges } = execute(s, [f(leg), f(leg), f({ repo: "lifeos", key: "lifeos#1" }), f({ repo: "lifeos", pr: 3 })]);
+  assert.deepEqual([...edges], ["leg-pr\u001fitem\u001f\"lifeos\"\u001f1\u001fitem\u001f\"lifeos\"\u001f2"]);
 });
 
 test("the sample is deterministic, stratified, and covers every path once N reaches the paths", () => {

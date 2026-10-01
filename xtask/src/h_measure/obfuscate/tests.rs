@@ -825,27 +825,116 @@ fn at_name(meta: &Meta, top: &str) -> String {
         .clone()
 }
 
-/// A format-3 key's relationship rows name plain paths; until `rekey` renames them (s2w#388 PR
-/// 3) obfuscating with such a key fails closed and writes nothing.
-#[test]
-fn a_key_with_relationships_is_refused_until_rekey_renames_them() {
-    let fx = Fx::new("relationships", &[("dev", sse(&events()))]);
-    let mut key = answer();
-    key["version"] = json!(3);
-    key["relationships"] =
-        json!([{ "type": "on", "from": ["data", "doc"], "to": ["data", "site"] }]);
-    let bytes = serde_json::to_vec_pretty(&key).unwrap();
+/// Pins `key` as `file` beside the toy answer key.
+fn pin_another(fx: &Fx, file: &str, key: &Value) {
+    let bytes = serde_json::to_vec_pretty(key).unwrap();
     let data = fx.root.join(DATA);
-    fs::write(data.join(ANSWER), &bytes).unwrap();
-    let pin = format!(
-        "[[key]]\nfile = \"{ANSWER}\"\nvariant = \"base\"\nsha256 = \"{}\"\n",
+    fs::write(data.join(file), &bytes).unwrap();
+    let mut pins = fs::read_to_string(data.join("keys.toml")).unwrap();
+    pins += &format!(
+        "\n[[key]]\nfile = \"{file}\"\nvariant = \"base\"\nsha256 = \"{}\"\n",
         sha256(&bytes)
     );
-    fs::write(data.join("keys.toml"), pin).unwrap();
+    fs::write(data.join("keys.toml"), pins).unwrap();
+}
+
+/// The toy answer key in format 3: one observable edge, and one the key already marks
+/// unobservable on a path that is not a mention.
+fn answer_v3() -> Value {
+    let mut key = answer();
+    key["version"] = json!(3);
+    key["relationships"] = json!([
+        { "type": "on", "from": ["data", "doc"], "to": ["data", "site"] },
+        { "type": "names", "from": ["data", "note"], "to": ["data", "doc"], "unobservable": "free text" }
+    ]);
+    key
+}
+
+/// A format-3 key's relationship rows are renamed through the field table, so the renamed key
+/// names the obfuscated corpus's paths; a row's own unobservable reason is kept (s2w#388 PR 3).
+#[test]
+fn a_key_with_relationships_has_its_edge_rows_renamed() {
+    let fx = Fx::new("relationships", &[("dev", sse(&events()))]);
+    pin_another(&fx, "toy-key-v3.json", &answer_v3());
+    fx.run_keys("a.key", &["dev"], &["toy-key-v3.json"], &fx.meta_path())
+        .expect("a format-3 key is renamed");
+    let text = fs::read_to_string(fx.root.join(DATA).join("toy-key-v3.obf-r1.json")).unwrap();
+    let renamed: KeySpec = serde_json::from_str(&text).unwrap();
+    renamed.validate().expect("the renamed key validates");
+    let meta = fx.meta();
+    let name = |top: &str| at_name(&meta, top);
+    let rows: Vec<Value> = renamed
+        .relationships
+        .iter()
+        .map(|row| serde_json::to_value(row).unwrap())
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            json!({ "type": "on", "from": ["data", name("doc")], "to": ["data", name("site")] }),
+            json!({ "type": "names", "from": ["data", name("note")], "to": ["data", name("doc")], "unobservable": "free text" }),
+        ]
+    );
+}
+
+/// A later run of a recorded replicate renames a key alone: the window is not re-read, the
+/// metadata gains the key, and its edge rows use the recorded field table.
+#[test]
+fn a_later_run_renames_a_key_alone_under_the_recorded_table() {
+    let fx = Fx::new("keys-only", &[("dev", sse(&events()))]);
+    fx.run("a.key", &["dev"], &fx.meta_path()).unwrap();
+    let before = fx.meta();
+    let first_key = fx.renamed_key();
+    pin_another(&fx, "toy-key-v3.json", &answer_v3());
+    fx.run_keys("a.key", &[], &["toy-key-v3.json"], &fx.meta_path())
+        .expect("a keys-only run under an existing meta");
+    let after = fx.meta();
+    // Nothing the earlier run recorded is rewritten: the outputs, the field table and the
+    // earlier key's entry are equal, and its renamed file is byte-identical.
+    assert_eq!(
+        serde_json::to_value(&after.outputs).unwrap(),
+        serde_json::to_value(&before.outputs).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&after.fields).unwrap(),
+        serde_json::to_value(&before.fields).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&after.keys[ANSWER]).unwrap(),
+        serde_json::to_value(&before.keys[ANSWER]).unwrap()
+    );
+    assert_eq!(after.keys.len(), before.keys.len() + 1);
+    assert!(after.keys.contains_key("toy-key-v3.json"));
+    assert_eq!(
+        fx.renamed_key(),
+        first_key,
+        "the earlier renamed key is untouched"
+    );
+    let renamed: KeySpec = serde_json::from_str(
+        &fs::read_to_string(fx.root.join(DATA).join("toy-key-v3.obf-r1.json")).unwrap(),
+    )
+    .unwrap();
+    let plain: KeySpec = serde_json::from_str(&fx.renamed_key()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&renamed.types).unwrap(),
+        serde_json::to_value(&plain.types).unwrap(),
+        "one table renames both keys alike"
+    );
+}
+
+/// Without an existing metadata file a run must name a corpus: there is no table to rename by.
+#[test]
+fn a_keys_only_run_needs_an_existing_meta() {
+    let fx = Fx::new("keys-only-new", &[("dev", sse(&events()))]);
     let problem = fx
-        .run("a.key", &["dev"], &fx.meta_path())
-        .expect_err("a key with relationships is refused");
-    assert!(problem.contains("s2w#388 PR 3"), "{problem}");
-    assert!(!fx.meta_path().exists(), "a refused run writes nothing");
-    assert!(!fx.dir.join("dev.obf-r1.raw.sse").exists());
+        .run_keys("a.key", &[], &[ANSWER], &fx.meta_path())
+        .expect_err("a key, no corpus and no meta");
+    assert!(problem.contains("--corpus is required"), "{problem}");
+    assert!(!fx.meta_path().exists());
+    // With the metadata present, a run with neither a corpus nor a key has nothing to do.
+    fx.run("a.key", &["dev"], &fx.meta_path()).unwrap();
+    let problem = fx
+        .run_keys("a.key", &[], &[], &fx.meta_path())
+        .expect_err("no corpus and no key");
+    assert!(problem.contains("--corpus is required"), "{problem}");
 }
