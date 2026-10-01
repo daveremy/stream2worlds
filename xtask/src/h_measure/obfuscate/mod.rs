@@ -59,8 +59,8 @@ pub(super) struct Request<'a> {
     pub corpora: &'a [String],
     /// Pinned answer keys (files in `keys.toml`) to rename for the obfuscated corpora.
     pub keys: &'a [String],
-    /// The metadata file: written when absent; when present, its field table is reused and a
-    /// field it does not hold is refused.
+    /// The metadata file: written when absent; when present, its field table is reused, a
+    /// field it does not hold is refused, and this run's inputs and outputs are appended to it.
     pub meta: &'a Path,
     /// Where the corpora are read and the obfuscated corpora written.
     pub dir: &'a Path,
@@ -160,14 +160,24 @@ fn run(
     (meta.fields, meta.treatments, meta.fallbacks) =
         meta::rows(transformer.table(), &transformer.stats);
     record(request, &written, &mut meta);
+    let reused = prior.is_some();
+    let meta = match prior {
+        Some(mut prior) => {
+            prior.absorb(meta)?;
+            prior
+        }
+        None => meta,
+    };
     for (path, bytes, _) in &written {
         write_new(path, bytes)?;
     }
-    if prior.is_none() {
-        let text = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())? + "\n";
+    let text = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())? + "\n";
+    if reused {
+        replace(request.meta, text.as_bytes())?;
+    } else {
         write_new(request.meta, text.as_bytes())?;
     }
-    Ok(report(request, &meta, prior.is_some()))
+    Ok(report(request, &meta, reused))
 }
 
 /// The output paths, each refused if it exists.
@@ -364,6 +374,14 @@ fn record(request: &Request<'_>, written: &[(PathBuf, Vec<u8>, Option<usize>)], 
     }
 }
 
+/// Rewrites the reused metadata through a new sibling file and a rename, so a failed write
+/// leaves the previous record whole.
+fn replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let staged = path.with_extension("json.new");
+    write_new(&staged, bytes)?;
+    fs::rename(&staged, path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// Writes a new file, creating its directory; an existing file is refused.
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let shown = path.display();
@@ -405,7 +423,7 @@ fn report(request: &Request<'_>, meta: &Meta, reused: bool) -> String {
         meta.unused_rules
     ));
     let how = if reused {
-        "reused, not rewritten"
+        "reused; this run's windows appended"
     } else {
         "written"
     };

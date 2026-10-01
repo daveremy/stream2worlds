@@ -158,8 +158,9 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     Fixtures live in `h_measure/context/tests.rs`.
   - `h_measure/obfuscate/` (s2w#370): `cargo xtask h-measure obfuscate --rules FILE
     --key-file FILE --replicate NAME --corpus NAME... [--key FILE...] [--meta FILE] [--dir
-    DIR]`, the keyed transformation of contract B2.2. `mod.rs` is the CLI and run (every
-    corpus of a replicate in one invocation, one shared field table; nothing is written until
+    DIR]`, the keyed transformation of contract B2.2. `mod.rs` is the CLI and run (one
+    shared field table per replicate; `--meta` reuse appends a later window's inputs and outputs
+    to the metadata and refuses a window it already records; nothing is written until
     every input transforms; an existing output is refused; the key file must be outside the
     repository). `hash.rs`: HMAC-SHA256 on `sha2`, value hashes (`h` + 16 hex, collision-checked
     across the run), the per-replicate time shift and the keyed field ranking. `rules.rs`: the

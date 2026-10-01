@@ -119,11 +119,21 @@ was treated, undeclared numeric paths, URL values that fell back to a whole-text
 that matched no path, the unobservable rows, and the sha256 of the key, the rules, every input
 and every output. It never records the key itself.
 
-Run every window of a replicate (dev and test) in one invocation, so they share one field
-table. With `--meta` naming an existing metadata file, the run reuses its field table and
-refuses a field path the table does not hold, a different key, a different rules file or a
-different replicate. An output that exists is refused; nothing is written unless every input
+A replicate's windows share one key and one field table, but they need not run together: the
+test window is obfuscated later than the development window, after the mappings are committed.
+With `--meta` naming an existing metadata file, the run reuses its field table and refuses a
+field path the table does not hold, a different key, a different rules file, a different
+replicate, or a corpus or answer key the metadata already records. It then appends its inputs
+and outputs (window name, file, sha256) to the metadata, unites the per-path treatments and
+undeclared numbers, and sums the fallback counts, so the metadata stays the complete record of
+the replicate. An output that exists is refused; nothing is written unless every input
 transforms.
+
+The collision check holds within one run only: the metadata stores no plaintext, so a later
+run cannot compare its values with an earlier run's. A cross-run collision of the 64-bit
+truncated hash is possible in principle. For n distinct values across all runs of a replicate
+its probability is at most n²/2⁶⁵; our pinned corpora hold 800,000 events, so n is under
+2×10⁷ even at 20 distinct hashed values per event, and the probability is under 1.1×10⁻⁵.
 
 What the run does to an event:
 

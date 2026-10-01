@@ -2,7 +2,7 @@
 //! transformation except the key itself. It names the domains, so it is published only after
 //! every mapping it could inform is committed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -78,10 +78,56 @@ pub(super) struct Written {
 }
 
 impl Meta {
+    /// Folds a later run of the same replicate (same key, rules and field table, checked by the
+    /// caller) into this record, so the metadata lists every window obfuscated under it
+    /// (contract B2.2). A corpus or answer key the record already holds is refused: each window
+    /// is obfuscated once per replicate. Per-path statistics are combined: treatments and
+    /// undeclared numbers are united, fallback counts summed, and a rule stays unused only if
+    /// no run's input held its path.
+    pub(super) fn absorb(&mut self, run: Meta) -> Result<(), String> {
+        let again: Vec<&String> = (run.outputs.keys())
+            .filter(|c| self.outputs.contains_key(*c))
+            .chain(run.keys.keys().filter(|k| self.keys.contains_key(*k)))
+            .collect();
+        if !again.is_empty() {
+            return Err(format!(
+                "the metadata already records {again:?}; a window is obfuscated once per replicate"
+            ));
+        }
+        self.inputs.extend(run.inputs);
+        self.outputs.extend(run.outputs);
+        self.keys.extend(run.keys);
+        let mut how: BTreeMap<Vec<String>, BTreeSet<String>> = BTreeMap::new();
+        for t in self.treatments.drain(..).chain(run.treatments) {
+            how.entry(t.path).or_default().extend(t.how);
+        }
+        self.treatments = (how.into_iter())
+            .map(|(path, how)| Treatment {
+                path,
+                how: how.into_iter().collect(),
+            })
+            .collect();
+        let mut counts: BTreeMap<Vec<String>, usize> = BTreeMap::new();
+        for f in self.fallbacks.drain(..).chain(run.fallbacks) {
+            *counts.entry(f.path).or_default() += f.count;
+        }
+        self.fallbacks = (counts.into_iter())
+            .map(|(path, count)| Fallback { path, count })
+            .collect();
+        let numbers: BTreeSet<Vec<String>> = (self
+            .undeclared_numbers
+            .drain(..)
+            .chain(run.undeclared_numbers))
+        .collect();
+        self.undeclared_numbers = numbers.into_iter().collect();
+        self.unused_rules.retain(|r| run.unused_rules.contains(r));
+        Ok(())
+    }
+
     /// The field table this metadata records; a path or a name listed twice is refused.
     pub(super) fn table(&self) -> Result<FieldTable, String> {
         let mut table = BTreeMap::new();
-        let mut names = std::collections::BTreeSet::new();
+        let mut names = BTreeSet::new();
         for row in &self.fields {
             if !names.insert(&row.name)
                 || table.insert(row.path.clone(), row.name.clone()).is_some()

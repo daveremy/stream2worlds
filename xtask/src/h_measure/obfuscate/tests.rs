@@ -242,8 +242,18 @@ impl Fx {
     }
 
     fn run(&self, key: &str, corpora: &[&str], meta: &Path) -> Result<String, String> {
+        self.run_keys(key, corpora, &[ANSWER], meta)
+    }
+
+    fn run_keys(
+        &self,
+        key: &str,
+        corpora: &[&str],
+        keys: &[&str],
+        meta: &Path,
+    ) -> Result<String, String> {
         let corpora: Vec<String> = corpora.iter().map(|c| (*c).to_owned()).collect();
-        let keys = vec![ANSWER.to_owned()];
+        let keys: Vec<String> = keys.iter().map(|k| (*k).to_owned()).collect();
         obfuscate(
             &self.root,
             &Request {
@@ -308,11 +318,34 @@ fn the_same_key_and_inputs_give_identical_bytes_and_meta_reuse_does_too() {
         fs::read(two.meta_path()).unwrap()
     );
     let three = Fx::new("det-3", &[("dev", sse(&events()))]);
-    three.run("a.key", &["dev"], &one.meta_path()).unwrap();
-    assert_eq!(one.output("dev"), three.output("dev"));
+    let err = three.run("a.key", &["dev"], &one.meta_path()).unwrap_err();
+    assert!(err.contains("already records"), "{err}");
     assert!(
-        !three.meta_path().exists(),
-        "a reused metadata file is not rewritten"
+        !three.dir.join("dev.obf-r1.raw.sse").exists(),
+        "a refused window writes nothing"
+    );
+}
+
+#[test]
+fn a_later_window_under_meta_reuse_appends_to_the_record() {
+    let both = [("dev", sse(&events())), ("test", sse(&events()))];
+    let together = Fx::new("win-1", &both);
+    together
+        .run("a.key", &["dev", "test"], &together.meta_path())
+        .unwrap();
+    let split = Fx::new("win-2", &both);
+    split.run("a.key", &["dev"], &split.meta_path()).unwrap();
+    let report = split
+        .run_keys("a.key", &["test"], &[], &split.meta_path())
+        .unwrap();
+    assert!(report.contains("appended"), "{report}");
+    for corpus in ["dev", "test"] {
+        assert_eq!(together.output(corpus), split.output(corpus));
+    }
+    assert_eq!(
+        fs::read_to_string(together.meta_path()).unwrap(),
+        fs::read_to_string(split.meta_path()).unwrap(),
+        "two windows run apart leave the same record as run together"
     );
 }
 
