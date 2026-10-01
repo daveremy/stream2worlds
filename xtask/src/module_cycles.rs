@@ -23,11 +23,8 @@ mod tests;
 use crate::module_size::walk::Scan;
 use resolve::{Collector, Mod, Res, Resolver, Use};
 
-/// Enforced since s2w#240 (`s2w_app`) and s2w#241 (`xtask::h_measure`) broke the cycles it
-/// found: a cycle fails the check. While false, findings print with `[report-only]` and do not
-/// fail it. There is no exemption file (#44 §4).
-const ENFORCE: bool = true;
-
+/// Check 15: every finding fails the check. Enforced since s2w#240 (`s2w_app`) and s2w#241
+/// (`xtask::h_measure`) broke the cycles it found. There is no exemption file (#44 §4).
 pub(super) fn check(meta: &super::Metadata) -> Vec<String> {
     let mut findings = Vec::new();
     for pkg in &meta.packages {
@@ -48,13 +45,7 @@ pub(super) fn check(meta: &super::Metadata) -> Vec<String> {
             findings.extend(target_findings(&scan.asts, &key, &outside));
         }
     }
-    if ENFORCE {
-        return findings;
-    }
-    for f in &findings {
-        println!("[report-only] {f}");
-    }
-    Vec::new()
+    findings
 }
 
 type Edges = BTreeMap<Mod, BTreeMap<Mod, String>>;
