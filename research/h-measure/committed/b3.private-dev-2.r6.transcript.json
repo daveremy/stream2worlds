@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "250e964845a219dd",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"repo\",\"type_label\":\"repository\",\"key\":[[\"data\",\"repo\"]],\"attrs\":[]},{\"id\":\"issue\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"number\"]],\"attrs\":[{\"name\":\"last_event\",\"path\":[\"data\",\"event\"]},{\"name\":\"label\",\"path\":[\"data\",\"label\"]},{\"name\":\"head_ref\",\"path\":[\"data\",\"head_ref\"]},{\"name\":\"base_ref\",\"path\":[\"data\",\"base_ref\"]},{\"name\":\"is_pr\",\"path\":[\"data\",\"is_pr\"]}]},{\"id\":\"leg_issue\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"issue\"]],\"attrs\":[{\"name\":\"step\",\"path\":[\"data\",\"step\"]},{\"name\":\"verdict\",\"path\":[\"data\",\"verdict\"]},{\"name\":\"pr\",\"path\":[\"data\",\"pr\"]},{\"name\":\"branch\",\"path\":[\"data\",\"branch\"]}]},{\"id\":\"commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"sha\"]],\"attrs\":[{\"name\":\"ts\",\"path\":[\"data\",\"ts\"]},{\"name\":\"co_authored\",\"path\":[\"data\",\"co_authored\"]}]},{\"id\":\"merge_commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"merge_commit_sha\"]],\"attrs\":[{\"name\":\"head_sha\",\"path\":[\"data\",\"head_sha\"]}]},{\"id\":\"ref_commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"commit_sha\"]],\"attrs\":[]},{\"id\":\"person_actor\",\"type_label\":\"person\",\"key\":[[\"data\",\"actor\"]],\"attrs\":[]},{\"id\":\"person_author\",\"type_label\":\"person\",\"key\":[[\"data\",\"author\"]],\"attrs\":[]},{\"id\":\"seat\",\"type_label\":\"review seat\",\"key\":[[\"data\",\"seat_id\"]],\"attrs\":[{\"name\":\"engine\",\"path\":[\"data\",\"engine\"]},{\"name\":\"model\",\"path\":[\"data\",\"model\"]},{\"name\":\"tier\",\"path\":[\"data\",\"tier\"]},{\"name\":\"script\",\"path\":[\"data\",\"script\"]},{\"name\":\"branch\",\"path\":[\"data\",\"branch\"]},{\"name\":\"head_sha\",\"path\":[\"data\",\"head_sha\"]}]}],\"relationships\":[{\"from\":\"issue\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"leg_issue\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"commit\",\"to\":\"repo\",\"kind\":\"in repository\"},{\"from\":\"seat\",\"to\":\"repo\",\"kind\":\"reviews repository\"},{\"from\":\"commit\",\"to\":\"person_author\",\"kind\":\"authored by\"},{\"from\":\"person_actor\",\"to\":\"issue\",\"kind\":\"acted on\"},{\"from\":\"merge_commit\",\"to\":\"issue\",\"kind\":\"merges\"},{\"from\":\"ref_commit\",\"to\":\"issue\",\"kind\":\"referenced by issue\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1847,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 17866,
+      "cost_usd": 0.090045,
+      "latency_ms": 14401,
+      "started_at_ms": 1790883864863
+    },
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "02a0039b55033fb4",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"repo\",\"type_label\":\"repository\",\"key\":[[\"data\",\"repo\"]],\"attrs\":[]},{\"id\":\"commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"sha\"]],\"attrs\":[{\"name\":\"timestamp\",\"path\":[\"data\",\"ts\"]},{\"name\":\"co_authored\",\"path\":[\"data\",\"co_authored\"]}]},{\"id\":\"commit_ref\",\"type_label\":\"commit\",\"key\":[[\"data\",\"commit_sha\"]],\"attrs\":[]},{\"id\":\"merge_commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"merge_commit_sha\"]],\"attrs\":[]},{\"id\":\"author\",\"type_label\":\"person\",\"key\":[[\"data\",\"author\"]],\"attrs\":[]},{\"id\":\"actor\",\"type_label\":\"person\",\"key\":[[\"data\",\"actor\"]],\"attrs\":[]},{\"id\":\"issue_leg\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"issue\"]],\"attrs\":[{\"name\":\"workflow_step\",\"path\":[\"data\",\"step\"]}]},{\"id\":\"issue_ev\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"number\"]],\"attrs\":[{\"name\":\"last_event\",\"path\":[\"data\",\"event\"]},{\"name\":\"label\",\"path\":[\"data\",\"label\"]},{\"name\":\"points\",\"path\":[\"data\",\"pts\"]}]},{\"id\":\"issue_ref\",\"type_label\":\"issue\",\"key\":[[\"data\",\"ref_repo\"],[\"data\",\"ref_number\"]],\"attrs\":[]},{\"id\":\"commit_issue_ref\",\"type_label\":\"issue\",\"key\":[[\"data\",\"refs\",0,\"repo\"],[\"data\",\"refs\",0,\"number\"]],\"attrs\":[]},{\"id\":\"pr\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"pr\"]],\"attrs\":[]},{\"id\":\"model\",\"type_label\":\"model\",\"key\":[[\"data\",\"model\"]],\"attrs\":[{\"name\":\"tier\",\"path\":[\"data\",\"tier\"]},{\"name\":\"engine\",\"path\":[\"data\",\"engine\"]}]}],\"relationships\":[{\"from\":\"commit\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"commit\",\"to\":\"author\",\"kind\":\"authored by\"},{\"from\":\"commit\",\"to\":\"commit_issue_ref\",\"kind\":\"references issue\"},{\"from\":\"issue_ev\",\"to\":\"repo\",\"kind\":\"in repository\"},{\"from\":\"issue_leg\",\"to\":\"repo\",\"kind\":\"in repository\"},{\"from\":\"issue_ev\",\"to\":\"actor\",\"kind\":\"acted on by\"},{\"from\":\"issue_ev\",\"to\":\"issue_ref\",\"kind\":\"cross-references\"},{\"from\":\"issue_ev\",\"to\":\"commit_ref\",\"kind\":\"referenced by commit\"},{\"from\":\"pr\",\"to\":\"issue_leg\",\"kind\":\"pull request for issue\"},{\"from\":\"issue_ev\",\"to\":\"merge_commit\",\"kind\":\"merged as commit\"},{\"from\":\"model\",\"to\":\"repo\",\"kind\":\"reviews repository\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 2239,
+      "cache_read_tokens": 2159,
+      "cache_write_tokens": 12794,
+      "cost_usd": 0.0740018,
+      "latency_ms": 17810,
+      "started_at_ms": 1790883879267
+    }
+  ]
+}
