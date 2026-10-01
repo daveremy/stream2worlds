@@ -31,8 +31,7 @@
   fold, so two values that name one entity are scored the way the engine would merge them.
   [#377](https://github.com/daveremy/stream2worlds/pull/377)
 - **System 2 can propose a mapping under a ledger.** Every call records tokens, cache tokens and
-  cost, a missing count is an error, and a keyed obfuscator hides the stream's identity.
-  [#386](https://github.com/daveremy/stream2worlds/pull/386), [decision 0032](docs/decisions/0032-gate3-committed-mapping.md)
+  cost, and a missing count is an error. [#386](https://github.com/daveremy/stream2worlds/pull/386)
 - **Module sizes fail the build.** Each of the 14 modules over the 400-line cap has a ceiling at
   its measured size, so none can grow without a `Baseline-growth:` trailer. [#382](https://github.com/daveremy/stream2worlds/pull/382)
 - **In progress:** gate 3, the run that asks whether System 2 beats heuristics and a raw-sample
