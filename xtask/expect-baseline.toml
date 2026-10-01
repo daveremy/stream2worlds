@@ -4,7 +4,7 @@
 "clippy::box_collection" = 2
 "clippy::cast_precision_loss" = 4
 "clippy::cognitive_complexity" = 8
-"clippy::too_many_arguments" = 6
+"clippy::too_many_arguments" = 5
 "clippy::too_many_lines" = 30
 "dead_code" = 7
 "missing_docs" = 1

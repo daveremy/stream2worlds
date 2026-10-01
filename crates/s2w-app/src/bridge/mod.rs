@@ -215,6 +215,21 @@ pub enum BridgeError {
     Task(String),
 }
 
+/// What a [`Bridge`] is built from: [`Bridge::new`]'s inputs, which [`Bridge::resume`] takes
+/// together with the position it continues after.
+pub struct BridgeParts<R: LogReader, V: VerdictStore> {
+    /// The log the bridge reads.
+    pub reader: R,
+    /// The verdict store the bridge serves stored verdicts from and records new ones in.
+    pub verdicts: V,
+    /// The System 1 engines, and the sources each one is routed to.
+    pub registry: EngineRegistry,
+    /// The served timeline the bridge appends claims to.
+    pub state: QueryState,
+    /// Polling and batching settings.
+    pub config: BridgeConfig,
+}
+
 /// Reads the log, runs System 1 (or replays its stored verdicts) and appends claims to the
 /// served timeline.
 ///
@@ -256,39 +271,40 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         state: QueryState,
         config: BridgeConfig,
     ) -> Result<Self, BridgeError> {
-        let (base, head, _) = state.bounds()?;
+        Self::from_start(BridgeParts {
+            reader,
+            verdicts,
+            registry,
+            state,
+            config,
+        })
+    }
+
+    /// [`Self::new`] from its inputs grouped as [`BridgeParts`].
+    fn from_start(parts: BridgeParts<R, V>) -> Result<Self, BridgeError> {
+        let (base, head, _) = parts.state.bounds()?;
         if base != 0 || head != 0 {
             return Err(BridgeError::TimelineNotEmpty { head });
         }
-        Self::build(reader, verdicts, registry, state, config)
+        Self::build(parts)
     }
 
-    /// A bridge that continues after `position` into `state`, which holds a restored snapshot
-    /// whose world was folded from every event up to and including `position` (decision 0024).
-    /// The caller has validated the snapshot against the log. A verdict store ahead of
-    /// `position` is the normal case: the bridge serves those stored verdicts (decision 0012).
+    /// A bridge built from `parts` that continues after `position` into `parts.state`, which
+    /// holds a restored snapshot whose world was folded from every event up to and including
+    /// `position` (decision 0024). The caller has validated the snapshot against the log. A
+    /// verdict store ahead of `position` is the normal case: the bridge serves those stored
+    /// verdicts (decision 0012).
     ///
     /// # Errors
-    /// [`BridgeError::TimelineNotEmpty`] if `state` has events after its base;
+    /// [`BridgeError::TimelineNotEmpty`] if `parts.state` has events after its base;
     /// [`BridgeError::Query`] if it is unavailable; [`BridgeError::Store`] if the verdict
     /// store's cursor cannot be read.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "new's inputs plus the resume position; a parameter struct is a follow-up refactor (s2w#156)"
-    )]
-    pub fn resume(
-        reader: R,
-        verdicts: V,
-        registry: EngineRegistry,
-        state: QueryState,
-        config: BridgeConfig,
-        position: LogPosition,
-    ) -> Result<Self, BridgeError> {
-        let (base, head, _) = state.bounds()?;
+    pub fn resume(parts: BridgeParts<R, V>, position: LogPosition) -> Result<Self, BridgeError> {
+        let (base, head, _) = parts.state.bounds()?;
         if head != base {
             return Err(BridgeError::TimelineNotEmpty { head });
         }
-        let mut bridge = Self::build(reader, verdicts, registry, state, config)?;
+        let mut bridge = Self::build(parts)?;
         bridge.last = Some(position);
         Ok(bridge)
     }
@@ -316,9 +332,16 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
             config,
             ..
         } = self;
+        let parts = BridgeParts {
+            reader,
+            verdicts,
+            registry,
+            state,
+            config,
+        };
         let bridge = match resume {
-            Some(position) => Self::resume(reader, verdicts, registry, state, config, position)?,
-            None => Self::new(reader, verdicts, registry, state, config)?,
+            Some(position) => Self::resume(parts, position)?,
+            None => Self::from_start(parts)?,
         };
         bridge.state.publish_source_stats(BTreeMap::new());
         Ok(bridge)
@@ -330,13 +353,14 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         &self.reader
     }
 
-    fn build(
-        reader: R,
-        verdicts: V,
-        registry: EngineRegistry,
-        state: QueryState,
-        config: BridgeConfig,
-    ) -> Result<Self, BridgeError> {
+    fn build(parts: BridgeParts<R, V>) -> Result<Self, BridgeError> {
+        let BridgeParts {
+            reader,
+            verdicts,
+            registry,
+            state,
+            config,
+        } = parts;
         let store_cursor = verdicts.cursor().map_err(BridgeError::Store)?;
         // A zero batch would never advance, and a zero delay would spin.
         let poll = config.poll.max(Duration::from_millis(1));

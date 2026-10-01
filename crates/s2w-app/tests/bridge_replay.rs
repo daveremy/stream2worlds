@@ -8,7 +8,9 @@ use std::cell::Cell;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use s2w_app::bridge::{Bridge, BridgeConfig, BridgeError, BridgeStats, EngineRegistry, Route};
+use s2w_app::bridge::{
+    Bridge, BridgeConfig, BridgeError, BridgeParts, BridgeStats, EngineRegistry, Route,
+};
 use s2w_app::query::{QueryState, Timeline};
 use s2w_log::{
     EventLog, InMemoryEventLog, InMemoryVerdictStore, LogError, LogPosition, LogReader,
@@ -523,11 +525,13 @@ fn resume_refuses_a_timeline_with_events_past_its_base() -> TestResult {
         },
     )?;
     let refused = Bridge::resume(
-        InMemoryEventLog::new(),
-        InMemoryVerdictStore::new(),
-        EngineRegistry::with_defaults(),
-        state,
-        BridgeConfig::default(),
+        BridgeParts {
+            reader: InMemoryEventLog::new(),
+            verdicts: InMemoryVerdictStore::new(),
+            registry: EngineRegistry::with_defaults(),
+            state,
+            config: BridgeConfig::default(),
+        },
         LogPosition::from_u64(1).ok_or("position")?,
     );
     assert!(matches!(
@@ -544,11 +548,13 @@ fn resume_skips_the_covered_prefix_and_marks_the_consumed_event_hash() -> TestRe
     log.append(event("kafka.orders", 2, b"{\"order\":1}")?)?;
     let stored: Vec<_> = log.replay(None)?.collect::<Result<_, _>>()?;
     let mut bridge = Bridge::resume(
-        log,
-        InMemoryVerdictStore::new(),
-        EngineRegistry::with_defaults(),
-        new_state(),
-        BridgeConfig::default(),
+        BridgeParts {
+            reader: log,
+            verdicts: InMemoryVerdictStore::new(),
+            registry: EngineRegistry::with_defaults(),
+            state: new_state(),
+            config: BridgeConfig::default(),
+        },
         stored[0].position,
     )?;
     assert_eq!(
