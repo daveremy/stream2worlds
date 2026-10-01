@@ -45,6 +45,17 @@ pub(super) fn derive(
     corpus: &str,
     window: usize,
 ) -> Result<Frozen, String> {
+    derived(pins, dir, corpus, window).map(|(frozen, _, _)| frozen)
+}
+
+/// [`derive()`], with the profile and the window's events it ran on, for a caller that builds a
+/// System 2 input from the same profiler run (`gate3 commit`).
+pub(super) fn derived(
+    pins: &Pins,
+    dir: &Path,
+    corpus: &str,
+    window: usize,
+) -> Result<(Frozen, Profile, Vec<Value>), String> {
     let pin = pins.corpus(corpus)?;
     let window_events = development_window(pins, dir, corpus, window)?;
     let config = Config::default();
@@ -53,7 +64,7 @@ pub(super) fn derive(
         Discovery::Mapping(m) => (Some(m), None),
         Discovery::Abstain(reason) => (None, Some(reason)),
     };
-    Ok(Frozen {
+    let frozen = Frozen {
         corpus: corpus.to_owned(),
         corpus_sha256: pin.sha256.clone(),
         window,
@@ -63,7 +74,8 @@ pub(super) fn derive(
         profile: summary(&profile),
         mapping,
         abstain,
-    })
+    };
+    Ok((frozen, profile, window_events))
 }
 
 /// What the profiler measured, reduced to what the report prints.

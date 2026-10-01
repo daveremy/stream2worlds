@@ -18,12 +18,11 @@ use s2w_log::{
     StoredProposal, members_at,
 };
 use s2w_model::{
-    DashboardManifest, FieldPath, Fnv64, ManifestInput, ManifestOutcome, ManifestProposer,
-    ProposerId, ProposerTrace, Segment, SourceId, SourceInput, StreamMapping,
+    DashboardManifest, Fnv64, ManifestInput, ManifestOutcome, ManifestProposer, ProposerId,
+    ProposerTrace, SourceId, SourceInput, StreamMapping,
 };
 use s2w_system2::{ExecProvider, ExecSetupError, System2Proposer};
 use serde::Serialize;
-use serde_json::Value;
 
 use crate::proposals::check_identity;
 use crate::query::{
@@ -135,7 +134,9 @@ pub fn build_input(
         let skip = payloads.len().saturating_sub(SAMPLE_EVENTS);
         let sample = payloads[skip..]
             .iter()
-            .filter_map(|payload| sample_event(payload, &profile.decode))
+            .filter_map(|payload| {
+                s2w_discover::manifest::sample_event(payload, &profile.decode, SAMPLE_STRING_CHARS)
+            })
             .collect();
         sources.push(SourceInput {
             source: source.as_str().to_owned(),
@@ -152,41 +153,6 @@ pub fn build_input(
         sources,
     };
     (input, snapshot)
-}
-
-/// One payload as JSON, with each root field the profiler decodes parsed in place, and every
-/// string cut to [`SAMPLE_STRING_CHARS`] characters. `None` for a payload that is not JSON.
-fn sample_event(payload: &[u8], decode: &[FieldPath]) -> Option<Value> {
-    let mut value: Value = serde_json::from_slice(payload).ok()?;
-    if let Value::Object(fields) = &mut value {
-        for path in decode {
-            let [Segment::Key(key)] = path.0.as_slice() else {
-                continue;
-            };
-            if let Some(field) = fields.get_mut(key)
-                && let Some(parsed) = field
-                    .as_str()
-                    .and_then(|text| serde_json::from_str::<Value>(text).ok())
-            {
-                *field = parsed;
-            }
-        }
-    }
-    truncate_strings(&mut value);
-    Some(value)
-}
-
-fn truncate_strings(value: &mut Value) {
-    match value {
-        Value::String(text) => {
-            if let Some((cut, _)) = text.char_indices().nth(SAMPLE_STRING_CHARS) {
-                text.truncate(cut);
-            }
-        }
-        Value::Array(items) => items.iter_mut().for_each(truncate_strings),
-        Value::Object(fields) => fields.values_mut().for_each(truncate_strings),
-        Value::Null | Value::Bool(_) | Value::Number(_) => {}
-    }
 }
 
 /// `fnv1a64_hex` over length-prefixed fields, so no two tuples share an encoding.

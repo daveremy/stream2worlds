@@ -1,8 +1,8 @@
 use std::cell::Cell;
 
-use s2w_discover::manifest::FallbackProposer;
+use s2w_discover::manifest::{FallbackProposer, sample_event};
 use s2w_log::{EventLog, ReadOnlySqliteProposalStore, SqliteEventLog};
-use s2w_model::{Cursor, RawEvent, Timestamp};
+use s2w_model::{Cursor, FieldPath, RawEvent, Segment, Timestamp};
 use s2w_system2::{ReplayProvider, Reply};
 
 use super::*;
@@ -392,13 +392,16 @@ fn a_sampled_event_decodes_json_fields_and_cuts_long_strings() {
     let long = "é".repeat(SAMPLE_STRING_CHARS + 5);
     let payload = serde_json::json!({"d": "{\"x\":1}", "s": long}).to_string();
     let decode = vec![FieldPath(vec![Segment::Key("d".to_owned())])];
-    let value = sample_event(payload.as_bytes(), &decode).expect("json");
+    let value = sample_event(payload.as_bytes(), &decode, SAMPLE_STRING_CHARS).expect("json");
     assert_eq!(value["d"]["x"], 1);
     assert_eq!(
         value["s"].as_str().expect("string").chars().count(),
         SAMPLE_STRING_CHARS
     );
-    assert_eq!(sample_event(b"not json", &decode), None);
+    assert_eq!(
+        sample_event(b"not json", &decode, SAMPLE_STRING_CHARS),
+        None
+    );
 }
 
 #[test]
