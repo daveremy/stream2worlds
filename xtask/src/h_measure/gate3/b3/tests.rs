@@ -92,7 +92,7 @@ impl s2w_system2::Provider for Dense {
 #[test]
 fn a_prompt_7_percent_denser_than_h_s2_converges_within_2_refits() {
     // Many uneven events, as a live stream's are (30 to 130 bytes, in no order), sampled at a
-    // stride in the hundreds as in leg D's run (k = 151 to 160), where a step of one barely
+    // stride in the hundreds as in leg D's run (k = 148 to 160), where a step of one barely
     // shrinks the sample: the old refit, k + 1, takes 5 refits here; this one takes 1.
     let events: Vec<String> = (0..30_000_u64)
         .map(|i| {

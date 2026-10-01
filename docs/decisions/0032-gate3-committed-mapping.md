@@ -210,4 +210,35 @@ events of the same development window instead of H's result.
   events. The committed probe reply is `none`, and the same observer given the corpus
   directory in its environment reports it.
 
-DRYRUN_PLACEHOLDER
+- **Dry runs (dev, window 10000, replicate 1, `claude-sonnet-5-5`; scored against
+  `dev-key-v0.json`, reported and never counted; output kept in scratch, never committed).**
+  Run 1 (2026-10-01, at f6dc9a0) found two faults, and karpathy ruled both fixed in this PR;
+  run 2 is at 9eba25c, with both fixes.
+
+  | run | arm | calls (probe incl.) | $ (price table = CLI) | first-prompt tokens | max output tokens | fits (k, events, tokens) | F1 (P / R); ceiling F1 0.5784 |
+  |---|---|---|---|---|---|---|---|
+  | 1 | h-s2 | 2 | 0.2336 | T = 54,603 | 604 | n/a (sample 60) | 0.3671 (0.9719 / 0.2263) |
+  | 1 | b3 | 16 (10 fits, 5 repairs) | 3.4706 | B = 99,979 bytes | 746 | k 148 to 160; 9 spent at 57,540 to 60,612; accepted 55,481 | 0 predicted mentions (R 0) |
+  | 2 | h-s2 | 2 | 0.2342 | 54,603 | 713 | n/a (sample 60) | R 0: its reply wrote `decode: []` |
+  | 2 | b3 | 3 (2 fits) | 0.4743 | B = 99,979 bytes | 373 | (197, 51, 64,251) spent; (239, 42, 52,297) accepted | 0.3301 (1.0000 / 0.1977) |
+
+  - **Run 1, finding 1: b3 showed the model a view the executor does not read.** The sampler gave
+    each envelope's inner `data` string, so the model wrote paths such as `["wiki"]` with no
+    decode step, while the executor applies the mapping to the stored envelope. No b3 replicate
+    could score above 0. **Ruled:** show the stored envelope byte for byte, with no description of
+    its shape (the sampler bullet above). A stub-model test now writes the key's oracle mapping
+    against the record its b3 prompt shows: it scores the ceiling on the envelope view and recall
+    0 on the old view (`gate3/tests/b3_view.rs`).
+  - **Run 1, finding 2: the refit did not converge.** Stepping k by one kept every refit at about
+    B bytes, and the raw events read about 7% more tokens a byte than the h-s2 prompt, so 9 fits
+    were spent ($3.2) before one sample happened to be small enough. **Ruled:** refit
+    proportionally on the measured tokens (the check-and-refit bullet above). A unit test with
+    prompts 7% denser than h-s2's converges in 1 refit, where the old rule takes 5.
+  - **Run 2:** the envelope view reads 17.7% more tokens a byte than the h-s2 prompt (its
+    escaped `data` strings), and the proportional refit landed at 95.8% of T in one refit. b3
+    scored F1 0.3301, so the raw-sample baseline is now measurable. This run's h-s2 reply left
+    out the `data` decode step its heuristic shows, so it scored recall 0; run 1's h-s2 wrote it
+    and scored 0.3671. That is one replicate of model variance in h-s2, not a fault in the
+    harness, and it is reported here rather than fixed.
+  - **Freeze check:** the largest reply in either run was 746 tokens, so `max_output_tokens`
+    16384 does not bind and stands; h-s2's sample of 60 cost one attempt in both runs and stands.
