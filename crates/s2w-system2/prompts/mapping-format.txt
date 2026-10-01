@@ -1,0 +1,30 @@
+Reply with exactly one JSON object and nothing else: no prose, no code fence. It is a stream
+mapping with these keys, and no others:
+
+- "version": 2.
+- "decode": paths whose value is a string holding JSON text. Each is parsed, in order, before
+  any rule runs, and paths below it reach into the parsed value. [] when there are none.
+- "entities": 1 or more entity rules, in order. Each is {"id": <rule id>, "type_label":
+  <the type of thing>, "key": <1 or more paths whose values, together, identify one thing of
+  that type>, "attrs": <0 or more {"name": <attribute name>, "path": <path>}>}. A rule
+  matches an event when every key path has a value in it. Several rules may share one
+  type_label when the stream names one type of thing in several places.
+- "relationships": 0 or more {"from": <entity rule id>, "to": <entity rule id>, "kind":
+  <what the relationship is, a short phrase>}. One is claimed when both rules match in one
+  event.
+- "links" (may be left out): 0 or more {"survivor": <entity rule id>, "absorbed": <entity
+  rule id>}. A link says two rules with one type_label are two encodings of one thing: when
+  both match in one event with different keys, the absorbed key joins the survivor's entity.
+  The survivor is the rule with more distinct values. A rule is absorbed at most once, and a
+  survivor is never also absorbed.
+
+A path is a JSON array of object keys (strings) and array indexes (integers) from the root of
+an event, for example ["a", "b", 0].
+
+Rules:
+- Use only paths that appear in the data. Never invent one.
+- A key identifies a thing that recurs across events, not one event: a value that differs in
+  every event is an attribute or nothing, never a key.
+- Rule ids are distinct. Within a rule, attribute names are distinct. No path, id, label,
+  name or kind is empty, and none holds the character U+001F.
+- A link joins two rules of one type_label, never a rule to itself.
