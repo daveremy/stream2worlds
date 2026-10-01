@@ -102,6 +102,110 @@ prediction (#225), so they never form a group.
 For the plain stream's key, the cross-wiki sub-metric is the `<type> @ data.wiki` rows. The
 rows are reported beside B3's metrics and are never a floor.
 
+## Obfuscating a replicate
+
+```
+cargo xtask h-measure obfuscate --rules FILE --key-file FILE --replicate NAME \
+  --corpus NAME [--corpus NAME ...] [--key FILE ...] [--meta FILE] [--dir DIR]
+```
+
+The keyed transformation of contract B2.2 (s2w#370). The key file holds 64 hex digits and
+must be outside the repository; one key is one replicate. Each `--corpus` (a pinned corpus,
+checked against its pin) is written to `DIR/<corpus>.obf-<replicate>.raw.sse`, and each `--key`
+(a pinned answer key) is renamed to the obfuscated paths and written to
+`research/h-measure/<key stem>.obf-<replicate>.json`. The metadata file (default
+`research/h-measure/obfuscation/<replicate>.meta.json`) records the field table, how each path
+was treated, undeclared numeric paths, URL values that fell back to a whole-text hash, rules
+that matched no path, the unobservable rows, and the sha256 of the key, the rules, every input
+and every output. It never records the key itself.
+
+A replicate's windows share one key and one field table, but they need not run together: the
+test window is obfuscated later than the development window, after the mappings are committed.
+With `--meta` naming an existing metadata file, the run reuses its field table and refuses a
+field path the table does not hold, a different key, a different rules file, a different
+replicate, or a corpus or answer key the metadata already records. It then appends its inputs
+and outputs (window name, file, sha256) to the metadata, unites the per-path treatments and
+undeclared numbers, sums the fallback counts, and keeps a rule listed as unused only if no
+run's input held its path, so the metadata stays the complete record of
+the replicate. An output that exists is refused; nothing is written unless every input
+transforms.
+
+The collision check holds within one run only: the metadata stores no plaintext, so a later
+run cannot compare its values with an earlier run's. A cross-run collision of the 64-bit
+truncated hash is possible in principle. For n distinct values across all runs of a replicate
+its probability is at most n²/2⁶⁵; our pinned corpora hold 800,000 events, so n is under
+2×10⁷ even at 20 distinct hashed values per event, and the probability is under 1.1×10⁻⁵.
+
+What the run does to an event:
+
+- Field names become `f1`, `f2`, ... by a keyed ranking of every distinct field path (a path,
+  not a key name: `id` and `meta.id` get different names).
+- A value at a path with a `domain` rule becomes `h` and 16 hex digits of a keyed hash of the
+  domain and the value. One value in one domain gets one hash at every path; one value in two
+  domains gets two. A collision between two different values fails the run.
+- Every other string is hashed whole in a text domain; a category value stays one category.
+- RFC 3339 strings, and integer paths with `unix_seconds = true`, move by one shift per
+  replicate, so differences between times are kept.
+- Numbers, booleans, nulls and structure are kept; numbers at undeclared paths are listed in
+  the metadata for the rules author to check.
+- The SSE `id:` cursor is hashed whole.
+
+### Rules file (format 1)
+
+```toml
+version = 1
+
+[[rule]]
+path = ["wiki"]            # a path is a list of object keys; array indexes are not part of it
+domain = "wiki"
+
+[[rule]]
+path = ["server_name"]
+domain = "wiki"
+from = ["wiki"]            # alias: hash the value at `from`, so the two are byte-equal
+
+[[rule]]
+path = ["title"]
+domain = "title"
+fold = [["wiki"]]          # context values hashed in first: one title on two wikis, two hashes
+
+[[rule]]
+path = ["title_url"]
+domain = "title"
+fold = [["wiki"]]
+url_path = { base = ["server_url"], marker = "/wiki/", replace = [["_", " "]] }
+
+[[rule]]
+path = ["notify_url"]      # each listed query parameter hashed into its domain, joined by `/`
+url_query = [
+  { param = "diff", domain = "revision", fold = [["wiki"]] },
+  { param = "rcid", domain = "rcid" },
+]
+
+[[rule]]
+path = ["timestamp"]
+unix_seconds = true
+
+[[unobservable]]           # added to the renamed key's `unscored`
+path = ["comment"]
+reason = "names inside free text are destroyed with the text"
+
+[[unobservable]]           # recorded in the metadata only
+from = "comment"
+to = "title"
+kind = "names"
+reason = "a title named inside a comment"
+```
+
+A rule sets exactly one of `domain`, `url_query` and `unix_seconds`; `fold`, `from` and
+`url_path` need a `domain`. A `url_path` value of any other shape is hashed whole as text and
+counted in the metadata.
+
+A fold changes what the context-collision rows can measure: one name under two contexts gets
+two hashes, so a folded type has no collision groups on the obfuscated stream. Every other
+number is the same as on the plain stream up to renaming; `h_measure/obfuscate/tests.rs` checks
+this on a synthetic stream.
+
 ## How the base key was written
 
 From the published `mediawiki/recentchange` schema and #17's proposed answers, before any
