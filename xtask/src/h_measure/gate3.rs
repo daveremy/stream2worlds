@@ -1,8 +1,12 @@
-//! `cargo xtask gate3 commit`: one replicate of the "H plus System 2" arm of gate 3 (s2w#373,
-//! decision 0032). It derives H exactly as `h-measure freeze` does, proves the model session
-//! clean with the probe, asks the model for a mapping under a $5 budget gate, and writes the
-//! committed file and its transcript, both new. The operator commits both before `score`
-//! accepts them: the git log is the order proof, as for a frozen mapping.
+//! `cargo xtask gate3 commit`: one replicate of an arm of gate 3 (s2w#373, decision 0032). It
+//! derives H exactly as `h-measure freeze` does, proves the model session clean with the probe,
+//! asks the model for a mapping under a $5 budget gate, and writes the committed file and its
+//! transcript, both new. The operator commits both before `score` accepts them: the git log is
+//! the order proof, as for a frozen mapping.
+//!
+//! Arm `h-s2` ("H plus System 2") gives the model H's result. Arm `b3` gives it raw events of
+//! the same window instead, sampled up to the input-token budget of the h-s2 replicate with the
+//! same corpus, window, replicate and model, which it replays before any call (`b3.rs`).
 //!
 //! Tests never call a model: they run a fake `claude` that prints recorded envelopes.
 
@@ -10,12 +14,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use s2w_system2::{MappingProposer, recording_json};
+use s2w_system2::{MappingProposer, Provider, mapping_prompt, recording_json};
+use serde_json::Value;
 
 use super::freeze::derived;
 use super::pins::{DATA, Pins, sha256};
 use super::{Flags, corpus_dir, flags, one};
 
+mod b3;
 pub(crate) mod committed;
 mod ledger;
 mod prices;
@@ -23,12 +29,12 @@ pub(crate) mod replay;
 mod session;
 
 use committed::{
-    ARM, Committed, FORMAT, KIND, PROVIDER, SAMPLE_EVENTS, SAMPLE_STRING_CHARS, input, input_hash,
-    run as run_arm, split,
+    B3, Committed, FORMAT, H_S2, KIND, PROVIDER, SAMPLE_EVENTS, SAMPLE_STRING_CHARS, input,
+    input_hash, propose_h_s2, run as run_arm, split,
 };
 
 /// The command's usage line.
-pub(crate) const USAGE: &str = "cargo xtask gate3 commit --corpus NAME --window N --replicate K --model SNAPSHOT [--arm h-s2] [--out FILE] [--dir DIR] [--claude PATH] [--credentials PATH]";
+pub(crate) const USAGE: &str = "cargo xtask gate3 commit --corpus NAME --window N --replicate K --model SNAPSHOT [--arm h-s2|b3] [--h-s2 FILE] [--out FILE] [--dir DIR] [--claude PATH] [--credentials PATH]";
 
 /// Where committed replicates go by default, under the measurement's data directory.
 const COMMITTED: &str = "committed";
@@ -88,6 +94,9 @@ fn write_new(path: &Path, text: &str) -> Result<(), String> {
 
 /// What `gate3 commit` was asked to do.
 struct Request<'a> {
+    arm: &'static str,
+    /// B3 only: the h-s2 committed file its budget comes from.
+    h_s2: Option<PathBuf>,
     corpus: &'a str,
     window: usize,
     replicate: u32,
@@ -101,8 +110,9 @@ struct Request<'a> {
 
 /// The request in `flags`, refused before any call when an output file exists.
 fn request<'a>(root: &Path, flags: &'a Flags) -> Result<Request<'a>, String> {
-    const KNOWN: [&str; 9] = [
+    const KNOWN: [&str; 10] = [
         "corpus",
+        "h-s2",
         "window",
         "replicate",
         "model",
@@ -115,21 +125,24 @@ fn request<'a>(root: &Path, flags: &'a Flags) -> Result<Request<'a>, String> {
     if let Some(name) = flags.keys().find(|n| !KNOWN.contains(&n.as_str())) {
         return Err(format!("commit takes no --{name}; usage: {USAGE}"));
     }
-    match optional(flags, "arm")? {
-        None | Some(ARM) => {}
-        Some("b3") => return Err("--arm b3: the B3 arm ships in PR 3 of s2w#373".to_owned()),
+    let arm = match optional(flags, "arm")? {
+        None | Some(H_S2) => H_S2,
+        Some(B3) => B3,
         Some(other) => return Err(format!("--arm {other:?}: the arms are h-s2 and b3")),
-    }
+    };
     let corpus = one(flags, "corpus")?;
     let replicate: u32 = number(flags, "replicate")?;
-    let out = optional(flags, "out")?.map_or_else(
-        || {
-            root.join(DATA)
-                .join(COMMITTED)
-                .join(format!("{ARM}.{corpus}.r{replicate}.json"))
-        },
-        PathBuf::from,
-    );
+    let default = |arm: &str| {
+        root.join(DATA)
+            .join(COMMITTED)
+            .join(format!("{arm}.{corpus}.r{replicate}.json"))
+    };
+    let h_s2 = match (arm, optional(flags, "h-s2")?) {
+        (B3, path) => Some(path.map_or_else(|| default(H_S2), PathBuf::from)),
+        (_, Some(_)) => return Err("--h-s2 sizes the b3 arm; the h-s2 arm takes none".to_owned()),
+        (_, None) => None,
+    };
+    let out = optional(flags, "out")?.map_or_else(|| default(arm), PathBuf::from);
     let transcript = replay::transcript_path(&out)?;
     for path in [&out, &transcript] {
         if path.exists() {
@@ -145,6 +158,8 @@ fn request<'a>(root: &Path, flags: &'a Flags) -> Result<Request<'a>, String> {
             .join(".claude/.credentials.json"),
     };
     Ok(Request {
+        arm,
+        h_s2,
         corpus,
         window: number(flags, "window")?,
         replicate,
@@ -166,28 +181,30 @@ pub(crate) fn commit(root: &Path, flags: &Flags) -> Result<String, String> {
     let (heuristic, profile, events) =
         derived(&pins, &request.dir, request.corpus, request.window)?;
     let input = input(&heuristic, &profile, &events, request.replicate)?;
+    let sized = request
+        .h_s2
+        .as_deref()
+        .map(|path| sized(path, &request, &heuristic, &price, (&profile, &events)))
+        .transpose()?;
     let session = session::Session::open(&request.credentials, now_ms())?;
     let proposer = MappingProposer::new(session.provider(&request.claude, request.model)?);
-    let ran = run_arm(proposer.provider(), &proposer, &price, &input);
-    if session.credentials_changed() {
-        let kept = session.keep_credentials(&request.credentials).map_or_else(
-            |e| format!("it could not be kept ({e})"),
-            |path| format!("it is kept at {}", path.display()),
-        );
-        eprintln!(
-            "⚠ gate3: the CLI rewrote the credentials copy in {}: it refreshed the token, so {} may now hold a spent refresh token and the copy holds the live one; {kept}. Check the operator's sessions",
-            session.home().display(),
-            request.credentials.display()
-        );
-    }
+    let ran = propose(&proposer, &price, &input, sized.as_ref());
+    warn_if_refreshed(&session, &request.credentials);
     drop(session);
-    let ran = ran?;
-    let transcript = recording_json(&ran.outcome.calls).map_err(|e| e.to_string())? + "\n";
+    let (ran, fitted) = ran?;
+    let transcript = recording_json(&ran.calls).map_err(|e| e.to_string())? + "\n";
     let (mapping, failure) = split(&ran.outcome.result);
+    let (input_hash, budget) = match (sized, fitted) {
+        (Some(sized), Some(fitted)) => (
+            b3::input_hash(&input, &fitted.last, &ran.outcome.prompt_files_hash)?,
+            Some(sized.budget(fitted.fits)),
+        ),
+        _ => (input_hash(&input, &ran.outcome.prompt_files_hash)?, None),
+    };
     let committed = Committed {
         kind: KIND.to_owned(),
         format: FORMAT,
-        arm: ARM.to_owned(),
+        arm: request.arm.to_owned(),
         replicate: request.replicate,
         heuristic,
         provider: PROVIDER.to_owned(),
@@ -195,7 +212,7 @@ pub(crate) fn commit(root: &Path, flags: &Flags) -> Result<String, String> {
         price,
         sample_events: SAMPLE_EVENTS,
         sample_string_chars: SAMPLE_STRING_CHARS,
-        input_hash: input_hash(&input, &ran.outcome.prompt_files_hash)?,
+        input_hash,
         prompt_files_hash: ran.outcome.prompt_files_hash,
         attempts: ran.outcome.attempts,
         mapping,
@@ -203,8 +220,92 @@ pub(crate) fn commit(root: &Path, flags: &Flags) -> Result<String, String> {
         probe: ran.probe,
         spend: ran.spend,
         transcript_sha256: sha256(transcript.as_bytes()),
+        budget,
     };
     write(&request, &committed, &transcript)
+}
+
+/// The arm's run through `proposer`: h-s2, or b3 when `sized`; b3 also reports its fits.
+fn propose<P: Provider>(
+    proposer: &MappingProposer<P>,
+    price: &prices::Price,
+    input: &s2w_model::MappingInput,
+    sized: Option<&b3::Sized>,
+) -> Result<(committed::Ran, Option<b3::Fitted>), String> {
+    match sized {
+        None => run_arm(proposer.provider(), price, |prior| {
+            let (proposed, ()) = propose_h_s2(proposer, price, input, prior);
+            (proposed, None)
+        }),
+        Some(sized) => run_arm(proposer.provider(), price, |prior| {
+            let target = sized.target(input);
+            let (proposed, fitted) = b3::propose(proposer, price, &sized.raw, &target, prior);
+            (proposed, Some(fitted))
+        }),
+    }
+}
+
+/// Warns loudly when the CLI rewrote the session's credentials copy, and keeps the copy.
+fn warn_if_refreshed(session: &session::Session, credentials: &Path) {
+    if session.credentials_changed() {
+        let kept = session.keep_credentials(credentials).map_or_else(
+            |e| format!("it could not be kept ({e})"),
+            |path| format!("it is kept at {}", path.display()),
+        );
+        eprintln!(
+            "⚠ gate3: the CLI rewrote the credentials copy in {}: it refreshed the token, so {} may now hold a spent refresh token and the copy holds the live one; {kept}. Check the operator's sessions",
+            session.home().display(),
+            credentials.display()
+        );
+    }
+}
+
+/// The B3 replicate's budget, read from the h-s2 committed file at `path`, before any call.
+///
+/// # Errors
+///
+/// The file is not an h-s2 replicate of the same corpus, window, replicate, model and price,
+/// does not replay (`score` would refuse it), or its first prompt reported no tokens.
+fn sized(
+    path: &Path,
+    request: &Request<'_>,
+    heuristic: &super::freeze::Frozen,
+    price: &prices::Price,
+    (profile, events): (&s2w_discover::Profile, &[Value]),
+) -> Result<b3::Sized, String> {
+    let shown = path.display();
+    let bytes = fs::read(path).map_err(|e| {
+        format!("{shown}: {e}; b3 is sized by the h-s2 replicate it follows, commit that first (or name it with --h-s2)")
+    })?;
+    let h_s2: Committed = serde_json::from_slice(&bytes).map_err(|e| format!("{shown}: {e}"))?;
+    if h_s2.arm != H_S2 {
+        return Err(format!("{shown}: arm {:?} is not h-s2", h_s2.arm));
+    }
+    if (
+        &h_s2.heuristic,
+        h_s2.replicate,
+        h_s2.model.as_str(),
+        &h_s2.price,
+    ) != (heuristic, request.replicate, request.model, price)
+    {
+        return Err(format!(
+            "{shown}: its corpus, window, pins, replicate, model or price is not this run's; b3 is sized by the h-s2 replicate with all of them the same"
+        ));
+    }
+    let calls = replay::reproduce(path, &h_s2, profile, events)?;
+    let input_tokens = b3::first_prompt_tokens(&calls).ok_or_else(|| {
+        format!("{shown}: no h-s2 call reported tokens, so this replicate has no budget")
+    })?;
+    let input = input(heuristic, profile, events, request.replicate)?;
+    let prompt_bytes = mapping_prompt(&input)
+        .map_err(|e| format!("input: {e}"))?
+        .len();
+    Ok(b3::Sized {
+        h_s2_sha256: sha256(&bytes),
+        input_tokens,
+        prompt_bytes,
+        raw: b3::raw_events(events)?,
+    })
 }
 
 /// Writes the transcript, then the committed file; removes the transcript if the second write

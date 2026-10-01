@@ -159,3 +159,87 @@ above. It differs from them in these ways:
   reply may use 16k output tokens.
 - **Probe failure.** A failed probe writes no file: the session is not proven clean, so there is
   no replicate. The error names what the probe was charged.
+
+## Dated note 2026-10-01: what PR 3 built (s2w#373)
+
+`cargo xtask gate3 commit --arm b3` (`xtask/src/h_measure/gate3/b3.rs`) is the raw-sample
+baseline of contract §B1: the same model, task, prompt format and System 2 path
+(`MappingProposer::propose_raw` shares `propose`'s attempt and repair loop) as h-s2, given raw
+events of the same development window instead of H's result.
+
+- **The budget.** A b3 replicate is sized by the h-s2 replicate with the same corpus, window,
+  replicate, model and price (`--h-s2 FILE`). Before any call, b3 replays that file exactly as
+  `score` does, so a stale or hand-written h-s2 file never sets a budget. T is the prompt tokens
+  of the h-s2 transcript's first call 1 (an attempt's first prompt, never a repair) that
+  reported tokens: input plus cache read plus cache write. Every attempt's call 1 sends the same
+  prompt, so a provider failure on attempt 1 falls to attempt 2's. The CLI caches the prompt, so `input_tokens` alone is a handful; the sum is what the
+  model read. It includes the CLI's built-in system prompt, which b3's calls carry too. An
+  h-s2 replicate whose calls reported no tokens has no budget, and b3 refuses it.
+- **The sampler (frozen; view changed 2026-10-01 after dry run 1, below).** Each event is the
+  stored envelope byte for byte (`{"data":"<the frame's data string>","id":...}`, serialized as
+  the profiler and the executor read it): the record a mapping is applied to, with no profile,
+  no H, no truncation and no description of its shape. The sample is every k-th event of the window from the
+  first. k is the smallest value whose b3 first prompt is at most B bytes, where B is the
+  h-s2 first prompt's length rebuilt from the committed heuristic. Bytes against bytes is the
+  plan's "bytes/3" rule with the 3 cancelled on both sides, and it needs no estimate of the
+  CLI's system-prompt overhead. The b3 template (`mapping-raw.txt`) is shorter than the h-s2
+  one (`mapping.txt`), so b3 gets that difference (about 600 bytes) as extra event data before
+  the token check; the 105% check below bounds it.
+- **The check and refit.** After a fit's proposal, its first call 1 that reported tokens is
+  counted the same way as T. Above 105% of T, the fit is spent (its calls stay in the
+  transcript and the ledger) and the refit shrinks the sample by the measured ratio (changed
+  2026-10-01 after dry run 1, below): `k_next = ceil(k × tokens / (T × 0.97))`, at least k + 1
+  and at most the window, then the smallest k from there that fits B. k is a stride, so this is
+  the ruling's `events × T / tokens × 0.97` written for a stride. There is no fixed fit count:
+  each fit's calls pass a budget gate seeded with everything spent before them, so the $5 cap
+  bounds the refits. When not even one event fits B, or an over-budget fit was already a
+  one-event sample (every larger k samples the same first event), the replicate is committed
+  with `failure: "budget-fit: ..."`.
+- **Two samples, one window.** h-s2's sample is the 60 newest events of the window, after H;
+  b3's is every k-th event from the first. The difference is planned: both are within the
+  window, and each arm gets the sample its input form calls for.
+- **File shape.** A b3 committed file carries `heuristic` (the same freeze, for its pins and its
+  B) and adds `budget`: the h-s2 file's sha256, T, B, and every fit (`k`, events, prompt bytes,
+  calls, first-prompt tokens). Its `input_hash` hashes the h-s2 input, the last raw input sent
+  and `prompt_files_hash`. `score` replays every fit and refuses unless the fits, the input
+  hash, the result, the attempts and the spend all match. h-s2 files are unchanged (FORMAT 1).
+- **Private-corpus probe test.** Deferred from s2w#371: a stand-in private corpus (the
+  synthetic private fixture, pinned as a development corpus) and a fake `claude` that answers
+  the probe `none` only when nothing it can observe (stdin, argv, environment, working
+  directory, `HOME` and their parents) names the corpus directory, its name or any of its
+  events. The committed probe reply is `none`, and the same observer given the corpus
+  directory in its environment reports it.
+
+- **Dry runs (dev, window 10000, replicate 1, `claude-sonnet-5-5`; scored against
+  `dev-key-v0.json`, reported and never counted; output kept in scratch, never committed).**
+  Run 1 (2026-10-01, at f6dc9a0) found two faults, and karpathy ruled both fixed in this PR;
+  run 2 is at 9eba25c, with both fixes.
+
+  | run | arm | calls (probe incl.) | $ (price table = CLI) | first-prompt tokens | max output tokens | fits (k, events, tokens) | F1 (P / R); ceiling F1 0.5784 |
+  |---|---|---|---|---|---|---|---|
+  | 1 | h-s2 | 2 | 0.2336 | T = 54,603 | 604 | n/a (sample 60) | 0.3671 (0.9719 / 0.2263) |
+  | 1 | b3 | 16 (10 fits, 5 repairs) | 3.4706 | B = 99,979 bytes | 746 | k 148 to 160; 9 spent at 57,540 to 60,612; accepted 55,481 | 0 predicted mentions (R 0) |
+  | 2 | h-s2 | 2 | 0.2342 | 54,603 | 713 | n/a (sample 60) | R 0: its reply wrote `decode: []` |
+  | 2 | b3 | 3 (2 fits) | 0.4743 | B = 99,979 bytes | 373 | (197, 51, 64,251) spent; (239, 42, 52,297) accepted | 0.3301 (1.0000 / 0.1977) |
+
+  - **Run 1, finding 1: b3 showed the model a view the executor does not read.** The sampler gave
+    each envelope's inner `data` string, so the model wrote paths such as `["wiki"]` with no
+    decode step, while the executor applies the mapping to the stored envelope. No b3 replicate
+    could score above 0. **Ruled:** show the stored envelope byte for byte, with no description of
+    its shape (the sampler bullet above). A stub-model test now writes the key's oracle mapping
+    against the record its b3 prompt shows: it scores the ceiling on the envelope view and recall
+    0 on the old view (`gate3/tests/b3_view.rs`).
+  - **Run 1, finding 2: the refit did not converge.** Stepping k by one kept every refit at about
+    B bytes, and the raw events read about 7% more tokens a byte than the h-s2 prompt, so 9 fits
+    were spent ($3.2) before one sample happened to be small enough. **Ruled:** refit
+    proportionally on the measured tokens (the check-and-refit bullet above). A unit test with
+    prompts 7% denser than h-s2's requires convergence within 2 refits; on its fixture the new
+    rule takes 1 and the old rule takes 5.
+  - **Run 2:** the envelope view reads 17.7% more tokens a byte than the h-s2 prompt (its
+    escaped `data` strings), and the proportional refit landed at 95.8% of T in one refit. b3
+    scored F1 0.3301, so the raw-sample baseline is now measurable. This run's h-s2 reply left
+    out the `data` decode step its heuristic shows, so it scored recall 0; run 1's h-s2 wrote it
+    and scored 0.3671. That is one replicate of model variance in h-s2, not a fault in the
+    harness, and it is reported here rather than fixed.
+  - **Freeze check:** the largest reply in either run was 746 tokens, so `max_output_tokens`
+    16384 does not bind and stands; h-s2's sample of 60 cost one attempt in both runs and stands.

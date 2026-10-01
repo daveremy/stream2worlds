@@ -82,8 +82,13 @@ pub(crate) fn manifest_prompt(input: &ManifestInput) -> Result<String, serde_jso
     Ok(fill(MANIFEST, &[("DATA", &data_line(input)?)]))
 }
 
-/// The first call's prompt for the "H plus System 2" arm.
-pub(crate) fn mapping_prompt(input: &MappingInput) -> Result<String, serde_json::Error> {
+/// The first call's prompt for the "H plus System 2" arm. Public so a driver can size the B3
+/// arm's sample against it (decision 0032).
+///
+/// # Errors
+///
+/// The input does not serialize.
+pub fn mapping_prompt(input: &MappingInput) -> Result<String, serde_json::Error> {
     Ok(fill(
         MAPPING,
         &[("FORMAT", MAPPING_FORMAT), ("DATA", &data_line(input)?)],
@@ -91,7 +96,11 @@ pub(crate) fn mapping_prompt(input: &MappingInput) -> Result<String, serde_json:
 }
 
 /// The first call's prompt for the B3 arm.
-pub(crate) fn raw_mapping_prompt(input: &RawMappingInput) -> Result<String, serde_json::Error> {
+///
+/// # Errors
+///
+/// The input does not serialize.
+pub fn raw_mapping_prompt(input: &RawMappingInput) -> Result<String, serde_json::Error> {
     Ok(fill(
         MAPPING_RAW,
         &[("FORMAT", MAPPING_FORMAT), ("DATA", &data_line(input)?)],
