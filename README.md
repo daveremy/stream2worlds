@@ -21,26 +21,23 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **A crate's public API can't change unnoticed.** `cargo xtask check` compares each library
-  crate's `pub` items with a committed snapshot, and `cargo xtask api --update` rewrites it on
-  purpose, so every API change is a visible diff in review.
-  [#362](https://github.com/daveremy/stream2worlds/pull/362)
-- **Module cycles fail the build.** Check 15 is enforced in every crate, so each crate's
-  modules depend in one direction only. [#359](https://github.com/daveremy/stream2worlds/pull/359)
-- **Lint exceptions can only go down.** A shrink-only count of `#[expect]` attributes fell from 66
-  to 53 across two sprints. [#366](https://github.com/daveremy/stream2worlds/pull/366)
-- **The demo reads as Wikipedia.** The viewer shows each type's name, noun and icon, a **Live
-  changes** sentence feed, and Active now as `👤 1isall (22 changes)`. Types with no manifest row
-  still show raw key text ([#351](https://github.com/daveremy/stream2worlds/issues/351)).
-  [#350](https://github.com/daveremy/stream2worlds/pull/350)
-- **The `s2w` binary allocates through mimalloc.** The backfill's resident peak drops by 69-106
-  MiB on the recorded load ([decision 0031](docs/decisions/0031-mimalloc-global-allocator.md)).
-  [#353](https://github.com/daveremy/stream2worlds/pull/353)
+- **Gate 3 has a private stream to run on.** A capture tool turns the dev-worker database, review
+  logs, GitHub and git into SSE in the Wikipedia frame format, and a 20-rule scrub gate refuses to
+  write if a path, email, phone or secret shape gets through. [#387](https://github.com/daveremy/stream2worlds/pull/387)
+- **The private stream has an answer key.** `private-key-v0.json` says who is who in it, and
+  `key.ts --check` prints counts, never values; the committed fixture reads 47 mentions and 12
+  entities. [#391](https://github.com/daveremy/stream2worlds/pull/391)
+- **The scorer counts links.** `h-measure` folds a mapping's link claims through the real `World`
+  fold, so two values that name one entity are scored the way the engine would merge them.
+  [#377](https://github.com/daveremy/stream2worlds/pull/377)
+- **System 2 can propose a mapping under a ledger.** Every call records tokens, cache tokens and
+  cost, and a missing count is an error. [#386](https://github.com/daveremy/stream2worlds/pull/386)
+- **Module sizes fail the build.** Each of the 14 modules over the 400-line cap has a ceiling at
+  its measured size, so none can grow without a `Baseline-growth:` trailer. [#382](https://github.com/daveremy/stream2worlds/pull/382)
 - **In progress:** gate 3, the run that asks whether System 2 beats heuristics and a raw-sample
-  LLM baseline ([#13](https://github.com/daveremy/stream2worlds/issues/13)); turning module-size
-  enforcement on with a ceiling for each of the 14 remaining oversized modules
-  ([#66](https://github.com/daveremy/stream2worlds/issues/66)); naming the unnamed types ([#351](https://github.com/daveremy/stream2worlds/issues/351)),
-  the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)) and the live-demo label share
+  LLM baseline ([#13](https://github.com/daveremy/stream2worlds/issues/13)): the first replicate over `dev` ([#370](https://github.com/daveremy/stream2worlds/issues/370)), the driver and the
+  $5 cap ([#373](https://github.com/daveremy/stream2worlds/issues/373)), and link predictions and scoring ([#245](https://github.com/daveremy/stream2worlds/issues/245)); naming the unnamed
+  types ([#351](https://github.com/daveremy/stream2worlds/issues/351)), the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)) and the live-demo label share
   ([#342](https://github.com/daveremy/stream2worlds/issues/342)).
 
 ## Demos
