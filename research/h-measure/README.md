@@ -8,6 +8,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 |---|---|
 | `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, and reserved-4 for s2w#291 PR 2; `reserved` opened as held-out by s2w#244, the others by the PRs named): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
+| `private/` | The private-stream capture (s2w#371): `capture.ts` (sources to SSE), `scrub.ts` (the fail-closed gate), `extract.ts` (the published `detail` regex table), `events.ts` (pure builders), `fixture.ts` and `fixture/synthetic-20.sse` (the only committed capture-format file: fake numbers and shas), `capture.test.ts`. See "Private stream" below. |
 | `keys.toml` | Every answer key's sha256, pinned before any score is run, and the reading of #17 it encodes. |
 | `dev-key-v0.json` | dev-key v0: the base key (key-spec format v0, `xtask/src/h_measure/key.rs`). |
 | `dev-key-v0.<variant>.json` | Sensitivity variants. Each differs from the base only as `keys.toml` says; `diff` the files to see the variant. |
@@ -32,6 +33,37 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 - Rebuild the corpora with `capture.sh 2026-09-28T00:00:00Z <dir>` only while EventStreams still
   retains that window (~7 days). The files carry a capture-time header, so a re-capture has new
   hashes; check them against `corpora.toml` and record any change as a new manifest entry.
+
+## Private stream (s2w#371)
+
+The gate-3 private stream (contract §B2.3) is the dev-worker and sprint log of `daveremy/lifeos`
+and `daveremy/stream2worlds`: leg status rows, review seats, issues, pull requests and their
+timelines, merges, commits and sprint boundaries, one JSON event per frame in the same SSE format
+as the Wikipedia corpora, so `freeze`, `profile` and `score` read it unchanged. Plan and rulings:
+the s2w#371 issue comments.
+
+- **Capture:** `node --experimental-strip-types research/h-measure/private/capture.ts --name <corpus>
+  --since <UTC> --until <UTC> [--dir DIR] [--copy-dir DIR]`. Fetch both clones first (shas are
+  resolved there). It writes `<corpus>.raw.sse` and `<corpus>.provenance.jsonl` (the source row id
+  and every join resolved at capture, for the answer key) at mode 0600, never over an existing
+  file and never inside a git work tree, then prints the `corpora.toml` stanza.
+- **What survives:** fields only. Titles, bodies, comment text, commit subjects, the raw `detail`
+  text, paths and emails are dropped; `detail` contributes only the fields in `extract.ts`'s
+  table, which the capture header repeats. Logins other than the maintainer's public handle
+  become `other`. Rows from other projects are dropped and counted in the header.
+- **Scrub gate:** every line the capture would write passes `scrub.ts` first: home paths, `~`,
+  `obsidian`, `op://` references, emails, phone numbers and the high-confidence secret shapes.
+  One match and nothing is written; the error names the rule and line, never the text. Each rule
+  has a planted-sample test.
+- **Never in the repository:** `cargo xtask check` (check 20) fails on any `*.sse` or
+  `*.provenance.jsonl` under `research/` except the synthetic fixture, and on any file with a line
+  that starts with the private capture header.
+- **Tests:** `node --experimental-strip-types --test research/h-measure/private/capture.test.ts`
+  (CI runs it in the `bundle` job). The fixture test fails if `fixture/synthetic-20.sse` differs
+  from what `fixture.ts` prints; regenerate with `fixture.ts --write`, never by hand.
+
+The capture run, its `corpora.toml` pins (`private-dev` development, `private-test` reserved) and
+the freeze are s2w#371 PR 2.
 
 ## Freezing a mapping
 
