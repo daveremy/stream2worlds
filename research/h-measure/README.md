@@ -113,8 +113,8 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
   each number came from.
 - **Relationships are declared, not scored:** `EDGES` in `private/key.ts` lists the typed
   directed edges (§B3) between mentions of one frame, with `key.ts --edges` printing them as
-  JSON. Key format 3 (below) carries them; the edge grader and a `private-key-v1.json` that
-  declares them are s2w#388's next PRs.
+  JSON. Key format 3 (below) carries them and `score` grades them; a `private-key-v1.json`
+  that declares them is s2w#388's third PR.
 - **Generated, never hand-edited:** `node --experimental-strip-types
   research/h-measure/private/key.ts --write` writes both key files and
   `private/fixture/synthetic-20.key-shape.json`. A changed key is a new file and a new
@@ -499,7 +499,45 @@ comments of 2026-10-01.
   changes. `from_mapping` writes format 3, one row per relationship rule, and the selftest checks
   that a mapping read as its own key (and that key's oracle) places exactly the mapping's edges,
   and that those equal `MappingEngine`'s relationship claims.
-- **Not yet.** This build reads, validates and executes format 3; the edge scorer (§B3
-  precision and recall) and the report rows are s2w#388's second PR, and the first format-3
-  key files with their pins are its third. Until that PR, `obfuscate` refuses a key with
-  relationships rather than leave its rows on plain paths.
+- **Not yet.** The first format-3 key files with their pins are s2w#388's third PR. Until then
+  no pinned key declares relationships, and `obfuscate` refuses a key with relationships rather
+  than leave its rows on plain paths.
+
+### Scoring edges (contract §B3 "Relationships")
+
+`score` grades edges for every key that declares `relationships`; a format 0–2 key prints one
+line, "No relationships declared by this key (format 2 or earlier).", and its JSON holds
+`edges: null`. The rule (`xtask/src/h_measure/edges.rs`):
+
+- **Endpoints.** A predicted cluster stands for the key entity holding strictly more than half
+  of its scored mentions (`2 · shared > size`, integers; the size counts spurious mentions, as
+  precision does). Exactly half, or less, is no majority: an edge touching that cluster is false.
+  An edge whose endpoint cluster has no scored mention at all (every mention unscored or
+  excluded) is dropped and counted, never false; that is how an oracle edge to a `no_identity`
+  value stays out of the ceiling. Known limit: if that excluded value is also a scored mention of
+  the same type at another path, the cluster keeps that mention and the edge maps to its entity
+  (an edge carries no record to tell the two apart).
+- **Types.** A predicted edge's type is `(type of the from cluster, type of the to cluster,
+  kind)`. Predicted types align one-to-one with key edge types by a maximum-weight assignment,
+  the weight being how many distinct key edges of that key type the predicted type hits. The
+  solver is an in-house Hungarian algorithm tested against exhaustive enumeration. **Tie rule:**
+  among assignments of equal total, the one whose sorted `(key type, predicted type)` pair list
+  is lexicographically smallest wins (types sorted by name, as the report prints them). A pair
+  with weight 0 is never aligned.
+- **Counting.** Under the alignment, a key edge hit by at least one predicted edge is one true
+  positive; every further predicted edge on it is a false positive (an entity split across two
+  clusters). Every other predicted edge is a false positive, including all edges of an unaligned
+  predicted type; every key edge never hit is missed. Micro `P = TP / (TP + FP)`, `R = TP / (TP +
+  FN)`, F1; a zero denominator is undefined.
+- **Unobservable rows.** They place no gold edge. A predicted edge of an unaligned type whose
+  mapped endpoints have an unobservable row's endpoint types is dropped and counted, not false.
+  An edge of an aligned type pays its false positive whatever rows the key marks unobservable.
+- **Report.** Per key: a row each for the mapping, the ceiling and the ceiling with links; a row
+  per key edge type with its aligned predicted type and the ceiling's recall; then the unaligned
+  predicted types, the no-majority, dropped and unobservable counts, and the declared types with
+  no edge in the corpus. `--json` adds `grade.edges`, `grade.ceiling_edges` and
+  `grade.ceiling_links_edges`.
+- **Fixtures.** `cargo xtask h-measure selftest` prints the contract's eight frozen fixtures
+  (`xtask/src/h_measure/fixtures.rs`), the three edge ones included, and checks that a mapping
+  with relationship rules, graded against its own key, scores edge P and R 1.0 for the mapping
+  and the ceiling.

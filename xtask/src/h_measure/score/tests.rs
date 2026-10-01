@@ -6,7 +6,8 @@ use serde_json::{Value, json};
 use super::super::grade::grade;
 use super::super::key::{KeySpec, Unscored};
 use super::super::mentions::Partition;
-use super::{Score, frozen_fixtures, score};
+use super::{Score, score};
+use crate::h_measure::fixtures::frozen_fixtures;
 
 /// A partition from `(record, path, cluster)` triples.
 fn part(mentions: &[(usize, &str, &str)]) -> Partition {
@@ -47,8 +48,9 @@ fn two_entities() -> Partition {
 
 #[test]
 fn the_four_ninths_case() {
-    let [(_, key, prediction), _] = frozen_fixtures();
-    let got = graded(&key, &prediction);
+    let fixture = frozen_fixtures().swap_remove(4);
+    assert_eq!(fixture.name, "4/9");
+    let got = graded(&fixture.key, &fixture.predicted);
     exactly(got.micro.precision, 4.0, 9.0);
     exactly(got.micro.recall, 4.0, 9.0);
     exactly(got.micro.f1, 4.0, 9.0);
@@ -60,8 +62,9 @@ fn the_four_ninths_case() {
 
 #[test]
 fn the_frozen_all_singletons_case_recovers_nothing() {
-    let [_, (_, key, prediction)] = frozen_fixtures();
-    let got = graded(&key, &prediction);
+    let fixture = frozen_fixtures().swap_remove(3);
+    assert_eq!(fixture.name, "all-singletons");
+    let got = graded(&fixture.key, &fixture.predicted);
     assert_eq!(got.recovery, Some(0.0));
     assert_eq!(got.micro.precision, Some(1.0));
     exactly(got.micro.recall, 1.0, 3.0);

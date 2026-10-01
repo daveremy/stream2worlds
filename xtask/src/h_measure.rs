@@ -8,7 +8,7 @@
 //! the mapping as a key spec ([`key::KeySpec::from_mapping`]) and checks the key executor
 //! places the same mentions in the same clusters, checks edge parity (s2w#388), grades the
 //! mapping against that key with [`score`] (it and the oracle ceiling must score 1.0), and
-//! prints the contract's frozen fixtures (B3: the 4/9 case and an all-singletons prediction).
+//! prints the contract's eight frozen fixtures ([`fixtures`], B3 "Reference scorer and fixtures").
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -21,10 +21,11 @@ use s2w_system1::{Engine, MappingEngine, Verdict};
 // The committed sample the self-test grades: 20 stored envelopes and a hand-written mapping
 // with a composite key (decision 0021), the same pair check 11 replays.
 use crate::obfuscation_raw::{MAPPING as SAMPLE_MAPPING, RAW as SAMPLE};
-use key::Unscored;
 use serde_json::Value;
 
 mod context;
+pub(crate) mod edges;
+pub(crate) mod fixtures;
 mod freeze;
 pub(crate) mod gate3;
 mod grade;
@@ -185,7 +186,7 @@ fn selftest(root: &Path) -> Result<String, String> {
         predicted.cluster.len(),
         clusters.len(),
         edges.len(),
-        reference_fixtures()?
+        fixtures::table()?
     ))
 }
 
@@ -266,37 +267,26 @@ fn grades_itself_perfectly(
             ));
         }
     }
-    Ok(())
+    edges_grade_perfectly(mapping, &own)
 }
 
-/// The contract's frozen fixtures ([`score::frozen_fixtures`]), scored and checked, as a
-/// printed table.
-fn reference_fixtures() -> Result<String, String> {
-    let ninths = |got: Option<f64>, n: f64| got.is_some_and(|x| (9.0 * x - n).abs() < 1e-12);
-    let exact = |got: Option<f64>| ninths(got, 4.0);
-    let mut table = "fixture         P       R       F1      false-merge  recovery".to_owned();
-    for (name, key, prediction) in score::frozen_fixtures() {
-        let row = score::score(&key, &prediction, &Unscored::default());
-        let b = row.micro;
-        let holds = match name {
-            "4/9" => {
-                exact(b.precision) && exact(b.recall) && exact(b.f1) && ninths(row.false_merge, 5.0)
-            }
-            _ => row.recovery == Some(0.0),
-        };
-        if !holds {
-            return Err(format!("scorer: the {name} fixture scores {row:?}"));
-        }
-        table.push_str(&format!(
-            "\n{name:<15} {:<7} {:<7} {:<7} {:<12} {}",
-            score::shown(b.precision),
-            score::shown(b.recall),
-            score::shown(b.f1),
-            score::shown(row.false_merge),
-            score::shown(row.recovery)
-        ));
+/// With relationship rules, the mapping's own key declares edges, and the mapping and the
+/// ceiling both score edge precision and recall 1.0 on a non-empty edge set.
+fn edges_grade_perfectly(mapping: &StreamMapping, own: &grade::Grade) -> Result<(), String> {
+    if mapping.relationships.is_empty() {
+        return Ok(());
     }
-    Ok(table)
+    for (row, graded) in [("mapping", &own.edges), ("ceiling", &own.ceiling_edges)] {
+        let perfect = graded.as_ref().is_some_and(|e| {
+            e.key_edges > 0 && e.micro.precision == Some(1.0) && e.micro.recall == Some(1.0)
+        });
+        if !perfect {
+            return Err(format!(
+                "scorer: {SAMPLE_MAPPING}'s edges graded against its own key do not score 1.0 ({row}: {graded:?})"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Per record the clusters `MappingEngine` proposes, and its relationship claims as edges.

@@ -1,6 +1,6 @@
 //! Grading a mapping against a key on one corpus: the identity score (`score`) for the mapping and
-//! its oracle ceiling, plus the context-collision rows (`context`). Kept apart from both so
-//! neither imports the other.
+//! its oracle ceilings, the edge score (`edges`) when the key declares relationships, plus the
+//! context-collision rows (`context`). Kept apart from all three so none imports the others.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,8 +9,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::context::{ContextRow, rows};
+use super::edges::{EdgeScore, GoldEdges, score_edges};
 use super::key::KeySpec;
-use super::mentions::{Decoded, Mention, Partition, key_mentions, mapping_mentions};
+use super::mentions::{Decoded, MappingMentions, Mention, key_mentions, mapping_mentions};
 use super::score::{Score, score};
 
 /// A mapping graded against a key on one corpus.
@@ -35,6 +36,13 @@ pub(crate) struct Grade {
     /// The unfloored composite-key sub-metric, one row per key type and context path
     /// ([`super::context`]).
     pub contexts: BTreeMap<String, ContextRow>,
+    /// The mapping's edge score (contract B3 "Relationships"); `None` when the key declares no
+    /// relationships (format 2 or earlier).
+    pub edges: Option<EdgeScore>,
+    /// The oracle's edge score: the edge ceiling.
+    pub ceiling_edges: Option<EdgeScore>,
+    /// The oracle with links' edge score.
+    pub ceiling_links_edges: Option<EdgeScore>,
 }
 
 /// Grades `mapping` against `spec` on `payloads`. The payloads are decoded once for the key and
@@ -56,23 +64,31 @@ pub(crate) fn grade(
     };
     // A mention's record is its index in `payloads` whichever decode steps built the corpus, so
     // the key's excluded set applies to a prediction made on the mapping's own decoding.
-    let predicted = without(
-        mapping_mentions(mapping, mapping_corpus)?.partition,
-        &gold.excluded,
-    );
-    let oracle = without(
-        mapping_mentions(&spec.oracle()?, &corpus)?.partition,
-        &gold.excluded,
-    );
+    let predicted = without(mapping_mentions(mapping, mapping_corpus)?, &gold.excluded);
+    let oracle = without(mapping_mentions(&spec.oracle()?, &corpus)?, &gold.excluded);
     let linked = without(
-        mapping_mentions(&spec.oracle_with_links()?, &corpus)?.partition,
+        mapping_mentions(&spec.oracle_with_links()?, &corpus)?,
         &gold.excluded,
     );
+    let edges = GoldEdges::of(spec, &gold);
+    let edge = |found: &MappingMentions| {
+        edges
+            .as_ref()
+            .map(|g| score_edges(g, &found.partition, &found.edges, &unscored))
+    };
     Ok(Grade {
-        mapping: score(&gold.partition, &predicted, &unscored),
-        ceiling: score(&gold.partition, &oracle, &unscored),
-        ceiling_links: score(&gold.partition, &linked, &unscored),
-        contexts: rows(spec, &gold.partition, &predicted, &oracle)?,
+        mapping: score(&gold.partition, &predicted.partition, &unscored),
+        ceiling: score(&gold.partition, &oracle.partition, &unscored),
+        ceiling_links: score(&gold.partition, &linked.partition, &unscored),
+        contexts: rows(
+            spec,
+            &gold.partition,
+            &predicted.partition,
+            &oracle.partition,
+        )?,
+        edges: edge(&predicted),
+        ceiling_edges: edge(&oracle),
+        ceiling_links_edges: edge(&linked),
         excluded: gold.excluded_per_path(),
         abstained: gold.abstained,
         undecodable: corpus.undecodable(),
@@ -82,9 +98,14 @@ pub(crate) fn grade(
 /// A prediction with the key's excluded mentions dropped. `no_identity` means the key has no
 /// mention at that record and path, and the v0 mapping format cannot exclude a value, so every
 /// prediction (graded mapping and oracle alike) is filtered the same way; filtering only the
-/// oracle would make the ceiling unreachable by any expressible mapping.
-fn without(mut predicted: Partition, excluded: &BTreeSet<Mention>) -> Partition {
+/// oracle would make the ceiling unreachable by any expressible mapping. Edges keep their
+/// clusters: an edge whose endpoint cluster loses every mention here is dropped by the edge
+/// scorer (no scored mention), so an oracle edge on an excluded value does not count as false.
+/// One exception: when the same excluded value is also a scored mention of that type at another
+/// path, the cluster keeps that mention and the edge maps to its entity (edges carry no record).
+fn without(mut predicted: MappingMentions, excluded: &BTreeSet<Mention>) -> MappingMentions {
     predicted
+        .partition
         .cluster
         .retain(|mention, _| !excluded.contains(mention));
     predicted
