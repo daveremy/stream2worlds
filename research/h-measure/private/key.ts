@@ -1,15 +1,17 @@
 // The private-stream answer key (s2w#372): generator, verifier and hand-inspection sampler.
 // Plan and rulings: the s2w#372 issue comments of 2026-10-01 05:28Z.
 //
-// The key is data in key format 2 (xtask/src/h_measure/key.rs), read by `cargo xtask h-measure
-// score` exactly as dev-key-v2.json is. Identity is the source system's own identifier: an
-// item's (repo, number), a commit's 40-hex sha, a branch's (repo, name), a sprint's number,
-// a review seat's id, a comment's id. The table below is the source; the two JSON files are
-// its rendering and the test suite fails if either drifts.
+// The key is data (xtask/src/h_measure/key.rs), read by `cargo xtask h-measure score` exactly as
+// the dev keys are. Identity is the source system's own identifier: an item's (repo, number), a
+// commit's 40-hex sha, a branch's (repo, name), a sprint's number, a review seat's id, a
+// comment's id. The table below is the source and every pinned key file is its rendering:
+// v0 (key format 2, s2w#372), v1 (format 3, v0 plus relationship rows, s2w#388) and v2 (format
+// 3, v1 plus `refs` scored as item mentions, s2w#395). The test suite fails if any file drifts.
 //
 // usage (from the repository root, `node --experimental-strip-types research/h-measure/private/key.ts`):
-//   --write                                  rewrite the two key files from the table, and both
-//                                            keys' partition shape on the synthetic fixture
+//   --write                                  rewrite the two newest key files (v2) from the
+//                                            table, and the partition shapes on the synthetic
+//                                            fixture
 //   --edges                                  print the declared relationship edges (JSON)
 //   --check  --corpus SSE --provenance JSONL print the counts-only summary; exit 1 on a failed rule
 //   --sample N --seed S --corpus SSE --provenance JSONL --out FILE
@@ -26,7 +28,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { MARK, REPOS } from "./events.ts";
+import { MARK, MAX_REFS, REPOS } from "./events.ts";
 import { FIXTURE_PATH } from "./fixture.ts";
 
 type Seg = string | number;
@@ -44,14 +46,27 @@ const rule = (path: Path, ...identity: Path[]): Rule => ({ path, identity: ident
 
 // ---- the key ----
 
-/** Scored in both keys. Issues and PRs share one number space per repository, so one type. */
-const BASE_TYPES: KeyType[] = [
+/** A key version (the `-vN` in its file name) and its key format. */
+export type KeyVersion = 0 | 1 | 2;
+export type Format = 2 | 3;
+export const FORMAT: Record<KeyVersion, Format> = { 0: 2, 1: 3, 2: 3 };
+
+/** The `refs` slots a key enumerates: the capture keeps at most `MAX_REFS` per frame (s2w#395 Q2). */
+const SLOTS = Array.from({ length: MAX_REFS }, (_, i) => i);
+const refNumber = (i: number) => d("refs", i, "number");
+const refRepo = (i: number) => d("refs", i, "repo");
+
+/** Scored in both keys. Issues and PRs share one number space per repository, so one type.
+ * From v2 a ref is an item mention with identity (its own repo, its number), as `ref_number` is,
+ * so `lifeos#900` and `s2w#900` named in one PR body join two different items (s2w#395). */
+const baseTypes = (version: KeyVersion): KeyType[] => [
   { type: "item", mentions: [
     rule(d("number"), d("repo"), d("number")),
     rule(d("issue"), d("repo"), d("issue")),
     rule(d("key"), d("repo"), d("issue")), // "s2w#372" on a leg is an alias of (repo, issue)
     rule(d("pr"), d("repo"), d("pr")),
     rule(d("ref_number"), d("ref_repo"), d("ref_number")), // a cross-repo ref keeps its own repo
+    ...(version >= 2 ? SLOTS.map((i) => rule(refNumber(i), refRepo(i), refNumber(i))) : []),
   ] },
   { type: "commit", mentions: [
     rule(d("sha")), rule(d("head_sha")), rule(d("merge_commit_sha")), rule(d("commit_sha")),
@@ -67,40 +82,47 @@ const BASE_TYPES: KeyType[] = [
 ];
 
 /** Scored only in the context-scored variant (ruling 4): two repo values and one observable
- * actor would carry a large share of the micro score for a trivially keyed field. */
-const CONTEXT_TYPES: KeyType[] = [
-  { type: "repo", mentions: [rule(d("repo")), rule(d("ref_repo"))] },
+ * actor would carry a large share of the micro score for a trivially keyed field. From v2 a
+ * ref's repo is a `repo` mention too, as `ref_repo` is (s2w#395 Q5). */
+const contextTypes = (version: KeyVersion): KeyType[] => [
+  { type: "repo", mentions: [rule(d("repo")), rule(d("ref_repo")), ...(version >= 2 ? SLOTS.map((i) => rule(refRepo(i))) : [])] },
   { type: "actor", mentions: [
     { ...rule(d("actor")), no_identity: ["other"] }, { ...rule(d("author")), no_identity: ["other"] },
   ] },
 ];
-const CONTEXT_PATHS: Path[] = CONTEXT_TYPES.flatMap((t) => t.mentions.map((m) => m.path));
 
 /** Unscored in both (contract B3 "ambiguous or unobservable"): plumbing, values and transport.
- * `refs` is ambiguous by construction: `issueRefs` keeps `#n` and drops a `lifeos#`/`s2w#`
- * prefix, so the repo of a ref is unknown (ruling 2; v1 if the capture carries it). */
-const UNSCORED: Unscored[] = [
+ * v0 and v1 also leave all of `refs` unscored: the captures v0 was pinned against kept a bare `#n`
+ * and dropped every prefixed ref (`lifeos#5` was lost, not stripped), so a kept ref was the
+ * event's own repo but no field said so. Since s2w#395 PR 1 every ref is `{repo, number}`, and
+ * v2 scores it (`baseTypes`); its repo is unscored in the base key, as `ref_repo` is. */
+const unscoredOf = (version: KeyVersion): Unscored[] => [
   ...["kind", "ts", "ts_start", "ts_end", "is_pr", "step", "leg", "round", "verdict", "engines",
     "engine", "model", "tier", "script", "event", "label", "pts", "comment_bytes", "co_authored",
     "base_ref", "row_id"].map((k) => d(k)),
-  { prefix: d("refs") },
+  ...(version >= 2 ? [] : [{ prefix: d("refs") }]),
 ];
 
 export type Variant = "base" | "context-scored";
-export type Format = 2 | 3;
-/** The key files per key format: v0 is format 2 (pinned, never rewritten); v1 is format 3, v0
- * plus `EDGES` as relationship rows (s2w#388). `--write` writes only format 3. */
-export const KEY_FILES: Record<Format, Record<Variant, string>> = {
-  2: { base: "private-key-v0.json", "context-scored": "private-key-v0.context-scored.json" },
-  3: { base: "private-key-v1.json", "context-scored": "private-key-v1.context-scored.json" },
+/** The key files per key version. v0 (format 2) and v1 (format 3) are pinned and never
+ * rewritten; `key.test.ts` checks that `spec` still renders them byte for byte. `--write`
+ * writes only `LATEST`. */
+export const KEY_FILES: Record<KeyVersion, Record<Variant, string>> = {
+  0: { base: "private-key-v0.json", "context-scored": "private-key-v0.context-scored.json" },
+  1: { base: "private-key-v1.json", "context-scored": "private-key-v1.context-scored.json" },
+  2: { base: "private-key-v2.json", "context-scored": "private-key-v2.context-scored.json" },
 };
+export const LATEST: KeyVersion = 2;
 export const KEY_DIR = fileURLToPath(new URL("..", import.meta.url));
 
-export function spec(variant: Variant, version: Format = 3): Spec {
+export function spec(variant: Variant, version: KeyVersion = LATEST): Spec {
+  const format = FORMAT[version];
+  const base = baseTypes(version), context = contextTypes(version);
+  const contextPaths = context.flatMap((t) => t.mentions.map((m) => m.path));
   const s: Spec = variant === "base"
-    ? { version, decode: [["data"]], types: BASE_TYPES, unscored: [...CONTEXT_PATHS, ...UNSCORED] }
-    : { version, decode: [["data"]], types: [...BASE_TYPES, ...CONTEXT_TYPES], unscored: UNSCORED };
-  return version === 3 ? { ...s, relationships: relationships() } : s;
+    ? { version: format, decode: [["data"]], types: base, unscored: [...contextPaths, ...unscoredOf(version)] }
+    : { version: format, decode: [["data"]], types: [...base, ...context], unscored: unscoredOf(version) };
+  return format === 3 ? { ...s, relationships: relationships(version) } : s;
 }
 
 /** Compact JSON with `, ` and `: ` separators and `{ … }` objects, as the dev keys are written. */
@@ -119,7 +141,7 @@ export function render(s: Spec): string {
     `  "unscored": [\n${s.unscored.map((u) => `    ${j(u)}`).join(",\n")}\n  ]${rows}\n}\n`;
 }
 
-// ---- relationships: `EDGES` is rendered into the format-3 key (s2w#388); `kinds`/`event` stay notes here ----
+// ---- relationships: `edgesOf` is rendered into the format-3 keys (s2w#388); `kinds`/`event` stay notes here ----
 
 /** A typed directed edge between two mentions in one frame: `from` and `to` are mention paths of
  * the base key, present together on frames of kind `kinds` (and timeline `event`, if given).
@@ -127,7 +149,7 @@ export function render(s: Spec): string {
 export interface Edge { label: string; kinds: string[]; event?: string; from: Path; to: Path; observable: boolean; note?: string }
 const edge = (label: string, kinds: string[], from: Path, to: Path, extra: Partial<Edge> = {}): Edge =>
   ({ label, kinds, from, to, observable: true, ...extra });
-export const EDGES: Edge[] = [
+export const edgesOf = (version: KeyVersion = LATEST): Edge[] => [
   edge("cross-references", ["issue.event"], d("number"), d("ref_number"), { event: "cross-referenced" }),
   edge("references", ["issue.event"], d("number"), d("commit_sha"), { event: "referenced" }),
   edge("has-comment", ["issue.event"], d("number"), d("comment_id"), { event: "commented" }),
@@ -143,15 +165,26 @@ export const EDGES: Edge[] = [
   edge("leg-pr", ["leg.status"], d("key"), d("pr")),
   edge("parent", ["commit"], d("sha"), d("parents", 0)),
   edge("parent", ["commit"], d("sha"), d("parents", 1)),
-  edge("names", ["pr.opened"], d("number"), d("refs"), { observable: false, note: "refs drop the repo prefix (ruling 2)" }),
-  edge("names", ["commit"], d("sha"), d("refs"), { observable: false, note: "refs drop the repo prefix (ruling 2)" }),
+  // v1's two rows keep their pinned reason verbatim, though it misdescribes the capture they
+  // were written for: a prefixed ref was dropped, not stripped (s2w#395). From v2 each `refs`
+  // slot is an item mention, so the rows are observable: one per slot and source. The commit
+  // rows take their own label: the scorer aligns each key edge type with ONE predicted
+  // (from type, to type, kind), so one `names` type holding item -> item and commit -> item
+  // edges would cap any mapping, the oracle included, at half of them.
+  ...(version >= 2
+    ? [...SLOTS.map((i) => edge("names", ["pr.opened"], d("number"), refNumber(i))),
+      ...SLOTS.map((i) => edge("commit-names", ["commit"], d("sha"), refNumber(i)))]
+    : [edge("names", ["pr.opened"], d("number"), d("refs"), { observable: false, note: "refs drop the repo prefix (ruling 2)" }),
+      edge("names", ["commit"], d("sha"), d("refs"), { observable: false, note: "refs drop the repo prefix (ruling 2)" })]),
 ];
+/** The newest key's edges (`--edges`, `--check`). */
+export const EDGES: Edge[] = edgesOf();
 
-/** `EDGES` as format-3 rows: `label` is the type; an unobservable edge carries its note as the
- * reason. `kinds`, `event` and an observable edge's note stay here: format 3 has no guard, so an
- * edge is pure co-occurrence of its two mentions in one frame (s2w#388 ruling 3). */
-function relationships(): Relationship[] {
-  return EDGES.map((e) => ({
+/** A version's edges as format-3 rows: `label` is the type; an unobservable edge carries its
+ * note as the reason. `kinds`, `event` and an observable edge's note stay here: format 3 has no
+ * guard, so an edge is pure co-occurrence of its two mentions in one frame (s2w#388 ruling 3). */
+function relationships(version: KeyVersion): Relationship[] {
+  return edgesOf(version).map((e) => ({
     type: e.label, from: e.from, to: e.to,
     ...(e.observable ? {} : { unobservable: e.note ?? "unobservable" }),
   }));
@@ -267,20 +300,23 @@ function perType(edges: Set<string>): Record<string, number> {
   return out;
 }
 
-/** Both keys' partition shapes on the synthetic fixture. `xtask/src/h_measure/private_key_tests.rs`
- * computes the same with the Rust executor and compares, so the two executors cannot drift. */
+/** The partition shapes on the synthetic fixture: v2 under `base`/`context-scored`, v1 under
+ * `v1.base`/`v1.context-scored` (v0 is v1 without `edges_per_type`).
+ * `xtask/src/h_measure/private_key_tests.rs` computes the same with the Rust executor and
+ * compares, so the two executors cannot drift on any pinned private key. */
 export const SHAPE_PATH = fileURLToPath(new URL("./fixture/synthetic-20.key-shape.json", import.meta.url));
 export function fixtureShape(): string {
   const { frames } = parseSse(readFileSync(FIXTURE_PATH, "utf8"));
   // One line per variant and section, so a drift diff names the section that moved.
-  const variant = (v: Variant) => Object.entries(shape(spec(v), frames))
-    .map(([k, x]) => `    ${JSON.stringify(k)}: ${JSON.stringify(x)}`).join(",\n");
-  return `{\n  "base": {\n${variant("base")}\n  },\n  "context-scored": {\n${variant("context-scored")}\n  }\n}\n`;
+  const section = (name: string, v: Variant, version: KeyVersion) => `  ${JSON.stringify(name)}: {\n` +
+    Object.entries(shape(spec(v, version), frames)).map(([k, x]) => `    ${JSON.stringify(k)}: ${JSON.stringify(x)}`).join(",\n") + "\n  }";
+  return `{\n${[section("base", "base", 2), section("context-scored", "context-scored", 2),
+    section("v1.base", "base", 1), section("v1.context-scored", "context-scored", 1)].join(",\n")}\n}\n`;
 }
 
 // ---- verification against the provenance sidecar ----
 
-export const RULES = ["sidecar-aligned", "sha-shape", "sha-resolved", "ref-repo", "seat-issue", "leg-key"] as const;
+export const RULES = ["sidecar-aligned", "sha-shape", "sha-resolved", "ref-repo", "ref-repo-known", "seat-issue", "leg-key"] as const;
 type RuleName = (typeof RULES)[number];
 
 export function check(header: string[], frames: Frame[], provenanceText: string) {
@@ -304,6 +340,8 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
       if (written !== p.sha_resolved) failures["sha-resolved"] += 1;
     }
     if (x.ref_number != null && !REPOS.includes(x.ref_repo as never)) failures["ref-repo"] += 1;
+    // every kept ref names a repo the capture knows (the capture drops and counts any other)
+    if (Array.isArray(x.refs)) for (const r of x.refs) if (!REPOS.includes((r as { repo?: unknown })?.repo as never)) failures["ref-repo-known"] += 1;
     if (x.kind === "review.seat") {
       const expect = x.issue === null && p.branch_pr === null;
       if (p.issue_unobservable !== expect) failures["seat-issue"] += 1;
@@ -429,7 +467,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     },
   });
   if (a.write) {
-    for (const v of ["base", "context-scored"] as const) writeFileSync(join(KEY_DIR, KEY_FILES[3][v]), render(spec(v)));
+    for (const v of ["base", "context-scored"] as const) writeFileSync(join(KEY_DIR, KEY_FILES[LATEST][v]), render(spec(v)));
     writeFileSync(SHAPE_PATH, fixtureShape());
   } else if (a.edges) {
     process.stdout.write(JSON.stringify(EDGES, null, 2) + "\n");
