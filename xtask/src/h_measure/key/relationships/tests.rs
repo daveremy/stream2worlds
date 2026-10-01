@@ -360,8 +360,9 @@ fn a_key_from_a_mapping_round_trips_through_its_file() {
         json!({ "sha": "c2", "parent": "c1", "user": "ann" }),
         json!({ "sha": "c3", "parent": "c2" }),
     ];
-    assert_eq!(gold(&read, &payloads).edges, gold(&own, &payloads).edges);
-    assert_eq!(gold(&read, &payloads).edges.len(), 3);
+    let edges = gold(&read, &payloads).edges;
+    assert_eq!(edges, gold(&own, &payloads).edges);
+    assert_eq!(edges.len(), 3);
 }
 
 #[test]

@@ -52,10 +52,6 @@ fn shape(spec: &KeySpec, payloads: &[Value]) -> Value {
             .entry(size.to_string())
             .or_default() += 1;
     }
-    let mut edges: BTreeMap<&str, usize> = BTreeMap::new();
-    for edge in &found.edges {
-        *edges.entry(&edge.label).or_default() += 1;
-    }
     let mut out = json!({
         "mentions": found.partition.cluster.len(),
         "entities": clusters.len(),
@@ -65,6 +61,10 @@ fn shape(spec: &KeySpec, payloads: &[Value]) -> Value {
         "excluded": found.excluded_per_path(),
     });
     if !spec.relationships.is_empty() {
+        let mut edges: BTreeMap<&str, usize> = BTreeMap::new();
+        for edge in &found.edges {
+            *edges.entry(&edge.label).or_default() += 1;
+        }
         out["edges_per_type"] = json!(edges);
     }
     out

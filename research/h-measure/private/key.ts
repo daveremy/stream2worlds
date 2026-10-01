@@ -89,7 +89,7 @@ const UNSCORED: Unscored[] = [
 export type Variant = "base" | "context-scored";
 export type Format = 2 | 3;
 /** The key files per key format: v0 is format 2 (pinned, never rewritten); v1 is format 3, v0
- * plus `EDGES` as relationship rows (s2w#388). `--write` writes only the newest. */
+ * plus `EDGES` as relationship rows (s2w#388). `--write` writes only format 3. */
 export const KEY_FILES: Record<Format, Record<Variant, string>> = {
   2: { base: "private-key-v0.json", "context-scored": "private-key-v0.context-scored.json" },
   3: { base: "private-key-v1.json", "context-scored": "private-key-v1.context-scored.json" },
@@ -208,8 +208,14 @@ export function execute(s: Spec, frames: Frame[]) {
   const mentions: Mention[] = [];
   const abstained: Record<string, number> = {};
   const excluded: Record<string, number> = {};
+  // The gold edges: per frame and observable row whose two paths both hold a gold mention there,
+  // `type \u001f from cluster \u001f to cluster`, unique (the Rust `key_mentions` edges).
+  const edges = new Set<string>();
+  const rows = (s.relationships ?? []).filter((r) => r.unobservable === undefined)
+    .map((r) => ({ type: r.type, from: pathId(r.from), to: pathId(r.to) }));
   frames.forEach((f, frame) => {
     if (!f.record) return;
+    const here = new Map<string, string>();
     for (const t of s.types) for (const r of t.mentions) {
       const value = lookup(f.record, r.path);
       const part = keyPart(value);
@@ -218,25 +224,15 @@ export function execute(s: Spec, frames: Frame[]) {
       if ((r.no_identity ?? []).some((x) => keyPart(x) === part)) { excluded[path] = (excluded[path] ?? 0) + 1; continue; }
       const parts = r.identity.map((p) => keyPart(lookup(f.record, p)));
       if (parts.some((p) => p === undefined)) { abstained[path] = (abstained[path] ?? 0) + 1; continue; }
-      mentions.push({ frame, path, type: t.type, cluster: `${t.type}\u001f${parts.join("\u001f")}`, value });
+      const cluster = `${t.type}\u001f${parts.join("\u001f")}`;
+      mentions.push({ frame, path, type: t.type, cluster, value });
+      here.set(path, cluster);
+    }
+    for (const r of rows) {
+      const from = here.get(r.from), to = here.get(r.to);
+      if (from !== undefined && to !== undefined) edges.add(`${r.type}\u001f${from}\u001f${to}`);
     }
   });
-  // The gold edges: per frame and observable row whose two paths both hold a gold mention there,
-  // `type \u001f from cluster \u001f to cluster`, unique (the Rust `key_mentions` edges).
-  const edges = new Set<string>();
-  const rows = (s.relationships ?? []).filter((r) => r.unobservable === undefined);
-  const here = new Map<string, string>();
-  for (let i = 0; i <= mentions.length; i += 1) {
-    const m = mentions[i];
-    if (i > 0 && (m === undefined || m.frame !== mentions[i - 1].frame)) {
-      for (const r of rows) {
-        const from = here.get(pathId(r.from)), to = here.get(pathId(r.to));
-        if (from !== undefined && to !== undefined) edges.add(`${r.type}\u001f${from}\u001f${to}`);
-      }
-      here.clear();
-    }
-    if (m) here.set(m.path, m.cluster);
-  }
   return { mentions, abstained, excluded, edges, undecodable: frames.filter((f) => !f.record).length };
 }
 
@@ -318,6 +314,8 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
       if (x.pr != null && !opened.has(`${x.repo}#${x.pr}`)) legPrUnopened += 1;
     }
   });
+  // A capture check, not the gold count: frames of each edge's `kinds`/`event` carrying both raw
+  // values. The scored edges are pure co-occurrence of gold mentions (`key.edges_per_type`).
   const edges: Record<string, number> = {};
   for (const e of EDGES) {
     const k = `${e.label} ${pathId(e.from)} -> ${pathId(e.to)}`;

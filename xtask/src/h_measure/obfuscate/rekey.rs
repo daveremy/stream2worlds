@@ -70,7 +70,9 @@ pub(super) fn rekey(
 /// `row` renamed, and marked unobservable (unless it already is) by the first rules-file row
 /// that hides it: a relationship row whose `from` and `to` each name a field holding the key
 /// row's endpoint, or a path row holding either endpoint. Matching is on the endpoints only: a
-/// key row's type is a free label, and a key carries one row per `(from, to)` pair.
+/// key row's type is a free label, and a key carries one row per `(from, to)` pair. (In r1's
+/// rules file every relationship rule starts at a text or URL field, which no key mention path
+/// is, so there only a path rule can hide an observable row.)
 fn renamed_row(
     table: &FieldTable,
     row: &RelationshipRow,
@@ -79,24 +81,26 @@ fn renamed_row(
     let (from, to) = (chain(&row.from)?, chain(&row.to)?);
     let holds = |field: &[String], end: &[String]| end.starts_with(field);
     let named = |name: &str| name.split('.').map(str::to_owned).collect::<Vec<_>>();
-    let hidden = unobservable
-        .iter()
-        .find_map(|rule| match (&rule.path, &rule.from, &rule.to) {
-            (Some(path), _, _) if holds(path, &from) || holds(path, &to) => Some(format!(
-                "obfuscation: {} is unobservable ({})",
-                path.join("."),
-                rule.reason
-            )),
-            (None, Some(f), Some(t)) if holds(&named(f), &from) && holds(&named(t), &to) => {
-                Some(format!("obfuscation: {f} -> {t} ({})", rule.reason))
-            }
-            _ => None,
-        });
+    let hidden = || {
+        unobservable
+            .iter()
+            .find_map(|rule| match (&rule.path, &rule.from, &rule.to) {
+                (Some(path), _, _) if holds(path, &from) || holds(path, &to) => Some(format!(
+                    "obfuscation: {} is unobservable ({})",
+                    path.join("."),
+                    rule.reason
+                )),
+                (None, Some(f), Some(t)) if holds(&named(f), &from) && holds(&named(t), &to) => {
+                    Some(format!("obfuscation: {f} -> {t} ({})", rule.reason))
+                }
+                _ => None,
+            })
+    };
     Ok(RelationshipRow {
         label: row.label.clone(),
         from: rename(table, &row.from)?,
         to: rename(table, &row.to)?,
-        unobservable: row.unobservable.clone().or(hidden),
+        unobservable: row.unobservable.clone().or_else(hidden),
     })
 }
 

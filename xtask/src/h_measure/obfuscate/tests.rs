@@ -915,4 +915,10 @@ fn a_keys_only_run_needs_an_existing_meta() {
         .expect_err("no corpus and no meta");
     assert!(problem.contains("--corpus is required"), "{problem}");
     assert!(!fx.meta_path().exists());
+    // With the metadata present, a run with neither a corpus nor a key has nothing to do.
+    fx.run("a.key", &["dev"], &fx.meta_path()).unwrap();
+    let problem = fx
+        .run_keys("a.key", &[], &[], &fx.meta_path())
+        .expect_err("no corpus and no key");
+    assert!(problem.contains("--corpus is required"), "{problem}");
 }

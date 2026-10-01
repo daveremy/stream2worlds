@@ -545,3 +545,58 @@ fn an_identity_listing_a_path_twice_is_rejected() {
     ] }] });
     rejects(&value, "lists an identity path twice");
 }
+
+/// `dev-key-v3.obf-r1.json` is `dev-key-v2.obf-r1.json`'s identity reading plus dev-key-v3's
+/// relationship rows renamed through the replicate's committed field table (s2w#388 PR 3).
+#[test]
+fn the_v3_obfuscated_key_is_the_v2_one_plus_renamed_edges() {
+    let root = crate::workspace_root();
+    let pins = super::pins::Pins::load(&root).expect("the pins load");
+    let key = |file: &str| pins.key(&root, file).expect("the key matches its pin").1;
+    let (v2, v3) = (key("dev-key-v2.obf-r1.json"), key("dev-key-v3.obf-r1.json"));
+    let plain = key("dev-key-v3.json");
+    let without_edges = |spec: &KeySpec| {
+        let mut value = serde_json::to_value(spec).expect("the key serializes");
+        let object = value.as_object_mut().expect("a key is an object");
+        object.remove("version");
+        object.remove("relationships");
+        value
+    };
+    assert_eq!(without_edges(&v3), without_edges(&v2));
+    let text = std::fs::read_to_string(root.join("research/h-measure/obfuscation/r1.meta.json"))
+        .expect("the metadata reads");
+    let meta: serde_json::Value = serde_json::from_str(&text).expect("the metadata parses");
+    let names: std::collections::BTreeMap<Vec<String>, String> = meta["fields"]
+        .as_array()
+        .expect("fields")
+        .iter()
+        .map(|row| {
+            let path = serde_json::from_value(row["path"].clone()).expect("a path");
+            (path, row["name"].as_str().expect("a name").to_owned())
+        })
+        .collect();
+    let rename = |path: &s2w_model::FieldPath| {
+        let mut chain = Vec::new();
+        let mut out = vec![json!("data")];
+        for segment in &path.0[1..] {
+            match segment {
+                s2w_model::Segment::Key(k) => {
+                    chain.push(k.clone());
+                    out.push(json!(names[&chain]));
+                }
+                s2w_model::Segment::Index(i) => out.push(json!(i)),
+            }
+        }
+        serde_json::Value::Array(out)
+    };
+    assert_eq!(v3.relationships.len(), plain.relationships.len());
+    for (renamed, row) in v3.relationships.iter().zip(&plain.relationships) {
+        assert_eq!(renamed.label, row.label);
+        assert_eq!(
+            serde_json::to_value(&renamed.from).unwrap(),
+            rename(&row.from)
+        );
+        assert_eq!(serde_json::to_value(&renamed.to).unwrap(), rename(&row.to));
+        assert_eq!(renamed.unobservable, row.unobservable);
+    }
+}
