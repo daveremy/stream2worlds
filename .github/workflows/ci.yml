@@ -5,6 +5,11 @@ name: ci
 # self-hosted. A missing runner makes jobs QUEUE, not fail.
 # Self-hosted rules: never write under bare /tmp (16 GB shared tmpfs) -- TMPDIR and
 # CARGO_TARGET_DIR are set by the "self-hosted paths" step below; the runner user cannot read /home/dave.
+# Exception, deliberate (s2w#369): test EXECUTION gets TMPDIR on a per-job /dev/shm dir. Tests keep
+# SQLite stores under temp_dir and fsync on every write; on the shared ext4 disk those fsyncs stalled
+# 15-22 s under hub IO pressure and timed tests out. The dir is small (measured peak 16 MB, ~1 MB at
+# end of run), removed after the job, and dirs older than a day are swept. Compilation stays on
+# disk, except doctests, which rustdoc builds during the run.
 on:
   push:
     branches: [main]
@@ -39,8 +44,24 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: rustdoc (broken or private intra-doc links fail, s2w#251)
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      - name: test scratch on tmpfs (s2w#369; self-hosted only, hosted keeps its TMPDIR)
+        if: runner.environment == 'self-hosted'
+        run: |
+          # Sweep dirs a killed job could not remove (its always() step never ran).
+          find /dev/shm -maxdepth 1 -name 's2w-test-*' -user "$(id -u)" -mmin +1440 -exec rm -rf -- {} +
+          dir="/dev/shm/s2w-test-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          mkdir -p "$dir"
+          echo "S2W_TEST_TMPDIR=$dir" >> "$GITHUB_ENV"
       - name: test
-        run: cargo test --workspace
+        run: |
+          cargo test --workspace --no-run
+          # Hosted runners leave TMPDIR unset; never export an empty one (temp_dir() would be "").
+          if [ -n "${S2W_TEST_TMPDIR:-}" ]; then export TMPDIR="$S2W_TEST_TMPDIR"; fi
+          cargo test --workspace
+      - name: remove tmpfs test scratch
+        if: always() && env.S2W_TEST_TMPDIR != ''
+        run: |
+          case "$S2W_TEST_TMPDIR" in /dev/shm/s2w-test-?*) rm -rf -- "$S2W_TEST_TMPDIR" ;; esac
       - name: fitness functions
         run: cargo run --quiet --package xtask -- check  # not the alias: a .cargo/config would hide it
       - name: demo scripts (offline only -- demos themselves read a live stream, run them yourself)
