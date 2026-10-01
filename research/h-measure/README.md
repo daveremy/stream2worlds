@@ -6,7 +6,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, reserved-4 for s2w#291 PR 2, and reserved-5 for s2w#245 PR 4; `reserved` opened as held-out by s2w#244, the others by the PRs named), and the private stream's `private-dev` and `private-test` (s2w#371, with their provenance sidecars): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, reserved-4 for s2w#291 PR 2, reserved-5 for s2w#245 PR 4, and reserved-6 for s2w#375 (pinned by PR 1, still unopened); `reserved` opened as held-out by s2w#244, the others by the PRs named), and the private stream's `private-dev` and `private-test` (s2w#371, with their provenance sidecars): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `private/` | The private-stream capture (s2w#371): `capture.ts` (sources to SSE), `scrub.ts` (the fail-closed gate), `extract.ts` (the published `detail` regex table), `events.ts` (pure builders), `fixture.ts` and `fixture/synthetic-20.sse` (the only committed capture-format file: fake numbers and shas), `capture.test.ts`. See "Private stream" below. |
 | `prices.toml` | The public price table `cargo xtask gate3` charges a run by: one row per model snapshot, USD per million tokens, with its source page and date. |

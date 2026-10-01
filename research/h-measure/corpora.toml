@@ -147,6 +147,23 @@ events = 100000
 bytes = 155441219
 sha256 = "7bc24d57e4940db06a0f6d2edb153db24ed6c54b22ad230be1a654c0ca472320"
 
+# reserved-6 (s2w#375 PR 1): captured 2026-10-01 (UTC) with capture.sh's command and 3 h window, pinned
+# here before any #375 freeze. It starts 3 h after `reserved-5`'s window ends, and the whole window
+# was already in the past at capture time. Only the replay's summary line, the byte size and the
+# sha256 were read. Kept for #375 PR 2's score (the fresh span for H's v9 re-freeze under the
+# format-3 keys); role flips to heldout only when that PR opens it.
+[corpus.reserved-6]
+role = "reserved"
+file = "reserved-6.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-30T11:15:00Z"
+until = "2026-09-30T14:15:00Z"
+first_dt = "2026-09-30T11:15:00.000Z"
+last_dt = "2026-09-30T14:15:00.000Z"
+events = 100000
+bytes = 147746058
+sha256 = "2df0593c1e3121808a0e5df237f6fb3efdb9cd99170ed584a6bf0679f63619f4"
+
 # Obfuscated replicates (s2w#370 PR 2; contract B2.2). Written by `cargo xtask h-measure
 # obfuscate` from a pinned corpus with research/h-measure/obfuscation/recentchange.rules.toml;
 # the replicate's metadata (field table, shift, input and output sha256) is
