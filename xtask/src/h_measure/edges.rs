@@ -88,6 +88,7 @@ pub(crate) struct EdgeScore {
     /// Predicted edges of a type aligned with no key type (all false), per predicted type.
     pub unaligned_predicted: BTreeMap<String, usize>,
     /// Predicted edges with an endpoint cluster that has no strict-majority entity (all false).
+    /// Not disjoint from `unaligned_predicted`: such an edge of an unaligned type is in both.
     pub no_majority: usize,
     /// Predicted edges dropped because an endpoint cluster has no scored mention (every mention
     /// unscored or excluded): neither true nor false, like an unscored mention.

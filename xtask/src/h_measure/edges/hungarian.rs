@@ -5,7 +5,8 @@
 //! [`best`] is the O(n³) Hungarian algorithm (Kuhn–Munkres with potentials) on the matrix padded
 //! to a square with zeros. [`assign`] then breaks ties: it walks the cells in `(row, column)`
 //! order and keeps a positive cell when some optimal assignment still holds it, so the result is
-//! the optimal assignment whose sorted pair list is lexicographically smallest.
+//! the optimal assignment whose sorted pair list is lexicographically smallest. That re-runs
+//! [`best`] per cell, O(n⁵) overall; n is a count of edge types, a handful per key.
 
 /// The pairs `(row, column)` of a maximum-weight assignment, positive cells only, sorted. Among
 /// assignments of equal total, the one whose sorted pair list is lexicographically smallest.

@@ -514,7 +514,9 @@ line, "No relationships declared by this key (format 2 or earlier).", and its JS
   precision does). Exactly half, or less, is no majority: an edge touching that cluster is false.
   An edge whose endpoint cluster has no scored mention at all (every mention unscored or
   excluded) is dropped and counted, never false; that is how an oracle edge to a `no_identity`
-  value stays out of the ceiling.
+  value stays out of the ceiling. Known limit: if that excluded value is also a scored mention of
+  the same type at another path, the cluster keeps that mention and the edge maps to its entity
+  (an edge carries no record to tell the two apart).
 - **Types.** A predicted edge's type is `(type of the from cluster, type of the to cluster,
   kind)`. Predicted types align one-to-one with key edge types by a maximum-weight assignment,
   the weight being how many distinct key edges of that key type the predicted type hits. The

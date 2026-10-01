@@ -410,14 +410,12 @@ fn pin_v3_key(root: &Path) {
     let data = root.join(DATA);
     let mut key: serde_json::Value =
         serde_json::from_slice(&fs::read(data.join(KEY)).unwrap()).unwrap();
-    let paths: Vec<serde_json::Value> = key["types"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .flat_map(|t| t["mentions"].as_array().unwrap().iter())
-        .map(|m| m["path"].clone())
-        .take(2)
-        .collect();
+    // Two paths every test event holds (`corpus_text`), of two different types, so the pinned
+    // relationship places gold edges and the recall assertion below is not vacuous.
+    let paths = [
+        serde_json::json!(["data", "wiki"]),
+        serde_json::json!(["data", "user"]),
+    ];
     key["version"] = 3.into();
     key["relationships"] =
         serde_json::json!([{ "type": "next", "from": paths[0], "to": paths[1] }]);
@@ -455,7 +453,9 @@ fn score_prints_edges_for_a_key_with_relationships_and_one_line_for_one_without(
         assert!(grade(1)[field].is_object(), "{field}");
     }
     assert!(
-        grade(1)["ceiling_edges"]["micro"]["recall"].is_number()
-            || grade(1)["ceiling_edges"]["key_edges"] == 0
+        grade(1)["ceiling_edges"]["key_edges"].as_u64() > Some(0),
+        "{}",
+        grade(1)
     );
+    assert!(grade(1)["ceiling_edges"]["micro"]["recall"].is_number());
 }

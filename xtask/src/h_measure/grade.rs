@@ -100,7 +100,9 @@ pub(crate) fn grade(
 /// prediction (graded mapping and oracle alike) is filtered the same way; filtering only the
 /// oracle would make the ceiling unreachable by any expressible mapping. Edges keep their
 /// clusters: an edge whose endpoint cluster loses every mention here is dropped by the edge
-/// scorer (no scored mention), so an oracle edge on an excluded value never counts as false.
+/// scorer (no scored mention), so an oracle edge on an excluded value does not count as false.
+/// One exception: when the same excluded value is also a scored mention of that type at another
+/// path, the cluster keeps that mention and the edge maps to its entity (edges carry no record).
 fn without(mut predicted: MappingMentions, excluded: &BTreeSet<Mention>) -> MappingMentions {
     predicted
         .partition
