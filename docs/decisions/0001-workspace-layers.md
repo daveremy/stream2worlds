@@ -126,3 +126,11 @@ cross-check still catches any `.rs` file an `include!` nested inside another mac
 A `.rs` file read with `include_str!` under `src/` also appears in dep-info, so the cross-check
 reports it as unvisited; read Rust-looking fixtures from outside `src/` or give them another
 extension.
+
+### Amendment, 2026-09-30: module sizes enforced (s2w#66)
+
+The 400-line cap above is no longer report-only. `xtask/module-size.toml` sets `enforce = true`,
+with one `[[exempt]]` row for each of the 14 modules over the cap on the day of the flip, each
+at its measured size with a reason and the burn-down issue s2w#378. Cap, exemption-shape and
+walker findings now fail `cargo xtask check`. A bin target that shares its package's lib crate
+name is keyed `name[bin]`, so a lib+bin package does not report two targets under one key.

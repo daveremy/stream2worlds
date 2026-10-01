@@ -68,6 +68,17 @@ fn exemptions(config: &Config, scan: &Scan) -> Vec<String> {
     }
     findings
 }
+/// A target's module key: its crate name with `-` as `_`, except that a non-lib target sharing
+/// its package's lib crate name (Cargo's default `src/lib.rs` + `src/main.rs` layout) keys as
+/// `name[bin]`, so the two roots do not collide. `[` never appears in a Rust path (s2w#66).
+fn target_key(targets: &[Target], target: &Target) -> String {
+    let name = target.name.replace('-', "_");
+    let shared = !target.is_lib()
+        && targets
+            .iter()
+            .any(|t| t.is_lib() && t.name.replace('-', "_") == name);
+    if shared { format!("{name}[bin]") } else { name }
+}
 pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<String> {
     let config_path = root.join("xtask/module-size.toml");
     let config: Config = match super::read_toml(&config_path) {
@@ -95,7 +106,8 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
         let mut walked = Vec::new();
         for target in pkg.targets.iter().filter(|t| t.walked()) {
             let mut target_scan = Scan::default();
-            if let Err(e) = target_scan.file(&target.src_path, target.name.replace('-', "_"), true)
+            if let Err(e) =
+                target_scan.file(&target.src_path, target_key(&pkg.targets, target), true)
             {
                 findings.push(e);
             }
@@ -124,7 +136,7 @@ pub(super) fn check(root: &Path, meta: &super::Metadata, tighten: bool) -> Vec<S
 
 /// Tightens `module-size.toml` when allowed, then reports. The refusal to tighten over this
 /// ratchet's own findings is itself one of those findings, so it blocks exactly when they do:
-/// report-only findings leave the file untouched without failing another ratchet's
+/// with `enforce = false` they leave the file untouched without failing another ratchet's
 /// `--tighten-baseline` run (s2w#192), and growth always blocks.
 fn settle(
     config_path: &Path,
@@ -285,6 +297,36 @@ mod tests {
         let scratch = Scratch::new();
         let scan = scratch.scan("const A: &str = include_str!(\"x\");\nfn f() -> &'static [u8] { include_bytes!(\"y\") }\n#[cfg(test)] mod tests { const B: &str = std::include_str!(\"z\"); }\n");
         assert!(scan.findings.is_empty(), "{:?}", scan.findings);
+    }
+    #[test]
+    fn lib_and_bin_of_one_package_get_distinct_module_keys() {
+        let target = |name: &str, kind: &str| Target {
+            name: name.into(),
+            kind: vec![kind.into()],
+            src_path: PathBuf::new(),
+        };
+        // Cargo names a default lib with `_` and a default bin with the package's `-`.
+        let both = [target("my_app", "lib"), target("my-app", "bin")];
+        assert_eq!(target_key(&both, &both[0]), "my_app");
+        assert_eq!(target_key(&both, &both[1]), "my_app[bin]");
+        let bin_only = [target("my-app", "bin")];
+        assert_eq!(target_key(&bin_only, &bin_only[0]), "my_app");
+        let other = [target("core", "lib"), target("tool", "bin")];
+        assert_eq!(target_key(&other, &other[1]), "tool");
+        // Both roots and their shared child module keep separate rows.
+        let scratch = Scratch::new();
+        scratch.write("src/a.rs", "fn a() {}");
+        let mut rows = BTreeSet::new();
+        for (file, t) in [("src/lib.rs", &both[0]), ("src/main.rs", &both[1])] {
+            let path = scratch.write(file, "mod a;\nfn f() {}\n");
+            let mut scan = Scan::default();
+            scan.file(&path, target_key(&both, t), true).unwrap();
+            for key in scan.rows.into_keys() {
+                assert!(rows.insert(key.clone()), "{key} collided");
+            }
+        }
+        let want = ["my_app", "my_app::a", "my_app[bin]", "my_app[bin]::a"];
+        assert_eq!(rows, want.iter().map(|k| (*k).to_owned()).collect());
     }
     fn config() -> Config {
         Config {
