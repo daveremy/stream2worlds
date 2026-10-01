@@ -69,27 +69,54 @@ test("extraction table: only the named fields leave detail", () => {
   assert.deepEqual(extractDetail("P:- I:o R:/var/x"), {});
 });
 
-test("refs carry their repo: bare = own repo, known prefixes resolve, any other prefix is counted", () => {
+test("refs carry their repo: bare = own repo, known prefixes resolve, another repo is counted", () => {
   const s2w = (number: number) => ({ repo: "s2w", number });
   const lifeos = (number: number) => ({ repo: "lifeos", number });
-  assert.deepEqual(issueRefs("Part of #371. Closes #12, see lifeos#5 and a/#7 and #12", "s2w"),
-    { refs: [lifeos(5), s2w(12), s2w(371)], dropped: 1 });
+  const r = (refs: { repo: string; number: number }[], dropped = 0, overflow = 0) => ({ refs, dropped, overflow });
+  assert.deepEqual(issueRefs("Part of #371. Closes #12, see lifeos#5 and a/b#7 and #12", "s2w"),
+    r([lifeos(5), s2w(12), s2w(371)], 1));
   // `s2w#12`, `daveremy/stream2worlds#12` and a bare `#12` in an s2w event are one ref.
-  assert.deepEqual(issueRefs("#12 s2w#12 daveremy/stream2worlds#12", "s2w"), { refs: [s2w(12)], dropped: 0 });
+  assert.deepEqual(issueRefs("#12 s2w#12 daveremy/stream2worlds#12", "s2w"), r([s2w(12)]));
   // The same text in a lifeos event: the bare ref is lifeos's, the prefixed one stays s2w's.
-  assert.deepEqual(issueRefs("#12 s2w#12", "lifeos"), { refs: [lifeos(12), s2w(12)], dropped: 0 });
-  assert.deepEqual(issueRefs("daveremy/lifeos#5 (lifeos#6)", "s2w"), { refs: [lifeos(5), lifeos(6)], dropped: 0 });
-  assert.deepEqual(issueRefs("foo_lifeos#5 other/repo#3 Lifeos#4", "s2w"), { refs: [], dropped: 3 });
+  assert.deepEqual(issueRefs("#12 s2w#12", "lifeos"), r([lifeos(12), s2w(12)]));
+  assert.deepEqual(issueRefs("daveremy/lifeos#5 (lifeos#6)", "s2w"), r([lifeos(5), lifeos(6)]));
+  // An owner/repo prefix or a repo-key-shaped word names another repo.
+  assert.deepEqual(issueRefs("foo_lifeos#5 other/repo#3 nl#4", "s2w"), r([], 3));
   // No `#`, no ref: a bare number or a word-glued `#` is not a reference.
-  assert.deepEqual(issueRefs("step 12 of v2#beta and x#y", "s2w"), { refs: [], dropped: 0 });
-  assert.deepEqual(issueRefs(null, "s2w"), { refs: [], dropped: 0 });
+  assert.deepEqual(issueRefs("step 12 of v2#beta and x#y", "s2w"), r([]));
+  assert.deepEqual(issueRefs(null, "s2w"), r([]));
   assert.match(EXTRACTION_TABLE, / refs=\S+#/);
+});
+
+test("a prefix that is not a repo name reads as a bare #n, as before s2w#395", () => {
+  const s2w = (number: number) => ({ repo: "s2w", number });
+  assert.deepEqual(issueRefs("fix-#3", "s2w"), { refs: [s2w(3)], dropped: 0, overflow: 0 });
+  assert.deepEqual(issueRefs("v1.2#3", "s2w"), { refs: [s2w(3)], dropped: 0, overflow: 0 });
+  assert.deepEqual(issueRefs("PR#12", "s2w"), { refs: [s2w(12)], dropped: 0, overflow: 0 });
+});
+
+test("a ref right after a slash is kept: lifeos#5/s2w#6 is two refs", () => {
+  assert.deepEqual(issueRefs("lifeos#5/s2w#6", "s2w"),
+    { refs: [{ repo: "lifeos", number: 5 }, { repo: "s2w", number: 6 }], dropped: 0, overflow: 0 });
+});
+
+test("alias prefixes are case-insensitive", () => {
+  assert.deepEqual(issueRefs("Lifeos#4 S2W#5 DaveRemy/LifeOS#6 Daveremy/Stream2Worlds#7", "lifeos"), {
+    refs: [{ repo: "lifeos", number: 4 }, { repo: "lifeos", number: 6 }, { repo: "s2w", number: 5 }, { repo: "s2w", number: 7 }],
+    dropped: 0, overflow: 0,
+  });
+});
+
+test("the ref cap keeps the first refs in text order, then sorts", () => {
+  // In text order the first two are s2w#9 and lifeos#8; a sort-then-cap would keep lifeos#1, lifeos#8.
+  assert.deepEqual(issueRefs("#9 lifeos#8 lifeos#1 #2", "s2w", 2),
+    { refs: [{ repo: "lifeos", number: 8 }, { repo: "s2w", number: 9 }], dropped: 0, overflow: 2 });
 });
 
 test("refs past MAX_REFS are cut and counted; unknown prefixes are counted as ref-other-repo", () => {
   const drops = new Map<string, number>();
   const j: Joins = { sha: () => undefined, actor: () => "other", drop: (why, n = 1) => drops.set(why, (drops.get(why) ?? 0) + n) };
-  const body = Array.from({ length: MAX_REFS + 1 }, (_, i) => `#${i + 1}`).join(" ") + " a/#7";
+  const body = Array.from({ length: MAX_REFS + 1 }, (_, i) => `#${i + 1}`).join(" ") + " a/b#7";
   const [opened] = itemEvents([{
     repo: "s2w", id: 1, number: 99, is_pr: true, created_at: "2026-01-01T00:00:00Z", actor: "x", body,
   }], j);

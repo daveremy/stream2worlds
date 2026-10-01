@@ -61,13 +61,13 @@ export interface Joins {
 /** A key enumerates `refs.0` .. `refs.7`, so a frame carries at most this many (s2w#395 Q2). */
 export const MAX_REFS = 8;
 
-/** `issueRefs` with its drops counted: an unknown prefix is `ref-other-repo`, a ref past
- * `MAX_REFS` is `refs-overflow`. */
+/** `issueRefs` with its drops counted: another repo's ref is `ref-other-repo`, a ref past
+ * `MAX_REFS` (in text order, before the sort) is `refs-overflow`. */
 function refsOf(text: string | null, own: Repo, j: Joins): Ref[] {
-  const { refs, dropped } = issueRefs(text, own);
+  const { refs, dropped, overflow } = issueRefs(text, own, MAX_REFS);
   if (dropped) j.drop("ref-other-repo", dropped);
-  if (refs.length > MAX_REFS) j.drop("refs-overflow", refs.length - MAX_REFS);
-  return refs.slice(0, MAX_REFS);
+  if (overflow) j.drop("refs-overflow", overflow);
+  return refs;
 }
 
 export const TIMELINE_KINDS: ReadonlySet<string> = new Set([
