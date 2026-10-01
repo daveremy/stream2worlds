@@ -62,7 +62,7 @@ export function syntheticCapture(): { sse: string; provenance: string } {
     { repo: "lifeos", id: 9002, number: 900, is_pr: false, created_at: `${day}00:05:00Z`, actor: "bot", body: null },
     {
       repo: "s2w", id: 9001, number: 901, is_pr: true, created_at: `${day}00:40:00Z`, actor: "maintainer",
-      body: "Part of #900, see lifeos#900 and a/#7", head_sha: shas[1], head_ref: "feat/900-widget", base_ref: "main",
+      body: "Part of #900, see lifeos#900 and a/b#7", head_sha: shas[1], head_ref: "feat/900-widget", base_ref: "main",
       merged_at: `${day}00:58:00Z`, merge_commit_sha: shas[2], closed_by: "maintainer",
     },
   ], joins);

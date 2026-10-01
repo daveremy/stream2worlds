@@ -26,10 +26,17 @@ const PATTERNS = {
   engines: /\b(P:[A-Za-z0-9+:,-]+ I:[A-Za-z0-9+:,-]+ R:[A-Za-z0-9+:,-]+)/,
 } as const;
 
-/** An issue or PR reference in a PR body or commit subject: an optional repo prefix, then `#n`. */
-const REF = /(?<![\w/])([\w.\/-]+)?#(\d+)\b/g;
+/** An issue or PR reference in a PR body or commit subject: an optional prefix (`word` or
+ * `owner/repo`), then `#n`. A `/` before the prefix is allowed, so `lifeos#5/s2w#6` is two refs. */
+const REF = /(?<!\w)([\w-]+(?:\/[\w.-]+)?)?#(\d+)\b/g;
 
-/** The prefixes a ref may carry (s2w#395 Q3). GitHub writes the long form in cross-repo bodies. */
+/** A slash-less prefix shaped like a repo key (`nl`, `ce`, `foo_lifeos`): another repo, dropped.
+ * A prefix outside this shape (`PR`, `fix-`, the `2` of `v1.2`) is not a repo name, so the ref
+ * reads as a bare `#n`, as before s2w#395. */
+const OTHER_REPO_KEY = /^[a-z][a-z0-9_-]*[a-z0-9]$/;
+
+/** The prefixes a ref may carry (s2w#395 Q3), matched case-insensitively. GitHub writes the long
+ * form in cross-repo bodies. */
 const REF_ALIASES: Readonly<Record<string, Repo>> = {
   lifeos: "lifeos", s2w: "s2w", "daveremy/lifeos": "lifeos", "daveremy/stream2worlds": "s2w",
 };
@@ -63,20 +70,32 @@ export function extractDetail(detail: string | null): DetailFields {
 export interface Ref { repo: Repo; number: number }
 
 /** The issues and PRs a PR body or commit subject names (s2w#395). A bare `#n` is the event's own
- * repo (`own`), as GitHub reads it; `lifeos#n`, `s2w#n` and their `daveremy/...` long forms name
- * that repo; any other prefix (`a/#7`, `foo_lifeos#5`) is dropped and counted in `dropped`.
- * Deduplicated on `(repo, number)`, sorted by repo then number. */
-export function issueRefs(text: string | null, own: Repo): { refs: Ref[]; dropped: number } {
+ * repo (`own`), as GitHub reads it; `lifeos#n`, `s2w#n` and their `daveremy/...` long forms (any
+ * case) name that repo; an `owner/repo` prefix or a repo-key-shaped word (`nl#5`, `foo_lifeos#5`)
+ * names another repo and is dropped and counted in `dropped`; any other prefix (`PR#12`, `fix-#3`)
+ * is not a repo name and reads as a bare `#n`.
+ *
+ * Deduplicated on `(repo, number)`. The cap `max` keeps the first `max` distinct refs in TEXT
+ * order, so which refs survive does not depend on their repo or number; the rest are counted in
+ * `overflow`. The kept refs are then sorted by repo then number. */
+export function issueRefs(text: string | null, own: Repo, max = Number.POSITIVE_INFINITY):
+  { refs: Ref[]; dropped: number; overflow: number } {
   const seen = new Map<string, Ref>();
   let dropped = 0;
   for (const x of (text ?? "").matchAll(REF)) {
-    const repo = x[1] === undefined ? own : REF_ALIASES[x[1]];
+    const prefix = x[1];
+    let repo: Repo | undefined = own;
+    if (prefix !== undefined) {
+      repo = REF_ALIASES[prefix.toLowerCase()];
+      if (!repo && !prefix.includes("/") && !OTHER_REPO_KEY.test(prefix)) repo = own;
+    }
     if (!repo) { dropped += 1; continue; }
     const number = Number(x[2]);
     seen.set(`${repo}#${number}`, { repo, number });
   }
-  const refs = [...seen.values()].sort((a, b) => (a.repo < b.repo ? -1 : a.repo > b.repo ? 1 : a.number - b.number));
-  return { refs, dropped };
+  const all = [...seen.values()];
+  const refs = all.slice(0, max).sort((a, b) => (a.repo < b.repo ? -1 : a.repo > b.repo ? 1 : a.number - b.number));
+  return { refs, dropped, overflow: all.length - refs.length };
 }
 
 /** `pts:N` label value, or undefined. */
