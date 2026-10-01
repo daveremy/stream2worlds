@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "d1ee3c531e2842a6",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"group\",\"type_label\":\"group\",\"key\":[[\"data\",\"f101\",\"f4\"]],\"attrs\":[{\"name\":\"f31\",\"path\":[\"data\",\"f101\",\"f31\"]},{\"name\":\"f83\",\"path\":[\"data\",\"f83\"]}]},{\"id\":\"f43\",\"type_label\":\"f43\",\"key\":[[\"data\",\"f43\"]],\"attrs\":[{\"name\":\"f32\",\"path\":[\"data\",\"f32\"]},{\"name\":\"f65\",\"path\":[\"data\",\"f65\"]},{\"name\":\"f59\",\"path\":[\"data\",\"f59\"]}]},{\"id\":\"f66\",\"type_label\":\"f43\",\"key\":[[\"data\",\"f66\"]],\"attrs\":[]},{\"id\":\"f58\",\"type_label\":\"f58\",\"key\":[[\"data\",\"f58\"]],\"attrs\":[{\"name\":\"f59\",\"path\":[\"data\",\"f59\"]}]},{\"id\":\"f45\",\"type_label\":\"f45\",\"key\":[[\"data\",\"f45\"]],\"attrs\":[{\"name\":\"f78\",\"path\":[\"data\",\"f78\"]}]},{\"id\":\"f62\",\"type_label\":\"f62\",\"key\":[[\"data\",\"f101\",\"f62\"]],\"attrs\":[]},{\"id\":\"f94f68\",\"type_label\":\"f94f68\",\"key\":[[\"data\",\"f94\",\"f68\"]],\"attrs\":[{\"name\":\"f73\",\"path\":[\"data\",\"f73\"]},{\"name\":\"f32\",\"path\":[\"data\",\"f32\"]}]}],\"relationships\":[{\"from\":\"f45\",\"to\":\"group\",\"kind\":\"belongs to\"},{\"from\":\"f45\",\"to\":\"f43\",\"kind\":\"related to\"},{\"from\":\"f58\",\"to\":\"f45\",\"kind\":\"related to\"},{\"from\":\"f43\",\"to\":\"f58\",\"kind\":\"related to\"},{\"from\":\"f62\",\"to\":\"group\",\"kind\":\"belongs to\"},{\"from\":\"f43\",\"to\":\"f94f68\",\"kind\":\"related to\"}],\"links\":[{\"survivor\":\"f43\",\"absorbed\":\"f66\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1465,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 34498,
+      "cost_usd": 0.152753,
+      "latency_ms": 14873,
+      "started_at_ms": 1790883328164
+    }
+  ]
+}
