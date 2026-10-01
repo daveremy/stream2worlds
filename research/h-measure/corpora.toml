@@ -147,6 +147,23 @@ events = 100000
 bytes = 155441219
 sha256 = "7bc24d57e4940db06a0f6d2edb153db24ed6c54b22ad230be1a654c0ca472320"
 
+# reserved-6 (s2w#375 PR 1): captured 2026-10-01 (UTC) with capture.sh's command and 3 h window, pinned
+# here before any #375 freeze. It starts 3 h after `reserved-5`'s window ends, and the whole window
+# was already in the past at capture time. Only the replay's summary line, the byte size and the
+# sha256 were read. Kept for #375 PR 2's score (the fresh span for H's v9 re-freeze under the
+# format-3 keys); role flips to heldout only when that PR opens it.
+[corpus.reserved-6]
+role = "reserved"
+file = "reserved-6.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-30T11:15:00Z"
+until = "2026-09-30T14:15:00Z"
+first_dt = "2026-09-30T11:15:00.000Z"
+last_dt = "2026-09-30T14:15:00.000Z"
+events = 100000
+bytes = 147746058
+sha256 = "2df0593c1e3121808a0e5df237f6fb3efdb9cd99170ed584a6bf0679f63619f4"
+
 # Obfuscated replicates (s2w#370 PR 2; contract B2.2). Written by `cargo xtask h-measure
 # obfuscate` from a pinned corpus with research/h-measure/obfuscation/recentchange.rules.toml;
 # the replicate's metadata (field table, shift, input and output sha256) is
@@ -202,3 +219,43 @@ sha256 = "f19f69eddb2e4528f04d35e6307869b48131a5dfcf7cdb339f32e4d931109357"
 provenance = "private-test.provenance.jsonl"
 provenance_sha256 = "f4d997f29de2e9fb0f0bc2dd1eeee2efcd1ee7792234e47053669a41e912db1b"
 dropped = "outside-span:717,timeline-other-kind:1168,worker-other-repo:191"
+
+# private-dev-2 and private-test-2 (s2w#375 PR 1): the second private capture, same spans as
+# private-dev and private-test, taken 2026-10-01 (UTC) with the same `capture.ts` command and
+# `--copy-dir ~/.lifeos/s2w-private` after s2w#398 (sprint rows), s2w#405 (a sprint's actual
+# `(slot HH:MM–)` start) and s2w#395 (`refs` as `{repo, number}`, PRs #408 and #410) had merged.
+# They supersede the first capture for scoring; the first capture's rows above stay as the record
+# (the v8 private freeze and the s2w#372 key notes were made against them). Frame-level diff
+# against the first capture, counts only: private-dev-2 adds 5 `sprint.boundary` frames
+# (57 -> 62; 8,067 + 5 = 8,072 events) and private-test-2 adds 23 (0 -> 23; 5,501 + 23 = 5,524);
+# no frame of any kind is removed; the only changed field is `refs`, on `commit` and `pr.opened`
+# frames (699 + 209 and 716 + 161), which the s2w#375 Q3 amendment expects. `outside-span` grew
+# with the sprint rows outside each span and with timeline events GitHub recorded after the first
+# capture; `timeline-other-kind` grew with the latter; `ref-other-repo` and `refs-overflow` are s2w#395's new counters. `key.ts --check` on
+# private-dev-2 and its sidecar: 0 failed rules. private-test-2 stays reserved: only its stanza
+# (counts, size, sha256) and the counts-only frame diff were read.
+[corpus.private-dev-2]
+role = "development"
+file = "private-dev-2.raw.sse"
+stream = "private"
+since = "2026-09-21T00:00:00Z"
+until = "2026-09-28T12:00:00Z"
+events = 8072
+bytes = 2323964
+sha256 = "d3f91c4dae1fba3ddc86872cc2879d640638fdd6fb059dc91de78fe965ef0766"
+provenance = "private-dev-2.provenance.jsonl"
+provenance_sha256 = "662b97a8beecd60d887ea965d82a731d09c879680430f846bcd06d4168e693dd"
+dropped = "outside-span:6907,ref-other-repo:116,refs-overflow:27,timeline-other-kind:2811,worker-other-repo:1109"
+
+[corpus.private-test-2]
+role = "reserved"
+file = "private-test-2.raw.sse"
+stream = "private"
+since = "2026-09-29T00:00:00Z"
+until = "2026-10-01T00:00:00Z"
+events = 5524
+bytes = 1575698
+sha256 = "4314ec45a06c44fc77d9d25a9c856c8ddda948ac17f86bce8cd127c1478dccc5"
+provenance = "private-test-2.provenance.jsonl"
+provenance_sha256 = "222c0be2472f85321777c7989fa67c9ec26c8a7af453cc234d31c9b861ae4c66"
+dropped = "outside-span:987,ref-other-repo:17,refs-overflow:22,timeline-other-kind:1262,worker-other-repo:191"

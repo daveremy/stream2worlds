@@ -685,3 +685,19 @@ It changes no arm, metric, threshold or stream; B2.3 stands as signed.
   events are never committed or published.
 - **Order.** The scored run on `private-test` precedes any publication of the source repos; if
   that order ever has to break, Dave rules on §B2.3 first (karpathy ruling, s2w#371, 2026-10-01).
+
+### 2026-10-01: the private stream's second capture (s2w#375; addition, no change in meaning)
+
+The private stream was captured a second time over the same spans, after the capture gained
+sprint rows (s2w#398), a sprint's actual start (s2w#405) and `refs` as `{repo, number}`
+(s2w#395). It changes no arm, metric, threshold, stream or span; B2.3 stands as signed.
+
+- **Spans.** Development `private-dev-2`, 2026-09-21T00:00Z to 2026-09-28T12:00Z (8,072 events);
+  held-out `private-test-2`, 2026-09-29T00:00Z to 2026-10-01T00:00Z (5,524 events), pinned
+  `reserved` in `research/h-measure/corpora.toml` until a score opens it. The counts:
+  [`research/h-measure/README.md` § Private stream](../research/h-measure/README.md#private-stream-s2w371).
+- **What changed.** Sprint-boundary frames were added (5 and 23) and `refs` was reshaped; nothing
+  else, by a counts-only frame diff against the first capture. The first capture's pins stay as
+  the record; the second supersedes it for scoring.
+- **Order.** As in the note above: the scored run on `private-test-2` precedes any publication of
+  the source repos. The freeze it is scored against lands in s2w#375's second PR, before that run.
