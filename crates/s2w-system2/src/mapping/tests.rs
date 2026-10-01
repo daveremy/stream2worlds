@@ -3,9 +3,12 @@ use serde_json::{Value, json};
 
 use super::{CallGate, MAX_ATTEMPTS, MappingProposer, MappingResult, NoGate, accept};
 use crate::prompt;
-use crate::provider::{ProviderError, Reply};
+use std::collections::VecDeque;
+use std::sync::Mutex;
+
+use crate::provider::{Provider, ProviderError, Reply};
 use crate::record::CallRecord;
-use crate::replay::{self, ReplayProvider};
+use crate::replay::{self, ReplayProvider, recording_json};
 
 /// A valid version-2 mapping with a link (decision 0027).
 const GOOD: &str = include_str!("../../../s2w-system1/testdata/sample-links.mapping.json");
@@ -20,7 +23,7 @@ fn input() -> MappingInput {
         corpus: "dev".to_owned(),
         window: 100,
         replicate: 1,
-        events: 100,
+        events_read: 100,
         heuristic: None,
         decode: vec![],
         event_type: None,
@@ -309,4 +312,39 @@ fn hostile_stream_text_stays_on_the_data_line_in_both_arms() {
         1
     );
     assert!(repair.starts_with(&raw));
+}
+
+/// Answers each call with the next scripted result, whatever the prompt.
+struct Scripted(Mutex<VecDeque<Result<Reply, ProviderError>>>);
+
+impl Provider for Scripted {
+    fn complete(&self, _prompt: &str) -> Result<Reply, ProviderError> {
+        self.0.lock().unwrap().pop_front().unwrap()
+    }
+}
+
+#[test]
+fn a_recorded_run_with_a_retry_and_a_repair_replays_call_for_call() {
+    let script = VecDeque::from([
+        Err(ProviderError::Timeout {
+            secs: 5,
+            latency_ms: 5000,
+            stdout: Some("partial".to_owned()),
+        }),
+        Ok(reply("not json")),
+        Ok(reply(GOOD)),
+    ]);
+    let live = MappingProposer::new(Scripted(Mutex::new(script))).with_clock(|| Some(7));
+    let recorded = live.propose_raw(&raw_input(), &mut NoGate);
+    assert_eq!(recorded.result, MappingResult::Mapping(good()));
+    let steps: Vec<_> = recorded.calls.iter().map(|c| (c.attempt, c.call)).collect();
+    assert_eq!(steps, [(1, 1), (2, 1), (2, 2)]);
+
+    let text = recording_json(&recorded.calls).unwrap();
+    let replay = ReplayProvider::from_json(&text).unwrap();
+    let replayed = MappingProposer::new(replay)
+        .with_clock(|| Some(7))
+        .propose_raw(&raw_input(), &mut NoGate);
+
+    assert_eq!(replayed, recorded);
 }

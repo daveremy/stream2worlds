@@ -135,3 +135,24 @@ fn a_format_2_row_needs_exactly_one_of_reply_and_error() {
         Err(ReplayError::Hash(_))
     ));
 }
+
+#[test]
+fn format_1_refuses_a_strict_provider_and_a_reply_it_cannot_hold() {
+    let row = CallRecord::new((1, 1), hash("p"), &Ok(reply("a")), None);
+    let strict = ReplayProvider::from_calls(&[row]).unwrap();
+    assert!(matches!(strict.to_json(), Err(ReplayError::Lossy)));
+
+    let mut priced = ReplayProvider::new();
+    priced.insert(
+        "p",
+        Reply {
+            cost_usd: Some(0.5),
+            ..reply("a")
+        },
+    );
+    assert!(matches!(priced.to_json(), Err(ReplayError::Lossy)));
+
+    let mut plain = ReplayProvider::new();
+    plain.insert("p", reply("a"));
+    assert!(plain.to_json().is_ok());
+}

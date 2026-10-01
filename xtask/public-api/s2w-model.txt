@@ -104,7 +104,7 @@ s2w_model::mapping: impl StreamMapping { pub fn validate (& self) -> Result < ()
 s2w_model::mapping: pub const MAPPING_VERSION : u32 = _ ;
 s2w_model::mapping: pub const MAPPING_VERSION_LINKS : u32 = _ ;
 s2w_model::mapping_input: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct HeuristicMapping { pub identity : String , pub mapping : StreamMapping }
-s2w_model::mapping_input: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct MappingInput { pub corpus : String , pub window : u64 , pub replicate : u32 , pub events : u64 , pub heuristic : Option < HeuristicMapping > , pub decode : Vec < FieldPath > , pub event_type : Option < FieldPath > , pub paths : Vec < PathStats > , pub sample : Vec < serde_json :: Value > }
+s2w_model::mapping_input: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct MappingInput { pub corpus : String , pub window : u64 , pub replicate : u32 , pub events_read : u64 , pub heuristic : Option < HeuristicMapping > , pub decode : Vec < FieldPath > , pub event_type : Option < FieldPath > , pub paths : Vec < PathStats > , pub sample : Vec < serde_json :: Value > }
 s2w_model::mapping_input: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct RawMappingInput { pub corpus : String , pub window : u64 , pub replicate : u32 , pub events : Vec < String > }
 s2w_model::natural_key: # [derive (Clone , Debug , PartialEq , Eq , PartialOrd , Ord , Hash , Serialize , Deserialize)] pub struct NaturalKey (_) ;
 s2w_model::natural_key: # [derive (Clone , Debug , PartialEq , Eq , PartialOrd , Ord , Hash)] pub enum KeyPart { Str (String) , Int (i64) , Bool (bool) }

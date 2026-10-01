@@ -4,6 +4,8 @@ use s2w_model::{
     DashboardManifest, ManifestInput, ManifestOutcome, ManifestProposer, ProposerId, ProposerTrace,
 };
 
+use serde::de::DeserializeOwned;
+
 use crate::prompt;
 use crate::provider::{Provider, ProviderError, Reply};
 
@@ -97,22 +99,27 @@ impl<P: Provider> ManifestProposer for System2Proposer<P> {
 
 /// The manifest in `reply`, if it decodes and validates against `input`; else the fault.
 fn accept(reply: &str, input: &ManifestInput) -> Result<DashboardManifest, String> {
-    let body = unfence(reply);
-    let manifest: DashboardManifest = serde_json::from_str(body).map_err(|e| {
-        if e.is_data() {
-            format!("decode: {e}")
-        } else {
-            format!("not JSON: {e}")
-        }
-    })?;
+    let manifest: DashboardManifest = decode_reply(reply)?;
     manifest
         .validate(&input.context())
         .map_err(|e| format!("validator: {e}"))?;
     Ok(manifest)
 }
 
+/// The `T` in `reply`, after [`unfence`]; else the fault, `decode: ` when the JSON is not a
+/// `T` and `not JSON: ` when it is not JSON. Both proposers repair on this text.
+pub(crate) fn decode_reply<T: DeserializeOwned>(reply: &str) -> Result<T, String> {
+    serde_json::from_str(unfence(reply)).map_err(|e| {
+        if e.is_data() {
+            format!("decode: {e}")
+        } else {
+            format!("not JSON: {e}")
+        }
+    })
+}
+
 /// `reply` without surrounding whitespace and one surrounding code fence, if it has one.
-pub(crate) fn unfence(reply: &str) -> &str {
+fn unfence(reply: &str) -> &str {
     let trimmed = reply.trim();
     let Some(inner) = trimmed
         .strip_prefix("```")

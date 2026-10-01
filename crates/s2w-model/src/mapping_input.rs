@@ -33,7 +33,7 @@ pub struct MappingInput {
     /// The replicate, from 1.
     pub replicate: u32,
     /// Events the profiler read from the window.
-    pub events: u64,
+    pub events_read: u64,
     /// The profiler's mapping, or `None` when it abstained.
     pub heuristic: Option<HeuristicMapping>,
     /// Paths whose string values the profiler decoded as JSON.
@@ -73,7 +73,7 @@ mod tests {
             corpus: "dev".to_owned(),
             window: 10,
             replicate: 1,
-            events: 10,
+            events_read: 10,
             heuristic: None,
             decode: vec![],
             event_type: None,
@@ -83,7 +83,7 @@ mod tests {
         let text = serde_json::to_string(&input).unwrap();
         assert_eq!(
             text,
-            r#"{"corpus":"dev","window":10,"replicate":1,"events":10,"heuristic":null,"decode":[],"event_type":null,"paths":[],"sample":[{"a":1}]}"#
+            r#"{"corpus":"dev","window":10,"replicate":1,"events_read":10,"heuristic":null,"decode":[],"event_type":null,"paths":[],"sample":[{"a":1}]}"#
         );
         assert_eq!(serde_json::from_str::<MappingInput>(&text).unwrap(), input);
         let raw = r#"{"corpus":"dev","window":10,"replicate":2,"events":["x"],"more":1}"#;

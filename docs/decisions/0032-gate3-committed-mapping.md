@@ -73,10 +73,12 @@ milliseconds, from an injectable clock). A recording is `{"format": 2, "calls": 
 
 `ReplayProvider` reads format 1 and format 2. Format 1 keeps its behaviour: one reply per
 prompt, answered as often as it is asked, and a duplicate hash is refused. Format 2 is strict:
-the n-th ask of a prompt gets the n-th row recorded for it, a failure row replays as the same
-failure, and an ask past the last row is `NotRecorded`. That makes a recorded run with a
+the n-th ask of a prompt gets the n-th row recorded for it, a failure row replays as a failure
+that displays the same (its captured stdout is not kept), and an ask past the last row is
+`NotRecorded`. That makes a recorded run with a
 provider failure and a retry replay call for call. `ReplayProvider::to_json` still writes
-format 1 and refuses when it cannot hold what the provider holds.
+format 1 and refuses (`Lossy`) when it cannot hold what the provider holds: a format-2
+provider, a failure, several rows for one prompt, or a reply's cache tokens, cost or model.
 
 ## Reply format: `ClaudeJson`
 

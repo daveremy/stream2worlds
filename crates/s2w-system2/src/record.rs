@@ -48,13 +48,9 @@ impl CallRecord {
         started_at_ms: Option<u64>,
     ) -> Self {
         let empty = Reply::default();
-        let (reply, error, usage) = match result {
-            Ok(reply) => (Some(reply.text.clone()), None, reply),
-            Err(e) => (None, Some(e.to_string()), &empty),
-        };
-        let latency_ms = match result {
-            Ok(reply) => reply.latency_ms,
-            Err(e) => e.latency_ms(),
+        let (reply, error, usage, latency_ms) = match result {
+            Ok(reply) => (Some(reply.text.clone()), None, reply, reply.latency_ms),
+            Err(e) => (None, Some(e.to_string()), &empty, e.latency_ms()),
         };
         Self {
             attempt,

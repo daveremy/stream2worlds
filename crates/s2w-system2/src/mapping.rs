@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use s2w_model::{MappingInput, RawMappingInput, StreamMapping};
 
-use crate::manifest::unfence;
+use crate::manifest::decode_reply;
 use crate::prompt;
 use crate::provider::Provider;
 use crate::record::CallRecord;
@@ -139,6 +139,7 @@ impl<P: Provider> MappingProposer<P> {
     }
 
     fn attempts(&self, first: &str, gate: &mut dyn CallGate, run: &mut Run) -> MappingResult {
+        // Set by every attempt that does not return, so it holds the last attempt's failure.
         let mut last = String::new();
         for attempt in 1..=MAX_ATTEMPTS {
             let reply = match self.call((attempt, 1), first, gate, run) {
@@ -215,13 +216,7 @@ enum Called {
 
 /// The mapping in `reply`, if it decodes and validates; else the fault.
 fn accept(reply: &str) -> Result<StreamMapping, String> {
-    let mapping: StreamMapping = serde_json::from_str(unfence(reply)).map_err(|e| {
-        if e.is_data() {
-            format!("decode: {e}")
-        } else {
-            format!("not JSON: {e}")
-        }
-    })?;
+    let mapping: StreamMapping = decode_reply(reply)?;
     mapping.validate().map_err(|e| format!("validator: {e}"))?;
     Ok(mapping)
 }

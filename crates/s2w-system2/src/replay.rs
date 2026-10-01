@@ -181,14 +181,28 @@ impl ReplayProvider {
     ///
     /// # Errors
     ///
-    /// When serialization fails, or the provider holds a failure or several rows for one
-    /// prompt, which format 1 cannot hold; write those with [`recording_json`].
+    /// When serialization fails, or the provider holds what format 1 cannot: format 2's
+    /// answer-once rows, a failure, several rows for one prompt, or a reply's cache tokens,
+    /// cost or model. Write those with [`recording_json`].
     pub fn to_json(&self) -> Result<String, ReplayError> {
+        if self.strict {
+            return Err(ReplayError::Lossy);
+        }
         let mut replies = Vec::with_capacity(self.answers.len());
         for (prompt_hash, answers) in &self.answers {
             let [Ok(reply)] = answers.as_slice() else {
                 return Err(ReplayError::Lossy);
             };
+            let held = Reply {
+                text: reply.text.clone(),
+                input_tokens: reply.input_tokens,
+                output_tokens: reply.output_tokens,
+                latency_ms: reply.latency_ms,
+                ..Reply::default()
+            };
+            if held != *reply {
+                return Err(ReplayError::Lossy);
+            }
             replies.push(Recorded {
                 prompt_hash: prompt_hash.clone(),
                 reply: reply.text.clone(),
