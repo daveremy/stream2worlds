@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "56165d70ac51f869",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"repo\",\"type_label\":\"repository\",\"key\":[[\"data\",\"repo\"]],\"attrs\":[]},{\"id\":\"issue_num\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"number\"]],\"attrs\":[{\"name\":\"is_pr\",\"path\":[\"data\",\"is_pr\"]},{\"name\":\"base_ref\",\"path\":[\"data\",\"base_ref\"]},{\"name\":\"head_ref\",\"path\":[\"data\",\"head_ref\"]}]},{\"id\":\"issue_leg\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"issue\"]],\"attrs\":[{\"name\":\"key\",\"path\":[\"data\",\"key\"]}]},{\"id\":\"issue_pr\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"pr\"]],\"attrs\":[]},{\"id\":\"commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"sha\"]],\"attrs\":[{\"name\":\"author\",\"path\":[\"data\",\"author\"]},{\"name\":\"co_authored\",\"path\":[\"data\",\"co_authored\"]}]},{\"id\":\"commit_ref\",\"type_label\":\"commit\",\"key\":[[\"data\",\"commit_sha\"]],\"attrs\":[]},{\"id\":\"merge_commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"merge_commit_sha\"]],\"attrs\":[]},{\"id\":\"actor\",\"type_label\":\"user\",\"key\":[[\"data\",\"actor\"]],\"attrs\":[]},{\"id\":\"label\",\"type_label\":\"label\",\"key\":[[\"data\",\"label\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"issue_num\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"issue_leg\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"commit\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"issue_num\",\"to\":\"commit_ref\",\"kind\":\"referenced by commit\"},{\"from\":\"issue_num\",\"to\":\"label\",\"kind\":\"labeled with\"},{\"from\":\"issue_num\",\"to\":\"merge_commit\",\"kind\":\"merged as commit\"},{\"from\":\"issue_leg\",\"to\":\"issue_pr\",\"kind\":\"has pull request\"},{\"from\":\"issue_num\",\"to\":\"actor\",\"kind\":\"acted on by\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1996,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 14392,
+      "cost_usd": 0.077639,
+      "latency_ms": 16547,
+      "started_at_ms": 1790883689737
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "4fd8022c4b64bf65",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"acct\",\"type_label\":\"f19\",\"key\":[[\"data\",\"f19\"]],\"attrs\":[{\"name\":\"f1\",\"path\":[\"data\",\"f1\"]},{\"name\":\"f33\",\"path\":[\"data\",\"f33\"]},{\"name\":\"f3\",\"path\":[\"data\",\"f3\"]},{\"name\":\"f62\",\"path\":[\"data\",\"f62\"]}]},{\"id\":\"grp\",\"type_label\":\"f4\",\"key\":[[\"data\",\"f4\"]],\"attrs\":[{\"name\":\"f54\",\"path\":[\"data\",\"f54\"]},{\"name\":\"f33\",\"path\":[\"data\",\"f33\"]}]},{\"id\":\"f52\",\"type_label\":\"f52\",\"key\":[[\"data\",\"f52\"]],\"attrs\":[{\"name\":\"f62\",\"path\":[\"data\",\"f62\"]}]},{\"id\":\"f73\",\"type_label\":\"f52\",\"key\":[[\"data\",\"f73\"]],\"attrs\":[]},{\"id\":\"f39\",\"type_label\":\"f39\",\"key\":[[\"data\",\"f39\"]],\"attrs\":[]},{\"id\":\"f41\",\"type_label\":\"f41\",\"key\":[[\"data\",\"f11\",\"f41\"]],\"attrs\":[]},{\"id\":\"f58\",\"type_label\":\"f6/f58\",\"key\":[[\"data\",\"f6\",\"f58\"]],\"attrs\":[{\"name\":\"f47\",\"path\":[\"data\",\"f47\"]},{\"name\":\"f62\",\"path\":[\"data\",\"f62\"]}]},{\"id\":\"f94\",\"type_label\":\"f6/f94\",\"key\":[[\"data\",\"f6\",\"f94\"]],\"attrs\":[{\"name\":\"f47\",\"path\":[\"data\",\"f47\"]},{\"name\":\"f102\",\"path\":[\"data\",\"f102\"]}]}],\"relationships\":[{\"from\":\"grp\",\"to\":\"acct\",\"kind\":\"contains\"},{\"from\":\"f52\",\"to\":\"acct\",\"kind\":\"related to\"},{\"from\":\"acct\",\"to\":\"f39\",\"kind\":\"associated with\"},{\"from\":\"acct\",\"to\":\"f41\",\"kind\":\"associated with\"},{\"from\":\"f52\",\"to\":\"f58\",\"kind\":\"related to\"},{\"from\":\"f52\",\"to\":\"f94\",\"kind\":\"related to\"}],\"links\":[{\"survivor\":\"f52\",\"absorbed\":\"f73\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1581,
+      "cache_read_tokens": 2074,
+      "cache_write_tokens": 32779,
+      "cost_usd": 0.1473448,
+      "latency_ms": 12728,
+      "started_at_ms": 1790883244650
+    }
+  ]
+}

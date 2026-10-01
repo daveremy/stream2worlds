@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "24cb07fd2eab4e94",
+      "reply": "{\"version\":2,\"decode\":[],\"entities\":[{\"id\":\"issue\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"number\"]],\"attrs\":[{\"name\":\"is_pr\",\"path\":[\"data\",\"is_pr\"]},{\"name\":\"head_ref\",\"path\":[\"data\",\"head_ref\"]},{\"name\":\"base_ref\",\"path\":[\"data\",\"base_ref\"]},{\"name\":\"label\",\"path\":[\"data\",\"label\"]}]},{\"id\":\"issue_leg\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"issue\"]],\"attrs\":[{\"name\":\"step\",\"path\":[\"data\",\"step\"]},{\"name\":\"round\",\"path\":[\"data\",\"round\"]},{\"name\":\"leg\",\"path\":[\"data\",\"leg\"]},{\"name\":\"verdict\",\"path\":[\"data\",\"verdict\"]}]},{\"id\":\"pr_leg\",\"type_label\":\"pull_request\",\"key\":[[\"data\",\"repo\"],[\"data\",\"pr\"]],\"attrs\":[]},{\"id\":\"commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"sha\"]],\"attrs\":[{\"name\":\"author\",\"path\":[\"data\",\"author\"]},{\"name\":\"co_authored\",\"path\":[\"data\",\"co_authored\"]},{\"name\":\"committed_at\",\"path\":[\"data\",\"ts\"]}]},{\"id\":\"commit_ref\",\"type_label\":\"commit\",\"key\":[[\"data\",\"commit_sha\"]],\"attrs\":[]},{\"id\":\"merge_commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"merge_commit_sha\"]],\"attrs\":[]},{\"id\":\"commit_parent\",\"type_label\":\"commit\",\"key\":[[\"data\",\"parents\",0]],\"attrs\":[]},{\"id\":\"commit_issue\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"refs\",0,\"number\"]],\"attrs\":[]},{\"id\":\"actor\",\"type_label\":\"user\",\"key\":[[\"data\",\"actor\"]],\"attrs\":[]},{\"id\":\"author\",\"type_label\":\"user\",\"key\":[[\"data\",\"author\"]],\"attrs\":[]},{\"id\":\"repo\",\"type_label\":\"repository\",\"key\":[[\"data\",\"repo\"]],\"attrs\":[]},{\"id\":\"seat\",\"type_label\":\"agent_seat\",\"key\":[[\"data\",\"seat_id\"]],\"attrs\":[{\"name\":\"model\",\"path\":[\"data\",\"model\"]},{\"name\":\"engine\",\"path\":[\"data\",\"engine\"]},{\"name\":\"tier\",\"path\":[\"data\",\"tier\"]},{\"name\":\"script\",\"path\":[\"data\",\"script\"]}]}],\"relationships\":[{\"from\":\"actor\",\"to\":\"issue\",\"kind\":\"acted on\"},{\"from\":\"issue\",\"to\":\"repo\",\"kind\":\"in repository\"},{\"from\":\"commit\",\"to\":\"repo\",\"kind\":\"in repository\"},{\"from\":\"commit_ref\",\"to\":\"issue\",\"kind\":\"references issue\"},{\"from\":\"commit\",\"to\":\"commit_parent\",\"kind\":\"has parent\"},{\"from\":\"commit\",\"to\":\"commit_issue\",\"kind\":\"references issue\"},{\"from\":\"merge_commit\",\"to\":\"issue\",\"kind\":\"merges\"},{\"from\":\"author\",\"to\":\"commit\",\"kind\":\"authored\"},{\"from\":\"issue_leg\",\"to\":\"pr_leg\",\"kind\":\"has pull request\"},{\"from\":\"seat\",\"to\":\"issue_leg\",\"kind\":\"works on\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 2179,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 14392,
+      "cost_usd": 0.079469,
+      "latency_ms": 18474,
+      "started_at_ms": 1790883758717
+    },
+    {
+      "attempt": 1,
+      "call": 3,
+      "prompt_hash": "58335a9381313159",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"issue\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"number\"]],\"attrs\":[{\"name\":\"is_pr\",\"path\":[\"data\",\"is_pr\"]},{\"name\":\"head_ref\",\"path\":[\"data\",\"head_ref\"]},{\"name\":\"base_ref\",\"path\":[\"data\",\"base_ref\"]},{\"name\":\"label\",\"path\":[\"data\",\"label\"]}]},{\"id\":\"issue_leg\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"issue\"]],\"attrs\":[{\"name\":\"step\",\"path\":[\"data\",\"step\"]},{\"name\":\"round\",\"path\":[\"data\",\"round\"]},{\"name\":\"leg\",\"path\":[\"data\",\"leg\"]},{\"name\":\"verdict\",\"path\":[\"data\",\"verdict\"]}]},{\"id\":\"pr_leg\",\"type_label\":\"pull_request\",\"key\":[[\"data\",\"repo\"],[\"data\",\"pr\"]],\"attrs\":[]},{\"id\":\"commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"sha\"]],\"attrs\":[{\"name\":\"author\",\"path\":[\"data\",\"author\"]},{\"name\":\"co_authored\",\"path\":[\"data\",\"co_authored\"]},{\"name\":\"committed_at\",\"path\":[\"data\",\"ts\"]}]},{\"id\":\"commit_ref\",\"type_label\":\"commit\",\"key\":[[\"data\",\"commit_sha\"]],\"attrs\":[]},{\"id\":\"merge_commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"merge_commit_sha\"]],\"attrs\":[]},{\"id\":\"commit_parent\",\"type_label\":\"commit\",\"key\":[[\"data\",\"parents\",0]],\"attrs\":[]},{\"id\":\"commit_issue\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"refs\",0,\"number\"]],\"attrs\":[]},{\"id\":\"actor\",\"type_label\":\"user\",\"key\":[[\"data\",\"actor\"]],\"attrs\":[]},{\"id\":\"author\",\"type_label\":\"user\",\"key\":[[\"data\",\"author\"]],\"attrs\":[]},{\"id\":\"repo\",\"type_label\":\"repository\",\"key\":[[\"data\",\"repo\"]],\"attrs\":[]},{\"id\":\"seat\",\"type_label\":\"agent_seat\",\"key\":[[\"data\",\"seat_id\"]],\"attrs\":[{\"name\":\"model\",\"path\":[\"data\",\"model\"]},{\"name\":\"engine\",\"path\":[\"data\",\"engine\"]},{\"name\":\"tier\",\"path\":[\"data\",\"tier\"]},{\"name\":\"script\",\"path\":[\"data\",\"script\"]}]}],\"relationships\":[{\"from\":\"actor\",\"to\":\"issue\",\"kind\":\"acted on\"},{\"from\":\"issue\",\"to\":\"repo\",\"kind\":\"in repository\"},{\"from\":\"commit\",\"to\":\"repo\",\"kind\":\"in repository\"},{\"from\":\"commit_ref\",\"to\":\"issue\",\"kind\":\"references issue\"},{\"from\":\"commit\",\"to\":\"commit_parent\",\"kind\":\"has parent\"},{\"from\":\"commit\",\"to\":\"commit_issue\",\"kind\":\"references issue\"},{\"from\":\"merge_commit\",\"to\":\"issue\",\"kind\":\"merges\"},{\"from\":\"author\",\"to\":\"commit\",\"kind\":\"authored\"},{\"from\":\"issue_leg\",\"to\":\"pr_leg\",\"kind\":\"has pull request\"},{\"from\":\"seat\",\"to\":\"issue_leg\",\"kind\":\"works on\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1537,
+      "cache_read_tokens": 2159,
+      "cache_write_tokens": 14710,
+      "cost_usd": 0.07464580000000001,
+      "latency_ms": 11497,
+      "started_at_ms": 1790883777194
+    }
+  ]
+}

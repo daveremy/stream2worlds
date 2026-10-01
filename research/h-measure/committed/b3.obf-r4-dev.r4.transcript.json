@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "de602c3997aad814",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"account\",\"type_label\":\"account\",\"key\":[[\"data\",\"f101\",\"f4\"]],\"attrs\":[{\"name\":\"flag_f29\",\"path\":[\"data\",\"f29\"]},{\"name\":\"flag_f59\",\"path\":[\"data\",\"f59\"]}]},{\"id\":\"source\",\"type_label\":\"source\",\"key\":[[\"data\",\"f101\",\"f31\"]],\"attrs\":[]},{\"id\":\"group\",\"type_label\":\"group\",\"key\":[[\"data\",\"f58\"]],\"attrs\":[]},{\"id\":\"item\",\"type_label\":\"item\",\"key\":[[\"data\",\"f76\"]],\"attrs\":[{\"name\":\"timestamp\",\"path\":[\"data\",\"f101\",\"f17\"]},{\"name\":\"f65\",\"path\":[\"data\",\"f65\"]}]},{\"id\":\"category\",\"type_label\":\"category\",\"key\":[[\"data\",\"f32\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"account\",\"to\":\"source\",\"kind\":\"belongs to\"},{\"from\":\"account\",\"to\":\"group\",\"kind\":\"member of\"},{\"from\":\"account\",\"to\":\"item\",\"kind\":\"acts on\"},{\"from\":\"item\",\"to\":\"category\",\"kind\":\"classified as\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 831,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 41786,
+      "cost_usd": 0.175565,
+      "latency_ms": 9679,
+      "started_at_ms": 1790883359937
+    },
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "7fe562226152e985",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"actor\",\"type_label\":\"actor\",\"key\":[[\"data\",\"f101\",\"f4\"]],\"attrs\":[{\"name\":\"flag_f59\",\"path\":[\"data\",\"f59\"]},{\"name\":\"count_f65\",\"path\":[\"data\",\"f65\"]}]},{\"id\":\"category\",\"type_label\":\"category\",\"key\":[[\"data\",\"f58\"]],\"attrs\":[]},{\"id\":\"org\",\"type_label\":\"organization\",\"key\":[[\"data\",\"f101\",\"f31\"]],\"attrs\":[]},{\"id\":\"group\",\"type_label\":\"group\",\"key\":[[\"data\",\"f32\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"actor\",\"to\":\"category\",\"kind\":\"associated with\"},{\"from\":\"actor\",\"to\":\"org\",\"kind\":\"belongs to\"},{\"from\":\"actor\",\"to\":\"group\",\"kind\":\"member of\"}],\"links\":[]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1049,
+      "cache_read_tokens": 2159,
+      "cache_write_tokens": 32609,
+      "cost_usd": 0.14136179999999998,
+      "latency_ms": 10814,
+      "started_at_ms": 1790883369621
+    }
+  ]
+}

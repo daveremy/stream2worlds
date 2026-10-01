@@ -1,0 +1,905 @@
+{
+  "kind": "s2w-gate3-committed",
+  "format": 1,
+  "arm": "b3",
+  "replicate": 4,
+  "heuristic": {
+    "corpus": "obf-r4-dev",
+    "corpus_sha256": "10096e68682e88b77e47fa81bac2e45fc749c47e760868c975997f1425da513d",
+    "window": 10000,
+    "profiler_version": "9",
+    "config": "Config { min_events: 1000, min_support: 20, min_groups: 5, event_id_pct: 98, grey_uniqueness_pct: 90, min_recurrence_pct: 10, fd_accept_pct: 95, fd_grey_pct: 80, type_uniqueness_pct: 90, alias_pct: 99, decode_pct: 100, category_max: 32, spread_groups_pct: 25, spread_window_pct: 10, churn_pct: 90, return_pct: 30, contain_pct: 10, carry_pct: 95, contain_cap: 250000, links: true }",
+    "pins": {
+      "corpus dev": "Development dev.raw.sse 200000 53d35b1c8631cc506d762a855ea554d4ca833f5c02a6fe80c5ceeb52205ae4dd",
+      "corpus heldout": "Heldout heldout.raw.sse 100000 ad07885cf791b8de760a8f94aca5a45bd5d8d0476be8b0baf695807737809cf6",
+      "corpus heldout-2": "Heldout heldout-2.raw.sse 100000 4432c2a8533e0080a2a97344a2aa5ed1273aafc951faf673dcdb36b65800bc22",
+      "corpus obf-r1-dev": "Development dev.obf-r1.raw.sse 200000 cf60870b00ac6ca36dcc4d47fdd9cbd1b329be46a261d4be46b58f65096a2284",
+      "corpus obf-r2-dev": "Development dev.obf-r2.raw.sse 200000 f77717e875f36b46eb0e2a340599dd1da097d56eafeedefac8a7a88a2371ceac",
+      "corpus obf-r2-reserved-6": "Reserved reserved-6.obf-r2.raw.sse 100000 5e5d714e83d44b397dd2f1fb407f26b350100db82c92c64f1cc4eae25081905c",
+      "corpus obf-r3-dev": "Development dev.obf-r3.raw.sse 200000 0fb6e674d9eece9397958e7f11b6cf3719fc4a48780813bf1a2244486a31a1ec",
+      "corpus obf-r3-reserved-6": "Reserved reserved-6.obf-r3.raw.sse 100000 46581df299a1ed4572fcc107e1a93ddea5b1676a58e8ba158872240e1b9422e2",
+      "corpus obf-r4-dev": "Development dev.obf-r4.raw.sse 200000 10096e68682e88b77e47fa81bac2e45fc749c47e760868c975997f1425da513d",
+      "corpus obf-r4-reserved-6": "Reserved reserved-6.obf-r4.raw.sse 100000 ce13f3b89acea1c88965982c9cd324f2d42b3cdc2bc309d4f4fff96e0942f783",
+      "corpus obf-r5-dev": "Development dev.obf-r5.raw.sse 200000 d5e5e17f8052fcdf32a74aad8def392763f6f026a21004f28de2253292f02aab",
+      "corpus obf-r5-reserved-6": "Reserved reserved-6.obf-r5.raw.sse 100000 56409c818602faf076f993c6623465452fbe155dd916220e52375e0c90c94df9",
+      "corpus obf-r6-dev": "Development dev.obf-r6.raw.sse 200000 91948fb864b0752ea08e3980ef484f48a5acb2fc3d5f05c935a4478cc5526091",
+      "corpus obf-r6-reserved-6": "Reserved reserved-6.obf-r6.raw.sse 100000 11dff7ce49bda518a20a71f8378ea5c56b58d06249d44645ddcf6458b010a42f",
+      "corpus private-dev": "Development private-dev.raw.sse 8067 1e3fea5a96878a33ac603f3a5e98ffbe51f15e5e92d0fcb8d6c49fa931d4507d",
+      "corpus private-dev-2": "Development private-dev-2.raw.sse 8072 d3f91c4dae1fba3ddc86872cc2879d640638fdd6fb059dc91de78fe965ef0766",
+      "corpus private-test": "Reserved private-test.raw.sse 5501 f19f69eddb2e4528f04d35e6307869b48131a5dfcf7cdb339f32e4d931109357",
+      "corpus private-test-2": "Heldout private-test-2.raw.sse 5524 4314ec45a06c44fc77d9d25a9c856c8ddda948ac17f86bce8cd127c1478dccc5",
+      "corpus reserved": "Heldout reserved.raw.sse 100000 b420214c92c0ac8151b2b64279cbebd9c8250349b28712dc898974dc7a56f501",
+      "corpus reserved-2": "Heldout reserved-2.raw.sse 100000 bc857dc278d835186afec68705fa2e1313b720bb8eafd99390738496afa27a5c",
+      "corpus reserved-3": "Heldout reserved-3.raw.sse 100000 32593b5564824be07dc47d7b85ba2f378c03b32d0cf19efac03b6c9fbbf84447",
+      "corpus reserved-4": "Heldout reserved-4.raw.sse 100000 dfa075fbe5b58b368e7d3d895d9e27296bd75e695bd7f2150e5b130ac0e0166f",
+      "corpus reserved-5": "Heldout reserved-5.raw.sse 100000 7bc24d57e4940db06a0f6d2edb153db24ed6c54b22ad230be1a654c0ca472320",
+      "corpus reserved-6": "Heldout reserved-6.raw.sse 100000 2df0593c1e3121808a0e5df237f6fb3efdb9cd99170ed584a6bf0679f63619f4",
+      "key dev-key-v0.canonical-mention.json": "30990677e66034db8ce6db38105e00853421efe3f84665e95ece01e3ba02a799",
+      "key dev-key-v0.json": "bb117cb4718039c39f85329c17b721e8f85178ad78ee44bded479032a3cfa3da",
+      "key dev-key-v0.q1-no-wiki.json": "51a8cef868519ef78c7c7e36d2fecebecf9df0606555b108e2a574a5ccf7d8d6",
+      "key dev-key-v0.q3-rcid-scored.json": "3fb72a0aeff2b91062285199b6c20d45eec193e381f5289efca237ff89ebc87a",
+      "key dev-key-v0.q4-separate.json": "935aeb4683234964d5c47f7ff35cb57be9d3bbfdcf64088362a059bf148161ec",
+      "key dev-key-v0.user-global.json": "1eb93fba72f46c7cb1c60d458a1785717e6316651c62135163619feb500716a0",
+      "key dev-key-v1.canonical-mention.json": "82fa6b0118fb35d3c6f8f446fe78776d84d87a8e8bfe960b0bc9fb6aca1ff4b4",
+      "key dev-key-v1.json": "006c50d4a8067c620a157534cb17f5cdfcf64f58ff275184aafaaefc55a48595",
+      "key dev-key-v1.q1-no-wiki.json": "5cb8a5658054920c10f220a38dc7338ccf44c2f5a466d0993bb0ee5215542514",
+      "key dev-key-v1.q3-rcid-scored.json": "bd1ae190f4dc115d88f8755587dbacae85466ff998d3e4712c9bdf13bdd344c2",
+      "key dev-key-v1.q4-separate.json": "9f0be88923f7eebf95a9f76f1158120b64657c5e36490353da7794edec68d236",
+      "key dev-key-v1.user-global.json": "8454ec7e6ec60d21e8b714fcc8c74cfc6253e2d63d9efd541a1dcda8ebc473df",
+      "key dev-key-v2.canonical-mention.json": "a559964891f28df5feb04930643f6e8ea596d043426980c7f01adfb6d43e81f2",
+      "key dev-key-v2.json": "dd42ae26b5d7bbd32d44e8a45bc3a95af6bcbe124f8b157d38ae0546008d9d5c",
+      "key dev-key-v2.obf-r1.json": "b98c0030c6695c20ea31fee09517c021964c8a3888db7060fcf3542ff757132f",
+      "key dev-key-v2.q1-no-wiki.json": "8b130d07b238fde4772c6bb0aa2b390df4a8b4b0b73ed0c089c2b8bcdf34b374",
+      "key dev-key-v2.q3-rcid-scored.json": "ffc94b1907ed3f41183aa8dfb148fea232375375e88685f91135affad3f246b0",
+      "key dev-key-v2.q4-separate.json": "40cbf908ac2ea703bc622080e9c5feea47f79f9a32abd4105b724a5d471333fb",
+      "key dev-key-v2.user-global.json": "ffa2f158dcbc8a4203344b6689271830ba785b29e8371dd77758b8c47063018a",
+      "key dev-key-v3.canonical-mention.json": "8376b36c3e31c6b4e1f7689afcffebb63604ad35933981ac999e4e44208afda3",
+      "key dev-key-v3.json": "39d4949621c0e6558a728f06ceb1a5b00e9696cc96fc6b885953dfc75a1be6df",
+      "key dev-key-v3.obf-r1.json": "e52d2415a7541fc180b97d13cbd9cee53ed3ad714986fd2118e99ae87056c1cd",
+      "key dev-key-v3.obf-r2.json": "6ee8bf5695d120856e792298ae26a801b38813048c1e69392155d972289f1c13",
+      "key dev-key-v3.obf-r3.json": "2c014e10f51070fcf33b1100ab1bfdecab6fdb2b234e5262abc0045e388fe10a",
+      "key dev-key-v3.obf-r4.json": "51a56df258214fa7ec1a5aeda3714e0b148fd0b1c8a12bc1117c1fa2850e3725",
+      "key dev-key-v3.obf-r5.json": "6f01af0f38b7735ffb5aaee61eb5cef63808adfd82ba4eeb9e1ca5306465ee3a",
+      "key dev-key-v3.obf-r6.json": "eb6974232e1ebb2cb082c312d4950ec173225a303e5ad8fb8948666c397f28d5",
+      "key private-key-v0.context-scored.json": "87ecdf88ce87cf7aef810486ac120ed9399b2311d575b689a740eac523005ee9",
+      "key private-key-v0.json": "f5e283b98e6022bf530527857ef63b2100bead90f80661785546954981f411c2",
+      "key private-key-v1.context-scored.json": "28c154992b1eca449e354101ae4bdc3d1fcd54ff4ecf18d5a8e80f18ef5a064f",
+      "key private-key-v1.json": "cb79688c39191cf1f914c0557771c4841015f7546b49645c7d49e06ad6b4480a",
+      "key private-key-v2.context-scored.json": "e02500f7164797e6d3841f6210c2d1aac4d749fec02d7bda66bb2b018a35fcbe",
+      "key private-key-v2.json": "2f1b2db99692ab1867cb9204092d87e243b10d96c0eec3af6fd532e3f0dba3da"
+    },
+    "profile": {
+      "events": 10000,
+      "skipped": 0,
+      "event_type": "data.f26",
+      "abstained": {
+        "data.f12": "FewGroups",
+        "data.f32": "FewGroups",
+        "data.f52": "GreyUniqueness",
+        "data.f94.f18": "Sparse",
+        "data.f94.f25": "Sparse",
+        "data.f94.f36": "Sparse",
+        "data.f94.f37": "Sparse",
+        "data.f94.f42": "FewGroups",
+        "data.f94.f46": "Sparse",
+        "data.f94.f53": "Sparse",
+        "data.f94.f54": "Sparse",
+        "data.f94.f61": "Sparse",
+        "data.f94.f69": "Sparse",
+        "data.f94.f74": "Sparse",
+        "data.f94.f79": "Sparse"
+      }
+    },
+    "mapping": {
+      "version": 2,
+      "decode": [
+        [
+          "data"
+        ]
+      ],
+      "entities": [
+        {
+          "id": "data.f101.f76",
+          "type_label": "data/f45+data/f49+f101/f76",
+          "key": [
+            [
+              "data",
+              "f101",
+              "f76"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f101.f31",
+              "path": [
+                "data",
+                "f101",
+                "f31"
+              ]
+            },
+            {
+              "name": "data.f101.f4",
+              "path": [
+                "data",
+                "f101",
+                "f4"
+              ]
+            },
+            {
+              "name": "data.f16",
+              "path": [
+                "data",
+                "f16"
+              ]
+            },
+            {
+              "name": "data.f23",
+              "path": [
+                "data",
+                "f23"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f48",
+              "path": [
+                "data",
+                "f48"
+              ]
+            },
+            {
+              "name": "data.f59",
+              "path": [
+                "data",
+                "f59"
+              ]
+            },
+            {
+              "name": "data.f65",
+              "path": [
+                "data",
+                "f65"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f102",
+          "type_label": "data/f102",
+          "key": [
+            [
+              "data",
+              "f102"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f101.f31",
+              "path": [
+                "data",
+                "f101",
+                "f31"
+              ]
+            },
+            {
+              "name": "data.f101.f4",
+              "path": [
+                "data",
+                "f101",
+                "f4"
+              ]
+            },
+            {
+              "name": "data.f101.f62",
+              "path": [
+                "data",
+                "f101",
+                "f62"
+              ]
+            },
+            {
+              "name": "data.f16",
+              "path": [
+                "data",
+                "f16"
+              ]
+            },
+            {
+              "name": "data.f23",
+              "path": [
+                "data",
+                "f23"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f48",
+              "path": [
+                "data",
+                "f48"
+              ]
+            },
+            {
+              "name": "data.f59",
+              "path": [
+                "data",
+                "f59"
+              ]
+            },
+            {
+              "name": "data.f78",
+              "path": [
+                "data",
+                "f78"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f43",
+          "type_label": "data/f43+data/f66",
+          "key": [
+            [
+              "data",
+              "f43"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f101.f31",
+              "path": [
+                "data",
+                "f101",
+                "f31"
+              ]
+            },
+            {
+              "name": "data.f101.f4",
+              "path": [
+                "data",
+                "f101",
+                "f4"
+              ]
+            },
+            {
+              "name": "data.f16",
+              "path": [
+                "data",
+                "f16"
+              ]
+            },
+            {
+              "name": "data.f23",
+              "path": [
+                "data",
+                "f23"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f32",
+              "path": [
+                "data",
+                "f32"
+              ]
+            },
+            {
+              "name": "data.f48",
+              "path": [
+                "data",
+                "f48"
+              ]
+            },
+            {
+              "name": "data.f59",
+              "path": [
+                "data",
+                "f59"
+              ]
+            },
+            {
+              "name": "data.f65",
+              "path": [
+                "data",
+                "f65"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f45",
+          "type_label": "data/f45+data/f49+f101/f76",
+          "key": [
+            [
+              "data",
+              "f45"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f101.f31",
+              "path": [
+                "data",
+                "f101",
+                "f31"
+              ]
+            },
+            {
+              "name": "data.f101.f4",
+              "path": [
+                "data",
+                "f101",
+                "f4"
+              ]
+            },
+            {
+              "name": "data.f16",
+              "path": [
+                "data",
+                "f16"
+              ]
+            },
+            {
+              "name": "data.f23",
+              "path": [
+                "data",
+                "f23"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f48",
+              "path": [
+                "data",
+                "f48"
+              ]
+            },
+            {
+              "name": "data.f59",
+              "path": [
+                "data",
+                "f59"
+              ]
+            },
+            {
+              "name": "data.f65",
+              "path": [
+                "data",
+                "f65"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f49",
+          "type_label": "data/f45+data/f49+f101/f76",
+          "key": [
+            [
+              "data",
+              "f49"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f101.f31",
+              "path": [
+                "data",
+                "f101",
+                "f31"
+              ]
+            },
+            {
+              "name": "data.f101.f4",
+              "path": [
+                "data",
+                "f101",
+                "f4"
+              ]
+            },
+            {
+              "name": "data.f16",
+              "path": [
+                "data",
+                "f16"
+              ]
+            },
+            {
+              "name": "data.f23",
+              "path": [
+                "data",
+                "f23"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f48",
+              "path": [
+                "data",
+                "f48"
+              ]
+            },
+            {
+              "name": "data.f59",
+              "path": [
+                "data",
+                "f59"
+              ]
+            },
+            {
+              "name": "data.f65",
+              "path": [
+                "data",
+                "f65"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f58",
+          "type_label": "data/f58",
+          "key": [
+            [
+              "data",
+              "f58"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f101.f31",
+              "path": [
+                "data",
+                "f101",
+                "f31"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f59",
+              "path": [
+                "data",
+                "f59"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f66",
+          "type_label": "data/f43+data/f66",
+          "key": [
+            [
+              "data",
+              "f66"
+            ]
+          ],
+          "attrs": []
+        },
+        {
+          "id": "data.f94.f51",
+          "type_label": "f94/f51",
+          "key": [
+            [
+              "data",
+              "f94",
+              "f51"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f100",
+              "path": [
+                "data",
+                "f100"
+              ]
+            },
+            {
+              "name": "data.f12",
+              "path": [
+                "data",
+                "f12"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f32",
+              "path": [
+                "data",
+                "f32"
+              ]
+            },
+            {
+              "name": "data.f59",
+              "path": [
+                "data",
+                "f59"
+              ]
+            },
+            {
+              "name": "data.f73",
+              "path": [
+                "data",
+                "f73"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f94.f68",
+          "type_label": "f94/f68",
+          "key": [
+            [
+              "data",
+              "f94",
+              "f68"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.f101.f31",
+              "path": [
+                "data",
+                "f101",
+                "f31"
+              ]
+            },
+            {
+              "name": "data.f26",
+              "path": [
+                "data",
+                "f26"
+              ]
+            },
+            {
+              "name": "data.f32",
+              "path": [
+                "data",
+                "f32"
+              ]
+            },
+            {
+              "name": "data.f65",
+              "path": [
+                "data",
+                "f65"
+              ]
+            },
+            {
+              "name": "data.f73",
+              "path": [
+                "data",
+                "f73"
+              ]
+            },
+            {
+              "name": "data.f78",
+              "path": [
+                "data",
+                "f78"
+              ]
+            },
+            {
+              "name": "data.f83",
+              "path": [
+                "data",
+                "f83"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "data.f99.f19",
+          "type_label": "f99/f19+f99/f96",
+          "key": [
+            [
+              "data",
+              "f99",
+              "f19"
+            ]
+          ],
+          "attrs": []
+        },
+        {
+          "id": "data.f99.f96",
+          "type_label": "f99/f19+f99/f96",
+          "key": [
+            [
+              "data",
+              "f99",
+              "f96"
+            ]
+          ],
+          "attrs": []
+        }
+      ],
+      "relationships": [
+        {
+          "from": "data.f43",
+          "to": "data.f102",
+          "kind": "n:m"
+        },
+        {
+          "from": "data.f43",
+          "to": "data.f94.f68",
+          "kind": "n:m"
+        },
+        {
+          "from": "data.f43",
+          "to": "data.f99.f96",
+          "kind": "n:m"
+        },
+        {
+          "from": "data.f58",
+          "to": "data.f101.f76",
+          "kind": "n:m"
+        },
+        {
+          "from": "data.f58",
+          "to": "data.f45",
+          "kind": "n:m"
+        },
+        {
+          "from": "data.f58",
+          "to": "data.f49",
+          "kind": "n:m"
+        }
+      ],
+      "links": [
+        {
+          "survivor": "data.f43",
+          "absorbed": "data.f66"
+        }
+      ]
+    }
+  },
+  "provider": "claude-cli",
+  "model": "claude-sonnet-5-5",
+  "price": {
+    "input": 2.0,
+    "output": 10.0,
+    "cache_write": 4.0,
+    "cache_read": 0.2,
+    "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "copied_on": "2026-09-30"
+  },
+  "sample_events": 60,
+  "sample_string_chars": 200,
+  "prompt_files_hash": "5708878699a9fa00",
+  "input_hash": "5e9eb0acb67ee0ef",
+  "attempts": 1,
+  "mapping": {
+    "version": 2,
+    "decode": [
+      [
+        "data"
+      ]
+    ],
+    "entities": [
+      {
+        "id": "actor",
+        "type_label": "actor",
+        "key": [
+          [
+            "data",
+            "f101",
+            "f4"
+          ]
+        ],
+        "attrs": [
+          {
+            "name": "flag_f59",
+            "path": [
+              "data",
+              "f59"
+            ]
+          },
+          {
+            "name": "count_f65",
+            "path": [
+              "data",
+              "f65"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "category",
+        "type_label": "category",
+        "key": [
+          [
+            "data",
+            "f58"
+          ]
+        ],
+        "attrs": []
+      },
+      {
+        "id": "org",
+        "type_label": "organization",
+        "key": [
+          [
+            "data",
+            "f101",
+            "f31"
+          ]
+        ],
+        "attrs": []
+      },
+      {
+        "id": "group",
+        "type_label": "group",
+        "key": [
+          [
+            "data",
+            "f32"
+          ]
+        ],
+        "attrs": []
+      }
+    ],
+    "relationships": [
+      {
+        "from": "actor",
+        "to": "category",
+        "kind": "associated with"
+      },
+      {
+        "from": "actor",
+        "to": "org",
+        "kind": "belongs to"
+      },
+      {
+        "from": "actor",
+        "to": "group",
+        "kind": "member of"
+      }
+    ]
+  },
+  "failure": null,
+  "probe": {
+    "attempt": 0,
+    "call": 0,
+    "prompt_hash": "1aabdcd06b1af35e",
+    "reply": "none",
+    "error": null,
+    "model": "claude-sonnet-5-5",
+    "input_tokens": 2,
+    "output_tokens": 314,
+    "cache_read_tokens": 531,
+    "cache_write_tokens": 2121,
+    "cost_usd": 0.0117342,
+    "latency_ms": 6289,
+    "started_at_ms": 1790883351440
+  },
+  "spend": {
+    "cap_usd": 5.0,
+    "usd": 0.328661,
+    "cli_cost_usd": 0.328661,
+    "input_tokens": 6,
+    "output_tokens": 2194,
+    "cache_read_tokens": 3225,
+    "cache_write_tokens": 76516,
+    "calls": 3,
+    "per_call_usd": [
+      0.0117342,
+      0.175565,
+      0.14136179999999998
+    ]
+  },
+  "no_match": {
+    "first": false,
+    "repair_calls": 0,
+    "after": false
+  },
+  "transcript_sha256": "1eb27d62b223dd3d46fb29605dbc6e282491513f4c247db58b1f3f0a94b384fd",
+  "budget": {
+    "h_s2_sha256": "ce7547eb3acb2ea41ab2351cb6e544b84848a4756707241148709ddafedb4e54",
+    "input_tokens": 35035,
+    "prompt_bytes": 54862,
+    "fits": [
+      {
+        "k": 198,
+        "events": 51,
+        "prompt_bytes": 53748,
+        "calls": 1,
+        "input_tokens": 42323
+      },
+      {
+        "k": 247,
+        "events": 41,
+        "prompt_bytes": 43745,
+        "calls": 1,
+        "input_tokens": 34770
+      }
+    ]
+  }
+}

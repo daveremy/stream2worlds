@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "fc18d2f8e2bff804",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"group\",\"type_label\":\"group\",\"key\":[[\"data\",\"f27\"]],\"attrs\":[]},{\"id\":\"member\",\"type_label\":\"member\",\"key\":[[\"data\",\"f100\"]],\"attrs\":[]},{\"id\":\"category\",\"type_label\":\"category\",\"key\":[[\"data\",\"f36\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"member\",\"to\":\"group\",\"kind\":\"belongs to\"},{\"from\":\"member\",\"to\":\"category\",\"kind\":\"associated with\"},{\"from\":\"group\",\"to\":\"category\",\"kind\":\"contains\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 795,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 41704,
+      "cost_usd": 0.174877,
+      "latency_ms": 9658,
+      "started_at_ms": 1790883499701
+    },
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "00efb348763a2f5f",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"record\",\"type_label\":\"record\",\"key\":[[\"data\",\"f100\"]],\"attrs\":[{\"name\":\"flag\",\"path\":[\"data\",\"f19\"]},{\"name\":\"category\",\"path\":[\"data\",\"f46\"]},{\"name\":\"timestamp\",\"path\":[\"data\",\"f52\",\"f78\"]},{\"name\":\"epoch\",\"path\":[\"data\",\"f66\"]},{\"name\":\"count\",\"path\":[\"data\",\"f79\"]},{\"name\":\"path\",\"path\":[\"data\",\"f58\"]},{\"name\":\"ref\",\"path\":[\"data\",\"f7\"]}]},{\"id\":\"source\",\"type_label\":\"source\",\"key\":[[\"data\",\"f27\"]],\"attrs\":[]},{\"id\":\"label\",\"type_label\":\"label\",\"key\":[[\"data\",\"f36\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"record\",\"to\":\"source\",\"kind\":\"belongs to\"},{\"from\":\"record\",\"to\":\"label\",\"kind\":\"has label\"},{\"from\":\"source\",\"to\":\"label\",\"kind\":\"associated with\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 981,
+      "cache_read_tokens": 2159,
+      "cache_write_tokens": 32561,
+      "cost_usd": 0.1404898,
+      "latency_ms": 11500,
+      "started_at_ms": 1790883509363
+    }
+  ]
+}
