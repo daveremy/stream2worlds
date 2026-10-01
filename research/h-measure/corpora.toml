@@ -153,7 +153,8 @@ sha256 = "7bc24d57e4940db06a0f6d2edb153db24ed6c54b22ad230be1a654c0ca472320"
 # sha256 were read. Kept for #375 PR 2's score (the fresh span for H's v9 re-freeze under the
 # format-3 keys); role flips to heldout only when that PR opens it.
 [corpus.reserved-6]
-role = "reserved"
+# opened by s2w#375 PR 2, 2026-10-01 (UTC), after 882a408 (the v9 re-freezes under the format-3 and private-key-v2 pins) and the predictions comment (issuecomment-5934976438, 15:44Z)
+role = "heldout"
 file = "reserved-6.raw.sse"
 stream = "mediawiki.recentchange"
 since = "2026-09-30T11:15:00Z"
@@ -248,7 +249,8 @@ provenance_sha256 = "662b97a8beecd60d887ea965d82a731d09c879680430f846bcd06d4168e
 dropped = "outside-span:6907,ref-other-repo:116,refs-overflow:27,timeline-other-kind:2811,worker-other-repo:1109"
 
 [corpus.private-test-2]
-role = "reserved"
+# opened by s2w#375 PR 2, 2026-10-01 (UTC), after 882a408 (the v9 re-freezes under the format-3 and private-key-v2 pins) and the predictions comment (issuecomment-5934976438, 15:44Z)
+role = "heldout"
 file = "private-test-2.raw.sse"
 stream = "private"
 since = "2026-09-29T00:00:00Z"
