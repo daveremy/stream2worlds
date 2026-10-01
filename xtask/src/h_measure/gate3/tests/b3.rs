@@ -3,7 +3,7 @@
 
 use std::fs;
 
-use super::{MODEL, Run, envelope, mapping_reply, refused, setup};
+use super::{MATCHING_REPLY, MODEL, Run, envelope, refused, setup};
 
 /// An envelope whose prompt reported `cache_write` cache-write tokens (input 2, cache read 531).
 fn cached(result: &str, cache_write: u64) -> String {
@@ -59,9 +59,9 @@ fn b3_after_h_s2_is_sized_by_it_and_score_replays_it() {
         "b3",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 5431),
+            cached(MATCHING_REPLY, 5431),
         ],
     );
     run.commit(&[]).unwrap();
@@ -96,10 +96,10 @@ fn a_fit_over_the_tolerance_is_spent_and_refit_with_a_larger_k() {
         "b3-refit",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 6000),
-            cached(&mapping_reply(), 5431),
+            cached(MATCHING_REPLY, 6000),
+            cached(MATCHING_REPLY, 5431),
         ],
     );
     run.commit(&[]).unwrap();
@@ -136,11 +136,11 @@ fn a_replicate_that_never_fits_commits_a_budget_fit_failure() {
         "b3-nofit",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 6000),
-            cached(&mapping_reply(), 6000),
-            cached(&mapping_reply(), 6000),
+            cached(MATCHING_REPLY, 6000),
+            cached(MATCHING_REPLY, 6000),
+            cached(MATCHING_REPLY, 6000),
         ],
     );
     run.commit(&[]).unwrap();
@@ -163,7 +163,7 @@ fn a_replicate_that_never_fits_commits_a_budget_fit_failure() {
 fn b3_refusals_before_any_call() {
     let run = setup(
         "b3-refuse",
-        &[envelope("none", 4), envelope(&mapping_reply(), 900)],
+        &[envelope("none", 4), envelope(MATCHING_REPLY, 900)],
     );
     refused(b3(&run, &[]).1, "commit that first");
     assert_eq!(calls_made(&run), 0);
@@ -201,9 +201,9 @@ fn score_refuses_an_edited_b3_budget() {
         "b3-edit",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 5431),
+            cached(MATCHING_REPLY, 5431),
         ],
     );
     run.commit(&[]).unwrap();
@@ -233,9 +233,9 @@ fn a_fit_at_exactly_the_tolerance_is_kept() {
         "b3-edge",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 5729),
+            cached(MATCHING_REPLY, 5729),
         ],
     );
     run.commit(&[]).unwrap();

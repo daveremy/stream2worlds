@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use s2w_discover::Profile;
 use s2w_model::MappingInput;
-use s2w_system2::{CallRecord, MappingProposer, ReplayProvider, mapping_prompt};
+use s2w_system2::{CallRecord, MappingProposer, NoMatch, ReplayProvider, mapping_prompt};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -18,8 +18,9 @@ use super::super::pins::sha256;
 use super::b3;
 use super::committed::{
     B3, Budget, Committed, FORMAT, Fit, H_S2, KIND, PROVIDER, Ran, SAMPLE_EVENTS,
-    SAMPLE_STRING_CHARS, input, input_hash, propose_h_s2, run, split,
+    SAMPLE_STRING_CHARS, input, input_hash, propose_h_s2, run, sample_window, split,
 };
+use super::no_match::Sample;
 
 /// The transcript beside committed file `file`: `<file minus .json>.transcript.json`.
 ///
@@ -93,8 +94,9 @@ pub(crate) fn reproduce(
     let (ran, hash) = match &committed.budget {
         None => {
             let hash = input_hash(&input, &committed.prompt_files_hash)?;
+            let sample = Sample::of_values(sample_window(window))?;
             let (ran, ()) = run(&probe, &committed.price, |prior| {
-                propose_h_s2(&proposer, &committed.price, &input, prior)
+                propose_h_s2(&proposer, &committed.price, &input, &sample, prior)
             })
             .map_err(|e| format!("{shown}: replaying the probe: {e}"))?;
             (ran, hash)
@@ -178,7 +180,8 @@ fn replay_b3(
     Ok((ran, hash))
 }
 
-/// Refuses a replay whose prompts, result, attempts or spend are not the recorded ones.
+/// Refuses a replay whose prompts, result, attempts, no-match findings or spend are not the
+/// recorded ones.
 fn replayed(file: &Path, committed: &Committed, ran: &Ran) -> Result<(), String> {
     let shown = file.display();
     if ran.outcome.prompt_files_hash != committed.prompt_files_hash {
@@ -195,6 +198,12 @@ fn replayed(file: &Path, committed: &Committed, ran: &Ran) -> Result<(), String>
             "{shown}: replaying its transcript gives {} after {} attempts, not the recorded result: the file or the transcript was edited",
             failure.as_deref().unwrap_or("a mapping"),
             ran.outcome.attempts
+        ));
+    }
+    if ran.outcome.no_match != committed.no_match {
+        return Err(format!(
+            "{shown}: replaying its transcript finds no_match {:?}, not the recorded {:?}: the file or the transcript was edited",
+            ran.outcome.no_match, committed.no_match
         ));
     }
     if ran.spend != committed.spend {
@@ -249,6 +258,8 @@ pub(crate) struct System2<'a> {
     model: &'a str,
     failure: Option<&'a str>,
     usd: f64,
+    /// The no-match check's findings (s2w#409).
+    no_match: &'a NoMatch,
     /// B3 only: every sample it sent, the last one's proposal graded.
     #[serde(skip_serializing_if = "Option::is_none")]
     fits: Option<&'a [Fit]>,
@@ -262,6 +273,7 @@ impl<'a> System2<'a> {
             model: &committed.model,
             failure: committed.failure.as_deref(),
             usd: committed.spend.usd,
+            no_match: &committed.no_match,
             fits: committed.budget.as_ref().map(|b| b.fits.as_slice()),
         }
     }
@@ -282,8 +294,38 @@ impl<'a> System2<'a> {
             None => "started from the heuristic above and".to_owned(),
         };
         format!(
-            "System 2 (arm {}, replicate {}, model {}) {start} {result}, ${:.4} by the price table; its output is what is graded below.\n\n",
-            self.arm, self.replicate, self.model, self.usd
+            "System 2 (arm {}, replicate {}, model {}) {start} {result}, ${:.4} by the price table; {} Its output is what is graded below.\n\n",
+            self.arm,
+            self.replicate,
+            self.model,
+            self.usd,
+            no_match_clause(self.no_match)
         )
+    }
+}
+
+/// The report's sentence on the no-match check (s2w#409).
+fn no_match_clause(no_match: &NoMatch) -> String {
+    let after = match no_match.after {
+        Some(false) => "the committed mapping matches",
+        Some(true) => "the committed mapping still matches no sampled record",
+        None => "the result is a failure",
+    };
+    match (no_match.first, no_match.repair_calls) {
+        (Some(true), 0) => {
+            "its first valid mapping matched no sampled record and the repair call was not made."
+                .to_owned()
+        }
+        (Some(true), _) => {
+            format!(
+                "its first valid mapping matched no sampled record and was repaired once; {after}."
+            )
+        }
+        (Some(false), _) => {
+            "its first valid mapping matched the sample; no repair call.".to_owned()
+        }
+        (None, _) => {
+            "no reply decoded and validated, so the no-match check did not run.".to_owned()
+        }
     }
 }

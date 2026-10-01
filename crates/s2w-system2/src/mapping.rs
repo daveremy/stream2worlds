@@ -297,9 +297,8 @@ impl<P: Provider> MappingProposer<P> {
         fault: &str,
         p: &mut Proposal<'_>,
     ) -> Result<String, Ended> {
-        let prompt = prompt::mapping_repair_prompt(p.first, reply, fault).map_err(|e| {
-            Ended::Result(MappingResult::Failure(format!("prompt: {e}")))
-        })?;
+        let prompt = prompt::mapping_repair_prompt(p.first, reply, fault)
+            .map_err(|e| Ended::Result(MappingResult::Failure(format!("prompt: {e}"))))?;
         match self.call(step, &prompt, p) {
             Called::Reply(text) => Ok(text),
             Called::Failed(error) => Err(Ended::Failed(error)),

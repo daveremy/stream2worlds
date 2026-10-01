@@ -4,13 +4,15 @@
 use s2w_discover::Profile;
 use s2w_model::{Fnv64, HeuristicMapping, MappingInput, StreamMapping};
 use s2w_system2::{
-    CallRecord, MappingOutcome, MappingProposer, MappingResult, Provider, clean_session_probe,
+    CallRecord, MappingOutcome, MappingProposer, MappingResult, NoMatch, Provider,
+    clean_session_probe,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::super::freeze::Frozen;
 use super::ledger::{BudgetGate, Spend};
+use super::no_match::Sample;
 use super::prices::Price;
 
 /// The committed file's `kind`, which `score` tells it from a frozen mapping by.
@@ -63,6 +65,8 @@ pub(crate) struct Committed {
     /// The clean-session probe's call.
     pub probe: CallRecord,
     pub spend: Spend,
+    /// The no-match check's findings (s2w#409): for B3, the last fit's proposal.
+    pub no_match: NoMatch,
     /// sha256 of the sibling transcript (recording format 2 of the proposal's calls).
     pub transcript_sha256: String,
     /// B3 only: the budget it was sized to and every sample it tried.
@@ -122,8 +126,7 @@ pub(crate) fn input(
                 .map_err(|e| format!("heuristic mapping: {e}"))
         })
         .transpose()?;
-    let skip = window.len().saturating_sub(SAMPLE_EVENTS);
-    let sample = window[skip..]
+    let sample = sample_window(window)
         .iter()
         .filter_map(|payload| {
             let bytes = serde_json::to_vec(payload).ok()?;
@@ -141,6 +144,12 @@ pub(crate) fn input(
         paths: s2w_discover::manifest::path_stats(profile),
         sample,
     })
+}
+
+/// The newest [`SAMPLE_EVENTS`] events of `window`, as stored: the records the h-s2 input's
+/// sample is built from, and the records its no-match check reads.
+pub(crate) fn sample_window(window: &[Value]) -> &[Value] {
+    &window[window.len().saturating_sub(SAMPLE_EVENTS)..]
 }
 
 /// `input`'s hash with `prompt_files_hash`, built as the app builds a manifest's input hash.
@@ -217,15 +226,17 @@ pub(crate) fn run<P: Provider, X>(
     Ok((ran, extra))
 }
 
-/// The h-s2 arm's proposal: one `propose` under a gate seeded with `prior_usd`.
+/// The h-s2 arm's proposal: one `propose` under a gate seeded with `prior_usd`, its no-match
+/// check on `sample` (the [`sample_window`] of the window `input` was built from).
 pub(crate) fn propose_h_s2<Q: Provider>(
     proposer: &MappingProposer<Q>,
     price: &Price,
     input: &MappingInput,
+    sample: &Sample,
     prior_usd: f64,
 ) -> (Proposed, ()) {
     let mut gate = BudgetGate::new(price, prior_usd);
-    let outcome = proposer.propose(input, &mut gate);
+    let outcome = proposer.propose(input, &mut gate, sample);
     let charged = gate.charged(&outcome.calls);
     let proposed = Proposed {
         calls: outcome.calls.clone(),

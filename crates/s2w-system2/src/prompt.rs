@@ -46,7 +46,12 @@ pub(crate) fn mapping_prompt_files_hash() -> String {
 /// The hash of the files behind [`raw_mapping_prompt`] and its two repairs, 16 lowercase hex
 /// digits.
 pub(crate) fn raw_mapping_prompt_files_hash() -> String {
-    files_hash(&[MAPPING_RAW, MAPPING_FORMAT, MAPPING_REPAIR, MAPPING_NO_MATCH])
+    files_hash(&[
+        MAPPING_RAW,
+        MAPPING_FORMAT,
+        MAPPING_REPAIR,
+        MAPPING_NO_MATCH,
+    ])
 }
 
 fn files_hash(files: &[&str]) -> String {

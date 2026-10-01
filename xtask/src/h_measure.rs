@@ -289,6 +289,22 @@ fn edges_grade_perfectly(mapping: &StreamMapping, own: &grade::Grade) -> Result<
     Ok(())
 }
 
+/// Record number `record` of a fixture stream holding `payload`, as `MappingEngine` reads it:
+/// source `fixture`, the record number as its cursor, received at time zero.
+///
+/// # Errors
+///
+/// The record number does not fit a cursor.
+pub(crate) fn raw_event(record: usize, payload: Vec<u8>) -> Result<RawEvent, String> {
+    let position = u64::try_from(record).map_err(|e| e.to_string())?;
+    Ok(RawEvent {
+        source: SourceId::new("fixture").map_err(|e| e.to_string())?,
+        cursor: Cursor::new(position.to_be_bytes().to_vec()).map_err(|e| e.to_string())?,
+        received_at: Timestamp::from_millis(0),
+        payload,
+    })
+}
+
 /// Per record the clusters `MappingEngine` proposes, and its relationship claims as edges.
 type Claims = (BTreeSet<(usize, String)>, BTreeSet<mentions::Edge>);
 
@@ -296,17 +312,13 @@ type Claims = (BTreeSet<(usize, String)>, BTreeSet<mentions::Edge>);
 /// between natural keys (the clusters of a mapping without links).
 fn engine_claims(mapping: &StreamMapping, payloads: &[Value]) -> Result<Claims, String> {
     let engine = MappingEngine::new(mapping.clone()).map_err(|e| e.to_string())?;
-    let source = SourceId::new("fixture").map_err(|e| e.to_string())?;
     let mut entities = BTreeSet::new();
     let mut edges = BTreeSet::new();
     for (record, payload) in payloads.iter().enumerate() {
-        let position = u64::try_from(record).map_err(|e| e.to_string())?;
-        let event = RawEvent {
-            source: source.clone(),
-            cursor: Cursor::new(position.to_be_bytes().to_vec()).map_err(|e| e.to_string())?,
-            received_at: Timestamp::from_millis(0),
-            payload: serde_json::to_vec(payload).map_err(|e| e.to_string())?,
-        };
+        let event = raw_event(
+            record,
+            serde_json::to_vec(payload).map_err(|e| e.to_string())?,
+        )?;
         if let Verdict::Propose { claims, .. } = engine.evaluate(&event) {
             for claim in claims {
                 match claim {
