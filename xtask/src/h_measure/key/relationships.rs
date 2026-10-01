@@ -109,7 +109,9 @@ pub(super) fn validate(
 /// The rows a mapping states about itself: per relationship rule, its kind from the last key
 /// path of its `from` rule to the last key path of its `to` rule (where
 /// [`crate::h_measure::mentions::mapping_mentions`] places each endpoint's mention). Rules that
-/// repeat a row collapse to one; any other clash fails validation.
+/// repeat a row collapse to one; any other clash fails validation. Two limits of the key format
+/// follow: a rule from an entity rule to itself (one path at both ends) and two kinds between
+/// one pair of mention paths are not keys, so `from_mapping` refuses such a mapping.
 pub(super) fn of_mapping(mapping: &StreamMapping) -> Result<Vec<RelationshipRow>, String> {
     let last = |id: &str| {
         mapping

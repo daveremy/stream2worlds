@@ -6,9 +6,9 @@
 //! `MappingEngine`, the executor `serve` runs: every predicted cluster must be an entity the
 //! engine proposes for that record, and every entity it proposes must be a cluster. It then reads
 //! the mapping as a key spec ([`key::KeySpec::from_mapping`]) and checks the key executor
-//! places the same mentions in the same clusters and the same edges (s2w#388), grades the mapping against that key with
-//! [`score`] (it and the oracle ceiling must score 1.0), and prints the contract's frozen
-//! fixtures (B3: the 4/9 case and an all-singletons prediction).
+//! places the same mentions in the same clusters, checks edge parity (s2w#388), grades the
+//! mapping against that key with [`score`] (it and the oracle ceiling must score 1.0), and
+//! prints the contract's frozen fixtures (B3: the 4/9 case and an all-singletons prediction).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -175,8 +175,8 @@ fn selftest(root: &Path) -> Result<String, String> {
     }
     let own_key = key::KeySpec::from_mapping(&mapping)?;
     let gold = mentions::key_mentions(&own_key, &corpus)?;
-    edge_parity(&own_key, &mapping, &corpus, &gold.edges, (&edges, &claimed))?;
     mention_parity(&gold.partition, &predicted)?;
+    edge_parity(&own_key, &mapping, &corpus, &gold.edges, (&edges, &claimed))?;
     let clusters: BTreeSet<&String> = predicted.cluster.values().collect();
     grades_itself_perfectly(&own_key, &mapping, &payloads)?;
     Ok(format!(
@@ -299,7 +299,6 @@ fn reference_fixtures() -> Result<String, String> {
     Ok(table)
 }
 
-/// `(record, natural key)` for every entity `MappingEngine` proposes.
 /// Per record the clusters `MappingEngine` proposes, and its relationship claims as edges.
 type Claims = (BTreeSet<(usize, String)>, BTreeSet<mentions::Edge>);
 

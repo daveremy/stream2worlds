@@ -148,7 +148,7 @@ pub(crate) fn key_mentions(spec: &KeySpec, corpus: &Decoded) -> Result<KeyMentio
             .count(),
         ..KeyMentions::default()
     };
-    // Each observable row's type and its two mention path ids, computed once.
+    // Each observable row's type and its two mention path ids, so no record recomputes them.
     let rows: Vec<(&str, String, String)> = spec
         .relationships
         .iter()
@@ -215,6 +215,8 @@ pub(crate) fn key_mentions(spec: &KeySpec, corpus: &Decoded) -> Result<KeyMentio
 /// Per record each relationship rule whose two endpoint rules matched (the engine's
 /// `RelationshipObserved` claim) gives an edge; after the corpus each endpoint key resolves
 /// through the same fold to its cluster, so links join edge endpoints as they join mentions.
+/// That is the world after the corpus, as for mentions: a merge later in the corpus moves an
+/// earlier edge's endpoint too, where the live fold keeps the edge on the id it was claimed on.
 pub(crate) fn mapping_mentions(
     mapping: &StreamMapping,
     corpus: &Decoded,
