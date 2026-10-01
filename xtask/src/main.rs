@@ -19,7 +19,7 @@
 //!    byte for byte, twice, and to the same bytes when resumed from a serialized prefix at every
 //!    split point. The fixture must use every `WorldEvent` variant and trip the hub cap.
 //!
-//! 7. **Module sizes** (`module_size.rs`): report-only AST spans and blocking exemption growth.
+//! 7. **Module sizes** (`module_size.rs`): enforced AST spans (cap 400, reasoned `[[exempt]]` rows) and blocking exemption growth.
 //! 9. **Domain vocabulary** (`vocabulary.rs`, terms in `xtask/vocabulary-denylist.txt`): no
 //!    crate's `src/` tree — xtask's own included — nor the web view's TypeScript, nor any
 //!    committed prompt file under a crate's `prompts/` tree, names the retired domain's terms

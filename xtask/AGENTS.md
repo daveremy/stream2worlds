@@ -49,6 +49,12 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   decision 0030; check 11 still hashes every string), comparing the mapping, the event-type field
   and every path's role (decision 0022). Self-tests live in `discover_replay/tests.rs`.
 - `module_size.rs`: config, calibration table, exemption checks and `--tighten-baseline`.
+  `xtask/module-size.toml` keys are Rust module paths (`s2w_app::query::http`), never file
+  paths; a bin target sharing its package's lib crate name keys as `name[bin]` (s2w#66). Each
+  `[[exempt]]` row's `reason` and `issue` are fields, not comments: `--tighten-baseline`
+  rewrites the file through serde and drops comments. Enforced since s2w#66 PR 4: a PR that
+  shrinks an exempt module runs `--tighten-baseline` and commits the result; one that grows it
+  needs the `Baseline-growth:` trailer. Burn-down: s2w#378.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal (`include_str!`/`include_bytes!` are expressions that add no module line and are not refused, s2w#66).
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.
     Every walked target of a package is checked against the union of the package's walks: a
@@ -186,12 +192,12 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 `cargo xtask check --tighten-baseline` removes stale exemptions and lowers ceilings to actual
 counts, and also rewrites `[memory]` in `xtask/scale-baseline.toml` down to the measurement;
-it never raises anything and never touches `[ir]` or `[parse]`. Each ratchet refuses to tighten over its own findings only, and the refusal carries those findings' severity: report-only module-size findings leave `module-size.toml` untouched with a `[report-only]` line while `[memory]` still tightens and the run exits 0 (s2w#192). The asymmetry is deliberate: `[memory]` is
+it never raises anything and never touches `[ir]` or `[parse]`. Each ratchet refuses to tighten over its own findings only, and the refusal carries those findings' severity (s2w#192): module-size findings leave `module-size.toml` untouched, and since module sizes are enforced (s2w#66) that refusal blocks and the run exits non-zero. The asymmetry is deliberate: `[memory]` is
 measured by `cargo xtask check` on any machine, so tightening it is automatic, while `[ir]` is
 owned by the CI image, so an `[ir]` or `[parse]` improvement past tolerance stays a printed hint to lower
 `fold_ir_per_event` or `parse_ir_per_event` by hand from the CI job's number. Cap, exemption-shape and walker findings (`#[path]`, `include!`,
-dep-info, build failure) are report-only until
-`module-size.toml` enables enforcement; baseline growth always blocks without an authorized
+dep-info, build failure) block: `module-size.toml` has `enforce = true` since s2w#66 PR 4, so a
+module-size finding also makes `--tighten-baseline` refuse and exit non-zero for every ratchet; baseline growth always blocks without an authorized
 `Baseline-growth: s2w#<N>` commit trailer in `origin/main..HEAD`; the same trailer rule covers
 raising `fold_ir_per_event`, `parse_ir_per_event`, any events or entities size, `bytes_per_entity`, `target_bytes_per_entity`,
 `budget_bytes_per_entity` or `tolerance_percent` in `xtask/scale-baseline.toml` (a file absent on `origin/main` is all growth). CI needs full git history.
