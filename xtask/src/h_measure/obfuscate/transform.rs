@@ -85,6 +85,17 @@ fn lookup<'v>(record: &'v Value, path: &[String]) -> Option<&'v Value> {
         .try_fold(record, |node, key| node.as_object()?.get(key))
 }
 
+/// Whether `record` lacks `path`: the object at its parent exists and has no such key. A parent
+/// that is missing or is not an object is not a lack; the caller's lookup then fails.
+fn lacks(record: &Value, path: &[String]) -> bool {
+    let Some((last, parent)) = path.split_last() else {
+        return false;
+    };
+    lookup(record, parent)
+        .and_then(Value::as_object)
+        .is_some_and(|object| !object.contains_key(last))
+}
+
 /// A scalar's text: a string as is, a number in its JSON form. Booleans and nulls have none.
 fn scalar_text(value: &Value) -> Option<String> {
     match value {
@@ -252,7 +263,7 @@ impl<'r> Transformer<'r> {
         let domain = rule.domain.as_deref().unwrap_or(TEXT);
         let mut parts = folded(chain, &rule.fold, record)?;
         let canonical = if let Some(from) = &rule.from {
-            if rule.own_if_absent && record.is_some_and(|r| lookup(r, from).is_none()) {
+            if rule.own_if_absent && record.is_some_and(|r| lacks(r, from)) {
                 *self.stats.own_values.entry(chain.to_vec()).or_default() += 1;
                 Some(own.clone())
             } else {

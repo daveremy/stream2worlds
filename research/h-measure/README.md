@@ -210,9 +210,9 @@ checked against its pin) is written to `DIR/<corpus>.obf-<replicate>.raw.sse`, a
 (a pinned answer key) is renamed to the obfuscated paths and written to
 `research/h-measure/<key stem>.obf-<replicate>.json`. The metadata file (default
 `research/h-measure/obfuscation/<replicate>.meta.json`) records the field table, how each path
-was treated, undeclared numeric paths, URL values that fell back to a whole-text hash, rules
-that matched no path, the unobservable rows, and the sha256 of the key, the rules, every input
-and every output. It never records the key itself.
+was treated, undeclared numeric paths, URL values that fell back to a whole-text hash, values
+hashed as their own for an absent `from` path, rules that matched no path, the unobservable
+rows, and the sha256 of the key, the rules, every input and every output. It never records the key itself.
 
 A replicate's windows share one key and one field table, but they need not run together: the
 test window is obfuscated later than the development window, after the mappings are committed.

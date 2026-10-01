@@ -42,9 +42,10 @@ pub(super) struct Rule {
     /// An alias: hash the value at this path of the same record instead of the value here, so
     /// the alias becomes byte-equal to that path's hash.
     pub from: Option<Vec<String>>,
-    /// With `from`: a record that lacks the `from` path entirely hashes this path's own value
-    /// in the rule's domain instead of failing, and the run counts it in the metadata. A `from`
-    /// path that is present but holds no scalar still fails.
+    /// With `from`: a record whose object at the `from` path's parent has no key for its last
+    /// part hashes this path's own value in the rule's domain instead of failing, and the run
+    /// counts it in the metadata. A missing or non-object parent, or a `from` value that is
+    /// present but holds no string or number, still fails.
     #[serde(default)]
     pub own_if_absent: bool,
     /// The identifier is the tail of a URL: see [`UrlPath`].
