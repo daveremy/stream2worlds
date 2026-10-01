@@ -27,7 +27,7 @@ impl FieldTable {
     pub(super) fn name(&self, path: &[String]) -> Result<&str, String> {
         self.0.get(path).map(String::as_str).ok_or_else(|| {
             format!(
-                "field path {path:?} is not in the replicate's field table; a window transformed with --meta reuse may not add a field. Re-run every window of the replicate in one invocation"
+                "field path {path:?} is not in the replicate's field table (it occurs in no input corpus, or a window transformed with --meta reuse adds it); a reused table never gains a field, so run every window of a replicate in one invocation"
             )
         })
     }

@@ -156,6 +156,18 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/context.rs`: the context-collision rows (the unfloored composite-key
     sub-metric; definition in `research/h-measure/README.md`), added to `Grade.contexts`.
     Fixtures live in `h_measure/context/tests.rs`.
+  - `h_measure/obfuscate/` (s2w#370): `cargo xtask h-measure obfuscate --rules FILE
+    --key-file FILE --replicate NAME --corpus NAME... [--key FILE...] [--meta FILE] [--dir
+    DIR]`, the keyed transformation of contract B2.2. `mod.rs` is the CLI and run (every
+    corpus of a replicate in one invocation, one shared field table; nothing is written until
+    every input transforms; an existing output is refused; the key file must be outside the
+    repository). `hash.rs`: HMAC-SHA256 on `sha2`, value hashes (`h` + 16 hex, collision-checked
+    across the run), the per-replicate time shift and the keyed field ranking. `rules.rs`: the
+    TOML rules file (format 1). `canon.rs`: URL tails and query parameters. `transform.rs`: the
+    field table and the per-event walk (undeclared strings are text-hashed, RFC 3339 strings are
+    shifted, numbers are kept and listed). `rekey.rs`: the answer key renamed to the obfuscated
+    paths. `meta.rs`: the metadata file. Fixtures, including a grade of the obfuscated corpus
+    against the renamed key, live in `h_measure/obfuscate/tests.rs`.
   - The first pre-registered run (s2w#56 PR 3, research 0009): frozen files in
     `research/h-measure/frozen/`, reports in `research/h-measure/results/`. `score` re-runs the
     freeze, so a later `PROFILER_VERSION` or `Config` change, or any `s2w-discover` change that
