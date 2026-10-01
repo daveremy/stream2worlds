@@ -87,7 +87,7 @@ relationships = 19512 # pinned; the test's JSON line must agree
 [discover_volume]
 # Measured 399,243,516 B (380.7 MiB) on 2026-10-01, PROFILER_VERSION 9, hub, rustc 1.98.1.
 # Baseline; > +tolerance fails. Accepted as is, not bisected (s2w#392 ruling, 2026-10-01).
-heap_bytes = 399243516
+heap_bytes = 199621758
 # Hard ceiling: decision 0025's deploy line, 480 MiB resident, restated in heap bytes with the
 # measured heap/RSS ratio (399,243,516 / 408,956,928 = 0.9762): 480 MiB x 0.9762. Leaves room
 # for version-2 links (+75 MiB resident measured by s2w#245). Above this always fails.
