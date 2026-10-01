@@ -161,6 +161,19 @@ fn run(
         meta::rows(transformer.table(), &transformer.stats);
     record(request, &written, &mut meta);
     let reused = prior.is_some();
+    let meta = save(request, prior, meta, &written)?;
+    Ok(report(request, &meta, reused))
+}
+
+/// Writes the outputs and the metadata: this run's record alone, or appended to the reused
+/// one (which refuses a window it already holds before anything is written).
+fn save(
+    request: &Request<'_>,
+    prior: Option<Meta>,
+    meta: Meta,
+    written: &[(PathBuf, Vec<u8>, Option<usize>)],
+) -> Result<Meta, String> {
+    let reused = prior.is_some();
     let meta = match prior {
         Some(mut prior) => {
             prior.absorb(meta)?;
@@ -168,7 +181,7 @@ fn run(
         }
         None => meta,
     };
-    for (path, bytes, _) in &written {
+    for (path, bytes, _) in written {
         write_new(path, bytes)?;
     }
     let text = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())? + "\n";
@@ -177,7 +190,7 @@ fn run(
     } else {
         write_new(request.meta, text.as_bytes())?;
     }
-    Ok(report(request, &meta, reused))
+    Ok(meta)
 }
 
 /// The output paths, each refused if it exists.
