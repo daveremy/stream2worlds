@@ -10,7 +10,7 @@ use syn::{Attribute, Meta, Token, punctuated::Punctuated, spanned::Spanned, visi
 pub(crate) struct Scan {
     pub(super) rows: BTreeMap<String, (usize, usize, usize)>, // wc -l, excluded test lines, non-test
     pub(super) visited: BTreeSet<PathBuf>,
-    pub(super) findings: Vec<String>,
+    pub(crate) findings: Vec<String>,
     pub(super) incomplete: bool,
     /// Each file module's parsed AST under its module key (read by `module_cycles`).
     pub(crate) asts: BTreeMap<String, syn::File>,

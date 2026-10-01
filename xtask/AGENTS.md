@@ -6,7 +6,8 @@ mapping against an answer key (s2w#56).
 
 ## Allowed dependencies
 
-- `serde`, `serde_json`, `toml`, `syn`, `proc-macro2`, `s2w-core` (the golden replay check folds
+- `serde`, `serde_json`, `toml`, `syn`, `proc-macro2`, `quote` (check 19 renders `syn`
+  nodes as token text through `ToTokens`), `s2w-core` (the golden replay check folds
   the golden log), `s2w-model` (the obfuscation replay's engine-layer coverage builds
   `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`; check
   11 runs a recorded raw stream through `MappingEngine`), `s2w-discover` (check 12 profiles a
@@ -57,6 +58,20 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   included); reuses `module_size::{git, trailer}` for the baseline-growth rule. Self-tests live
   in `expect_count/tests.rs`, whose sample sources spell the attribute `EXPECT` so a text search
   never counts them.
+- `public_api.rs`: check 19 and `cargo xtask api [--update]` (s2w#68): every lib crate's `pub`
+  items (from the `module_size::walk` ASTs, test code skipped) match `xtask/public-api/<crate>.txt`.
+  After an intended API change run `cargo xtask api --update` and commit the snapshot diff; there
+  is no exemption and no growth rule. `public_api/render.rs` turns items into sorted
+  `<module>: <tokens>` lines (bodies, docs, lint attributes and const values dropped; derives,
+  `cfg`, `repr`, `non_exhaustive`, `must_use`, `doc(hidden)` kept; trait impls by header plus
+  associated types and consts, unless the self type is a private local type; private `type`
+  aliases marked `(private alias)`). Stable `syn`, not nightly rustdoc JSON, so it is sound only
+  because the workspace forbids `unreachable_pub`. **Blind spots, accepted** (karpathy ruling on
+  s2w#68): a `use` or re-export path change that re-points a spelled name, and re-exports are
+  recorded as their `pub use` line rather than expanded; auto traits (`Send`, `Sync`, ...);
+  blanket impls; items made by macros other than `#[derive]` (item-level `macro_rules!` calls,
+  attribute macros) and `include!`d code; `#[macro_export]` macro bodies (name only); and
+  `const`/`static` values. Self-tests in `public_api/tests.rs`.
 - `readme_scale.rs`: check 17, the README Scale row's figures equal `xtask/scale-baseline.toml` (s2w#324). Reads the row's prose (number before a fixed phrase, per supply segment); a phrase it cannot find fails.
 - `h_measure.rs`: `cargo xtask h-measure selftest | freeze | score` (s2w#56, contract B3). The selftest runs the mapping
   executor over `crates/s2w-system1/testdata/raw-sample.jsonl` with `sample.mapping.json` and

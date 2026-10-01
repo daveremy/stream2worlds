@@ -12,6 +12,12 @@ pub(super) struct Target {
     pub(crate) src_path: PathBuf,
 }
 impl Target {
+    /// A library target (any lib crate-type or a proc macro): its `pub` items are public API.
+    pub(crate) fn is_lib(&self) -> bool {
+        self.kind
+            .iter()
+            .any(|k| k.ends_with("lib") || k == "proc-macro")
+    }
     /// Skip only the kinds the doctrine exempts, so lib crate-types such as cdylib or rlib
     /// (reported as their own kind) are walked rather than silently dropped.
     pub(crate) fn walked(&self) -> bool {

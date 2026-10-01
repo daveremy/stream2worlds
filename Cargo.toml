@@ -17,6 +17,7 @@ toml = "1"
 sha2 = "0.10"
 syn = { version = "2", features = ["full", "visit"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
+quote = "1"
 # One pin for the binary's allocator and its measurement target (decision 0031).
 mimalloc = "=0.1.52"
 

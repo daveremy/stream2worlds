@@ -69,6 +69,8 @@
 //!     counted per lint as syn attributes. Shrink-only: a count above its baseline fails, a count
 //!     below it fails until `--tighten-baseline` lowers the file, and raising the file needs a
 //!     `Baseline-growth: s2w#<N>` trailer (s2w#156).
+//! 19. **Public API** (`public_api.rs`, snapshots in `xtask/public-api/`): every lib crate's
+//!     `pub` items match its committed snapshot; `cargo xtask api --update` rewrites them (s2w#68).
 //!
 //! Escape hatches: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -94,6 +96,7 @@ mod module_cycles;
 mod module_size;
 mod obfuscation;
 mod obfuscation_raw;
+mod public_api;
 mod readme_scale;
 mod scale;
 mod scale_mem_check;
@@ -110,10 +113,13 @@ fn main() -> ExitCode {
     if args.first().is_some_and(|a| a == "h-measure") {
         return h_measure::run(&workspace_root(), &args[1..]);
     }
+    if args.first().is_some_and(|a| a == "api") {
+        return public_api::run(&workspace_root(), &args[1..]);
+    }
     let tighten = args == ["check", "--tighten-baseline"];
     if args != ["check"] && !tighten {
         eprintln!(
-            "usage: cargo xtask check [--tighten-baseline] | cargo xtask scale | cargo xtask h-measure selftest|freeze|score"
+            "usage: cargo xtask check [--tighten-baseline] | cargo xtask api [--update] | cargo xtask scale | cargo xtask h-measure selftest|freeze|score"
         );
         return ExitCode::from(2);
     }
@@ -295,6 +301,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(contract_frozen::check(root));
     problems.extend(readme_scale::check(root, &table));
     problems.extend(expect_count::check(root, &meta, tighten));
+    problems.extend(public_api::check(root, &meta));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -329,7 +336,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers, frozen contract, expect count: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers, frozen contract, expect count, public API: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))
