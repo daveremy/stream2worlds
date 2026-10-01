@@ -211,7 +211,8 @@ fn attr(table: &Table, path: usize) -> AttrRule {
 /// Merges classes that determine each other, transitively (1:1, research 0002 §4: two encodings of one
 /// entity). The key is chosen without names: most alias members, then most events, then most
 /// distinct values, then integer over string over bool. A tie keeps the classes apart. The
-/// losers are linked (`one_to_one_links`) or, failing that, become the winner's attributes.
+/// losers are linked (`one_to_one_links`, when `cfg.links`) or, failing that, become the
+/// winner's attributes.
 fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Vec<Type> {
     let values: Vec<Vec<Option<String>>> = classes.iter().map(|c| class_values(table, c)).collect();
     let linked = |i: usize, j: usize| {
@@ -248,7 +249,11 @@ fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Ve
             Vec::new()
         };
         let merged: Vec<usize> = losers.iter().flat_map(|c| c.iter().copied()).collect();
-        let (aliases, links) = one_to_one_links(table, &classes[ranked[0].1], &losers);
+        let (aliases, links) = if cfg.links {
+            one_to_one_links(table, &classes[ranked[0].1], &losers)
+        } else {
+            (Vec::new(), Vec::new())
+        };
         types.extend(winners.iter().map(|&(_, i)| Type {
             members: classes[i].clone(),
             values: values[i].clone(),

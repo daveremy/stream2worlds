@@ -479,6 +479,27 @@ fn every_other_class_of_a_merge_links_into_the_one_survivor() {
 }
 
 #[test]
+fn with_links_off_every_loser_is_an_attribute_and_the_mapping_is_version_1() {
+    let off = Config {
+        links: false,
+        ..Config::default()
+    };
+    let events = encodings(1200, &["av", "ay"]);
+    let on = mapping(run(&events, &[]).1);
+    assert_eq!(
+        on.version, MAPPING_VERSION_LINKS,
+        "vacuous: no links with links on"
+    );
+    let m = mapping(run_with(&events, &[], &off).1);
+    assert_eq!(m.version, MAPPING_VERSION);
+    assert!(m.links.is_empty());
+    assert!(m.entities.iter().all(|e| e.id != "av" && e.id != "ay"));
+    let a = entity(&m, "a");
+    assert!(a.attrs.iter().any(|x| x.name == "av"));
+    assert!(a.attrs.iter().any(|x| x.name == "ay"));
+}
+
+#[test]
 fn many_to_one_points_from_the_many_side() {
     let m = mapping(run(&stream(1200), &[]).1);
     for from in ["a", "x.a"] {

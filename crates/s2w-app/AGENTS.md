@@ -93,6 +93,9 @@ build on any cycle between this crate's modules (enforced since s2w#240).
   never changes routes itself (the live-rebuild watcher sees the store move), and keeps a source
   pending only while the store is locked, retrying every `LOCK_RETRY_POLLS` polls.
   A window this actor already filed and someone decided is skipped before profiling.
+  It files version-1 mappings only: `DiscoverConfig::default()` turns the profiler's links off,
+  and a version-2 mapping (a test config with links on) is a note, never a proposal. Links in
+  serve wait on s2w#392's memory baseline (decision 0022, s2w#245 amendment).
 - `Timeline` (decisions 0024, 0026) holds one world, the head, and at most `history_cap` recent
   events (`DEFAULT_HISTORY_CAP`), each with the `Delta` its fold produced; past the cap it drops
   the oldest down to half. Never add a second resident world (a base, or one per SSE follower):

@@ -6,13 +6,15 @@
 //! Rules, each pinned by a test: it never re-profiles a routed source; it writes nothing when a
 //! proposal with the same (source, identity) exists from any actor, so a restart and a human
 //! reject are both stable; the proposal id is a hash of the actor, source, window and identity;
-//! it opens the proposal writer per run and drops it; its failures are notes, never fatal.
+//! it opens the proposal writer per run and drops it; its failures are notes, never fatal; it
+//! files version-1 mappings only (links off, and a version-2 mapping is refused with a note),
+//! so links stay measurement-only (decision 0022, s2w#245 PR 4).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use s2w_discover::{Discovery, PROFILER_MODEL, PROFILER_VERSION};
+use s2w_discover::{PROFILER_MODEL, PROFILER_VERSION};
 use s2w_log::{
     Actor, Decider, LogError, LogPosition, LogReader, NewDecision, NewProposal, Outcome,
     PROPOSAL_DATABASE_FILE, ProposalStore, ReadOnlySqliteProposalStore, SqliteEventLog,
@@ -41,10 +43,15 @@ pub struct DiscoverConfig {
 }
 
 impl Default for DiscoverConfig {
+    /// The profiler's defaults with links off (decision 0027): auto-apply files version 1 only
+    /// until s2w#392 sets a memory baseline (decision 0022, s2w#245 PR 4).
     fn default() -> Self {
         Self {
             window: DISCOVER_WINDOW,
-            profiler: s2w_discover::Config::default(),
+            profiler: s2w_discover::Config {
+                links: false,
+                ..s2w_discover::Config::default()
+            },
         }
     }
 }
@@ -295,16 +302,8 @@ fn produce(
         ));
         return Produced::Nothing;
     }
-    let payloads: Vec<&[u8]> = window.payloads.iter().map(Vec::as_slice).collect();
-    let mapping = match s2w_discover::discover(&payloads, &cfg.profiler).1 {
-        Discovery::Mapping(mapping) => mapping,
-        Discovery::Abstain(reason) => {
-            reporter.note(&format!(
-                "discover: {source}: abstained ({reason}) over {} events",
-                payloads.len()
-            ));
-            return Produced::Nothing;
-        }
+    let Some(mapping) = profile::version_1(window, &cfg.profiler, reporter) else {
+        return Produced::Nothing;
     };
     let (effect, retry) = match trigger {
         Trigger::Start => ("", "retried at the next start".to_owned()),
@@ -499,6 +498,7 @@ fn now_ms() -> Result<i64, Unfiled> {
 }
 
 pub(crate) mod in_run;
+mod profile;
 
 #[cfg(test)]
 pub(crate) mod tests;

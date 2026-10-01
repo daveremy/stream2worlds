@@ -93,6 +93,12 @@ pub struct Config {
     pub carry_pct: usize,
     /// Stage 5b: distinct values per path compared, the first ones in stream order.
     pub contain_cap: usize,
+    /// Stage 6 links (decision 0027, `PROFILER_VERSION` 9): a 1:1 loser stays a key path linked
+    /// into the survivor, and the mapping is version 2. Off, every loser is the winner's
+    /// attribute and the mapping is version 1, exactly `PROFILER_VERSION` 8's output. On by
+    /// default, for measurement; `serve`'s auto-apply turns it off (decision 0022, s2w#245),
+    /// so links never reach a live world until s2w#392 sets a memory baseline.
+    pub links: bool,
 }
 
 impl Default for Config {
@@ -117,6 +123,7 @@ impl Default for Config {
             contain_pct: 10,
             carry_pct: 95,
             contain_cap: 250_000,
+            links: true,
         }
     }
 }

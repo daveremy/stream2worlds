@@ -3,8 +3,9 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use s2w_discover::Discovery;
 use s2w_log::{EventLog, ReadOnlySqliteProposalStore, StoredDecision};
-use s2w_model::{Cursor, RawEvent, Timestamp};
+use s2w_model::{Cursor, MAPPING_VERSION, RawEvent, Timestamp};
 use serde_json::json;
 
 use super::*;
@@ -67,6 +68,20 @@ pub(crate) fn stream(n: u64) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// [`stream`] plus `v`, a second encoding of `a`'s entity with one value fewer (`a39` and `a38`
+/// share `v38`): a 1:1 loser the profiler links when links are on (decision 0027).
+fn linking(n: u64) -> Vec<Vec<u8>> {
+    stream(n)
+        .into_iter()
+        .map(|bytes| {
+            let mut event: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+            let a: u64 = event["a"].as_str().expect("a")[1..].parse().expect("n");
+            event["v"] = json!(format!("v{}", a.min(38)));
+            event.to_string().into_bytes()
+        })
+        .collect()
+}
+
 /// `n` payloads with nothing to map: every value is unique.
 fn structureless(n: u64) -> Vec<Vec<u8>> {
     (0..n)
@@ -86,7 +101,7 @@ pub(crate) fn small() -> DiscoverConfig {
         window: 300,
         profiler: s2w_discover::Config {
             min_events: 300,
-            ..s2w_discover::Config::default()
+            ..DiscoverConfig::default().profiler
         },
     }
 }
@@ -259,6 +274,47 @@ fn a_full_window_files_one_proposal_and_one_policy_accept_that_routes_the_source
     assert!(decisions[0].basis.contains("window=1..300 events=300"));
     let resolution = routes::load(dir.path()).expect("routes");
     assert_eq!(resolution.routes[&source].proposal_id, proposal.id);
+}
+
+#[test]
+fn auto_apply_files_a_version_1_mapping_where_the_profiler_would_link() {
+    let payloads = linking(400);
+    let mut on = small().profiler;
+    on.links = true;
+    let window: Vec<&[u8]> = payloads[..300].iter().map(Vec::as_slice).collect();
+    let Discovery::Mapping(linked) = s2w_discover::discover(&window, &on).1 else {
+        panic!("vacuous: the stream does not map");
+    };
+    assert!(
+        !linked.links.is_empty(),
+        "vacuous: the stream does not link"
+    );
+    assert!(!DiscoverConfig::default().profiler.links);
+
+    let dir = TestDirectory::new("discover-v1-only");
+    append(dir.path(), SOURCE, payloads);
+    let (wrote, notes) = start(REAL, dir.path(), &small());
+    assert!(wrote, "{:?}", notes.0);
+    let (proposals, _) = rows(dir.path());
+    let (_, mapping, _) = routes::decode_envelope(&proposals[0].payload).expect("envelope");
+    assert_eq!(mapping.version, MAPPING_VERSION);
+    assert!(mapping.links.is_empty());
+}
+
+#[test]
+fn a_version_2_mapping_is_never_auto_applied() {
+    let dir = TestDirectory::new("discover-v2-refused");
+    append(dir.path(), SOURCE, linking(400));
+    let mut cfg = small();
+    cfg.profiler.links = true;
+    let (wrote, notes) = start(REAL, dir.path(), &cfg);
+    assert!(!wrote);
+    assert!(
+        notes.has("test.learned: proposed a version-2 mapping (links); auto-apply files version 1 only, nothing written"),
+        "{:?}",
+        notes.0
+    );
+    assert_eq!(rows(dir.path()).0.len(), 0);
 }
 
 #[test]

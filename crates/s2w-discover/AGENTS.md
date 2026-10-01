@@ -19,7 +19,12 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   format, decision 0030). Renaming keys, shifting every date-time by one constant and hashing
   every other string changes the proposal only by the same renaming; `tests.rs` asserts it, and
   `cargo xtask check` 12 does on the recorded fixture (`testdata/recorded.raw.sse`, a link to the
-  s2w-sources fixture), comparing roles as well. No tie is ever broken by a name. A new format
+  s2w-sources fixture), comparing roles as well. No tie is ever broken by a name, with one
+  documented exception: `link::link_member` picks the member a link names, and when two
+  members of a class tie on events carried and distinct values it takes the first in table
+  order, which can follow key names (decision 0022, `PROFILER_VERSION` 9). It is
+  deterministic, and the tied members are aliases, so either choice merges the same entities
+  in at least `alias_pct` of events. A new format
   is a new decision record, never a quiet addition to `stamp.rs`.
 - The second entity test carries a churn guard and a leaf cap (decision 0022, `PROFILER_VERSION`
   6): a key whose values move on and never return fails it, and a type only it admits relates
@@ -28,6 +33,11 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   s2w#327); it reads the value's kind, which obfuscation leaves unchanged, never its text.
 - `diag::key_report` prints the entity tests' per-key numbers for a person (s2w-app's ignored
   `discover_diag` test). No rule reads it.
+- Stage 6 links (decision 0027, `PROFILER_VERSION` 9): a 1:1 loser stays a key path under the
+  winner's label, linked into the class with the most distinct values; the mapping is then
+  version 2. `Config::links` turns this off (every loser an attribute, version 1, exactly
+  version 8's output); `serve`'s auto-apply runs with it off, so links are measurement-only
+  until s2w#392 (decision 0022's s2w#245 amendment).
 - Type labels and attribute names are built from the stream's own key names, as data.
 - Abstaining is a first-class answer: every role that cannot be decided says so in `Profile`,
   and no mapping is emitted without an entity type or below `min_events`.

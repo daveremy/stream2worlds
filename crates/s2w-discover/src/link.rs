@@ -43,9 +43,15 @@ pub(crate) fn one_to_one_links(
 
 /// The member of a class a link names: the most carried, then the most distinct. Members of a
 /// class are aliases, holding equal values in at least `alias_pct` of events, so any of them
-/// names the same entity; a tie that remains takes the first path in table order. That is the
-/// one tie in this crate that path order breaks, because a link names exactly one rule per side
-/// (decision 0027); check 12 compares a link up to it (decision 0022, `PROFILER_VERSION` 9).
+/// names the same entity in those events. A tie that remains takes the first path in table
+/// order. Table order is first appearance in the stream and, within one payload, the key order
+/// of `serde_json`'s map, which sorts by name; so this tie can be broken by a name. It is
+/// deterministic (the same payloads always give the same link) and it is the one exception to
+/// "no tie is broken by a name" in this crate (`AGENTS.md`; decision 0022, `PROFILER_VERSION`
+/// 9), because a link names exactly one rule per side (decision 0027). Check 12 compares links
+/// exactly and passes on the recorded fixture; if a renaming ever flips this tie on a fixture,
+/// check 12 fails with a `links` difference, and the fix is to compare a link up to its tied
+/// members there, not to change this rule.
 fn link_member(table: &Table, class: &[usize]) -> usize {
     let col = |p: usize| &table.columns[p];
     class
