@@ -9,6 +9,7 @@ mod dashboard;
 mod event;
 mod hash;
 mod mapping;
+mod mapping_input;
 mod natural_key;
 pub use dashboard::{
     AcceptedMapping, AttrLabel, BuiltOn, DASHBOARD_FORMAT, DashboardError, DashboardManifest,
@@ -25,6 +26,7 @@ pub use mapping::{
     AttrRule, EntityRule, FieldPath, LinkRule, MAPPING_VERSION, MAPPING_VERSION_LINKS,
     MappingError, RelationshipRule, Segment, StreamMapping,
 };
+pub use mapping_input::{HeuristicMapping, MappingInput, RawMappingInput};
 pub use natural_key::{KEY_FORMAT, KEY_SEPARATOR, KeyError, KeyPart, NaturalKey};
 
 use serde::{Deserialize, Serialize};

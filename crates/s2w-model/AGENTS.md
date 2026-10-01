@@ -46,6 +46,10 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   renaming or reordering a field moves every hash, so do it only with a format change.
   `PathStats.timestamp` (s2w#302) is left out of the JSON when false, so it moves the hash
   only of an input that has a date-time path.
+- `MappingInput`, `RawMappingInput` and `HeuristicMapping` (s2w#373, decision 0032) are what
+  a System 2 mapping proposer reads for the two gate-3 arms. Their serialized JSON is the
+  prompt's data line and is hashed into a committed run's `input_hash`, with the same rule:
+  change a field only with a format change.
 - `render_sentence` and `sentence_for` (s2w#302) render a manifest's sentence templates over
   a decoded payload: pure, and `None` rather than a broken sentence. Strings show as
   `display_text` (s2w#289, decision 0029); the web viewer's `manifest.ts` copies its rules and
