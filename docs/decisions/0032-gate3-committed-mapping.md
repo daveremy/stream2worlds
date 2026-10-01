@@ -175,8 +175,10 @@ events of the same development window instead of H's result.
   prompt, so a provider failure on attempt 1 falls to attempt 2's. The CLI caches the prompt, so `input_tokens` alone is a handful; the sum is what the
   model read. It includes the CLI's built-in system prompt, which b3's calls carry too. An
   h-s2 replicate whose calls reported no tokens has no budget, and b3 refuses it.
-- **The sampler (frozen).** The events are each frame's `data` string as the stream carried
-  it: no profile, no H, no truncation. The sample is every k-th event of the window from the
+- **The sampler (frozen; view changed 2026-10-01 after dry run 1, below).** Each event is the
+  stored envelope byte for byte (`{"data":"<the frame's data string>","id":...}`, serialized as
+  the profiler and the executor read it): the record a mapping is applied to, with no profile,
+  no H, no truncation and no description of its shape. The sample is every k-th event of the window from the
   first. k is the smallest value whose b3 first prompt is at most B bytes, where B is the
   h-s2 first prompt's length rebuilt from the committed heuristic. Bytes against bytes is the
   plan's "bytes/3" rule with the 3 cancelled on both sides, and it needs no estimate of the
@@ -185,7 +187,10 @@ events of the same development window instead of H's result.
   the token check; the 105% check below bounds it.
 - **The check and refit.** After a fit's proposal, its first call 1 that reported tokens is
   counted the same way as T. Above 105% of T, the fit is spent (its calls stay in the
-  transcript and the ledger) and the next fit is the smallest k above it that fits B. There is no fixed fit count:
+  transcript and the ledger) and the refit shrinks the sample by the measured ratio (changed
+  2026-10-01 after dry run 1, below): `k_next = ceil(k × tokens / (T × 0.97))`, at least k + 1
+  and at most the window, then the smallest k from there that fits B. k is a stride, so this is
+  the ruling's `events × T / tokens × 0.97` written for a stride. There is no fixed fit count:
   each fit's calls pass a budget gate seeded with everything spent before them, so the $5 cap
   bounds the refits. When not even one event fits B, or an over-budget fit was already a
   one-event sample (every larger k samples the same first event), the replicate is committed

@@ -3,7 +3,7 @@
 use s2w_system2::{CallRecord, raw_mapping_prompt};
 use serde_json::json;
 
-use super::{Target, first_prompt_tokens, fit, prompt_tokens, raw_events};
+use super::{Target, first_prompt_tokens, fit, prompt_tokens, raw_events, refit_from};
 
 fn events(n: usize) -> Vec<String> {
     (0..n)
@@ -40,17 +40,113 @@ fn record(input: Option<u64>, read: Option<u64>, write: Option<u64>) -> CallReco
 }
 
 #[test]
-fn raw_events_are_each_frames_data_verbatim() {
+fn raw_events_are_each_stored_envelope_byte_for_byte() {
     let window = [
         json!({"data": "{\"a\": 1}", "id": "1"}),
         json!({"data": "not json at all", "id": null}),
     ];
+    let raw = raw_events(&window).unwrap();
     assert_eq!(
-        raw_events(&window).unwrap(),
-        ["{\"a\": 1}", "not json at all"]
+        raw,
+        [
+            r#"{"data":"{\"a\": 1}","id":"1"}"#,
+            r#"{"data":"not json at all","id":null}"#
+        ]
     );
-    let err = raw_events(&[json!({"id": "1"})]).unwrap_err();
-    assert!(err.contains("event 0 has no data string"), "{err}");
+    // The bytes the profiler and the executor read.
+    for (event, envelope) in raw.iter().zip(&window) {
+        assert_eq!(event.as_bytes(), serde_json::to_vec(envelope).unwrap());
+    }
+}
+
+#[test]
+fn refit_shrinks_the_sample_by_the_measured_ratio() {
+    // 7% over: stride 100 becomes ceil(100 * 1.07 / 0.97) = 111.
+    assert_eq!(refit_from(100, 1070, 1000), 111);
+    // Always strictly above k, however small the overrun.
+    assert_eq!(refit_from(1, 1001, 1000), 2);
+    assert_eq!(refit_from(50, 1000, 1000), 52);
+    // Twice the budget is about twice the stride, 3% more.
+    assert_eq!(refit_from(10, 2000, 1000), 21);
+    assert_eq!(refit_from(3, 10, 0), usize::MAX);
+}
+
+/// A model whose prompts read `num / den` tokens a byte, answering one fixed mapping.
+struct Dense {
+    num: u64,
+    den: u64,
+    reply: String,
+}
+
+impl s2w_system2::Provider for Dense {
+    fn complete(&self, prompt: &str) -> Result<s2w_system2::Reply, s2w_system2::ProviderError> {
+        Ok(s2w_system2::Reply {
+            text: self.reply.clone(),
+            input_tokens: Some((prompt.len() as u64 * self.num).div_ceil(self.den)),
+            output_tokens: Some(10),
+            ..s2w_system2::Reply::default()
+        })
+    }
+}
+
+#[test]
+fn a_prompt_7_percent_denser_than_h_s2_converges_within_2_refits() {
+    // Many uneven events, as a live stream's are (30 to 130 bytes, in no order), sampled at a
+    // stride in the hundreds as in leg D's run (k = 151 to 160), where a step of one barely
+    // shrinks the sample: the old refit, k + 1, takes 5 refits here; this one takes 1.
+    let events: Vec<String> = (0..30_000_u64)
+        .map(|i| {
+            // A multiplicative hash, so no stride lines up with a period of the sizes.
+            let len = 30 + (i.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % 101;
+            format!("{{\"n\":{i},\"text\":\"{}\"}}", "x".repeat(len as usize))
+        })
+        .collect();
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let reply = std::fs::read_to_string(repo.join(crate::obfuscation_raw::MAPPING)).unwrap();
+    let price = super::super::prices::Price {
+        input: 2.0,
+        output: 10.0,
+        cache_write: 4.0,
+        cache_read: 0.2,
+        source_url: String::new(),
+        copied_on: String::new(),
+    };
+    // The h-s2 prompt is B bytes read as T = 25,000 tokens, and B is exactly the first fit's
+    // prompt, as in leg D's dry run (98.5 KB against B = 100 KB). B3's prompts read 7% more
+    // tokens a byte than h-s2's, so the first fit reads 26,750 tokens, over 105% of T.
+    let (_, _, b) = fit(&events, 1, &target(16_000)).unwrap();
+    let mut target = target(b);
+    target.input_tokens = 25_000;
+    let proposer = s2w_system2::MappingProposer::new(Dense {
+        num: 107 * 25_000,
+        den: 100 * b as u64,
+        reply,
+    });
+    let (proposed, fitted) = super::propose(&proposer, &price, &events, &target, 0.0);
+    assert!(matches!(
+        proposed.outcome.result,
+        s2w_system2::MappingResult::Mapping(_)
+    ));
+    let fits = &fitted.fits;
+    assert!(
+        fits.len() >= 2,
+        "the first fit is over: {:?}",
+        fits[0].input_tokens
+    );
+    assert!(
+        fits.len() <= 3,
+        "{} fits: {:?}",
+        fits.len(),
+        fits.iter()
+            .map(|f| (f.k, f.input_tokens))
+            .collect::<Vec<_>>()
+    );
+    let last = fits.last().unwrap().input_tokens.unwrap();
+    assert!(last * 100 <= 25_000 * super::TOLERANCE_PERCENT, "{last}");
+    assert!(
+        fits.windows(2)
+            .all(|w| w[0].k < w[1].k && w[0].events > w[1].events)
+    );
 }
 
 #[test]

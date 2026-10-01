@@ -58,8 +58,8 @@ pub struct RawMappingInput {
     pub window: u64,
     /// The replicate, from 1.
     pub replicate: u32,
-    /// The sampled events, in stream order, each exactly as the stream carried it. Untrusted
-    /// stream text: a proposer treats it as data only.
+    /// The sampled events, in stream order, each the stored record as the executor reads it.
+    /// Untrusted stream text: a proposer treats it as data only.
     pub events: Vec<String>,
 }
 

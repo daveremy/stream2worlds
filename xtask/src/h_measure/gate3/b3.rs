@@ -3,12 +3,13 @@
 //! input-token budget the h-s2 replicate's System 2 pass used (decision 0032, dated note
 //! 2026-10-01).
 //!
-//! The rule: the sample is every k-th event of the window from the first, each its frame's
-//! `data` exactly as the stream carried it. k starts at the smallest value whose first prompt
-//! is no more bytes than the h-s2 first prompt. When the model reports that the fit's first
-//! prompt read more than [`TOLERANCE_PERCENT`] of the h-s2 prompt's tokens, the fit is spent
-//! and the next one tries the smallest k above it that fits. Every fit's calls stay in the
-//! transcript and the ledger, under one $5 budget.
+//! The rule: the sample is every k-th event of the window from the first, each the stored
+//! envelope byte for byte, the record the executor applies a mapping to. k starts at the
+//! smallest value whose first prompt is no more bytes than the h-s2 first prompt. When the
+//! model reports that the fit's first prompt read more than [`TOLERANCE_PERCENT`] of the h-s2
+//! prompt's tokens, the fit is spent and the next one shrinks the sample by the measured ratio
+//! ([`refit_from`]). Every fit's calls stay in the transcript and the ledger, under one $5
+//! budget.
 
 use s2w_model::{MappingInput, RawMappingInput};
 use s2w_system2::{CallGate, CallRecord, MappingProposer, Provider, raw_mapping_prompt};
@@ -20,6 +21,10 @@ use super::prices::Price;
 
 /// How far, in percent of the h-s2 prompt's tokens, a fit's first prompt may run over.
 pub(crate) const TOLERANCE_PERCENT: u64 = 105;
+
+/// The share, in percent, of the measured ratio a refit aims at: 3% under the h-s2 prompt's
+/// tokens, so a refit lands inside [`TOLERANCE_PERCENT`] even when sampling is uneven.
+pub(crate) const REFIT_PERCENT: u64 = 97;
 
 /// What a fit is sized against.
 pub(crate) struct Target<'a> {
@@ -97,23 +102,34 @@ pub(crate) fn first_prompt_tokens(calls: &[CallRecord]) -> Option<u64> {
         .find_map(prompt_tokens)
 }
 
-/// The window's events as the stream carried them: each stored envelope's `data` string.
+/// The window's events as the executor reads them: each stored envelope serialized byte for
+/// byte as the profiler and the executor read it (`data` still a JSON string, `id` beside it).
 ///
 /// # Errors
 ///
-/// An envelope has no `data` string.
+/// An envelope does not serialize.
 pub(crate) fn raw_events(window: &[Value]) -> Result<Vec<String>, String> {
     window
         .iter()
         .enumerate()
         .map(|(n, envelope)| {
-            envelope
-                .get("data")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .ok_or_else(|| format!("window event {n} has no data string"))
+            serde_json::to_string(envelope).map_err(|e| format!("window event {n}: {e}"))
         })
         .collect()
+}
+
+/// The k a spent fit's refit starts from: the sample shrunk by the measured ratio. A fit at
+/// stride k sends about 1/k of the events, so shrinking the sample to `budget / tokens` of
+/// itself, times [`REFIT_PERCENT`], is a stride of `ceil(k * tokens / (budget * 0.97))`. It is
+/// always above k, so every refit sends a strictly smaller sample.
+pub(crate) fn refit_from(k: usize, tokens: u64, budget: u64) -> usize {
+    let denominator = u128::from(budget) * u128::from(REFIT_PERCENT);
+    if denominator == 0 {
+        return usize::MAX;
+    }
+    let numerator = k as u128 * u128::from(tokens) * 100;
+    let next = numerator.div_ceil(denominator);
+    usize::try_from(next).unwrap_or(usize::MAX).max(k + 1)
 }
 
 /// The input holding every `k`-th of `events` from the first.
@@ -164,7 +180,7 @@ pub(crate) struct Fitted {
 }
 
 /// Why nothing more is proposed: not even one event fits, or the last fit was over the
-/// tolerance and no larger k gives a new sample.
+/// tolerance and its refit's k gives no sample.
 fn budget_fit(fits: &[Fit], target: &Target<'_>) -> String {
     fits.last().map_or_else(
         || {
@@ -226,22 +242,23 @@ pub(crate) fn propose<Q: Provider>(
         });
         calls.extend(outcome.calls.iter().cloned());
         charged.extend(fit_charged);
-        let over = tokens.is_some_and(|t| {
+        let over = tokens.filter(|&t| {
             u128::from(t) * 100 > u128::from(target.input_tokens) * u128::from(TOLERANCE_PERCENT)
         });
-        if !over {
+        let Some(read) = over else {
             let proposed = Proposed {
                 outcome,
                 calls,
                 charged,
             };
             return (proposed, Fitted { fits, last: input });
-        }
+        };
         // A one-event sample is the first event alone for every larger k too: nothing smaller fits.
         from = if input.events.len() <= 1 {
-            events.len() + 1
+            events.len().saturating_add(1)
         } else {
-            k + 1
+            // A stride past the window still leaves the one-event sample to try.
+            refit_from(k, read, target.input_tokens).min(events.len())
         };
         sent = Some(input);
     }

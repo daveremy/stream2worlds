@@ -222,10 +222,11 @@ input-token budget of the h-s2 replicate with the same corpus, window, replicate
 (`--h-s2 FILE`, default `committed/h-s2.<corpus>.r<K>.json`). Before any call it replays that
 file as `score` would and takes its budget from it: T, the prompt tokens the h-s2 first call
 reported (input plus cache read plus cache write), and B, the h-s2 first prompt's length in
-bytes. The sample is every k-th event of the window from the first, each frame's `data` exactly
-as the stream carried it, for the smallest k whose prompt is at most B bytes. When the model
-reports that a fit's first prompt read more than 105% of T, that fit is spent and the next k
-that fits is tried, under the same $5 gate; when no larger k gives a new sample, the replicate is
+bytes. The sample is every k-th event of the window from the first, each the stored envelope
+byte for byte (the record the executor applies a mapping to), for the smallest k whose prompt is
+at most B bytes. When the model reports that a fit's first prompt read more than 105% of T, that
+fit is spent and the refit shrinks the sample by the measured ratio (stride
+`ceil(k × tokens / (T × 0.97))`), under the same $5 gate; when no refit gives a sample, the replicate is
 committed with `failure: "budget-fit: ..."`. The committed file records the budget and every
 fit in `budget`, and the transcript holds every fit's calls.
 
