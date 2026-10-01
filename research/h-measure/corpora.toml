@@ -168,7 +168,8 @@ sha256 = "2df0593c1e3121808a0e5df237f6fb3efdb9cd99170ed584a6bf0679f63619f4"
 # Obfuscated replicates (s2w#370 PR 2; contract B2.2). Written by `cargo xtask h-measure
 # obfuscate` from a pinned corpus with research/h-measure/obfuscation/recentchange.rules.toml;
 # the replicate's metadata (field table, shift, input and output sha256) is
-# research/h-measure/obfuscation/<replicate>.meta.json. The key bytes are outside the repo.
+# research/h-measure/obfuscation/<replicate>.meta.json (r2-r6: held outside the repo until
+# s2w#374 PR 3, see below). The key bytes are outside the repo.
 # Times inside these files are shifted by the replicate's secret constant, so no
 # since/until/first_dt/last_dt are given: they would publish the shift.
 [corpus.obf-r1-dev]
@@ -178,8 +179,121 @@ stream = "mediawiki.recentchange, obfuscated (replicate r1)"
 derived_from = "dev"
 replicate = "r1"
 events = 200000
-bytes = 141701518
+bytes = 141702248
 sha256 = "cf60870b00ac6ca36dcc4d47fdd9cbd1b329be46a261d4be46b58f65096a2284"
+
+# Gate-3 replicates r2-r6 (s2w#374 PR 1, ruling Q1 = A): each is ONE obfuscate run over dev AND
+# reserved-6 with a fresh key, so both windows share one key and one field table (contract B2.2).
+# The field table is ranked over the union of both windows' paths: 18 paths under
+# data.log_params (17 leaves and the log_params.restrictions object) occur only in reserved-6,
+# so their 18 field numbers never occur in the obf dev window (a count, no names or values; log_params is an unscored prefix in dev-key-v3.json).
+# obf-r1-dev above is the #402 dry-run replicate, not a gate replicate. The r2-r6 metadata files
+# are held outside the repo until s2w#374 PR 3 commits them (contract B2.2: identifier domains
+# are published only after every mapping is committed); their sha256 are in PR 1's description.
+[corpus.obf-r2-dev]
+role = "development"
+file = "dev.obf-r2.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r2)"
+derived_from = "dev"
+replicate = "r2"
+events = 200000
+bytes = 142409572
+sha256 = "f77717e875f36b46eb0e2a340599dd1da097d56eafeedefac8a7a88a2371ceac"
+
+[corpus.obf-r2-reserved-6]
+# reserved for s2w#374 PR 3, which opens it
+role = "reserved"
+file = "reserved-6.obf-r2.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r2)"
+derived_from = "reserved-6"
+replicate = "r2"
+events = 100000
+bytes = 70709703
+sha256 = "5e5d714e83d44b397dd2f1fb407f26b350100db82c92c64f1cc4eae25081905c"
+
+[corpus.obf-r3-dev]
+role = "development"
+file = "dev.obf-r3.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r3)"
+derived_from = "dev"
+replicate = "r3"
+events = 200000
+bytes = 140796429
+sha256 = "0fb6e674d9eece9397958e7f11b6cf3719fc4a48780813bf1a2244486a31a1ec"
+
+[corpus.obf-r3-reserved-6]
+# reserved for s2w#374 PR 3, which opens it
+role = "reserved"
+file = "reserved-6.obf-r3.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r3)"
+derived_from = "reserved-6"
+replicate = "r3"
+events = 100000
+bytes = 69898137
+sha256 = "46581df299a1ed4572fcc107e1a93ddea5b1676a58e8ba158872240e1b9422e2"
+
+[corpus.obf-r4-dev]
+role = "development"
+file = "dev.obf-r4.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r4)"
+derived_from = "dev"
+replicate = "r4"
+events = 200000
+bytes = 142292179
+sha256 = "10096e68682e88b77e47fa81bac2e45fc749c47e760868c975997f1425da513d"
+
+[corpus.obf-r4-reserved-6]
+# reserved for s2w#374 PR 3, which opens it
+role = "reserved"
+file = "reserved-6.obf-r4.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r4)"
+derived_from = "reserved-6"
+replicate = "r4"
+events = 100000
+bytes = 70652447
+sha256 = "ce13f3b89acea1c88965982c9cd324f2d42b3cdc2bc309d4f4fff96e0942f783"
+
+[corpus.obf-r5-dev]
+role = "development"
+file = "dev.obf-r5.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r5)"
+derived_from = "dev"
+replicate = "r5"
+events = 200000
+bytes = 141880435
+sha256 = "d5e5e17f8052fcdf32a74aad8def392763f6f026a21004f28de2253292f02aab"
+
+[corpus.obf-r5-reserved-6]
+# reserved for s2w#374 PR 3, which opens it
+role = "reserved"
+file = "reserved-6.obf-r5.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r5)"
+derived_from = "reserved-6"
+replicate = "r5"
+events = 100000
+bytes = 70447884
+sha256 = "56409c818602faf076f993c6623465452fbe155dd916220e52375e0c90c94df9"
+
+[corpus.obf-r6-dev]
+role = "development"
+file = "dev.obf-r6.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r6)"
+derived_from = "dev"
+replicate = "r6"
+events = 200000
+bytes = 141776782
+sha256 = "91948fb864b0752ea08e3980ef484f48a5acb2fc3d5f05c935a4478cc5526091"
+
+[corpus.obf-r6-reserved-6]
+# reserved for s2w#374 PR 3, which opens it
+role = "reserved"
+file = "reserved-6.obf-r6.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r6)"
+derived_from = "reserved-6"
+replicate = "r6"
+events = 100000
+bytes = 70393590
+sha256 = "11dff7ce49bda518a20a71f8378ea5c56b58d06249d44645ddcf6458b010a42f"
 
 # private-dev and private-test (s2w#371 PR 2): the gate-3 private stream (contract B2.3), the
 # dev-worker and sprint log of daveremy/lifeos and daveremy/stream2worlds, written by

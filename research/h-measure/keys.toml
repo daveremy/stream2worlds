@@ -160,6 +160,36 @@ sha256 = "e52d2415a7541fc180b97d13cbd9cee53ed3ad714986fd2118e99ae87056c1cd"
 reading = "dev-key-v3.json renamed for obfuscated replicate r1 (s2w#388): obfuscate --key dev-key-v3.json under obfuscation/r1.meta.json's field table, a keys-only run; identity rows equal dev-key-v2.obf-r1.json's, the 7 relationship rows renamed, none hidden by the rules file. Scores obf-r1-* corpora only"
 
 [[key]]
+file = "dev-key-v3.obf-r2.json"
+variant = "base"
+sha256 = "6ee8bf5695d120856e792298ae26a801b38813048c1e69392155d972289f1c13"
+reading = "dev-key-v3.json renamed for gate-3 replicate r2 (s2w#374 PR 1): written by the same obfuscate run as obf-r2-dev and obf-r2-reserved-6, through that run's field table. Scores obf-r2-* corpora only"
+
+[[key]]
+file = "dev-key-v3.obf-r3.json"
+variant = "base"
+sha256 = "2c014e10f51070fcf33b1100ab1bfdecab6fdb2b234e5262abc0045e388fe10a"
+reading = "dev-key-v3.json renamed for gate-3 replicate r3 (s2w#374 PR 1): written by the same obfuscate run as obf-r3-dev and obf-r3-reserved-6, through that run's field table. Scores obf-r3-* corpora only"
+
+[[key]]
+file = "dev-key-v3.obf-r4.json"
+variant = "base"
+sha256 = "51a56df258214fa7ec1a5aeda3714e0b148fd0b1c8a12bc1117c1fa2850e3725"
+reading = "dev-key-v3.json renamed for gate-3 replicate r4 (s2w#374 PR 1): written by the same obfuscate run as obf-r4-dev and obf-r4-reserved-6, through that run's field table. Scores obf-r4-* corpora only"
+
+[[key]]
+file = "dev-key-v3.obf-r5.json"
+variant = "base"
+sha256 = "6f01af0f38b7735ffb5aaee61eb5cef63808adfd82ba4eeb9e1ca5306465ee3a"
+reading = "dev-key-v3.json renamed for gate-3 replicate r5 (s2w#374 PR 1): written by the same obfuscate run as obf-r5-dev and obf-r5-reserved-6, through that run's field table. Scores obf-r5-* corpora only"
+
+[[key]]
+file = "dev-key-v3.obf-r6.json"
+variant = "base"
+sha256 = "eb6974232e1ebb2cb082c312d4950ec173225a303e5ad8fb8948666c397f28d5"
+reading = "dev-key-v3.json renamed for gate-3 replicate r6 (s2w#374 PR 1): written by the same obfuscate run as obf-r6-dev and obf-r6-reserved-6, through that run's field table. Scores obf-r6-* corpora only"
+
+[[key]]
 file = "private-key-v2.json"
 variant = "base"
 sha256 = "2f1b2db99692ab1867cb9204092d87e243b10d96c0eec3af6fd532e3f0dba3da"
