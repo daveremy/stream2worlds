@@ -115,7 +115,7 @@ struct PathSums {
 
 /// The type a gold cluster belongs to: its natural key's label. A cluster that is not a
 /// natural key (hand-built fixtures) is its own type.
-fn type_of(cluster: &str) -> String {
+pub(super) fn type_of(cluster: &str) -> String {
     NaturalKey::new(cluster)
         .parts()
         .map_or_else(|_| cluster.to_owned(), |(label, _)| label.to_owned())
@@ -283,28 +283,27 @@ fn recovery(tables: &Tables<'_>) -> (usize, usize) {
     (recovered.len(), repeated)
 }
 
-/// The contract's frozen fixtures (B3), as `(name, key, prediction)`: the 4/9 case (key
-/// `{a, b, c}`, prediction `{a, b, d}`) and an all-singletons prediction of that key.
-pub(crate) fn frozen_fixtures() -> [(&'static str, Partition, Partition); 2] {
-    let partition = |pairs: &[(&str, &str)]| Partition {
-        cluster: pairs
-            .iter()
-            .map(|(path, cluster)| ((0, (*path).to_owned()), (*cluster).to_owned()))
-            .collect(),
-    };
-    let key = partition(&[("a", "E"), ("b", "E"), ("c", "E")]);
-    [
-        (
-            "4/9",
-            key.clone(),
-            partition(&[("a", "X"), ("b", "X"), ("d", "X")]),
-        ),
-        (
-            "all-singletons",
-            key,
-            partition(&[("a", "1"), ("b", "2"), ("c", "3")]),
-        ),
-    ]
+/// Each scored predicted cluster's key entity under the strict-majority rule (contract B3
+/// "Relationships"): the entity holding more than half of the cluster's scored mentions
+/// (`2 · shared > size`, integers; spurious mentions count in the size, as in precision), or
+/// `None`. A cluster with no scored mention (every one unscored or excluded) is absent.
+pub(super) fn majority(
+    key: &Partition,
+    predicted: &Partition,
+    unscored: &Unscored,
+) -> BTreeMap<String, Option<String>> {
+    let tables = Tables::new(key, predicted, unscored);
+    let mut owner: BTreeMap<String, Option<String>> = tables
+        .predicted_size
+        .keys()
+        .map(|cluster| (cluster.clone(), None))
+        .collect();
+    for ((gold, guess), shared) in &tables.overlap {
+        if 2 * shared > tables.predicted_size[*guess] {
+            owner.insert((*guess).to_owned(), Some((*gold).to_owned()));
+        }
+    }
+    owner
 }
 
 /// A metric as printed: four decimals, or "undefined" for a zero denominator.
