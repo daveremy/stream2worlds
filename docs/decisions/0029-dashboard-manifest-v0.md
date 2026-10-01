@@ -128,6 +128,8 @@ s2w dashboard propose --log-dir ./s2w-data --json \
 ```
 
 Tokens are null on this path: a generic CLI's stdout carries no token count `s2w` can trust.
+(2026-09-30: `ReplyFormat::ClaudeJson` reads the Claude CLI's JSON envelope, with tokens and
+cost, and fails rather than return null counts; see [0032](0032-gate3-committed-mapping.md).)
 Which provider and model class the first real run uses is s2w#288's open question.
 
 ### Format 1: required and optional

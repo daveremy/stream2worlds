@@ -4,6 +4,9 @@
 //! seam between building a prompt and getting a reply. Two providers ship: [`ExecProvider`] runs
 //! a configured command with the prompt on stdin, and [`ReplayProvider`] answers from recorded
 //! replies keyed by prompt hash, so a run can be replayed without calling a model.
+//!
+//! [`MappingProposer`] proposes a stream mapping for either arm of the gate-3 comparison
+//! (decision 0032) under a [`CallGate`], and records every call as a [`CallRecord`].
 
 mod exec;
 #[cfg(test)]
