@@ -338,6 +338,32 @@ fn a_mapping_read_as_its_own_key_reproduces_its_edges() {
     );
 }
 
+/// A key written by `from_mapping` survives the file: serialized, read back and validated, it
+/// is the same spec and yields the same gold edges, so a committed format-3 key is the key the
+/// selftest checked (s2w#388 PR 3).
+#[test]
+fn a_key_from_a_mapping_round_trips_through_its_file() {
+    let rules = json!([
+        { "from": "sha", "to": "parent", "kind": "parent" },
+        { "from": "user", "to": "sha", "kind": "made" }
+    ]);
+    let own = KeySpec::from_mapping(&mapping(&rules, false)).expect("a key");
+    let text = serde_json::to_string_pretty(&own).expect("the key serializes");
+    let read: KeySpec = serde_json::from_str(&text).expect("the file parses as a key");
+    read.validate().expect("the file validates");
+    assert_eq!(
+        serde_json::to_string_pretty(&read).expect("the key serializes"),
+        text
+    );
+    assert_eq!(read.relationships.len(), 2);
+    let payloads = [
+        json!({ "sha": "c2", "parent": "c1", "user": "ann" }),
+        json!({ "sha": "c3", "parent": "c2" }),
+    ];
+    assert_eq!(gold(&read, &payloads).edges, gold(&own, &payloads).edges);
+    assert_eq!(gold(&read, &payloads).edges.len(), 3);
+}
+
 #[test]
 fn a_linked_alias_endpoint_resolves_to_the_survivors_cluster() {
     let rules = json!([{ "from": "sha", "to": "login", "kind": "by" }]);

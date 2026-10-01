@@ -5,7 +5,8 @@
     "mentions_per_path": {"data.branch":4,"data.comment_id":1,"data.file_id":1,"data.head_ref":1,"data.head_sha":4,"data.issue":7,"data.key":6,"data.merge_commit_sha":1,"data.number":7,"data.parents.0":2,"data.parents.1":1,"data.pr":2,"data.ref_number":1,"data.seat_id":3,"data.sha":4,"data.slot":1,"data.sprint":1},
     "entity_sizes": {"branch":{"5":1},"comment":{"1":1},"commit":{"2":1,"3":1,"7":1},"item":{"1":1,"5":1,"17":1},"seat":{"1":3},"sprint":{"3":1}},
     "abstained": {},
-    "excluded": {}
+    "excluded": {},
+    "edges_per_type": {"cross-references":1,"has-comment":1,"head-branch":1,"head-commit":1,"leg-branch":1,"leg-commit":1,"leg-pr":1,"merged-as":1,"parent":3,"reviews-branch":3,"reviews-commit":3,"reviews-item":1}
   },
   "context-scored": {
     "mentions": 77,
@@ -13,6 +14,7 @@
     "mentions_per_path": {"data.actor":6,"data.author":3,"data.branch":4,"data.comment_id":1,"data.file_id":1,"data.head_ref":1,"data.head_sha":4,"data.issue":7,"data.key":6,"data.merge_commit_sha":1,"data.number":7,"data.parents.0":2,"data.parents.1":1,"data.pr":2,"data.ref_number":1,"data.ref_repo":1,"data.repo":20,"data.seat_id":3,"data.sha":4,"data.slot":1,"data.sprint":1},
     "entity_sizes": {"actor":{"9":1},"branch":{"5":1},"comment":{"1":1},"commit":{"2":1,"3":1,"7":1},"item":{"1":1,"5":1,"17":1},"repo":{"2":1,"19":1},"seat":{"1":3},"sprint":{"3":1}},
     "abstained": {},
-    "excluded": {"data.actor":1}
+    "excluded": {"data.actor":1},
+    "edges_per_type": {"cross-references":1,"has-comment":1,"head-branch":1,"head-commit":1,"leg-branch":1,"leg-commit":1,"leg-pr":1,"merged-as":1,"parent":3,"reviews-branch":3,"reviews-commit":3,"reviews-item":1}
   }
 }

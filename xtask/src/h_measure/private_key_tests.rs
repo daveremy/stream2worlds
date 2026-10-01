@@ -30,7 +30,7 @@ fn fixture() -> Vec<Value> {
 }
 
 /// The partition's shape as `key.ts`'s `shape` writes it: counts per path and entity sizes
-/// per type, never a value.
+/// per type, never a value, and for a key with relationships the unique gold edges per type.
 fn shape(spec: &KeySpec, payloads: &[Value]) -> Value {
     let found = key_mentions(spec, &Decoded::new(payloads, &spec.decode)).expect("valid key");
     let mut per_path: BTreeMap<&str, usize> = BTreeMap::new();
@@ -52,14 +52,22 @@ fn shape(spec: &KeySpec, payloads: &[Value]) -> Value {
             .entry(size.to_string())
             .or_default() += 1;
     }
-    json!({
+    let mut edges: BTreeMap<&str, usize> = BTreeMap::new();
+    for edge in &found.edges {
+        *edges.entry(&edge.label).or_default() += 1;
+    }
+    let mut out = json!({
         "mentions": found.partition.cluster.len(),
         "entities": clusters.len(),
         "mentions_per_path": per_path,
         "entity_sizes": sizes,
         "abstained": found.abstained,
         "excluded": found.excluded_per_path(),
-    })
+    });
+    if !spec.relationships.is_empty() {
+        out["edges_per_type"] = json!(edges);
+    }
+    out
 }
 
 #[test]
@@ -68,15 +76,26 @@ fn the_rust_executor_agrees_with_key_ts_on_the_fixture() {
         .expect("the shape file reads");
     let committed: Value = serde_json::from_str(&text).expect("the shape file parses");
     let payloads = fixture();
-    for (variant, file) in [
-        ("base", "private-key-v0.json"),
-        ("context-scored", "private-key-v0.context-scored.json"),
+    for (variant, file, v0) in [
+        ("base", "private-key-v1.json", "private-key-v0.json"),
+        (
+            "context-scored",
+            "private-key-v1.context-scored.json",
+            "private-key-v0.context-scored.json",
+        ),
     ] {
         assert_eq!(
             shape(&key(file), &payloads),
             committed[variant],
             "{file}: regenerate with key.ts --write; if it still differs, the executors disagree"
         );
+        // v0 (format 2) is v1 without its relationship rows: the same partition, no edges.
+        let mut partition = committed[variant].clone();
+        partition
+            .as_object_mut()
+            .expect("a variant is an object")
+            .remove("edges_per_type");
+        assert_eq!(shape(&key(v0), &payloads), partition, "{v0}");
     }
 }
 
@@ -122,4 +141,27 @@ fn the_fixture_reproduces_the_scoring() {
     assert!(recall < 1.0, "{recall}");
     assert!(by_repo.ceiling.singleton_types.contains("seat"));
     assert!(by_repo.ceiling.singleton_types.contains("comment"));
+}
+
+/// private-key-v1 grades edges on the fixture: the ceiling with links reaches every key edge
+/// (the alias endpoints `key` included), and the two `names -> refs` rows are counted
+/// unobservable, never scored.
+#[test]
+fn the_v1_key_grades_edges_on_the_fixture() {
+    let spec = key("private-key-v1.json");
+    let graded = grade(
+        &spec,
+        &item_mapping(&json!([["data", "repo"], ["data", "number"]])),
+        &fixture(),
+    )
+    .expect("grades");
+    let linked = graded.ceiling_links_edges.expect("a v1 key scores edges");
+    assert!(linked.key_edges > 0);
+    assert_eq!(linked.micro.recall, Some(1.0), "{linked:?}");
+    assert_eq!(linked.unobservable, 2);
+    let mapping = graded.edges.expect("a v1 key scores the mapping's edges");
+    assert_eq!(
+        mapping.tp, 0,
+        "the item-only mapping declares no relationship"
+    );
 }

@@ -35,7 +35,9 @@ type Scalar = string | number | boolean;
 export interface Rule { path: Path; identity: Path[]; no_identity?: Scalar[] }
 export interface KeyType { type: string; mentions: Rule[] }
 type Unscored = Path | { prefix: Path };
-export interface Spec { version: 2; decode: Path[]; types: KeyType[]; unscored: Unscored[] }
+/** A format-3 relationship row (`xtask/src/h_measure/key/relationships.rs`). */
+export interface Relationship { type: string; from: Path; to: Path; unobservable?: string }
+export interface Spec { version: 2 | 3; decode: Path[]; types: KeyType[]; unscored: Unscored[]; relationships?: Relationship[] }
 
 const d = (...s: Seg[]): Path => ["data", ...s];
 const rule = (path: Path, ...identity: Path[]): Rule => ({ path, identity: identity.length ? identity : [path] });
@@ -84,14 +86,21 @@ const UNSCORED: Unscored[] = [
   { prefix: d("refs") },
 ];
 
-export const BASE_FILE = "private-key-v0.json";
-export const CONTEXT_FILE = "private-key-v0.context-scored.json";
+export type Variant = "base" | "context-scored";
+export type Format = 2 | 3;
+/** The key files per key format: v0 is format 2 (pinned, never rewritten); v1 is format 3, v0
+ * plus `EDGES` as relationship rows (s2w#388). `--write` writes only the newest. */
+export const KEY_FILES: Record<Format, Record<Variant, string>> = {
+  2: { base: "private-key-v0.json", "context-scored": "private-key-v0.context-scored.json" },
+  3: { base: "private-key-v1.json", "context-scored": "private-key-v1.context-scored.json" },
+};
 export const KEY_DIR = fileURLToPath(new URL("..", import.meta.url));
 
-export function spec(variant: "base" | "context-scored"): Spec {
-  return variant === "base"
-    ? { version: 2, decode: [["data"]], types: BASE_TYPES, unscored: [...CONTEXT_PATHS, ...UNSCORED] }
-    : { version: 2, decode: [["data"]], types: [...BASE_TYPES, ...CONTEXT_TYPES], unscored: UNSCORED };
+export function spec(variant: Variant, version: Format = 3): Spec {
+  const s: Spec = variant === "base"
+    ? { version, decode: [["data"]], types: BASE_TYPES, unscored: [...CONTEXT_PATHS, ...UNSCORED] }
+    : { version, decode: [["data"]], types: [...BASE_TYPES, ...CONTEXT_TYPES], unscored: UNSCORED };
+  return version === 3 ? { ...s, relationships: relationships() } : s;
 }
 
 /** Compact JSON with `, ` and `: ` separators and `{ … }` objects, as the dev keys are written. */
@@ -104,11 +113,13 @@ const j = (v: unknown): string =>
 export function render(s: Spec): string {
   const types = s.types.map((t) => `    { "type": ${j(t.type)}, "mentions": [\n` +
     t.mentions.map((m) => `      ${j(m)}`).join(",\n") + "\n    ] }");
+  const rows = s.relationships?.length
+    ? `,\n  "relationships": [\n${s.relationships.map((r) => `    ${j(r)}`).join(",\n")}\n  ]` : "";
   return `{\n  "version": ${s.version},\n  "decode": ${j(s.decode)},\n  "types": [\n${types.join(",\n")}\n  ],\n` +
-    `  "unscored": [\n${s.unscored.map((u) => `    ${j(u)}`).join(",\n")}\n  ]\n}\n`;
+    `  "unscored": [\n${s.unscored.map((u) => `    ${j(u)}`).join(",\n")}\n  ]${rows}\n}\n`;
 }
 
-// ---- relationships: declared as data, not scored here (ruling 1; the edge grader is s2w#388) ----
+// ---- relationships: `EDGES` is rendered into the format-3 key (s2w#388); `kinds`/`event` stay notes here ----
 
 /** A typed directed edge between two mentions in one frame: `from` and `to` are mention paths of
  * the base key, present together on frames of kind `kinds` (and timeline `event`, if given).
@@ -135,6 +146,16 @@ export const EDGES: Edge[] = [
   edge("names", ["pr.opened"], d("number"), d("refs"), { observable: false, note: "refs drop the repo prefix (ruling 2)" }),
   edge("names", ["commit"], d("sha"), d("refs"), { observable: false, note: "refs drop the repo prefix (ruling 2)" }),
 ];
+
+/** `EDGES` as format-3 rows: `label` is the type; an unobservable edge carries its note as the
+ * reason. `kinds`, `event` and an observable edge's note stay here: format 3 has no guard, so an
+ * edge is pure co-occurrence of its two mentions in one frame (s2w#388 ruling 3). */
+function relationships(): Relationship[] {
+  return EDGES.map((e) => ({
+    type: e.label, from: e.from, to: e.to,
+    ...(e.observable ? {} : { unobservable: e.note ?? "unobservable" }),
+  }));
+}
 
 // ---- executor: the Rust key executor's semantics (xtask/src/h_measure/mentions.rs) ----
 
@@ -200,12 +221,28 @@ export function execute(s: Spec, frames: Frame[]) {
       mentions.push({ frame, path, type: t.type, cluster: `${t.type}\u001f${parts.join("\u001f")}`, value });
     }
   });
-  return { mentions, abstained, excluded, undecodable: frames.filter((f) => !f.record).length };
+  // The gold edges: per frame and observable row whose two paths both hold a gold mention there,
+  // `type \u001f from cluster \u001f to cluster`, unique (the Rust `key_mentions` edges).
+  const edges = new Set<string>();
+  const rows = (s.relationships ?? []).filter((r) => r.unobservable === undefined);
+  const here = new Map<string, string>();
+  for (let i = 0; i <= mentions.length; i += 1) {
+    const m = mentions[i];
+    if (i > 0 && (m === undefined || m.frame !== mentions[i - 1].frame)) {
+      for (const r of rows) {
+        const from = here.get(pathId(r.from)), to = here.get(pathId(r.to));
+        if (from !== undefined && to !== undefined) edges.add(`${r.type}\u001f${from}\u001f${to}`);
+      }
+      here.clear();
+    }
+    if (m) here.set(m.path, m.cluster);
+  }
+  return { mentions, abstained, excluded, edges, undecodable: frames.filter((f) => !f.record).length };
 }
 
 /** The partition's shape: what `key.test.ts` and the Rust test both compute on the fixture. */
 export function shape(s: Spec, frames: Frame[]) {
-  const { mentions, abstained, excluded } = execute(s, frames);
+  const { mentions, abstained, excluded, edges } = execute(s, frames);
   const sorted = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   const per_path: Record<string, number> = {};
   const clusters = new Map<string, { type: string; size: number }>();
@@ -223,7 +260,15 @@ export function shape(s: Spec, frames: Frame[]) {
   return {
     mentions: mentions.length, entities: clusters.size, mentions_per_path: sorted(per_path),
     entity_sizes: sorted(entity_sizes), abstained: sorted(abstained), excluded: sorted(excluded),
+    ...(s.relationships?.length ? { edges_per_type: sorted(perType(edges)) } : {}),
   };
+}
+
+/** Unique gold edges per relationship type. */
+function perType(edges: Set<string>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const e of edges) { const t = e.split("\u001f")[0]; out[t] = (out[t] ?? 0) + 1; }
+  return out;
 }
 
 /** Both keys' partition shapes on the synthetic fixture. `xtask/src/h_measure/private_key_tests.rs`
@@ -232,7 +277,7 @@ export const SHAPE_PATH = fileURLToPath(new URL("./fixture/synthetic-20.key-shap
 export function fixtureShape(): string {
   const { frames } = parseSse(readFileSync(FIXTURE_PATH, "utf8"));
   // One line per variant and section, so a drift diff names the section that moved.
-  const variant = (v: "base" | "context-scored") => Object.entries(shape(spec(v), frames))
+  const variant = (v: Variant) => Object.entries(shape(spec(v), frames))
     .map(([k, x]) => `    ${JSON.stringify(k)}: ${JSON.stringify(x)}`).join(",\n");
   return `{\n  "base": {\n${variant("base")}\n  },\n  "context-scored": {\n${variant("context-scored")}\n  }\n}\n`;
 }
@@ -386,8 +431,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     },
   });
   if (a.write) {
-    writeFileSync(join(KEY_DIR, BASE_FILE), render(spec("base")));
-    writeFileSync(join(KEY_DIR, CONTEXT_FILE), render(spec("context-scored")));
+    for (const v of ["base", "context-scored"] as const) writeFileSync(join(KEY_DIR, KEY_FILES[3][v]), render(spec(v)));
     writeFileSync(SHAPE_PATH, fixtureShape());
   } else if (a.edges) {
     process.stdout.write(JSON.stringify(EDGES, null, 2) + "\n");

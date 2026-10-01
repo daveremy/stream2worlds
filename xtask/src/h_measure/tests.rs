@@ -409,6 +409,12 @@ fn every_pinned_key_file_is_a_valid_key() {
                 "{}",
                 pin.file
             );
+        } else {
+            assert!(
+                !linked.relationships.is_empty(),
+                "{}: a format-3 pin whose oracle with links reaches no edge",
+                pin.file
+            );
         }
         // A file's format is part of its pin: a `-v0` file is format 0, whatever came later.
         if pin.file.starts_with("dev-key-v0") {
@@ -416,9 +422,9 @@ fn every_pinned_key_file_is_a_valid_key() {
         }
         versions.insert(spec.version);
     }
-    // Format 3's first pinned files (`dev-key-v3`, `private-key-v1`) are s2w#388 PR 3, which
-    // pins them and empties this list; until then every other format must have a pin.
-    const NOT_YET_PINNED: [u32; 1] = [super::key::KEY_VERSION];
+    // A new key format lists itself here until its first file is pinned, then empties the list
+    // (format 3: `dev-key-v3`, `private-key-v1`, s2w#388 PR 3). Every format now has a pin.
+    const NOT_YET_PINNED: [u32; 0] = [];
     for version in super::key::KEY_VERSIONS {
         assert_ne!(
             versions.contains(&version),
