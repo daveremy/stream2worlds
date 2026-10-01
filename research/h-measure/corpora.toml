@@ -130,6 +130,22 @@ events = 100000
 bytes = 156119122
 sha256 = "dfa075fbe5b58b368e7d3d895d9e27296bd75e695bd7f2150e5b130ac0e0166f"
 
+# reserved-5 (s2w#245 PR 4): captured 2026-10-01 (UTC) with capture.sh's command and 3 h window, pinned
+# here before any PR 4 profiler change. It starts 3 h after `reserved-4`'s window ends, and the
+# whole window was already in the past at capture time. Only the replay's summary line, the frame
+# count, the byte size and the sha256 were read. Kept for #245 PR 4's score (links, decision 0027).
+[corpus.reserved-5]
+role = "reserved"
+file = "reserved-5.raw.sse"
+stream = "mediawiki.recentchange"
+since = "2026-09-30T05:15:00Z"
+until = "2026-09-30T08:15:00Z"
+first_dt = "2026-09-30T05:15:00.000Z"
+last_dt = "2026-09-30T08:15:00.000Z"
+events = 100000
+bytes = 155441219
+sha256 = "7bc24d57e4940db06a0f6d2edb153db24ed6c54b22ad230be1a654c0ca472320"
+
 # Obfuscated replicates (s2w#370 PR 2; contract B2.2). Written by `cargo xtask h-measure
 # obfuscate` from a pinned corpus with research/h-measure/obfuscation/recentchange.rules.toml;
 # the replicate's metadata (field table, shift, input and output sha256) is
