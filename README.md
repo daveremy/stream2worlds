@@ -21,22 +21,19 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **Gate 3 ran, and System 2 did not earn its place on this provider.** On both streams H+S2 fails
+  the contract: it scores below H on the obfuscated stream (F1 0.35 against 0.60) and ties the
+  raw-sample baseline on the private stream (0.63 against 0.63). Total spend $4.13. [research 0010](research/0010-gate3-verdict.md)
 - **The raw-sample baseline runs live, and its first dry run caught a bug.** B3 showed the model a
   different view of each event than the scorer read, so it scored zero everywhere. Fixed, it scores
   F1 0.33 on `dev` for $0.47, and a stub-model test now guards the view. [#402](https://github.com/daveremy/stream2worlds/pull/402)
 - **The profiler links values that name one entity.** On a held-out span, recall rises from 0.36 to
   0.68 and recovery from 0.14 to 0.98. Links stay measurement-only until the memory baseline is set.
   [#397](https://github.com/daveremy/stream2worlds/pull/397)
-- **Gate 3's private stream is frozen.** 8,067 development events and 5,501 held-back test events,
-  pinned before anyone saw a score, with zero scrub refusals. [#396](https://github.com/daveremy/stream2worlds/pull/396)
 - **The scorer grades relationships, not just identity.** Answer keys can declare typed edges, such
   as who edited which page, and an edge grader scores predictions by the contract's rules. [#404](https://github.com/daveremy/stream2worlds/pull/404)
-- **The private answer key passes a hand check.** All 60 sampled items agree with their sources,
-  across 10,673 mentions and 1,913 entities. [#399](https://github.com/daveremy/stream2worlds/pull/399)
-- **In progress:** gate 3, the run that asks whether System 2 beats heuristics and a raw-sample
-  LLM baseline ([#13](https://github.com/daveremy/stream2worlds/issues/13)):
-  a no-match repair for System 2 ([#409](https://github.com/daveremy/stream2worlds/issues/409)), then the scored run
-  ([#374](https://github.com/daveremy/stream2worlds/issues/374)).
+- **In progress:** the contract says to stop and re-decide after a failed gate 3
+  ([#13](https://github.com/daveremy/stream2worlds/issues/13)); the decision is Dave's.
 
 ## Demos
 
@@ -324,13 +321,15 @@ Each predictor's record (graded count, skill over the base rate, calibration) is
 
 **The heuristics arm, measured.** Gate 3 compares System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover` without containment), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. A later rule, scored on a third held-out span (`reserved-3`, opened only after the predictions were posted), raises that: `PROFILER_VERSION` 4 keys Wikipedia's `user` and reaches identity F1 0.4431 (0.2920 under version 3), precision 0.99, entity recovery 0.042 ([#261](https://github.com/daveremy/stream2worlds/pull/261)). Containment (stage 5b, `PROFILER_VERSION` 5), the stage that makes H-lite into H-min, keys Wikipedia's `revision` from `revision.old` → `revision.new` and, on another held-out span (`reserved`), reaches identity F1 0.5334 (0.4447 under version 4), precision 0.99, entity recovery 0.125 (#244). Links (`PROFILER_VERSION` 9, a version-2 mapping that joins alias paths holding different values) reach identity F1 0.8063 (0.5303 under version 8), precision 0.99, entity recovery 0.98 on `reserved-5` at the 10^4 window, and 0.8104 on a fresh span (`reserved-6`) after a re-freeze under the format-3 keys (#375). Under those keys, H's first relationship scores are edge precision 0.4643 and recall 0.2350. `serve` does not apply links yet (#245, #392). The v0 mapping format limits every arm here (it cannot join different values that name one entity), so the note reads H-lite against an oracle-v0 reference (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
 
+**Gate 3, run.** The scored run (`claude-sonnet-5-5`, 5 replicates per stream, $4.13 of API spend, scoring local) fails: on the obfuscated stream H+S2's mean identity F1 is 0.3534 against H's 0.6011 and its entity recovery is 0.0705; on the private stream H+S2 reaches F1 0.6346 against H's 0.0044 but recovers 0.1982 of repeated entities (floor 0.60) and beats the raw-sample baseline (0.6310) by 0.0036 (needs 0.05). Item by item, with the graded predictions and the disclosed flows: [research 0010](research/0010-gate3-verdict.md); reports in `research/h-measure/results/gate3/`.
+
 ## Roadmap
 
 The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
 - [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold and parse instructions per event against CI-measured baselines (fork not yet measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
-- [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
+- [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. **Run 2026-10-01 (`claude-sonnet-5-5`): fails on both streams** ([research 0010](research/0010-gate3-verdict.md)); the contract says stop and re-decide. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
 

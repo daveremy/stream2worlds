@@ -253,3 +253,10 @@ Dry run 2's h-s2 reply left out the `data` decode step and scored recall 0 while
 - **Cost.** The call passes the same `BudgetGate` and is charged at the price table into `spend`; a gate refusal on it is the replicate's `budget` failure.
 - **Record.** The committed file carries `no_match: {first, repair_calls, after}` (`FORMAT` stays 1: no file of the earlier shape was ever committed), `score` refuses a replay whose block differs, and the report's `system2` object carries it. s2w#374 reports per arm the pre-repair no-match rate and the post-repair zero rate beside F1.
 - The dry-run table above predates the check; no live run was made for this change (its tests are stub-model, and the first live exercise is #374's run).
+
+### 2026-10-01: the live run (s2w#374)
+
+The 20 committed replicates (r2 to r6) cost $4.1295 in total: h-s2 $0.0814 to $0.1668 and B3
+$0.1729 to $0.4765 per replicate, against the dry run's $0.23 and $0.47 to $3.47. Two replicates needed the no-match
+repair call (one B3 obfuscated, r3; one h-s2 private, r5), and it cleared both; every probe answered
+`none`. Scores and verdict: [research 0010](../research/0010-gate3-verdict.md).

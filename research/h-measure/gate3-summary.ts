@@ -66,6 +66,17 @@ for (const s of STREAMS) {
     }
 }
 
+p();
+p("## Means over r2 to r6");
+p();
+p("| stream | arm | F1 | P | false-merge | recovery | edge F1 (defined replicates) | usd total |");
+p("|---|---|---|---|---|---|---|---|");
+for (const s of STREAMS)
+  for (const a of ARMS) {
+    const ef = col(s, a, "ef1").filter((x) => x !== null);
+    p(`| ${s} | ${a} | ${f4(mean(col(s, a, "f1")))} | ${f4(mean(col(s, a, "p")))} | ${f4(mean(col(s, a, "fm")))} | ${f4(mean(col(s, a, "rec")))} | ${ef.length ? f4(mean(ef)) : "undefined"} (${ef.length} of 5) | ${col(s, a, "usd").reduce((x, y) => x + y, 0).toFixed(4)} |`);
+  }
+
 // ---- Contract B4 items (plan §5) ----
 const items = {};
 p();
