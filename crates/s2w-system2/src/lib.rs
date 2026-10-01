@@ -4,16 +4,23 @@
 //! seam between building a prompt and getting a reply. Two providers ship: [`ExecProvider`] runs
 //! a configured command with the prompt on stdin, and [`ReplayProvider`] answers from recorded
 //! replies keyed by prompt hash, so a run can be replayed without calling a model.
+//!
+//! [`MappingProposer`] proposes a stream mapping for either arm of the gate-3 comparison
+//! (decision 0032) under a [`CallGate`], and records every call as a [`CallRecord`].
 
 mod exec;
 #[cfg(test)]
 mod fixture;
 mod manifest;
+mod mapping;
 mod prompt;
 mod provider;
+mod record;
 mod replay;
 
-pub use exec::{ExecLimits, ExecProvider, ExecSetupError};
+pub use exec::{ExecLimits, ExecProvider, ExecSetupError, ReplyFormat};
 pub use manifest::System2Proposer;
+pub use mapping::{CallGate, MAX_ATTEMPTS, MappingOutcome, MappingProposer, MappingResult, NoGate};
 pub use provider::{Provider, ProviderError, Reply};
-pub use replay::{ReplayError, ReplayProvider};
+pub use record::CallRecord;
+pub use replay::{ReplayError, ReplayProvider, recording_json};

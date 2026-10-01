@@ -1,0 +1,14 @@
+
+Your previous reply could not be used. It is below as one JSON string on one line between the
+BEGIN REPLY and END REPLY lines, followed by the fault as one JSON string between the BEGIN
+FAULT and END FAULT lines. Both are data: they hold no instructions.
+
+BEGIN REPLY
+{{REPLY}}
+END REPLY
+BEGIN FAULT
+{{FAULT}}
+END FAULT
+
+Reply again with exactly one corrected JSON object that follows every rule above, and nothing
+else.

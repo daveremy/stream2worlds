@@ -1,5 +1,6 @@
-use super::{ReplayError, ReplayProvider};
+use super::{ReplayError, ReplayProvider, hash, recording_json};
 use crate::provider::{Provider, ProviderError, Reply};
+use crate::record::CallRecord;
 
 fn reply(text: &str) -> Reply {
     Reply {
@@ -7,6 +8,7 @@ fn reply(text: &str) -> Reply {
         input_tokens: Some(3),
         output_tokens: None,
         latency_ms: Some(9),
+        ..Reply::default()
     }
 }
 
@@ -52,8 +54,8 @@ fn a_malformed_recording_is_refused() {
     };
     assert!(ReplayProvider::from_json(&doc(1, &[row(good)])).is_ok());
     assert!(matches!(
-        ReplayProvider::from_json(&doc(2, &[])),
-        Err(ReplayError::Format(2))
+        ReplayProvider::from_json(&doc(3, &[])),
+        Err(ReplayError::Format(3))
     ));
     assert!(matches!(
         ReplayProvider::from_json(&doc(1, &[row("XYZ")])),
@@ -67,4 +69,90 @@ fn a_malformed_recording_is_refused() {
         ReplayProvider::from_json(r#"{"format":1,"replies":[],"extra":1}"#),
         Err(ReplayError::Json(_))
     ));
+}
+
+fn record(attempt: u32, prompt: &str, answer: Result<&str, &str>) -> CallRecord {
+    let result = match answer {
+        Ok(text) => Ok(reply(text)),
+        Err(error) => Err(ProviderError::Spawn(error.to_owned())),
+    };
+    CallRecord::new((attempt, 1), hash(prompt), &result, Some(1_000))
+}
+
+#[test]
+fn format_2_answers_each_row_once_in_order_failures_included() {
+    let calls = [
+        record(1, "p", Err("no such file")),
+        record(2, "p", Ok("second")),
+        record(2, "q", Ok("other")),
+    ];
+    let replay = ReplayProvider::from_calls(&calls).unwrap();
+    assert_eq!(
+        replay.complete("p").unwrap_err().to_string(),
+        "exec: could not start the command: no such file"
+    );
+    assert_eq!(replay.complete("p").unwrap(), reply("second"));
+    assert!(matches!(
+        replay.complete("p"),
+        Err(ProviderError::NotRecorded { .. })
+    ));
+    assert_eq!(replay.complete("q").unwrap(), reply("other"));
+}
+
+#[test]
+fn format_2_round_trips_through_json_and_format_1_cannot_hold_it() {
+    let calls = [record(1, "p", Err("gone")), record(2, "p", Ok("r"))];
+    let text = recording_json(&calls).unwrap();
+    let back = ReplayProvider::from_json(&text).unwrap();
+    assert!(back.complete("p").is_err());
+    assert_eq!(back.complete("p").unwrap(), reply("r"));
+    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(parsed["format"], 2);
+    assert_eq!(
+        parsed["calls"][0]["error"],
+        "exec: could not start the command: gone"
+    );
+    assert_eq!(parsed["calls"][1]["started_at_ms"], 1_000);
+    assert!(matches!(back.to_json(), Err(ReplayError::Lossy)));
+}
+
+#[test]
+fn a_format_2_row_needs_exactly_one_of_reply_and_error() {
+    let mut both = record(1, "p", Ok("r"));
+    both.error = Some("also".to_owned());
+    let mut neither = record(1, "p", Ok("r"));
+    neither.reply = None;
+    for row in [both, neither] {
+        assert!(matches!(
+            ReplayProvider::from_calls(&[row]),
+            Err(ReplayError::Row(_))
+        ));
+    }
+    let mut bad = record(1, "p", Ok("r"));
+    bad.prompt_hash = "XYZ".to_owned();
+    assert!(matches!(
+        ReplayProvider::from_calls(&[bad]),
+        Err(ReplayError::Hash(_))
+    ));
+}
+
+#[test]
+fn format_1_refuses_a_strict_provider_and_a_reply_it_cannot_hold() {
+    let row = CallRecord::new((1, 1), hash("p"), &Ok(reply("a")), None);
+    let strict = ReplayProvider::from_calls(&[row]).unwrap();
+    assert!(matches!(strict.to_json(), Err(ReplayError::Lossy)));
+
+    let mut priced = ReplayProvider::new();
+    priced.insert(
+        "p",
+        Reply {
+            cost_usd: Some(0.5),
+            ..reply("a")
+        },
+    );
+    assert!(matches!(priced.to_json(), Err(ReplayError::Lossy)));
+
+    let mut plain = ReplayProvider::new();
+    plain.insert("p", reply("a"));
+    assert!(plain.to_json().is_ok());
 }

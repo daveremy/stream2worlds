@@ -27,3 +27,6 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
   through the one JSON line encoder.
 - One proposal attempt makes at most two model calls: the first, and one repair when the reply
   fails to decode or validate.
+- A mapping proposal (decision 0032) makes at most two attempts; only a provider failure starts
+  the second. Every call, failures included, is a `CallRecord`, and a `CallGate` is asked before
+  each one. Both gate-3 arms share `mapping-format.txt` and `mapping-repair.txt`.

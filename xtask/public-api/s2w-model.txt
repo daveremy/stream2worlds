@@ -20,6 +20,7 @@ s2w_model: pub use dashboard :: { AcceptedMapping , AttrLabel , BuiltOn , DASHBO
 s2w_model: pub use event :: { AttrValue , WorldEvent } ;
 s2w_model: pub use hash :: { Fnv64 , fnv1a64 , fnv1a64_hex , is_hex16 } ;
 s2w_model: pub use mapping :: { AttrRule , EntityRule , FieldPath , LinkRule , MAPPING_VERSION , MAPPING_VERSION_LINKS , MappingError , RelationshipRule , Segment , StreamMapping , } ;
+s2w_model: pub use mapping_input :: { HeuristicMapping , MappingInput , RawMappingInput } ;
 s2w_model: pub use natural_key :: { KEY_FORMAT , KEY_SEPARATOR , KeyError , KeyPart , NaturalKey } ;
 s2w_model::dashboard: # [derive (Clone , Copy , Debug , PartialEq , Eq , PartialOrd , Ord , Serialize , Deserialize)] pub enum Kind { Person , Document , Category , Place , Organisation , Event , Other }
 s2w_model::dashboard: # [derive (Clone , Copy , Debug , PartialEq , Eq , PartialOrd , Ord , Serialize , Deserialize)] pub enum Template { Document , Feed , Graph , Map , Ladder , Table }
@@ -102,6 +103,9 @@ s2w_model::mapping: impl StreamMapping { pub fn identity (& self) -> Result < St
 s2w_model::mapping: impl StreamMapping { pub fn validate (& self) -> Result < () , MappingError > }
 s2w_model::mapping: pub const MAPPING_VERSION : u32 = _ ;
 s2w_model::mapping: pub const MAPPING_VERSION_LINKS : u32 = _ ;
+s2w_model::mapping_input: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct HeuristicMapping { pub identity : String , pub mapping : StreamMapping }
+s2w_model::mapping_input: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct MappingInput { pub corpus : String , pub window : u64 , pub replicate : u32 , pub events_read : u64 , pub heuristic : Option < HeuristicMapping > , pub decode : Vec < FieldPath > , pub event_type : Option < FieldPath > , pub paths : Vec < PathStats > , pub sample : Vec < serde_json :: Value > }
+s2w_model::mapping_input: # [derive (Clone , Debug , PartialEq , Eq , Serialize , Deserialize)] pub struct RawMappingInput { pub corpus : String , pub window : u64 , pub replicate : u32 , pub events : Vec < String > }
 s2w_model::natural_key: # [derive (Clone , Debug , PartialEq , Eq , PartialOrd , Ord , Hash , Serialize , Deserialize)] pub struct NaturalKey (_) ;
 s2w_model::natural_key: # [derive (Clone , Debug , PartialEq , Eq , PartialOrd , Ord , Hash)] pub enum KeyPart { Str (String) , Int (i64) , Bool (bool) }
 s2w_model::natural_key: # [derive (Clone , Debug , PartialEq , Eq , thiserror :: Error)] pub enum KeyError { SeparatorInLabel , BadPart { index : usize , } }
