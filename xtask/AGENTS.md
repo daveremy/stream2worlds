@@ -162,7 +162,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     shared field table per replicate; `--meta` reuse appends a later window's inputs and outputs
     to the metadata and refuses a window it already records; nothing is written until
     every input transforms; an existing output is refused; the key file must be outside the
-    repository). `hash.rs`: HMAC-SHA256 on `sha2`, value hashes (`h` + 16 hex, collision-checked
+    repository). `write.rs`: output planning (every output new), the metadata write or staged replace. `hash.rs`: HMAC-SHA256 on `sha2`, value hashes (`h` + 16 hex, collision-checked
     across the run), the per-replicate time shift and the keyed field ranking. `rules.rs`: the
     TOML rules file (format 1). `canon.rs`: URL tails and query parameters. `transform.rs`: the
     field table and the per-event walk (undeclared strings are text-hashed, RFC 3339 strings are
