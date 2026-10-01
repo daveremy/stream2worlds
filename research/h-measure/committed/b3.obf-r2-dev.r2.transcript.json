@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "89a745bd7aeeb7b1",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"owner\",\"type_label\":\"owner\",\"key\":[[\"data\",\"f93\",\"f35\"]],\"attrs\":[]},{\"id\":\"tenant\",\"type_label\":\"tenant\",\"key\":[[\"data\",\"f101\"]],\"attrs\":[]},{\"id\":\"category\",\"type_label\":\"category\",\"key\":[[\"data\",\"f79\"]],\"attrs\":[]},{\"id\":\"item\",\"type_label\":\"item\",\"key\":[[\"data\",\"f93\",\"f32\"]],\"attrs\":[{\"name\":\"f100\",\"path\":[\"data\",\"f100\"]},{\"name\":\"flag_f5\",\"path\":[\"data\",\"f5\"]},{\"name\":\"kind_f58\",\"path\":[\"data\",\"f58\"]},{\"name\":\"timestamp\",\"path\":[\"data\",\"f93\",\"f61\"]}]}],\"relationships\":[{\"from\":\"item\",\"to\":\"owner\",\"kind\":\"belongs to\"},{\"from\":\"item\",\"to\":\"tenant\",\"kind\":\"in tenant\"},{\"from\":\"item\",\"to\":\"category\",\"kind\":\"has category\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 837,
+      "cache_read_tokens": 2074,
+      "cache_write_tokens": 40732,
+      "cost_usd": 0.1717168,
+      "latency_ms": 9802,
+      "started_at_ms": 1790883211188
+    },
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "622e0f6b76c33700",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"actor\",\"type_label\":\"actor\",\"key\":[[\"data\",\"f93\",\"f35\"]],\"attrs\":[]},{\"id\":\"project\",\"type_label\":\"project\",\"key\":[[\"data\",\"f54\"]],\"attrs\":[]},{\"id\":\"group\",\"type_label\":\"group\",\"key\":[[\"data\",\"f79\"]],\"attrs\":[]},{\"id\":\"org\",\"type_label\":\"organization\",\"key\":[[\"data\",\"f101\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"actor\",\"to\":\"project\",\"kind\":\"acts in\"},{\"from\":\"actor\",\"to\":\"group\",\"kind\":\"associated with\"},{\"from\":\"project\",\"to\":\"org\",\"kind\":\"belongs to\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1082,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 34617,
+      "cost_usd": 0.149399,
+      "latency_ms": 11824,
+      "started_at_ms": 1790883220995
+    }
+  ]
+}
