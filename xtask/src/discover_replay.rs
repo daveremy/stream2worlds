@@ -191,6 +191,10 @@ fn renamed(maps: &Maps, a: &StreamMapping) -> Result<StreamMapping, String> {
         rel.from = id(&rel.from)?;
         rel.to = id(&rel.to)?;
     }
+    for link in &mut out.links {
+        link.survivor = id(&link.survivor)?;
+        link.absorbed = id(&link.absorbed)?;
+    }
     Ok(out)
 }
 
@@ -201,6 +205,8 @@ pub(crate) fn canonical(mut m: StreamMapping) -> StreamMapping {
     }
     m.relationships
         .sort_by(|x, y| (&x.from, &x.to, &x.kind).cmp(&(&y.from, &y.to, &y.kind)));
+    m.links
+        .sort_by(|x, y| (&x.absorbed, &x.survivor).cmp(&(&y.absorbed, &y.survivor)));
     m
 }
 
@@ -210,7 +216,7 @@ fn compare(expected: &StreamMapping, got: &StreamMapping) -> Vec<String> {
     }
     let show = |m: &StreamMapping| serde_json::to_value(m).unwrap_or(Value::Null);
     let (e, g) = (show(expected), show(got));
-    let first = ["decode", "entities", "relationships"]
+    let first = ["decode", "entities", "relationships", "links"]
         .into_iter()
         .find(|k| e[k] != g[k])
         .unwrap_or("version");

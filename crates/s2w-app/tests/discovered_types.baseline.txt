@@ -1,11 +1,11 @@
 # Entity types `discover` finds on the recorded fixture (tests/discovered_types.rs).
 # Rewritten by S2W_DISCOVERED_TYPES_BLESS=1; review every added line's cost.
-created_redirect_page/page_id+key/page_id+page/page_id
+created_redirect_page/page_id+created_redirect_page/page_title+key/page_id+meta/uri+page/page_id+page/page_title
 data/wiki_id+editor/wiki_id+key/wiki_id+performer/wiki_id
+editor/user_central_id+editor/user_text
+editor/user_central_id+editor/user_text+performer/user_central_id+performer/user_text
 editor/user_id
 editor/user_id+performer/user_id
-editor/user_text
-editor/user_text+performer/user_text
 main/content_model
 main/origin_rev_id+mediainfo/origin_rev_id+revert/rev_original_id+revert/rev_reverted_newest_id+revert/rev_reverted_oldest_id+revision/rev_id
 mediainfo/origin_rev_id

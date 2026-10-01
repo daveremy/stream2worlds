@@ -28,7 +28,7 @@ mod volume {
     use s2w_app::discover::DISCOVER_WINDOW;
     use s2w_core::{World, fold};
     use s2w_discover::{Config, Discovery, discover};
-    use s2w_model::{RawEvent, StreamMapping};
+    use s2w_model::{RawEvent, StreamMapping, WorldEvent};
     use s2w_system1::{Engine, MappingEngine, Verdict};
 
     use super::recorded::load;
@@ -91,6 +91,7 @@ mod volume {
         let started = Instant::now();
         let mut world = World::with_hub_cap(s2w_app::DEFAULT_HUB_IN_DEGREE_CAP);
         let (mut claims, mut abstained, mut batch) = (0_usize, 0_usize, Vec::new());
+        let mut merge_claims = 0_usize;
         for i in 0..EVENTS {
             let cycle = i / events.len();
             let mut event = events[i % events.len()].clone();
@@ -100,6 +101,10 @@ mod volume {
             match engine.evaluate(&event) {
                 Verdict::Propose { claims: out, .. } => {
                     claims += out.len();
+                    merge_claims += out
+                        .iter()
+                        .filter(|c| matches!(c, WorldEvent::EntitiesMerged { .. }))
+                        .count();
                     batch.extend(out);
                 }
                 Verdict::Abstain { .. } => abstained += 1,
@@ -116,10 +121,11 @@ mod volume {
         #[expect(clippy::cast_precision_loss, reason = "display only")]
         let (per_event, rate) = (claims as f64 / EVENTS as f64, EVENTS as f64 / secs);
         eprintln!(
-            "{}: {EVENTS} events, {abstained} abstained, {claims} claims ({per_event:.2}/event), {} entities, {} relationships, world resident {}, {rate:.0} events/s",
+            "{}: {EVENTS} events, {abstained} abstained, {claims} claims ({per_event:.2}/event, {merge_claims} merges), {} entities, {} relationships, {} merges, world resident {}, {rate:.0} events/s",
             if suffix { "fresh" } else { "repeat" },
             world.entity_count(),
             world.relationships().len(),
+            world.merges().len(),
             mib(world_bytes),
         );
         drop(world);
@@ -132,18 +138,20 @@ mod volume {
         let (full, full_ms) = profile(events, events.len());
         let full_id = full.identity().unwrap();
         eprintln!(
-            "window {}: identity {full_id}, {} entity rules, {} relationship rules, {full_ms} ms",
+            "window {}: identity {full_id}, {} entity rules, {} relationship rules, {} links, {full_ms} ms",
             events.len(),
             full.entities.len(),
-            full.relationships.len()
+            full.relationships.len(),
+            full.links.len()
         );
         for n in [1_000, 5_000, DISCOVER_WINDOW] {
             let (mapping, ms) = profile(events, n);
             let id = mapping.identity().unwrap();
             eprintln!(
-                "window {n}: identity {id}, {} entity rules, {} relationship rules, {ms} ms, equals window {}: {}",
+                "window {n}: identity {id}, {} entity rules, {} relationship rules, {} links, {ms} ms, equals window {}: {}",
                 mapping.entities.len(),
                 mapping.relationships.len(),
+                mapping.links.len(),
                 events.len(),
                 id == full_id
             );
