@@ -65,7 +65,7 @@ Item 2c uses relationship F1; an undefined mean fails the item (plan §5: undefi
 | 2c mean relationship F1 no more than 0.05 below H (gap undefined / undefined) | fail | fail |
 | 3 mean entity recovery >= 0.60 (0.0705 / 0.1982) | fail | fail |
 | 4 mean F1 gain over B3 >= 0.05 and higher in >= 4 of 5 (gain 0.1017, 5 of 5 / gain 0.0036, 2 of 5) | pass | fail |
-| 5 budget: every committed arm file <= $5, no failure (max 0.4765 / 0.2452) | pass | pass |
+| 5 budget: h-s2 + B3 spend per replicate <= $5, no failure (max 0.6340 / 0.3379) | pass | pass |
 
 **Obfuscated stream: fail (first failing item: 1). Private stream: fail (first failing item: 2). Gate 3: fail (each stream must pass on its own).**
 
@@ -111,13 +111,13 @@ A clause is a hit when its measured value satisfies it. A prediction row is a hi
 | 34 | Spend | B3 $0.40 to $1.50 per replicate | 0.1729 to 0.4765 | miss |
 | 35 | Spend | no replicate above $3.50 | max 0.4765 | hit |
 | 36 | Spend | no budget failure on any arm | 0 failures | hit |
-| 37 | Spend | run total $6 to $20 | $4.1295 | miss |
+| 37 | Spend | run total $6 to $20 | $4.1295 committed (+$0.0859 failed probes, ledger.md) | miss |
 | 38 | Probe | every probe answers none | 20 of 20 | hit |
 | 39 | Probe | at most one probe re-run in all 20 | 0 (files with attempts > 1) | hit |
 | 40 | Gate | obfuscated item 1 fails | fail | hit |
 | 41 | Gate | obfuscated items 2 and 5 pass | 2: fail, 5: pass | miss |
 | 42 | Gate | private item 1 passes | pass | hit |
-| 43 | Gate | private item 3 decides and fails | item 3: fail | hit |
+| 43 | Gate | private item 3 fails (predicted to decide) | item 3: fail | hit |
 | 44 | Gate | point estimate for the gate: fail | fail | hit |
 
 **Clauses: 28 of 44 hit. Prediction rows: 2 of 10 hit** (H obf: 3 of 6; H+S2 obf: 2 of 5; B3 obf: 3 of 5; H private: 5 of 5; H+S2 private: 2 of 3; B3 private: 0 of 2; No-match: 5 of 6; Spend: 2 of 5; Probe: 2 of 2; Gate: 4 of 5).

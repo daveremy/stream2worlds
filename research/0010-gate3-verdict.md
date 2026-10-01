@@ -8,7 +8,9 @@
 - **Date:** 2026-10-01. **Provider:** `claude-sonnet-5-5` only, so any claim is for that provider.
 - **Numbers:** every figure below is read from `research/h-measure/results/gate3/summary.md`, which
   `research/h-measure/gate3-summary.ts` generates from the 30 `--json` score reports and the 20
-  committed mappings. Scoring is local and cost $0.
+  committed mappings. Scoring is local and cost $0. The preconditions in the Verdict paragraph (no
+  failure, reported model, ordering) are checked from the committed files, `ledger.md` and `git log`,
+  not by the script.
 
 ## Verdict
 
@@ -27,14 +29,17 @@ before the predictions comment (issuecomment-5938191252) or before the 20 mappin
 | 2c mean relationship F1 no more than 0.05 below H | fail (H's is undefined) | fail (H's is undefined) |
 | 3 mean entity recovery >= 0.60 | **fail**: 0.0705 | **fail**: 0.1982 |
 | 4 mean F1 gain over B3 >= 0.05, higher in >= 4 of 5 | pass: gain 0.1017, 5 of 5 | **fail**: gain 0.0036, 2 of 5 |
-| 5 budget (<= $5 per file, no failure) | pass | pass |
+| 5 budget (h-s2 + B3 <= $5 per replicate, no failure) | pass | pass |
 
 How to read the rows:
 
 - **Obfuscated, first failing item: 1.** H+S2 is below H in every replicate.
 - **Private, first failing item: 2c by the plan's convention** (an undefined relationship F1 counts as
-  a fail for the item that uses it). H emits no relationship edges on either stream, so its edge F1 is
-  undefined and 2c cannot pass under that convention. Items 3 and 4 fail on measured numbers
+  a fail for the item that uses it). H's edge F1 is undefined on both streams (obfuscated: 44,564 predicted edges, none matches the key, so
+  P and R are 0.0000; private: no edges predicted), so 2c cannot pass under that convention. Read an
+  undefined edge F1 as 0 instead and 2c passes on both streams: the private first failing item
+  becomes 3, clause 41 becomes a hit (Gate row 5 of 5, 3 of 10 rows hit overall). The gate verdict is
+  the same either way. Items 3 and 4 fail on measured numbers
   regardless, so the verdict does not depend on the convention.
 - **Not "insufficient headroom".** H's mean F1 is 0.6011 and 0.0044, both below 0.90, so the margin
   exists on both streams.
@@ -59,9 +64,10 @@ Per replicate rows are in `research/h-measure/results/gate3/summary.md`; raw rep
 Observations (facts from the reports; causes untested):
 
 - **H on the obfuscated stream scores 0.6011, not the 0.81 it scores on plain `reserved-6`.** Its
-  per-type rows differ from the plain run in one type: `wiki` has recall 0.5598 on plain
-  `reserved-6` and 0.0000 on every obfuscated replicate, and H emits no relationship edges on the
-  obfuscated stream (edge P and R 0.0000) where the plain run had edge P 0.4643, R 0.2350. H is
+  per-type rows differ materially from the plain run in one type: `wiki` has recall 0.5598 on plain
+  `reserved-6` and 0.0000 on every obfuscated replicate (page and revision differ by under 0.001),
+  and none of H's 44,564 predicted relationship edges on the obfuscated stream matches the key (edge
+  P and R 0.0000, r2) where the plain run had edge P 0.4643, R 0.2350. H is
   identical in all five obfuscated replicates (one mapping per freeze, same score), so this is
   not noise.
 - **H+S2 recovery on the obfuscated stream is 0.0705**, against H's 0.9819. H+S2 reaches `page`
@@ -105,7 +111,7 @@ item 1 failing on the obfuscated stream and passing on the private one. The miss
 - **Obfuscated item 2 fails, predicted to pass**, only because H's edge F1 is undefined; items 2a
   and 2b pass.
 - **Spend was lower than predicted**: h-s2 $0.0814 to $0.1668 per replicate against $0.15 to $0.35,
-  B3 $0.1729 to $0.4765 against $0.40 to $1.50, run total $4.1295 against $6 to $20. No miss here
+  B3 $0.1729 to $0.4765 against $0.40 to $1.50, run total $4.2154 against $6 to $20. No miss here
   costs anything.
 - **No-match:** h-s2 obfuscated had 0 pre-repair no-matches of 5 against the predicted 1 to 2.
 
@@ -130,9 +136,9 @@ Nothing was re-tuned. These are findings.
 
 ## Spend
 
-The committed ledger (`results/gate3/ledger.md`) totals **$4.1295** for the 20 files, probes included
-(h-s2 $1.3223, B3 $2.8072; ceiling $100). The issue brief quoted $4.22; the ledger is built from the
-committed `spend.usd` fields and is the figure used here. Scoring: $0, no model call. No file is
+The ledger (`results/gate3/ledger.md`) gives a run total of **$4.2154** (ceiling $100): $4.1295 in the
+20 committed files (h-s2 $1.3223, B3 $2.8072, committed probes included) plus $0.0859 of failed-probe
+spend that sits in no committed file. The brief's $4.22 is the run total. Scoring: $0, no model call. No file is
 above the $5 per-file gate.
 
 ## Publication checklist (contract §Publication)

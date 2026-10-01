@@ -256,7 +256,7 @@ Dry run 2's h-s2 reply left out the `data` decode step and scored recall 0 while
 
 ### 2026-10-01: the live run (s2w#374)
 
-The 20 committed replicates (r2 to r6) cost $4.1295 in total: h-s2 $0.0814 to $0.1668 and B3
+The 20 committed replicates (r2 to r6) cost $4.1295 in committed spend ($4.2154 with $0.0859 of failed probes): h-s2 $0.0814 to $0.1668 and B3
 $0.1729 to $0.4765 per replicate, against the dry run's $0.23 and $0.47 to $3.47. Two replicates needed the no-match
 repair call (one B3 obfuscated, r3; one h-s2 private, r5), and it cleared both; every probe answered
 `none`. Scores and verdict: [research 0010](../research/0010-gate3-verdict.md).

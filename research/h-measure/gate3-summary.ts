@@ -102,7 +102,8 @@ for (const s of STREAMS) {
   const gain4 = mean(F("h-s2").map((x, i) => x - F("b3")[i]));
   const n4 = F("h-s2").filter((x, i) => x > F("b3")[i]).length;
   const hmean = mean(F("h"));
-  const maxUsd = Math.max(...col(s, "h-s2", "usd"), ...col(s, "b3", "usd"));
+  // contract: "$5 of API spend per stream per replicate" = both arms of one replicate together
+  const maxUsd = Math.max(...KS.map((k) => row[s]["h-s2"][k].usd + row[s].b3[k].usd));
   const failures = ["h-s2", "b3"].flatMap((a) => col(s, a, "failure")).filter((x) => x);
   const i1 = hmean <= 0.9 && gain1 >= 0.1 && all1;
   const i3 = rec >= 0.6;
@@ -119,7 +120,7 @@ p(`| 2b mean false-merge no more than 0.02 above H (H ${f4(d.obf.fmH)} / ${f4(d.
 p(`| 2c mean relationship F1 no more than 0.05 below H (gap ${f4(d.obf.efGap)} / ${f4(d.private.efGap)}) | ${pf(d.obf.i2c)} | ${pf(d.private.i2c)} |`);
 p(`| 3 mean entity recovery >= 0.60 (${f4(d.obf.rec)} / ${f4(d.private.rec)}) | ${pf(d.obf.i3)} | ${pf(d.private.i3)} |`);
 p(`| 4 mean F1 gain over B3 >= 0.05 and higher in >= 4 of 5 (gain ${f4(d.obf.gain4)}, ${d.obf.n4} of 5 / gain ${f4(d.private.gain4)}, ${d.private.n4} of 5) | ${pf(d.obf.i4)} | ${pf(d.private.i4)} |`);
-p(`| 5 budget: every committed arm file <= $5, no failure (max ${d.obf.maxUsd.toFixed(4)} / ${d.private.maxUsd.toFixed(4)}) | ${pf(d.obf.i5)} | ${pf(d.private.i5)} |`);
+p(`| 5 budget: h-s2 + B3 spend per replicate <= $5, no failure (max ${d.obf.maxUsd.toFixed(4)} / ${d.private.maxUsd.toFixed(4)}) | ${pf(d.obf.i5)} | ${pf(d.private.i5)} |`);
 const verdict = (s) => {
   const it = items[s];
   const first = it.findIndex((x) => !x);
@@ -182,7 +183,8 @@ const rg = (a) => `${f4(Math.min(...a))} to ${f4(Math.max(...a))}`;
   cl.push([g, "recovery < 0.10", rg(Rc), Rc.every((x) => x < 0.1)]);
   const ER = col("private", "h", "er");
   cl.push([g, "edge R <= 0.01", rg(ER), ER.every((x) => x <= 0.01)]);
-  const same = KS.every((k) => JSON.stringify(row.private.h[k]) === JSON.stringify(row.private.h[2]));
+  const noKey = (x) => JSON.stringify({ ...x, key: 0 });
+  const same = KS.every((k) => noKey(row.private.h[k]) === noKey(row.private.h[2]));
   cl.push([g, "identical in all 5 replicates", same ? "identical" : "differs", same]);
 }
 {
@@ -222,7 +224,8 @@ const rg = (a) => `${f4(Math.min(...a))} to ${f4(Math.max(...a))}`;
   cl.push([g, "no replicate above $3.50", `max ${Math.max(...all).toFixed(4)}`, all.every((x) => x <= 3.5)]);
   const fl = STREAMS.flatMap((s) => ["h-s2", "b3"].flatMap((a) => col(s, a, "failure"))).filter((x) => x);
   cl.push([g, "no budget failure on any arm", `${fl.length} failures`, fl.length === 0]);
-  cl.push([g, "run total $6 to $20", `$${tot.toFixed(4)}`, inr(tot, 6, 20)]);
+  // failed-probe spend ($0.0859, ledger.md) sits in no committed file; adding it still misses the band
+  cl.push([g, "run total $6 to $20", `$${tot.toFixed(4)} committed (+$0.0859 failed probes, ledger.md)`, inr(tot + 0.0859, 6, 20)]);
 }
 {
   const g = "Probe";
@@ -237,7 +240,7 @@ const rg = (a) => `${f4(Math.min(...a))} to ${f4(Math.max(...a))}`;
   cl.push([g, "obfuscated item 1 fails", pf(d.obf.i1), !d.obf.i1]);
   cl.push([g, "obfuscated items 2 and 5 pass", `2: ${pf(items.obf[1])}, 5: ${pf(items.obf[4])}`, items.obf[1] && items.obf[4]]);
   cl.push([g, "private item 1 passes", pf(d.private.i1), d.private.i1]);
-  cl.push([g, "private item 3 decides and fails", `item 3: ${pf(d.private.i3)}`, !d.private.i3]);
+  cl.push([g, "private item 3 fails (predicted to decide)", `item 3: ${pf(d.private.i3)}`, !d.private.i3]);
   const gate = items.obf.every(Boolean) && items.private.every(Boolean);
   cl.push([g, "point estimate for the gate: fail", gate ? "pass" : "fail", !gate]);
 }

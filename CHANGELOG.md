@@ -15,9 +15,9 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ## Gate 3 runs, and fails on both streams — [#374](https://github.com/daveremy/stream2worlds/issues/374) (2026-10-01)
 
-**Shipped:** the scored gate-3 run. Five replicates per stream, three arms (H, H+S2, B3), 30 score reports and a generated summary under `research/h-measure/results/gate3/`, the five held-out obfuscation metadata files, and [research 0010](research/0010-gate3-verdict.md) with the contract's verdict. Total API spend $4.13; scoring cost nothing.
+**Shipped:** the scored gate-3 run. Five replicates per stream, three arms (H, H+S2, B3), 30 score reports and a generated summary under `research/h-measure/results/gate3/`, the five held-out obfuscation metadata files, and [research 0010](research/0010-gate3-verdict.md) with the contract's verdict. Total API spend $4.22; scoring cost nothing.
 
-**Learned:** System 2 on `claude-sonnet-5-5` did not beat the heuristics. On the obfuscated stream H+S2 scores F1 0.35 against H's 0.60, with entity recovery 0.07. On the private stream it scores 0.63 against H's 0.004, but ties the raw-sample baseline (0.63) and recovers 0.20 of repeated entities against a 0.60 floor. The predictions posted beforehand hit 28 of 44 clauses; the biggest miss is H itself, which loses its `wiki` entities and all its edges once the stream is obfuscated (F1 0.60, not 0.81). Several replicates score identically, so five replicates carry fewer than five independent outcomes.
+**Learned:** System 2 on `claude-sonnet-5-5` did not beat the heuristics. On the obfuscated stream H+S2 scores F1 0.35 against H's 0.60, with entity recovery 0.07. On the private stream it scores 0.63 against H's 0.004, but ties the raw-sample baseline (0.63) and recovers 0.20 of repeated entities against a 0.60 floor. The predictions posted beforehand hit 28 of 44 clauses; the biggest miss is H itself, which loses its `wiki` entities once the stream is obfuscated, and none of its edges match the key (F1 0.60, not 0.81). Several replicates score identically, so five replicates carry fewer than five independent outcomes.
 
 **Changed course:** the contract's kill criterion applies: stop and re-decide. Nothing was re-tuned.
 

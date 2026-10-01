@@ -727,5 +727,5 @@ Gate 3 was run once under the signed B4 on `claude-sonnet-5-5`, replicates r2 to
 s2w#402 dry run). **Both streams fail**; the verdict, the item-by-item numbers and the graded
 predictions are in [research 0010](../research/0010-gate3-verdict.md). B4 stands as signed; the
 kill criterion "stop and re-decide if gate 3 fails" now applies and the decision is Dave's. One
-convention is recorded: an undefined relationship F1 (H emits no edges on either stream) fails
+convention is recorded: an undefined relationship F1 (H's edge F1 is undefined on both streams) fails
 item 2c; the verdict does not depend on it (items 1, 3 and 4 fail on measured numbers).
