@@ -6,7 +6,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, reserved-4 for s2w#291 PR 2, reserved-5 for s2w#245 PR 4, and reserved-6 for s2w#375 (pinned by PR 1, still unopened); `reserved` opened as held-out by s2w#244, the others by the PRs named), and the private stream's `private-dev` and `private-test` (s2w#371) and their second capture `private-dev-2` and `private-test-2` (s2w#375, pinned by PR 1), each with its provenance sidecar: role, window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, reserved-4 for s2w#291 PR 2, reserved-5 for s2w#245 PR 4, and reserved-6 for s2w#375 (pinned by PR 1, opened by PR 2); `reserved` opened as held-out by s2w#244, the others by the PRs named), and the private stream's `private-dev` and `private-test` (s2w#371) and their second capture `private-dev-2` and `private-test-2` (s2w#375, pinned by PR 1; `private-test-2` opened by PR 2), each with its provenance sidecar: role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `private/` | The private-stream capture (s2w#371): `capture.ts` (sources to SSE), `scrub.ts` (the fail-closed gate), `extract.ts` (the published `detail` regex table), `events.ts` (pure builders), `fixture.ts` and `fixture/synthetic-20.sse` (the only committed capture-format file: fake numbers and shas), `capture.test.ts`. See "Private stream" below. |
 | `prices.toml` | The public price table `cargo xtask gate3` charges a run by: one row per model snapshot, USD per million tokens, with its source page and date. |
@@ -27,6 +27,8 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `frozen/h-min-v8.dev-N.json`, `results/h-min-v8.dev-N.reserved-4.md` | H-min `PROFILER_VERSION` 8 (s2w#327, the integer return floor): frozen on `dev` after every span was opened, and its `reserved-4` reports. Each freeze equals v7's except the version and config text; research 0009's #327 addendum has v8 on every opened span. |
 | `frozen/h-min-v8.private-dev-8067.json`, `results/h-min-v8.private-dev-8067.profile.md` | H-min `PROFILER_VERSION` 8 frozen on the whole `private-dev` span (s2w#371 PR 2), after the corpus pins and the private key pin, and its `private-dev` profile table. The freeze `private-test` is scored against. |
 | `frozen/h-min-v9.dev-N.json`, `results/h-min-v{8,9}.dev-N.reserved-5.md` | H-min `PROFILER_VERSION` 9 (s2w#245 PR 4, stage 6 links, a version-2 mapping): frozen on `dev` at both windows before `reserved-5` was opened, and the v8 and v9 `reserved-5` reports under the base, `user-global` and `canonical-mention` keys. v8 was scored from a saved build of 1e26249. Research 0009's #245 addendum has the predictions and the per-type ceiling with links. |
+| `frozen/h-min-v9.dev-N.pins-388.json`, `results/h-min-v9.dev-N.pins-388.reserved-6.md` | v9 re-frozen on `dev` at both windows (s2w#375 PR 2) after the format-3 keys were pinned, so the freeze records `dev-key-v3*.json`; each file equals `h-min-v9.dev-N.json` except `pins` (`jq -S 'del(.pins)'`). Its `reserved-6` reports under `dev-key-v3.json` (identity and relationships), `dev-key-v3.canonical-mention.json`, `dev-key-v2.user-global.json` and `dev-key-v1.json`. Links are measurement-only; `serve` runs version 1 until s2w#392. Research 0009's #375 addendum has the predictions. |
+| `frozen/h-min-v9.private-dev-2-8072.json`, `results/h-min-v9.private-dev-2-8072.{profile,private-test-2}.md` | H-min `PROFILER_VERSION` 9 frozen on the whole `private-dev-2` span (s2w#375 PR 2), after `private-key-v2*.json` was pinned, its profile table, and its `private-test-2` report under `private-key-v2.json` and `private-key-v2.context-scored.json`. Supersedes the v8 private freeze for scoring. |
 
 ## Rules
 
@@ -102,7 +104,7 @@ stay as the record.
 | Corpus | Role | Span (UTC) | Events | `sprint.boundary` frames | Dropped (capture header) |
 |---|---|---|---|---|---|
 | `private-dev-2` | development | 2026-09-21T00:00Z to 2026-09-28T12:00Z | 8,072 | 62 (sprints 4 to 65) | 1,109 rows from other projects, 2,811 timeline events of other kinds, 6,907 frames outside the span, 116 refs to other repositories, 27 refs over the cap |
-| `private-test-2` | reserved | 2026-09-29T00:00Z to 2026-10-01T00:00Z | 5,524 | 23 (sprints 73 to 95) | 191 rows from other projects, 1,262 timeline events of other kinds, 987 frames outside the span, 17 refs to other repositories, 22 refs over the cap |
+| `private-test-2` | heldout (opened by s2w#375 PR 2) | 2026-09-29T00:00Z to 2026-10-01T00:00Z | 5,524 | 23 (sprints 73 to 95) | 191 rows from other projects, 1,262 timeline events of other kinds, 987 frames outside the span, 17 refs to other repositories, 22 refs over the cap |
 
 A frame-level diff against the first capture, reported as counts only, adds 5 and 23
 `sprint.boundary` frames and removes nothing; the only changed field is `refs` on `commit` and
@@ -111,8 +113,9 @@ and with timeline events GitHub recorded after the first capture; `timeline-othe
 the latter. Every sprint row parsed (`unparsed` 0); seven rows carry an off-hour
 `(slot HH:MM–)` start (sprints 66 and 68 to 73), which the capture reads since s2w#405, so sprint 66
 (12:30Z) falls outside `private-dev-2` and sprint 72 (2026-09-28T23:36Z) outside
-`private-test-2`. `key.ts --check` on `private-dev-2` fails no rule. `private-test-2` stays
-`reserved`: only its stanza and the counts-only diff were read.
+`private-test-2`. `key.ts --check` on `private-dev-2` fails no rule. `private-test-2` stayed
+`reserved` until s2w#375 PR 2's score opened it: before that, only its stanza and the counts-only
+diff were read.
 
 ## Private answer key (s2w#372)
 

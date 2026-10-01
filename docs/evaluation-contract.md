@@ -701,3 +701,22 @@ sprint rows (s2w#398), a sprint's actual start (s2w#405) and `refs` as `{repo, n
   the record; the second supersedes it for scoring.
 - **Order.** As in the note above: the scored run on `private-test-2` precedes any publication of
   the source repos. The freeze it is scored against lands in s2w#375's second PR, before that run.
+
+### 2026-10-01: the H re-freeze that `reserved-6` and `private-test-2` are scored against (s2w#375; addition, no change in meaning)
+
+H (`PROFILER_VERSION` 9, unchanged) was frozen again after the keys it is scored under were
+pinned. It changes no arm, metric, threshold, stream or span.
+
+- **Freezes.** `research/h-measure/frozen/h-min-v9.dev-{10000,200000}.pins-388.json` (equal to
+  `h-min-v9.dev-N.json` except the recorded pins, which now include the format-3 keys
+  `dev-key-v3*.json`) and `h-min-v9.private-dev-2-8072.json` (the whole `private-dev-2` span,
+  after `private-key-v2*.json` was pinned).
+- **Order.** Freezes, then the predictions comment on s2w#375, then `reserved-6` and
+  `private-test-2` flip from `reserved` to `heldout`, then the scores, in that commit order. Key
+  before freeze is vacuous on `dev`, which was read long before; what fixes the relationship
+  scoring there is that the key's edge table was set in the s2w#388 plan (2026-10-01 08:20Z)
+  before any H edge was scored.
+- **Scores.** `reserved-6` under `dev-key-v3.json` (identity and the first §B3 relationship
+  rows), its canonical-mention variant, `dev-key-v2.user-global.json` and `dev-key-v1.json`;
+  `private-test-2` under `private-key-v2.json` and its context-scored variant. Results: research
+  0009's s2w#375 addendum. Links stay measurement-only; `serve` runs version 1 until s2w#392.
