@@ -105,7 +105,9 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     its fail-closed validation, `from_mapping` (writes the newest format), and `oracle`: the
     oracle-v0 mapping for the key, a reference not a proven best (one rule per mention rule
     whose path is an identity path, mention path last; alias mentions get no rule, and two mention rules on one
-    multi-path identity are split by the reordering), graded as the ceiling row.
+    multi-path identity are split by the reordering), graded as the ceiling row; and
+    `oracle_with_links`: the same rules plus, per alias mention rule, a rule keyed by the alias
+    path linked into the first oracle rule on the same identity paths, graded as the "ceiling with links" row.
     Domain knowledge lives in the spec file, never here.
     - `h_measure/key/unscored.rs`: `unscored` entries, an exact path (every format) or
       `{"prefix": path}` (format 2: the path and every path under it), and `Unscored`, the
@@ -115,8 +117,12 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   - `h_measure/mentions.rs`: the key and mapping executors. A mention is `(record index,
     s2w_discover::rule_id(path))`. A mapping rule mentions its entity at its **last** key path:
     a composite key lists context parts first, and the context usually keys a type of its own.
-    Two rules that place one mention in different clusters are an error naming both. Both
+    Two rules that place one mention in different keys are an error naming both. Both
     build keys with `s2w_system1::decode::natural_key`, the engine's own builder, never a copy.
+    The mapping executor folds the engine's `EntityObserved` and `EntitiesMerged` claims (links,
+    decision 0027) into an `s2w_core::World` and clusters each mention by the natural key its
+    entity resolves to after the whole corpus, so the fold's merge rule is the only one (s2w#245);
+    a mapping without links clusters by its natural keys as before.
     `key_mentions` validates its spec first, reports as abstained paths the mentions it
     skips because an identity path held no key part, and as excluded mentions the ones whose
     path held a `no_identity` value. `Decoded` applies one list of decode steps

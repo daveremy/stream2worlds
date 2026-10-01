@@ -289,6 +289,8 @@ fn jsonl(text: &str) -> Result<Vec<Value>, String> {
 #[cfg(test)]
 mod freeze_tests;
 #[cfg(test)]
+mod links_tests;
+#[cfg(test)]
 mod report_tests;
 #[cfg(test)]
 mod tests;

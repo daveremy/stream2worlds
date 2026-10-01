@@ -145,7 +145,17 @@ included.
   is gone.
 - `s2w-app`: a stored linked mapping routes (PR 2; PR 1 excluded it).
 - `xtask` check 11: an `EntitiesMerged` arm and the linked fixture (PR 2).
+- `xtask` h-measure (PR 3): the mapping executor folds the engine's entity and merge claims into
+  `s2w_core::World` and clusters each mention by its resolved entity, so the scorer uses the
+  fold's merge rule, not a copy. `KeySpec::oracle_with_links` and a "ceiling with links" report
+  row. Control (2026-09-30): the committed v4 frozen mappings re-scored on `reserved-3` match
+  their committed reports line for line except the preamble and the new row. That row, base
+  key: P 0.9991, R 0.9992 at both windows, so P7's R holds and its P = 1.0 does not. Two
+  candidate causes, not yet measured per type: first link wins joins an alias value that two
+  identities share to the first one only, and an alias key (label plus one value) equals
+  another one-part key of its type. Re-run on the 10,000-event window after the survivor rule
+  became "the oracle rule on the alias's own identity paths": the same row.
 - Every `StreamMapping` literal gains `links: Vec::new()`; no behaviour change.
 - No new dependencies; the allowlist is unchanged.
 
-verify: `cargo test -p s2w-model mapping && cargo test -p s2w-system1 mapping && cargo test -p s2w-app --test mapping_links && cargo test -p xtask obfuscation_raw` passes.
+verify: `cargo test -p s2w-model mapping && cargo test -p s2w-system1 mapping && cargo test -p s2w-app --test mapping_links && cargo test -p xtask obfuscation_raw && cargo test -p xtask links_tests` passes.

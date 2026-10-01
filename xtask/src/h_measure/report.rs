@@ -22,7 +22,7 @@ use super::score::{Bcubed, Score, shown};
 
 /// The report's first paragraph: the mapping format's alias limit (ruling on s2w#56,
 /// 2026-09-29), stated before any number.
-const ALIAS_LIMIT: &str = "A v0 stream mapping cannot say that different values name one entity. A key type whose mentions sit at alias paths holding different values (one entity written four ways) scores low recall even for a perfect v0 mapping. Read each mapping row against its ceiling row (the oracle-v0 mapping for that key) and against the canonical-mention key (alias paths unscored), not against 1.0.";
+const ALIAS_LIMIT: &str = "A v0 stream mapping cannot say that different values name one entity; a version-2 mapping can, with links (decision 0027). A key type whose mentions sit at alias paths holding different values (one entity written four ways) scores low recall even for a perfect v0 mapping. Read each mapping row against its ceiling row (the oracle-v0 mapping for that key), its ceiling-with-links row (that mapping plus a rule per alias path, linked into the oracle rule on the same identity, the ceiling for a mapping with links) and the canonical-mention key (alias paths unscored), not against 1.0.";
 
 /// What a score run reads, from the command line.
 pub(crate) struct Request<'a> {
@@ -274,6 +274,13 @@ fn key_section(key: &KeyReport) -> String {
     let g = &key.grade;
     let mut rows = headline("mapping", &g.mapping);
     rows.extend(headline("ceiling", &g.ceiling));
+    // One row: the oracle with links (s2w#245). Every other row is unchanged, so a report
+    // without links still compares line for line with one written before it.
+    rows.extend(
+        headline("ceiling with links", &g.ceiling_links)
+            .into_iter()
+            .take(1),
+    );
     let types = g.mapping.per_type.iter().map(|(t, b)| {
         let c = g.ceiling.per_type.get(t).copied().unwrap_or_default();
         [vec![t.clone()], prf(b).to_vec(), prf(&c).to_vec()].concat()
