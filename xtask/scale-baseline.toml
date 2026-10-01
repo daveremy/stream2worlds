@@ -1,20 +1,23 @@
 # Scale baseline (s2w#32; decision 0004; research 0006 §12). Human-owned, like the golden files.
 #
-# Read by `cargo xtask check` ([memory], via s2w-app's ignored `scale_mem` tests) and by
+# Read by `cargo xtask check` ([memory], via s2w-app's ignored `scale_mem` tests), by
 # `cargo xtask scale` ([ir], fold instructions under Valgrind, and [parse], System 1 parse
-# instructions; CI job 'scale'). Every key is
+# instructions; CI job 'scale') and by `cargo xtask discover-volume` ([discover_volume], CI job
+# 'discover-volume'). Every key is
 # required. Two event supplies are gated side by side (s2w#174): the seeded generator ([ir],
 # [memory]) and the recorded fixture ([recorded], [ir.recorded], [memory.recorded]).
 # A measurement more than `tolerance_percent` above its baseline fails. Raising
 # fold_ir_per_event (either supply), parse_ir_per_event, bytes_per_entity (either supply),
 # any events / entities size, target_bytes_per_entity,
-# budget_bytes_per_entity or tolerance_percent against origin/main needs a
+# budget_bytes_per_entity, [discover_volume] heap_bytes, budget_bytes, events or window, or
+# tolerance_percent against origin/main needs a
 # `Baseline-growth: s2w#<N>` trailer on a commit in the PR and a reason in the PR body.
-# `cargo xtask check --tighten-baseline` lowers [memory] values; it never raises them and never
+# `cargo xtask check --tighten-baseline` lowers [memory] values and `cargo xtask discover-volume
+# --tighten-baseline` lowers [discover_volume] heap_bytes; neither raises anything, and nothing
 # touches [ir] or [parse].
 
 tolerance_percent = 5
-set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29), raised by s2w#271 (2026-09-29); recorded supply s2w#174 (2026-09-29); [parse] s2w#166 (2026-09-29)"
+set_by = "s2w#32 (2026-09-28); [memory] ratcheted by s2w#172 (2026-09-29), raised by s2w#271 (2026-09-29); recorded supply s2w#174 (2026-09-29); [parse] s2w#166 (2026-09-29); [discover_volume] s2w#392 (2026-10-01)"
 
 # The recorded fixture, crates/s2w-app/tests/fixtures/recorded-10min.raw.sse: FNV-1a 64 of its
 # bytes, the same pin as FIXTURE_HASH in crates/s2w-app/tests/support/recorded.rs. Both runners
@@ -75,3 +78,25 @@ bytes_per_entity = 349
 bytes_per_relationship_reported = 409 # informational
 entities = 11462 # pinned; the test's JSON line must agree
 relationships = 19512 # pinned; the test's JSON line must agree
+
+# World heap after folding 10^5 fresh-string events of the recorded fixture (cycled, every
+# string leaf suffixed per cycle: the upper bound) under the mapping serve's profiler settings
+# (links off) discover from its first 10k events (s2w-app test discover_volume_heap, fresh child;
+# decisions 0022, 0025; s2w#392). Counted by dhat, release profile: the fold allocates the same
+# sequence every run, so the figure reproduces to the byte (two hub runs, 2026-10-01).
+[discover_volume]
+# Measured 399,243,516 B (380.7 MiB) on 2026-10-01, PROFILER_VERSION 9, hub, rustc 1.98.1.
+# Baseline; > +tolerance fails. Accepted as is, not bisected (s2w#392 ruling, 2026-10-01).
+heap_bytes = 399243516
+# Hard ceiling: decision 0025's deploy line, 480 MiB resident, restated in heap bytes with the
+# measured heap/RSS ratio (399,243,516 / 408,956,928 = 0.9762): 480 MiB x 0.9762. Leaves room
+# for version-2 links (+75 MiB resident measured by s2w#245). Above this always fails.
+budget_bytes = 491361871
+# Informational: the plain discover_volume target's VmRSS delta for the same fold (390.0 MiB,
+# the figure decisions 0022 and 0025 quote), from a release hand run on 2026-10-01. Set by hand;
+# the gate's dhat run cannot measure it.
+rss_bytes_reported = 408956928
+entities = 154018 # pinned; the test's JSON line must agree
+relationships = 1412074 # pinned; the test's JSON line must agree
+events = 100000 # EVENTS in crates/s2w-app/tests/discover_volume.rs; the JSON line must agree
+window = 10000 # DISCOVER_WINDOW in crates/s2w-app/src/discover.rs; the JSON line must agree

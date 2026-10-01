@@ -74,12 +74,6 @@ reason = "dashboard manifest shape and reference validation; not split in s2w#66
 issue = "s2w#378"
 
 [[exempt]]
-module = "xtask::scale"
-lines = 404
-reason = "scale baseline config and judges; 4 lines over, not split in s2w#66"
-issue = "s2w#378"
-
-[[exempt]]
 module = "xtask::vocabulary"
 lines = 583
 reason = "check 9's denylist walkers over src, web view and prompts; not split in s2w#66"
