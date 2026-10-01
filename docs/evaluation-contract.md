@@ -672,8 +672,8 @@ It changes no arm, metric, threshold or stream; B2.3 stands as signed.
 - **Sources.** The dev-worker status database (`worker_history`), the review-seat logs, GitHub's
   issue, pull-request and timeline records, the git history of the default branches plus every
   commit another event names, and the sprint log. The GitHub records and review-seat logs are an
-  addition to "the status database and git"; they carry the same legs, issues, pull requests,
-  review seats and merges.
+  addition to "the status database and git", accepted at the s2w#371 plan gate (karpathy,
+  2026-09-30); they carry the same legs, issues, pull requests, review seats and merges.
 - **Repository filter.** `daveremy/lifeos` and `daveremy/stream2worlds` only, both private on
   GitHub as of 2026-10-01. Rows of other projects are dropped and counted, never aliased.
 - **Fields only.** Titles, bodies, comment text, commit subjects, free-text status details, paths

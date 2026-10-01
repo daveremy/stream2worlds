@@ -242,4 +242,4 @@ for (const dir of dirs) for (const [ext, body] of outputs) writeFileSync(join(di
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 process.stdout.write(`\n[corpus.${a.name}]\nrole = "<development|reserved>"\nfile = "${a.name}.raw.sse"\nstream = "private"\n` +
   `since = "${since}"\nuntil = "${until}"\nevents = ${kept.length}\nbytes = ${Buffer.byteLength(sse)}\nsha256 = "${sha(sse)}"\n` +
-  `provenance_sha256 = "${sha(provenance)}"\n# dropped: ${counts}\n`);
+  `provenance = "${a.name}.provenance.jsonl"\nprovenance_sha256 = "${sha(provenance)}"\ndropped = "${counts}"\n`);
