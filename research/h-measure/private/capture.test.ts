@@ -68,18 +68,42 @@ test("extraction table: only the named fields leave detail", () => {
   assert.deepEqual(extractDetail("P:- I:o R:/var/x"), {});
 });
 
-test("sprint rows: the ran time wins over the slot hour; local time is MST", () => {
+test("sprint rows: every slot-cell form parses; the ran time wins over the slot hour; MST", () => {
   const md = [
     "| Sprint | Slot | Name |",
     "| 1 | 2026-09-20-10a | x | [file](2026-09-20-1-a.md) |",
     "| 58 | 2026-09-27-9a (ran 08:54) | x | [file](2026-09-27-58-b.md) |",
     "| 60 | 2026-09-27-1p | x | — |",
+    // `(ran <h>a|p)`, sprint 19's form.
+    "| 19 | 2026-09-22-1a (ran 7a) | x | [file](2026-09-22-19-c.md) |",
+    // `(ran HH:MM; …)`, sprint 48's form.
+    "| 48 | 2026-09-25-9p (ran 21:25; stalled 21:30→22:10 on a permission prompt) | x | — |",
+    // `(slot HH:MM–HH:MM)`, sprints 63 onward: the start is the slot hour.
+    "| 63 | 2026-09-29-9a (slot 09:00–11:00) | x | [file](2026-09-29-63-d.md) |",
+    "| 70 | 2026-09-30-3p (slot 15:00–17:00; early start) | x | — |",
   ].join("\n");
-  assert.deepEqual(sprintRows(md), [
+  assert.deepEqual(sprintRows(md), { unparsed: 0, rows: [
     { sprint: 1, slot: "2026-09-20-10a", ts: "2026-09-20T10:00:00-07:00", file_id: "2026-09-20-1" },
     { sprint: 58, slot: "2026-09-27-9a", ts: "2026-09-27T08:54:00-07:00", file_id: "2026-09-27-58" },
     { sprint: 60, slot: "2026-09-27-1p", ts: "2026-09-27T13:00:00-07:00", file_id: null },
-  ]);
+    { sprint: 19, slot: "2026-09-22-1a", ts: "2026-09-22T07:00:00-07:00", file_id: "2026-09-22-19" },
+    { sprint: 48, slot: "2026-09-25-9p", ts: "2026-09-25T21:25:00-07:00", file_id: null },
+    { sprint: 63, slot: "2026-09-29-9a", ts: "2026-09-29T09:00:00-07:00", file_id: "2026-09-29-63" },
+    { sprint: 70, slot: "2026-09-30-3p", ts: "2026-09-30T15:00:00-07:00", file_id: null },
+  ] });
+});
+
+test("sprint rows: a sprint-shaped row that fails the pattern is counted, not dropped silently", () => {
+  const md = [
+    "| Sprint | Slot | Name |",
+    "| 1 | 2026-09-20-10a | x | — |",
+    "| 2 | 2026-09-20 10:00 | x | — |",
+    "| 3 | 2026-09-20-10a(ran 10:05) | x | — |",
+    "| not | a sprint row |",
+  ].join("\n");
+  const { rows, unparsed } = sprintRows(md);
+  assert.deepEqual(rows.map((r) => r.sprint), [1]);
+  assert.equal(unparsed, 2);
 });
 
 test("window: until is a hard bound; only keepEarly events may predate since", () => {

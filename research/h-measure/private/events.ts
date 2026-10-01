@@ -207,17 +207,32 @@ export function render(header: [string, string, string], events: Event[]): { sse
   return { sse: head + frames.join(""), provenance: prov.join("") };
 }
 
-/** Sprint table rows: `| N | YYYY-MM-DD-<h>a|p [(ran HH:MM)] | ... | [file](YYYY-MM-DD-K-...md) ... |`, local time MST. */
-export function sprintRows(md: string): SprintRow[] {
-  const out: SprintRow[] = [];
+/**
+ * Sprint table rows: `| N | YYYY-MM-DD-<h>a|p [(…)] | ... | [file](YYYY-MM-DD-K-...md) ... |`,
+ * local time MST. The slot cell's parenthetical takes any form; its start time is `ran HH:MM`,
+ * else `ran <h>a|p`, else the slot hour (so `(slot 09:00–11:00)` and `(ran 21:25; stalled …)`
+ * both parse). A row shaped `| N | YYYY-MM-DD` that still fails the pattern is counted in
+ * `unparsed`, so a future table-format change shows as a `sprint-unparsed:N` drop (s2w#398).
+ */
+export function sprintRows(md: string): { rows: SprintRow[]; unparsed: number } {
+  const rows: SprintRow[] = [];
+  let unparsed = 0;
   for (const line of md.split("\n")) {
-    const m = /^\| (\d+) \| (\d{4}-\d{2}-\d{2})-(\d{1,2})([ap])(?: \(ran (\d{2}):(\d{2})\))? \|/.exec(line);
-    if (!m) continue;
-    const [, n, date, h, ap, rh, rm] = m;
-    const hour = rh ? Number(rh) : (Number(h) % 12) + (ap === "p" ? 12 : 0);
-    const ts = `${date}T${String(hour).padStart(2, "0")}:${rm ?? "00"}:00-07:00`;
+    const m = /^\| (\d+) \| (\d{4}-\d{2}-\d{2})-(\d{1,2})([ap])(?: \(([^)]*)\))? \|/.exec(line);
+    if (!m) {
+      if (/^\| \d+ \| \d{4}-\d{2}-\d{2}/.test(line)) unparsed++;
+      continue;
+    }
+    const [, n, date, h, ap, paren] = m;
+    let hour = (Number(h) % 12) + (ap === "p" ? 12 : 0);
+    let min = 0;
+    const ran24 = /^ran (\d{1,2}):(\d{2})\b/.exec(paren ?? "");
+    const ran12 = /^ran (\d{1,2})([ap])\b/.exec(paren ?? "");
+    if (ran24) [hour, min] = [Number(ran24[1]), Number(ran24[2])];
+    else if (ran12) hour = (Number(ran12[1]) % 12) + (ran12[2] === "p" ? 12 : 0);
+    const ts = `${date}T${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}:00-07:00`;
     const file = /\((\d{4}-\d{2}-\d{2}-\d+)-[^)]*\.md\)/.exec(line)?.[1] ?? null;
-    out.push({ sprint: Number(n), slot: `${date}-${h}${ap}`, ts, file_id: file });
+    rows.push({ sprint: Number(n), slot: `${date}-${h}${ap}`, ts, file_id: file });
   }
-  return out;
+  return { rows, unparsed };
 }
