@@ -270,13 +270,14 @@ s2w_app::query::view: # [derive (Clone , Debug , PartialEq , Eq , Serialize)] pu
 s2w_app::query::view: # [derive (Copy , Clone , Debug , Default , PartialEq , Eq)] pub enum LinkDetail { All , None }
 s2w_app::query::view: # [derive (Copy , Clone , Debug , PartialEq , Eq , Serialize)] pub enum Lod { Type , Entity }
 s2w_app::query::view: # [derive (Copy , Clone , Debug , PartialEq , Eq)] pub struct ViewParams { pub lod : Lod , pub focus : Option < u64 > , pub hops : u32 , pub links : LinkDetail }
-s2w_app::query::view: # [must_use] pub fn type_summary (world : & World) -> WorldView
-s2w_app::query::view: (private alias) type GroupLinks < 'w > = (GroupWeights < 'w > , Vec < (EntityId , EntityId , & 'w str) >) ;
 s2w_app::query::view: impl Default for ViewParams
 s2w_app::query::view: impl Node { # [must_use] pub fn id (& self) -> & str }
 s2w_app::query::view: pub const ACTUAL_BRANCH : & str = _ ;
 s2w_app::query::view: pub const MAX_HOPS : u32 = _ ;
 s2w_app::query::view: pub fn world_view (world : & World , params : & ViewParams) -> Result < WorldView , QueryError >
+s2w_app::query::view: pub use by_type :: type_summary ;
+s2w_app::query::view::by_type: # [must_use] pub fn type_summary (world : & World) -> WorldView
+s2w_app::query::view::by_type: (private alias) type GroupLinks < 'w > = (GroupWeights < 'w > , Vec < (EntityId , EntityId , & 'w str) >) ;
 s2w_app::routes: # [derive (Clone , Debug , Default , PartialEq , Eq)] pub struct Resolution { pub routes : BTreeMap < SourceId , Resolved > , pub excluded : Vec < Excluded > }
 s2w_app::routes: # [derive (Clone , Debug , PartialEq , Eq)] pub struct Resolved { pub proposal_id : String , pub identity : String , pub mapping : StreamMapping }
 s2w_app::routes: # [must_use] pub fn report_lines (resolution : & Resolution) -> Vec < String >
