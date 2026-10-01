@@ -6,7 +6,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { EXTRACTION_TABLE, extractDetail, issueRefs, ptsFromLabels } from "./extract.ts";
-import { MARK, legEvents, render, sprintRows, timelineEvents, window, type Event, type Joins } from "./events.ts";
+import {
+  MARK, MAX_REFS, commitEvents, itemEvents, legEvents, render, sprintRows, timelineEvents, window, type Event, type Joins,
+} from "./events.ts";
 import { FIXTURE_PATH, synthetic } from "./fixture.ts";
 import { RULES, assertClean, scrubViolations } from "./scrub.ts";
 
@@ -61,11 +63,59 @@ test("extraction table: only the named fields leave detail", () => {
   assert.deepEqual(extractDetail("reproducing; hypothesis: something about a path"), {});
   assert.deepEqual(extractDetail(null), {});
   assert.deepEqual(extractDetail("worktree on fix/9-y."), { branch: "fix/9-y" });
-  assert.deepEqual(issueRefs("Part of #371. Closes #12, see lifeos#5 and a/#7 and #12"), [12, 371]);
   assert.equal(ptsFromLabels(["P1", "pts:3"]), 3);
   assert.equal(ptsFromLabels(["P1"]), undefined);
   // `engines` takes only engine-code characters, so a path in that slot is not extracted.
   assert.deepEqual(extractDetail("P:- I:o R:/var/x"), {});
+});
+
+test("refs carry their repo: bare = own repo, known prefixes resolve, any other prefix is counted", () => {
+  const s2w = (number: number) => ({ repo: "s2w", number });
+  const lifeos = (number: number) => ({ repo: "lifeos", number });
+  assert.deepEqual(issueRefs("Part of #371. Closes #12, see lifeos#5 and a/#7 and #12", "s2w"),
+    { refs: [lifeos(5), s2w(12), s2w(371)], dropped: 1 });
+  // `s2w#12`, `daveremy/stream2worlds#12` and a bare `#12` in an s2w event are one ref.
+  assert.deepEqual(issueRefs("#12 s2w#12 daveremy/stream2worlds#12", "s2w"), { refs: [s2w(12)], dropped: 0 });
+  // The same text in a lifeos event: the bare ref is lifeos's, the prefixed one stays s2w's.
+  assert.deepEqual(issueRefs("#12 s2w#12", "lifeos"), { refs: [lifeos(12), s2w(12)], dropped: 0 });
+  assert.deepEqual(issueRefs("daveremy/lifeos#5 (lifeos#6)", "s2w"), { refs: [lifeos(5), lifeos(6)], dropped: 0 });
+  assert.deepEqual(issueRefs("foo_lifeos#5 other/repo#3 Lifeos#4", "s2w"), { refs: [], dropped: 3 });
+  // No `#`, no ref: a bare number or a word-glued `#` is not a reference.
+  assert.deepEqual(issueRefs("step 12 of v2#beta and x#y", "s2w"), { refs: [], dropped: 0 });
+  assert.deepEqual(issueRefs(null, "s2w"), { refs: [], dropped: 0 });
+  assert.match(EXTRACTION_TABLE, / refs=\S+#/);
+});
+
+test("refs past MAX_REFS are cut and counted; unknown prefixes are counted as ref-other-repo", () => {
+  const drops = new Map<string, number>();
+  const j: Joins = { sha: () => undefined, actor: () => "other", drop: (why, n = 1) => drops.set(why, (drops.get(why) ?? 0) + n) };
+  const body = Array.from({ length: MAX_REFS + 1 }, (_, i) => `#${i + 1}`).join(" ") + " a/#7";
+  const [opened] = itemEvents([{
+    repo: "s2w", id: 1, number: 99, is_pr: true, created_at: "2026-01-01T00:00:00Z", actor: "x", body,
+  }], j);
+  const refs = opened.data.refs as { repo: string; number: number }[];
+  assert.equal(refs.length, MAX_REFS);
+  assert.deepEqual(refs.at(-1), { repo: "s2w", number: MAX_REFS });
+  const [commit] = commitEvents([{
+    repo: "lifeos", sha: "a".repeat(40), parents: [], author: "x", committed: "2026-01-01T00:00:00Z",
+    subject: "fix (#3), s2w#4, x/y#5", co_authored: false,
+  }], j);
+  assert.deepEqual(commit.data.refs, [{ repo: "lifeos", number: 3 }, { repo: "s2w", number: 4 }]);
+  assert.deepEqual([...drops].sort(), [["ref-other-repo", 2], ["refs-overflow", 1]]);
+});
+
+test("cross-repo positive control: the fixture PR's refs name lifeos#900 and s2w#900 apart", () => {
+  const lines = readFileSync(FIXTURE_PATH, "utf8").split("\n");
+  const frames = lines.filter((l) => l.startsWith("data: ")).map((l) => JSON.parse(l.slice(6)));
+  const pr = frames.find((d) => d.kind === "pr.opened");
+  assert.deepEqual(pr.refs, [{ repo: "lifeos", number: 900 }, { repo: "s2w", number: 900 }]);
+  // Each ref resolves to a distinct item in the fixture: the same number, two repos, two issues.
+  for (const ref of pr.refs) {
+    assert.equal(frames.filter((d) => d.kind === "issue.opened" && d.repo === ref.repo && d.number === ref.number).length, 1,
+      `${ref.repo}#${ref.number}`);
+  }
+  const dropped = lines.find((l) => l.startsWith(": events="));
+  assert.match(dropped ?? "", /dropped=\S*\bref-other-repo:1\b/);
 });
 
 test("sprint rows: every slot-cell form parses; the ran time wins over the slot hour; MST", () => {
@@ -145,7 +195,7 @@ test("the committed synthetic fixture is exactly what fixture.ts generates", () 
 });
 
 test("pts only on labeled; a step that is not a board verb becomes null", () => {
-  const j: Joins = { sha: () => undefined, actor: () => "other" };
+  const j: Joins = { sha: () => undefined, actor: () => "other", drop: () => {} };
   const row = { repo: "s2w" as const, number: 9, ordinal: 1, id: 1, created_at: "2026-01-01T00:00:00Z", actor: "x", label: "pts:3" };
   const [on, off] = timelineEvents([{ ...row, event: "labeled" }, { ...row, ordinal: 2, id: 2, event: "unlabeled" }], j);
   assert.equal(on.data.pts, 3);
