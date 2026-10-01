@@ -1,0 +1,354 @@
+{
+  "version": 3,
+  "decode": [
+    [
+      "data"
+    ]
+  ],
+  "types": [
+    {
+      "type": "wiki",
+      "mentions": [
+        {
+          "path": [
+            "data",
+            "f10"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ]
+          ]
+        },
+        {
+          "path": [
+            "data",
+            "f63"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ]
+          ]
+        },
+        {
+          "path": [
+            "data",
+            "f104"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ]
+          ]
+        },
+        {
+          "path": [
+            "data",
+            "f55",
+            "f54"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "page",
+      "mentions": [
+        {
+          "path": [
+            "data",
+            "f74"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ],
+            [
+              "data",
+              "f75"
+            ],
+            [
+              "data",
+              "f74"
+            ]
+          ]
+        },
+        {
+          "path": [
+            "data",
+            "f94"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ],
+            [
+              "data",
+              "f75"
+            ],
+            [
+              "data",
+              "f74"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "user",
+      "mentions": [
+        {
+          "path": [
+            "data",
+            "f6"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ],
+            [
+              "data",
+              "f6"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "revision",
+      "mentions": [
+        {
+          "path": [
+            "data",
+            "f62",
+            "f78"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ],
+            [
+              "data",
+              "f62",
+              "f78"
+            ]
+          ]
+        },
+        {
+          "path": [
+            "data",
+            "f62",
+            "f87"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ],
+            [
+              "data",
+              "f62",
+              "f87"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "mentions": [
+        {
+          "path": [
+            "data",
+            "f55",
+            "f15"
+          ],
+          "identity": [
+            [
+              "data",
+              "f55",
+              "f15"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "log",
+      "mentions": [
+        {
+          "path": [
+            "data",
+            "f1"
+          ],
+          "identity": [
+            [
+              "data",
+              "f10"
+            ],
+            [
+              "data",
+              "f1"
+            ]
+          ],
+          "no_identity": [
+            "h42893e9285b073ff"
+          ]
+        }
+      ]
+    }
+  ],
+  "unscored": [
+    [
+      "data",
+      "f55",
+      "f72"
+    ],
+    [
+      "data",
+      "f49"
+    ],
+    [
+      "data",
+      "f55",
+      "f69"
+    ],
+    [
+      "data",
+      "f55",
+      "f65"
+    ],
+    [
+      "data",
+      "f55",
+      "f99"
+    ],
+    [
+      "data",
+      "f55",
+      "f2"
+    ],
+    [
+      "data",
+      "f14"
+    ],
+    [
+      "data",
+      "f61"
+    ],
+    [
+      "data",
+      "f12"
+    ],
+    [
+      "data",
+      "f13"
+    ],
+    {
+      "prefix": [
+        "data",
+        "f91"
+      ]
+    },
+    [
+      "data",
+      "f43"
+    ]
+  ],
+  "relationships": [
+    {
+      "type": "edits",
+      "from": [
+        "data",
+        "f62",
+        "f78"
+      ],
+      "to": [
+        "data",
+        "f74"
+      ]
+    },
+    {
+      "type": "follows",
+      "from": [
+        "data",
+        "f62",
+        "f78"
+      ],
+      "to": [
+        "data",
+        "f62",
+        "f87"
+      ]
+    },
+    {
+      "type": "by",
+      "from": [
+        "data",
+        "f62",
+        "f78"
+      ],
+      "to": [
+        "data",
+        "f6"
+      ]
+    },
+    {
+      "type": "targets",
+      "from": [
+        "data",
+        "f1"
+      ],
+      "to": [
+        "data",
+        "f74"
+      ]
+    },
+    {
+      "type": "logged-by",
+      "from": [
+        "data",
+        "f1"
+      ],
+      "to": [
+        "data",
+        "f6"
+      ]
+    },
+    {
+      "type": "page-on",
+      "from": [
+        "data",
+        "f74"
+      ],
+      "to": [
+        "data",
+        "f10"
+      ]
+    },
+    {
+      "type": "user-on",
+      "from": [
+        "data",
+        "f6"
+      ],
+      "to": [
+        "data",
+        "f10"
+      ]
+    }
+  ]
+}
