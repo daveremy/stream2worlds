@@ -587,12 +587,11 @@ still auto-applies version 1 only, so the links are measured here and not yet se
 **Hygiene.** `reserved-5` was pinned (2b7e4f1) before the profiler change and opened (49aefe1,
 role `heldout`) only after v9 was frozen on `dev` at both windows (e43152d). The predictions were
 posted on #245
-([comment](https://github.com/daveremy/stream2worlds/issues/245#issuecomment-5927730621), about
-08:35Z) after an in-sample check on `dev` and before `reserved-5` was read. Its amendments to the
+([comment](https://github.com/daveremy/stream2worlds/issues/245#issuecomment-5927730621), 08:31Z) after an in-sample check on `dev` and before `reserved-5` was read. Its amendments to the
 plan's §5 came from that check only. v8 is the saved build `xtask-v8-1e26249` scoring its own
 `dev` freezes. The freezes' links: at 10^4, `data.server_url` → `data.meta.domain`, `data.title` →
-`data.meta.uri` and `data.comment` → `data.parsedcomment`; at 2x10^5, `server_url` →
-`meta.domain` and `comment` and `log_action_comment` → `parsedcomment`, with **no `title` link**.
+`data.meta.uri` and `data.comment` → `data.parsedcomment`; at 2x10^5, `data.server_url` →
+`data.meta.domain` and `data.comment` and `data.log_action_comment` → `data.parsedcomment`, with **no `title` link**.
 
 **Result** (`reserved-5`, 100,000 events, base key `dev-key-v1`; reports in
 `h-measure/results/h-min-v{8,9}.dev-{10000,200000}.reserved-5.md`):

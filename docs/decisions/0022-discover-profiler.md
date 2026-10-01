@@ -553,7 +553,7 @@ is broken by a name" in this record, and `s2w-discover`'s `AGENTS.md` names it. 
 are aliases (equal values in at least `alias_pct`, 99%, of the events carrying both), so either
 choice links the same entities in those events. Measured case: on `dev` at 10^4 the link into the
 wiki class names `data.meta.domain`, which ties with its alias `data.server_name` and comes first.
-Check 12 compares links exactly and passes on the recorded fixture. If a renaming ever flips this
+Check 12 compares links exactly and passes on the recorded fixture. That pass is measured, not guaranteed: the renamed keys (`f1`, `f2`, ...) do not sort in the original order in general (`f10` sorts before `f9`). If a renaming ever flips this
 tie on a fixture, check 12 fails with a `links` difference, and the fix is to compare a link up to
 its tied members, not to change the rule.
 
@@ -572,7 +572,7 @@ folded):
 | v8 | 26 | 0 | 95.10 | 0 | 0 | 154,018 | 390.0 MiB | 30.2 MiB | 4,624 |
 | v9 | 33 | 4 | 103.81 | 384,938 | 170,504 | 324,579 | 465.1 MiB | 38.8 MiB | 1,578 |
 
-Claims rise by 8.71 per event (+9.2%), of which 3.85 are merge claims. That is the verdict-log growth from repeated merge claims: 384,938 per 10^5 events, most of which the fold no-ops after a link's first merge (170,504 merges). It is counted in claims, not bytes; the bytes were not measured. Relationships are
+The seven extra entity rules are losers kept as key paths; the type count is the same. Claims rise by 8.71 per event (+9.2%), of which 3.85 are merge claims. That is the verdict-log growth from repeated merge claims: 384,938 per 10^5 events, most of which the fold no-ops after a link's first merge (170,504 merges). It is counted in claims, not bytes; the bytes were not measured. Relationships are
 unchanged (1,412,074 fresh). The fresh-world upper bound grows by 75.1 MiB (+19%). The ~350 MiB
 deploy line (#197 ruling) is already crossed by v8 at 390.0 MiB, an unmeasured growth from 252 MiB
 that s2w#392 owns, so this PR does not decide links in `serve`; it records the cost. The fresh
