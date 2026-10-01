@@ -151,7 +151,7 @@ sha256 = "7bc24d57e4940db06a0f6d2edb153db24ed6c54b22ad230be1a654c0ca472320"
 # here before any #375 freeze. It starts 3 h after `reserved-5`'s window ends, and the whole window
 # was already in the past at capture time. Only the replay's summary line, the byte size and the
 # sha256 were read. Kept for #375 PR 2's score (the fresh span for H's v9 re-freeze under the
-# format-3 keys); role flips to heldout only when that PR opens it.
+# format-3 keys).
 [corpus.reserved-6]
 # opened by s2w#375 PR 2, 2026-10-01 (UTC), after 882a408 (the v9 re-freezes under the format-3 and private-key-v2 pins) and the predictions comment (issuecomment-5934976438, 15:44Z)
 role = "heldout"

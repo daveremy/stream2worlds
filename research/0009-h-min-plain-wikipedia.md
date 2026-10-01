@@ -662,7 +662,7 @@ the first H score with the contract's §B3 relationship rows. H was also frozen 
 `private-test-2`. Links are measurement-only: `serve` runs version 1 until s2w#392.
 
 **Hygiene.** `reserved-6` and `private-test-2` were pinned `reserved` by s2w#375 PR 1 (#412) and
-read only through their stanzas. The three freezes (882a408) came first; the predictions were
+read only through their stanzas (and, for `private-test-2`, the counts-only frame diff). The three freezes (882a408) came first; the predictions were
 posted on #375
 ([comment](https://github.com/daveremy/stream2worlds/issues/375#issuecomment-5934976438), 15:44Z)
 after an in-sample check on `dev` and `private-dev-2`; both spans were then opened (b4ca8f2, role
@@ -687,7 +687,8 @@ under either key, and compare with the #245 addendum's `reserved-5` rows:
 Under `dev-key-v2.user-global.json` at 10^4: P 0.9988, R 0.6841, F1 0.8120, recovery 0.9886.
 Under `dev-key-v3.canonical-mention.json` at 10^4: P 0.9878, R 0.5814, F1 0.7319; `page` R
 1.0000, `wiki` R 0. The ceiling with links (`dev-key-v3.json`, both windows): P 0.9988, R 0.9989,
-F1 0.9989; per type (`grade.ceiling_links.per_type`), every type is 1.0000 / 1.0000 except
+F1 0.9989; per type, from the score's `--json` output (`grade.ceiling_links.per_type`, not
+printed in the markdown report), every type is 1.0000 / 1.0000 except
 `wiki` (0.9975 / 0.9975).
 
 **Result, relationships** (`dev-key-v3.json`, 178,265 key edges over seven edge types):
@@ -720,19 +721,26 @@ an alias path) and the ceiling with links R 1.0000. The 23 `sprint.boundary` fra
 
 | | prediction | measured | |
 |---|---|---|---|
-| W1 | v3 base = v1 identity; P in [0.975, 1.0], R in [0.655, 0.70], F1 in [0.78, 0.83], recovery ≥ 0.95; `page` R ≥ 0.99, `wiki` R in [0.53, 0.60] | equal; 0.9939, 0.6841, 0.8104, 0.9790; 0.9980, 0.5598 | hit |
+| W1 | v3 base = v1 identity; P in [0.975, 1.0], R in [0.655, 0.70], F1 in [0.78, 0.83], recovery ≥ 0.95; `page` R ≥ 0.99, `wiki` R in [0.53, 0.60]; grey band (F1 < 0.85), no escalation | equal; 0.9939, 0.6841, 0.8104, 0.9790; 0.9980, 0.5598; grey band | hit |
 | W2 | ceiling with links R ≥ 0.99, P ≥ 0.999; every type but `wiki` at 1.0/1.0; same at both windows | R 0.9989, **P 0.9988**; yes; yes | **miss** (P 0.0002 below) |
 | W3 | only `page-on` aligns, R ≥ 0.99; edge R in [0.18, 0.32], P in [0.35, 0.65]; `user-on` R 0; unaligned in [1, 4] | yes, 0.9941; 0.2350, 0.4643; 0; 2 | hit |
 | W4 | both ceilings' edge P = R = 1.0 | 1.0000 / 1.0000 | hit |
 | W5 | 2x10^5: `page` R 0.50 ± 0.01; recovery 0.1369 ± 0.01; edge R within ±0.02 of 10^4; edge P below 10^4; unaligned ≥ 5 | 0.5000; **0.1963**; 0.2351; 0.2831; 9 | **miss** (recovery) |
-| W6 | `reserved-5` control differs only in the mapping-file line and the #388 relationship line | only those (the mapping line, and one "No relationships declared" line per key) | hit |
+| W6 | `reserved-5` control differs only in the mapping-file line and the #388 relationship line | only those (diff below) | hit |
 | P1 | in sample: 1 rule `data.pr`, 0 links, no sprint type | as stated | hit (in sample) |
 | P2 | P ≥ 0.90 or undefined, R < 0.02, F1 < 0.04, recovery < 0.02 | 1.0000, 0.0022, 0.0044, 0.0000 | hit |
 | P3 | mapping edge R 0; oracle ceiling edge P 1.0, R in [0.90, 0.99]; ceiling with links edge R and identity R ≥ 0.99 | 0; 1.0000, 0.9464; 1.0000, 1.0000 | hit |
-| P4 | 23 `sprint` entities; mapping `sprint` R 0; oracle ceiling `sprint` R < 0.5 | 23; 0; 0.1111 | hit |
+| P4 | 23 `sprint` entities; mapping `sprint` R 0; oracle ceiling `sprint` R < 0.5 | 23 `data.sprint` key mentions (the report prints mentions, not entities; the sprint number is the identity, so 23 distinct frames are 23 entities); 0; 0.1111 | hit |
 
-W2 misses by 0.0002: the whole gap is `wiki`'s (P 0.9975 here, 0.9985 on `reserved-5`); the
-row does not read the mapping, so this is a property of the span, not of H. W5's recovery band was set from
+W6's measured diff: `h-min-v9.dev-10000.pins-388.json` scored on `reserved-5` under
+`dev-key-v1.json`, `dev-key-v1.user-global.json` and `dev-key-v1.canonical-mention.json`, against
+`results/h-min-v9.dev-10000.reserved-5.md`, differs in the line naming the mapping file (path and
+sha256) and in one added line per key, `No relationships declared by this key (format 2 or
+earlier).`, which the #388 report format prints. Nothing else differs. The control report is not
+committed.
+
+W2 misses by 0.0002: the whole gap is `wiki`'s (P 0.9975 here, 0.9985 on `reserved-5`). The row
+does not read the mapping, so the miss is a property of the span and the key, not of H's mapping. W5's recovery band was set from
 `reserved-5` and not revised from the in-sample check (which read 0.1883); `reserved-6` reads
 0.1963. Recovery at 2x10^5, where the `title` link is absent, moves with the span. Neither miss
 changes a row of #4's decision table, and no threshold moved after either span opened.
@@ -740,4 +748,4 @@ changes a row of #4's decision table, and no threshold moved after either span o
 **Which row of #4's decision table applies.** Unchanged from the #245 addendum: at 10^4, F1
 0.8104 and recovery 0.9790, the 0.75 to 0.85 grey band, no escalation. At 2x10^5 recovery is
 0.1963, "entity recovery < 0.60". These are the H rows gate 3's scored run (s2w#374) reads,
-together with the relationship rows above; #374 needs no further H freeze.
+together with the relationship rows above; #374 is scored against these freezes.

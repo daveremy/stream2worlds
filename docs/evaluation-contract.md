@@ -711,8 +711,9 @@ pinned. It changes no arm, metric, threshold, stream or span.
   `h-min-v9.dev-N.json` except the recorded pins, which now include the format-3 keys
   `dev-key-v3*.json`) and `h-min-v9.private-dev-2-8072.json` (the whole `private-dev-2` span,
   after `private-key-v2*.json` was pinned).
-- **Order.** Freezes, then the predictions comment on s2w#375, then `reserved-6` and
-  `private-test-2` flip from `reserved` to `heldout`, then the scores, in that commit order. Key
+- **Order.** Freezes (commit 882a408), then the predictions comment on s2w#375 (15:44:55Z), then
+  `reserved-6` and `private-test-2` flip from `reserved` to `heldout` (b4ca8f2), then the scores
+  (db10cc8). Key
   before freeze is vacuous on `dev`, which was read long before; what fixes the relationship
   scoring there is that the key's edge table was set in the s2w#388 plan (2026-10-01 08:20Z)
   before any H edge was scored.
