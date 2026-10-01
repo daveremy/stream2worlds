@@ -54,7 +54,7 @@ export interface Joins {
   actor(login: string | null | undefined): string;
 }
 
-const TIMELINE_KINDS = new Set([
+export const TIMELINE_KINDS: ReadonlySet<string> = new Set([
   "labeled", "unlabeled", "closed", "reopened", "cross-referenced", "referenced", "commented", "milestoned",
 ]);
 
@@ -175,11 +175,13 @@ export function sprintEvents(rows: SprintRow[]): Event[] {
   }));
 }
 
-/** Events with `since <= ts < until`, sorted by ts, then topic, then offset. */
-export function window(events: Event[], since: string, until: string): Event[] {
+/** Events with `since <= ts < until`, sorted by ts, then topic, then offset. `keepEarly` events
+ * (commits another event names, so every sha mention resolves) may predate `since`; nothing at or
+ * past `until` is ever kept. */
+export function window(events: Event[], since: string, until: string, keepEarly?: (e: Event) => boolean): Event[] {
   const lo = iso(since), hi = iso(until);
   return events
-    .filter((e) => e.data.ts >= lo && e.data.ts < hi)
+    .filter((e) => e.data.ts < hi && (e.data.ts >= lo || (keepEarly?.(e) ?? false)))
     .sort((a, b) =>
       a.data.ts < b.data.ts ? -1 : a.data.ts > b.data.ts ? 1
         : a.topic < b.topic ? -1 : a.topic > b.topic ? 1
@@ -197,4 +199,19 @@ export function render(header: [string, string, string], events: Event[]): { sse
   const frames = events.map((e) => `event: message\nid: ${idLine(e)}\ndata: ${JSON.stringify(e.data)}\n\n`);
   const prov = events.map((e) => JSON.stringify({ id: idLine(e), ...e.provenance }) + "\n");
   return { sse: head + frames.join(""), provenance: prov.join("") };
+}
+
+/** Sprint table rows: `| N | YYYY-MM-DD-<h>a|p [(ran HH:MM)] | ... | [file](YYYY-MM-DD-K-...md) ... |`, local time MST. */
+export function sprintRows(md: string): SprintRow[] {
+  const out: SprintRow[] = [];
+  for (const line of md.split("\n")) {
+    const m = /^\| (\d+) \| (\d{4}-\d{2}-\d{2})-(\d{1,2})([ap])(?: \(ran (\d{2}):(\d{2})\))? \|/.exec(line);
+    if (!m) continue;
+    const [, n, date, h, ap, rh, rm] = m;
+    const hour = rh ? Number(rh) : (Number(h) % 12) + (ap === "p" ? 12 : 0);
+    const ts = `${date}T${String(hour).padStart(2, "0")}:${rm ?? "00"}:00-07:00`;
+    const file = /\((\d{4}-\d{2}-\d{2}-\d+)-[^)]*\.md\)/.exec(line)?.[1] ?? null;
+    out.push({ sprint: Number(n), slot: `${date}-${h}${ap}`, ts, file_id: file });
+  }
+  return out;
 }
