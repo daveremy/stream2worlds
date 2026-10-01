@@ -111,15 +111,23 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
   field). `private-key-v0.context-scored.json` (variant `context-scored`) scores `repo` (alias
   `ref_repo`) and `actor` (alias `author`, `other` excluded). A score report names the variant
   each number came from.
-- **Relationships are declared, not scored:** `EDGES` in `private/key.ts` lists the typed
-  directed edges (§B3) between mentions of one frame, with `key.ts --edges` printing them as
-  JSON. Key format 3 (below) carries them and `score` grades them; a `private-key-v1.json`
-  that declares them is s2w#388's third PR.
+- **Relationships (`private-key-v1.json`, s2w#388):** `EDGES` in `private/key.ts` lists the
+  typed directed edges (§B3) between mentions of one frame, with `key.ts --edges` printing them
+  as JSON. `private-key-v1.json` and `private-key-v1.context-scored.json` are v0 in key format 3
+  (below): the same types and `unscored`, plus one relationship row per edge (`label` as the
+  type; the two `names -> refs` rows `unobservable`, since `refs` drop the repo prefix). An
+  edge's `kinds`, `event` and note stay in `key.ts` as notes: format 3 has no guard, so an edge
+  is the co-occurrence of its two mentions in one frame, and `head-commit` also fires on a
+  `pr.opened` frame that carries `head_sha` (a true edge, ruling 3). `reviews-item` has no edge
+  on a seat whose `issue` is null (marked `issue_unobservable`): there is no `issue` mention.
+  v0 stays pinned and scores identity exactly as before.
 - **Generated, never hand-edited:** `node --experimental-strip-types
-  research/h-measure/private/key.ts --write` writes both key files and
-  `private/fixture/synthetic-20.key-shape.json`. A changed key is a new file and a new
-  `keys.toml` row (`private-key-v1.json`), never an edit. The key must be pinned before the H
-  freeze that `private-test` is scored against: `score` refuses a key the freeze did not record.
+  research/h-measure/private/key.ts --write` writes the v1 key files and
+  `private/fixture/synthetic-20.key-shape.json` (with `edges_per_type`, the unique gold edges
+  per relationship type); `key.test.ts` also checks that v0 is still what format 2 renders. A
+  changed key is a new file and a new `keys.toml` row, never an edit. The key must be pinned
+  before the H freeze that `private-test` is scored against: `score` refuses a key the freeze did
+  not record.
 - **Verifier:** `key.ts --check --corpus <name>.raw.sse --provenance <name>.provenance.jsonl`
   executes the key with the Rust executor's semantics and checks each mention against the
   capture's sidecar: `sidecar-aligned` (one sidecar line per frame, same id), `sha-shape` (every
@@ -263,7 +271,10 @@ A replicate's windows share one key and one field table, but they need not run t
 test window is obfuscated later than the development window, after the mappings are committed.
 With `--meta` naming an existing metadata file, the run reuses its field table and refuses a
 field path the table does not hold, a different key, a different rules file, a different
-replicate, or a corpus or answer key the metadata already records. It then appends its inputs
+replicate, or a corpus or answer key the metadata already records. Such a run may name only
+`--key` files, with no `--corpus`: it renames keys under the recorded table (a format-3 key added
+after its window was obfuscated, s2w#388); without an existing metadata file `--corpus` is
+required. It then appends its inputs
 and outputs (window name, file, sha256) to the metadata, unites the per-path treatments and
 undeclared numbers, sums the fallback and own-value counts, and keeps a rule listed as unused only if no
 run's input held its path, so the metadata stays the complete record of
@@ -336,7 +347,7 @@ unix_seconds = true
 path = ["comment"]
 reason = "names inside free text are destroyed with the text"
 
-[[unobservable]]           # recorded in the metadata only
+[[unobservable]]           # marks a matching format-3 key row unobservable
 from = "comment"
 to = "title"
 kind = "names"
@@ -352,6 +363,12 @@ A rule's path must hold scalars (alone or in arrays); an object there fails the 
 rule sets `scalars_only`, which hashes the scalars at the path and walks an object as if no rule
 named it (`log_params` is an object on most events and a bare array on a few).
 
+A format-3 key's relationship rows are renamed with its mention paths. Every `[[unobservable]]`
+row is recorded in the metadata, and the renamed key marks a relationship row unobservable (with
+the rule's reason) when a relationship rule's `from` and `to` each name a field holding the row's
+endpoint (`revision` holds `revision.new`), or a path rule holds either endpoint. Matching is on
+the endpoints only; a row the key already marks keeps its own reason.
+
 A fold changes what the context-collision rows can measure: one name under two contexts gets
 two hashes, so a folded type has no collision groups on the obfuscated stream. Every other
 number is the same as on the plain stream up to renaming; `h_measure/obfuscate/tests.rs` checks
@@ -360,7 +377,10 @@ this on a synthetic stream.
 Replicate r1 (s2w#370) covers the development window: `[corpus.obf-r1-dev]` in `corpora.toml`,
 `dev-key-v2.obf-r1.json` in `keys.toml`, and `obfuscation/r1.meta.json`, from
 `obfuscation/recentchange.rules.toml`. Its key is outside the repository; the test window is
-obfuscated later under `--meta obfuscation/r1.meta.json`.
+obfuscated later under `--meta obfuscation/r1.meta.json`. `dev-key-v3.obf-r1.json` (s2w#388) is
+`dev-key-v3.json` renamed by a keys-only run under that metadata (`--replicate r1 --key
+dev-key-v3.json`); its identity rows equal `dev-key-v2.obf-r1.json`'s, and no rule in the rules
+file hides any of its seven edges (the four relationship rules name text and URL fields).
 
 ## How the base key was written
 
@@ -499,9 +519,14 @@ comments of 2026-10-01.
   changes. `from_mapping` writes format 3, one row per relationship rule, and the selftest checks
   that a mapping read as its own key (and that key's oracle) places exactly the mapping's edges,
   and that those equal `MappingEngine`'s relationship claims.
-- **Not yet.** The first format-3 key files with their pins are s2w#388's third PR. Until then
-  no pinned key declares relationships, and `obfuscate` refuses a key with relationships rather
-  than leave its rows on plain paths.
+- **Pinned format-3 keys (s2w#388).** `dev-key-v3.json` and `dev-key-v3.canonical-mention.json`
+  are the v2 files plus `"version": 3` and seven Wikipedia rows: `revision.new -> title` (`edits`),
+  `revision.new -> revision.old` (`follows`), `revision.new -> user` (`by`), `log_id -> title`
+  (`targets`), `log_id -> user` (`logged-by`), `title -> wiki` (`page-on`) and `user -> wiki`
+  (`user-on`); `event` (`meta.id`) has none. The four other Wikipedia variants stay format 2:
+  they vary identity readings, and a format-2 key reports "No relationships declared".
+  `private-key-v1*.json` are above; `dev-key-v3.obf-r1.json` is under "Obfuscating a
+  replicate".
 
 ### Scoring edges (contract §B3 "Relationships")
 

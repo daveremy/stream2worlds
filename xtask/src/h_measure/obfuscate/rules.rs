@@ -87,8 +87,8 @@ pub(super) struct QueryParam {
 
 /// One `[[unobservable]]` row: a path, or a relationship (`from`, `to`, `kind`), that the
 /// obfuscated stream cannot show, with the reason. Paths are added to the renamed answer key's
-/// `unscored`; relationship rows are recorded in the metadata only (no key format carries
-/// relationships yet).
+/// `unscored`; every row is recorded in the metadata, and a key relationship row (format 3)
+/// that a row hides is marked unobservable in the renamed key (`rekey::renamed_row`).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Unobservable {

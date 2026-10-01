@@ -179,8 +179,13 @@ pub(super) fn check_request(request: &Request<'_>) -> Result<(), String> {
             "--replicate {name:?}: use letters, digits, `-` and `_` (it names output files)"
         ));
     }
-    if request.corpora.is_empty() {
-        return Err(format!("--corpus is required; usage: {}", super::USAGE));
+    // A later run of a recorded replicate may rename answer keys alone (a format-3 key added
+    // after the window was obfuscated, s2w#388): the metadata's field table names every path.
+    if request.corpora.is_empty() && (request.keys.is_empty() || !request.meta.exists()) {
+        return Err(format!(
+            "--corpus is required (only a run whose --meta already exists may rename --key files alone); usage: {}",
+            super::USAGE
+        ));
     }
     for (what, list) in [("corpus", request.corpora), ("key", request.keys)] {
         let distinct: BTreeSet<&String> = list.iter().collect();

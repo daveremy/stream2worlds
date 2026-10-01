@@ -200,7 +200,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     TOML rules file (format 1). `canon.rs`: URL tails and query parameters. `transform.rs`: the
     field table and the per-event walk (undeclared strings are text-hashed, RFC 3339 strings are
     shifted, numbers are kept and listed). `rekey.rs`: the answer key renamed to the obfuscated
-    paths (a key with relationships is refused until s2w#388 PR 3 renames its rows). `meta.rs`: the metadata file. Fixtures, including a grade of the obfuscated corpus
+    paths, relationship rows included, a row marked unobservable when a rules-file row hides it (s2w#388); a run whose `--meta` exists may rename `--key` files alone. `meta.rs`: the metadata file. Fixtures, including a grade of the obfuscated corpus
     against the renamed key, live in `h_measure/obfuscate/tests.rs`.
   - The first pre-registered run (s2w#56 PR 3, research 0009): frozen files in
     `research/h-measure/frozen/`, reports in `research/h-measure/results/`. `score` re-runs the
