@@ -11,7 +11,7 @@
 // file, never inside a git work tree), then prints the corpora.toml stanza. Every line it would
 // write passes the scrub gate first (scrub.ts); one match and nothing is written.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -42,6 +42,14 @@ const { values: a } = parseArgs({
     actor: { type: "string", default: "daveremy" },
     author: { type: "string", default: "Dave Remy" },
   },
+});
+// A thrown error's text can carry private material (a child's stderr, a JSON.parse excerpt of a
+// seat-log line, argv paths), and that text lands in a terminal or an agent transcript. Only this
+// script's own refusals, which name rules, line numbers and the slug but never data, are printed.
+process.on("uncaughtException", (e) => {
+  const msg = e instanceof Error ? e.message : "";
+  console.error(/^(scrub gate refused|refusing to )/.test(msg) ? msg : `capture failed (${e instanceof Error ? e.name : "error"}); details withheld, they may carry private text`);
+  process.exit(1);
 });
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 if (!a.name || !/^[a-z0-9-]+$/.test(a.name) || !ISO.test(a.since ?? "") || !ISO.test(a.until ?? "")) {
@@ -223,9 +231,11 @@ const dirs = [a.dir!, ...(a["copy-dir"] ? [a["copy-dir"]] : [])];
 const outputs = [["raw.sse", sse], ["provenance.jsonl", provenance]] as const;
 for (const dir of dirs) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  let inRepo = true;
-  try { run("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"]); } catch { inRepo = false; }
-  if (inRepo) throw new Error("refusing to write a private capture inside a git work tree");
+  // Outside a work tree only on git's own "not a git repository" answer; any other failure
+  // (dubious ownership, a missing git) is not proof, so it refuses.
+  const g = spawnSync("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8", env: { ...process.env, LC_ALL: "C" } });
+  const outside = g.status !== 0 && /not a git repository/.test(g.stderr ?? "");
+  if (!outside) throw new Error("refusing to write a private capture inside, or possibly inside, a git work tree");
   for (const [ext] of outputs) if (existsSync(join(dir, `${a.name}.${ext}`))) throw new Error(`refusing to overwrite ${a.name}.${ext}`);
 }
 for (const dir of dirs) for (const [ext, body] of outputs) writeFileSync(join(dir, `${a.name}.${ext}`), body, { mode: 0o600, flag: "wx" });

@@ -13,6 +13,8 @@ export const MARK = "s2w-private-capture provenance=";
 export type Repo = "lifeos" | "s2w";
 export const REPOS: readonly Repo[] = ["lifeos", "s2w"];
 
+/** A worker step is a status-board verb (`review-code`); anything else is not copied. */
+const STEP = /^[a-z][a-z0-9-]{0,31}$/;
 export interface WorkerRow { id: number; key: string; step: string; detail: string | null; timestamp: string }
 export interface SeatRow {
   offset: number; // YYYYMMDD * 100000 + line number in that day's log
@@ -87,7 +89,7 @@ export function legEvents(rows: WorkerRow[], j: Joins): Event[] {
       topic: "legs", offset: r.id, provenance: prov,
       data: {
         kind: "leg.status", repo, ts: iso(r.timestamp), row_id: r.id, key: r.key,
-        issue: Number(r.key.split("#")[1]), step: r.step, ...rest, ...(sha ? { sha } : {}),
+        issue: Number(r.key.split("#")[1]), step: STEP.test(r.step) ? r.step : null, ...rest, ...(sha ? { sha } : {}),
       },
     });
   }
@@ -145,7 +147,8 @@ export function itemEvents(items: GhItem[], j: Joins): Event[] {
 
 export function timelineEvents(rows: TimelineRow[], j: Joins): Event[] {
   return rows.filter((r) => TIMELINE_KINDS.has(r.event)).map((r) => {
-    const pts = r.label ? ptsFromLabels([r.label]) : undefined;
+    // `pts` only where the label was added; an `unlabeled` event names the removed label alone.
+    const pts = r.label && r.event === "labeled" ? ptsFromLabels([r.label]) : undefined;
     return {
     topic: "timeline",
     offset: r.id ?? `${r.repo}#${r.number}/${r.ordinal}`,

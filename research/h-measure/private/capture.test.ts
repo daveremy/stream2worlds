@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { EXTRACTION_TABLE, extractDetail, issueRefs, ptsFromLabels } from "./extract.ts";
-import { MARK, render, sprintRows, window, type Event } from "./events.ts";
+import { MARK, legEvents, render, sprintRows, timelineEvents, window, type Event, type Joins } from "./events.ts";
 import { FIXTURE_PATH, synthetic } from "./fixture.ts";
 import { RULES, assertClean, scrubViolations } from "./scrub.ts";
 
@@ -64,6 +64,8 @@ test("extraction table: only the named fields leave detail", () => {
   assert.deepEqual(issueRefs("Part of #371. Closes #12, see lifeos#5 and a/#7 and #12"), [12, 371]);
   assert.equal(ptsFromLabels(["P1", "pts:3"]), 3);
   assert.equal(ptsFromLabels(["P1"]), undefined);
+  // `engines` takes only engine-code characters, so a path in that slot is not extracted.
+  assert.deepEqual(extractDetail("P:- I:o R:/var/x"), {});
 });
 
 test("sprint rows: the ran time wins over the slot hour; local time is MST", () => {
@@ -105,4 +107,15 @@ test("the committed synthetic fixture is exactly what fixture.ts generates", () 
   assert.equal(committed.match(/^data: /gm)?.length, 20);
   assert.ok(committed.startsWith(`: ${MARK}synthetic `));
   assert.deepEqual(scrubViolations(committed), []);
+});
+
+test("pts only on labeled; a step that is not a board verb becomes null", () => {
+  const j: Joins = { sha: () => undefined, actor: () => "other" };
+  const row = { repo: "s2w" as const, number: 9, ordinal: 1, id: 1, created_at: "2026-01-01T00:00:00Z", actor: "x", label: "pts:3" };
+  const [on, off] = timelineEvents([{ ...row, event: "labeled" }, { ...row, ordinal: 2, id: 2, event: "unlabeled" }], j);
+  assert.equal(on.data.pts, 3);
+  assert.equal("pts" in off.data, false);
+  const leg = (step: string) => legEvents([{ id: 1, key: "s2w#9", step, detail: null, timestamp: "2026-01-01T00:00:00.000Z" }], j)[0].data.step;
+  assert.equal(leg("review-code"), "review-code");
+  assert.equal(leg("see /var/x"), null);
 });

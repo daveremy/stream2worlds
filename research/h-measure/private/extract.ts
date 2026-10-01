@@ -21,7 +21,7 @@ const PATTERNS = {
   leg: /\bleg ([A-Z])\b/,
   round: /\bround (\d+)\b/i,
   verdict: /\b(BLOCK|APPROVE)\b/,
-  engines: /\b(P:\S+ I:\S+ R:\S+)/,
+  engines: /\b(P:[A-Za-z0-9+:,-]+ I:[A-Za-z0-9+:,-]+ R:[A-Za-z0-9+:,-]+)/,
 } as const;
 
 /** One line per field, `name=/source/`; written into the capture header. */

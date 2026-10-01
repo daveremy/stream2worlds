@@ -48,12 +48,15 @@ the s2w#371 issue comments.
   and every join resolved at capture, for the answer key) at mode 0600, never over an existing
   file and never inside a git work tree, then prints the `corpora.toml` stanza.
 - **What survives:** fields only. Titles, bodies, comment text, commit subjects, the raw `detail`
-  text, paths and emails are dropped; `detail` contributes only the fields in `extract.ts`'s
+  text, paths and emails are dropped, and a failed capture prints only its own refusals (never a
+  child's stderr or a parse excerpt); `detail` contributes only the fields in `extract.ts`'s
   table, which the capture header repeats. Logins other than the maintainer's public handle
   become `other`. Review-seat fields keep only their logged shape (a word, a verdict, a hex sha, a
   branch, a script basename); anything else becomes `null`. An `*.opened` event carries only what
   was true at open time: labels (and `pts`) arrive as timeline `labeled` events, the head sha on the
-  merge or close. Rows from other projects are dropped; every drop is counted in the header.
+  merge or close. Two exceptions GitHub does not timestamp: a PR's `refs` (from its body) and
+  `base_ref` are as of capture, not as of open. `pts` appears only on `labeled` events, so an
+  issue labelled before the span starts has no `pts` inside it. Rows from other projects are dropped; every drop is counted in the header.
 - **Scrub gate:** every line the capture would write passes `scrub.ts` first: home paths, `~`,
   `obsidian`, `op://` references, emails, phone numbers and the high-confidence secret shapes.
   One match and nothing is written; the error names the rule and line, never the text. Each rule
