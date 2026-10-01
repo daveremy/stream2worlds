@@ -1,7 +1,7 @@
 # Corpora for `cargo xtask h-measure` (s2w#56). The files are not committed (~770 MB); this
-# manifest pins them. The two `private-*` corpora (s2w#371) are at the end, under their own
-# comment; everything until then describes the Wikipedia ones. Every Wikipedia corpus is plain
-# `mediawiki.recentchange`, all wikis, replayed from
+# manifest pins them. The obfuscated replicates (s2w#370) and the two `private-*` corpora
+# (s2w#371) are at the end, each under its own comment; everything until then describes the
+# plain Wikipedia corpora. Each of those is plain `mediawiki.recentchange`, all wikis, replayed from
 # EventStreams history (`?since=`, retention ~7 days) as verbatim SSE frames that
 # `s2w_sources::replay_frames` reads exactly as the live adapter reads the stream (checked
 # 2026-09-29: every file gives `events` frames, every `data:` is JSON).
