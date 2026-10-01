@@ -89,6 +89,9 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
   version-1 mapping version 8 would have filed, and it refuses a version-2 mapping with a note
   instead of filing it. Serving links waits on s2w#392's memory baseline (0022's s2w#245
   amendment: 465.1 MiB against v8's 390.0 MiB on the fresh-world bound).
+- *2026-10-01, #375 PR 2:* still **version 1 only**. The v9 re-freezes scored on `reserved-6` and
+  `private-test-2` are version-2 mappings measured offline (research 0009's #375 addendum); links
+  are measurement-only until s2w#392.
 - **Grading** the policy's accuracy is #33/#56. No automatic revoke exists yet.
 - **Surfaces** ([0017](0017-view-and-agents-first-class.md)): which mapping a source runs is
   shown only in start-up notes, `s2w proposals list` and the proposals panel; the per-source

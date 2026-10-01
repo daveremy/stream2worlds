@@ -650,3 +650,105 @@ entirely. `data.wiki`, one of `wiki`'s four key paths, gets no rule (0 of its 99
 2x10^5 freeze loses the `title` link, and with it the gain on `page`: the window rule decides
 which merges happen, and this note does not resolve that. The links cost 75 MiB on the
 page-change memory bound and are not served yet (decision 0022's s2w#245 amendment, s2w#392).
+
+## Addendum 2026-10-01 (UTC): the v9 re-freeze under the format-3 keys (s2w#375 PR 2)
+
+**Change.** None to the profiler: `PROFILER_VERSION` stays 9 (s2w#375 Q5). v9 was frozen again on
+`dev` at both windows after the format-3 keys were pinned (s2w#388 PR 3, #407), so the freeze
+records `dev-key-v3*.json` and can be scored under them; `jq -S 'del(.pins)'` of each new file
+equals `h-min-v9.dev-N.json`, so the mapping and its three links are the #245 addendum's. This is
+the first H score with the contract's §B3 relationship rows. H was also frozen on the whole
+`private-dev-2` span (8,072 events) after `private-key-v2*.json` was pinned (#424), and scored on
+`private-test-2`. Links are measurement-only: `serve` runs version 1 until s2w#392.
+
+**Hygiene.** `reserved-6` and `private-test-2` were pinned `reserved` by s2w#375 PR 1 (#412) and
+read only through their stanzas (and, for `private-test-2`, the counts-only frame diff). The three freezes (882a408) came first; the predictions were
+posted on #375
+([comment](https://github.com/daveremy/stream2worlds/issues/375#issuecomment-5934976438), 15:44Z)
+after an in-sample check on `dev` and `private-dev-2`; both spans were then opened (b4ca8f2, role
+`heldout`) and scored (db10cc8). Key-before-freeze is vacuous on `dev` (the development corpus
+was read long before), so the order that matters there is that the v3 edge table was fixed in
+the s2w#388 plan
+([comment](https://github.com/daveremy/stream2worlds/issues/388#issuecomment-5927586636), 08:20Z)
+before any H edge was scored.
+
+**Result, identity** (`reserved-6`, 100,000 events; reports in
+`h-measure/results/h-min-v9.dev-{10000,200000}.pins-388.reserved-6.md`). `dev-key-v3.json` and
+`dev-key-v1.json` give the same identity row at both windows, so the base-key numbers below hold
+under either key, and compare with the #245 addendum's `reserved-5` rows:
+
+| span | N | P | R | F1 | recovery | `page` P / R | `wiki` P / R |
+|---|---|---|---|---|---|---|---|
+| `reserved-5` | 10^4 | 0.9943 | 0.6781 | 0.8063 | 0.9807 | 0.9994 / 0.9987 | 0.9987 / 0.5607 |
+| `reserved-6` | 10^4 | 0.9939 | 0.6841 | 0.8104 | 0.9790 | 0.9993 / 0.9980 | 0.9978 / 0.5598 |
+| `reserved-5` | 2x10^5 | 0.9824 | 0.5631 | 0.7159 | 0.1369 | 0.9995 / 0.5000 | 0.9987 / 0.5607 |
+| `reserved-6` | 2x10^5 | 0.9806 | 0.5716 | 0.7222 | 0.1963 | 0.9994 / 0.5000 | 0.9978 / 0.5598 |
+
+Under `dev-key-v2.user-global.json` at 10^4: P 0.9988, R 0.6841, F1 0.8120, recovery 0.9886.
+Under `dev-key-v3.canonical-mention.json` at 10^4: P 0.9878, R 0.5814, F1 0.7319; `page` R
+1.0000, `wiki` R 0. The ceiling with links (`dev-key-v3.json`, both windows): P 0.9988, R 0.9989,
+F1 0.9989; per type, from the score's `--json` output (`grade.ceiling_links.per_type`, not
+printed in the markdown report), every type is 1.0000 / 1.0000 except
+`wiki` (0.9975 / 0.9975).
+
+**Result, relationships** (`dev-key-v3.json`, 178,265 key edges over seven edge types):
+
+| row | N | predicted | TP | P | R | F1 |
+|---|---|---|---|---|---|---|
+| mapping | 10^4 | 90,217 | 41,891 | 0.4643 | 0.2350 | 0.3121 |
+| mapping | 2x10^5 | 148,028 | 41,906 | 0.2831 | 0.2351 | 0.2569 |
+| oracle-v0 ceiling, ceiling with links | both | 178,265 | 178,265 | 1.0000 | 1.0000 | 1.0000 |
+
+Only `page-on` (`title → wiki`) aligns with a predicted edge type, at R 0.9941 (10^4) and 0.9945
+(2x10^5); the other six key edge types score 0. The profiler's `wiki` relationships point
+outward (`wiki → user`, `wiki → revision`), so `user-on` (`user → wiki`) has no same-direction
+candidate: a key-convention finding, not a retune. Unaligned predicted edge types: 2 at 10^4,
+9 at 2x10^5. Under the canonical-mention key the mapping predicts no edge at 10^4 and 47,654
+edges at 2x10^5, none aligned (P 0, R 0).
+
+**Result, private stream** (`private-test-2`, 5,524 events; report
+`h-measure/results/h-min-v9.private-dev-2-8072.private-test-2.md`). The `private-dev-2` freeze has
+one entity rule (`data.pr`), no link and no relationship rule; `data.sprint`, `data.slot` and
+`data.file_id` stay `EventId`, so no sprint type is proposed. Under `private-key-v2.json`: P
+1.0000, R 0.0022, F1 0.0044, recovery 0.0000, no false merge; oracle-v0 ceiling R 0.8053,
+ceiling with links P = R = 1.0000. Edges: the mapping predicts none (R 0 over 5,095 key edges);
+the oracle-v0 ceiling reaches R 0.9464 (the three `leg-*` types score 0, their endpoints start at
+an alias path) and the ceiling with links R 1.0000. The 23 `sprint.boundary` frames give 23
+`sprint` mentions, none predicted; the oracle-v0 ceiling's `sprint` R is 0.1111. Under
+`private-key-v2.context-scored.json`: P 1.0000, R 0.0011.
+
+**Pre-registered predictions:**
+
+| | prediction | measured | |
+|---|---|---|---|
+| W1 | v3 base = v1 identity; P in [0.975, 1.0], R in [0.655, 0.70], F1 in [0.78, 0.83], recovery ≥ 0.95; `page` R ≥ 0.99, `wiki` R in [0.53, 0.60]; grey band (F1 < 0.85), no escalation | equal; 0.9939, 0.6841, 0.8104, 0.9790; 0.9980, 0.5598; grey band | hit |
+| W2 | ceiling with links R ≥ 0.99, P ≥ 0.999; every type but `wiki` at 1.0/1.0; same at both windows | R 0.9989, **P 0.9988**; yes; yes | **miss** (P 0.0002 below) |
+| W3 | only `page-on` aligns, R ≥ 0.99; edge R in [0.18, 0.32], P in [0.35, 0.65]; `user-on` R 0; unaligned in [1, 4] | yes, 0.9941; 0.2350, 0.4643; 0; 2 | hit |
+| W4 | both ceilings' edge P = R = 1.0 | 1.0000 / 1.0000 | hit |
+| W5 | 2x10^5: `page` R 0.50 ± 0.01; recovery 0.1369 ± 0.01; edge R within ±0.02 of 10^4; edge P below 10^4; unaligned ≥ 5 | 0.5000; **0.1963**; 0.2351; 0.2831; 9 | **miss** (recovery) |
+| W6 | `reserved-5` control differs only in the mapping-file line and the #388 relationship line | only those (diff below) | hit |
+| P1 | in sample: 1 rule `data.pr`, 0 links, no sprint type | as stated | hit (in sample) |
+| P2 | P ≥ 0.90 or undefined, R < 0.02, F1 < 0.04, recovery < 0.02 | 1.0000, 0.0022, 0.0044, 0.0000 | hit |
+| P3 | mapping edge R 0; oracle ceiling edge P 1.0, R in [0.90, 0.99]; ceiling with links edge R and identity R ≥ 0.99 | 0; 1.0000, 0.9464; 1.0000, 1.0000 | hit |
+| P4 | 23 `sprint` entities; mapping `sprint` R 0; oracle ceiling `sprint` R < 0.5 | 23 `data.sprint` key mentions (the report prints mentions, not entities; the sprint number is the identity, so 23 distinct frames are 23 entities); 0; 0.1111 | hit |
+
+W6's measured diff: `h-min-v9.dev-10000.pins-388.json` scored on `reserved-5` under
+`dev-key-v1.json`, `dev-key-v1.user-global.json` and `dev-key-v1.canonical-mention.json`, against
+`results/h-min-v9.dev-10000.reserved-5.md`, differs in the line naming the mapping file (path and
+sha256) and in one added line per key, `No relationships declared by this key (format 2 or
+earlier).`, which the #388 report format prints. Nothing else differs. The control report is not
+committed.
+
+Tally: 8 of the 10 rows hit; of the 9 held-out predictions (P1 is in sample, not a prediction),
+7 hit. The two misses are W2 and W5. The context-scored key has no row of its own.
+
+W2 misses by 0.0002: the whole gap is `wiki`'s (P 0.9975 here, 0.9985 on `reserved-5`). The row
+does not read the mapping, so the miss is a property of the span and the key, not of H's mapping. W5's recovery band was set from
+`reserved-5` and not revised from the in-sample check (which read 0.1883); `reserved-6` reads
+0.1963. Recovery at 2x10^5, where the `title` link is absent, moves with the span. Neither miss
+changes a row of #4's decision table, and no threshold moved after either span opened.
+
+**Which row of #4's decision table applies.** Unchanged from the #245 addendum: at 10^4, F1
+0.8104 and recovery 0.9790, the 0.75 to 0.85 grey band, no escalation. At 2x10^5 recovery is
+0.1963, "entity recovery < 0.60". These are the H rows gate 3's scored run (s2w#374) reads,
+together with the relationship rows above; #374 is scored against these freezes.
