@@ -138,6 +138,31 @@ jobs:
       - name: drop benchmark output from the cache
         if: always()
         run: rm -rf "${CARGO_TARGET_DIR:-target}/tmp/scale" "${CARGO_TARGET_DIR:-target}/gungraun"  # scale_wall writes under CARGO_TARGET_TMPDIR
+  discover-volume:
+    # The world heap a discovered mapping costs (s2w#392; decisions 0022, 0025): dhat counts it
+    # exactly after folding 10^5 fresh-string events, gated against [discover_volume] in
+    # xtask/scale-baseline.toml. Too slow for `check` (release build plus ~5 min under dhat). Same
+    # runner block and skip rule as `scale`; it queues behind `gates`, an accepted cost.
+    needs: gates
+    if: success() && needs.gates.outputs.scale == 'true'
+    timeout-minutes: 60
+    runs-on: *s2w-runner
+    steps:
+      - name: self-hosted paths (no bare /tmp; shares scale's release target dir)
+        if: runner.environment == 'self-hosted'
+        run: |
+          mkdir -p "$HOME/.cache/cargo-target/s2w-scale" "$RUNNER_TEMP/tmp"
+          echo "CARGO_TARGET_DIR=$HOME/.cache/cargo-target/s2w-scale" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.98"
+      - uses: Swatinem/rust-cache@v2
+        if: runner.environment == 'github-hosted'
+      - name: discover-volume fitness function
+        run: cargo run --quiet --package xtask -- discover-volume
   bundle:
     timeout-minutes: 30
     runs-on: *s2w-runner

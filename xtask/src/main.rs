@@ -52,7 +52,10 @@
 //!     `[memory]` and `[memory.recorded]` in `xtask/scale-baseline.toml` (+tolerance and a
 //!     shared hard budget), plus that file's baseline-growth trailer rule. `cargo xtask scale`
 //!     (`scale_run.rs`) gates fold instructions per event for both supplies under Valgrind
-//!     (decision 0004, s2w#174).
+//!     (decision 0004, s2w#174). `cargo xtask discover-volume` (`discover_volume_run.rs`,
+//!     judge in `scale/discover_volume.rs`) gates the world heap after folding 10^5
+//!     fresh-string events under a discovered mapping against `[discover_volume]` (s2w#392); too
+//!     slow for `check`, it is CI job `discover-volume`. `check` runs that table's growth rule.
 //! 14. **Decision numbers** (`decision_numbers.rs`): no two files in `docs/decisions/` share a
 //!     numeric prefix; the failure names every file holding the number (s2w#181).
 //! 15. **Module cycles** (`module_cycles.rs`): no dependency cycle between the modules of one
@@ -95,6 +98,7 @@ mod contract_frozen;
 mod decision_numbers;
 mod deps;
 mod discover_replay;
+mod discover_volume_run;
 mod expect_count;
 mod golden;
 mod h_measure;
@@ -122,13 +126,16 @@ fn main() -> ExitCode {
     if args.first().is_some_and(|a| a == "gate3") {
         return h_measure::gate3::run(&workspace_root(), &args[1..]);
     }
+    if args.first().is_some_and(|a| a == "discover-volume") {
+        return discover_volume_run::run(&workspace_root(), &args[1..]);
+    }
     if args.first().is_some_and(|a| a == "api") {
         return public_api::run(&workspace_root(), &args[1..]);
     }
     let tighten = args == ["check", "--tighten-baseline"];
     if args != ["check"] && !tighten {
         eprintln!(
-            "usage: cargo xtask check [--tighten-baseline] | cargo xtask api [--update] | cargo xtask scale | cargo xtask h-measure selftest|freeze|score | cargo xtask gate3 commit"
+            "usage: cargo xtask check [--tighten-baseline] | cargo xtask api [--update] | cargo xtask scale | cargo xtask discover-volume [--tighten-baseline] | cargo xtask h-measure selftest|freeze|score | cargo xtask gate3 commit"
         );
         return ExitCode::from(2);
     }
