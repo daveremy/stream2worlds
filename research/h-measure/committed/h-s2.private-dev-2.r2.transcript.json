@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "e22bb7d7185fa33b",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"issue\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"number\"]],\"attrs\":[{\"name\":\"is_pr\",\"path\":[\"data\",\"is_pr\"]}]},{\"id\":\"issue_leg\",\"type_label\":\"issue\",\"key\":[[\"data\",\"repo\"],[\"data\",\"issue\"]],\"attrs\":[{\"name\":\"step\",\"path\":[\"data\",\"step\"]}]},{\"id\":\"issue_ref\",\"type_label\":\"issue\",\"key\":[[\"data\",\"ref_repo\"],[\"data\",\"ref_number\"]],\"attrs\":[]},{\"id\":\"commit_ref0\",\"type_label\":\"issue\",\"key\":[[\"data\",\"refs\",0,\"repo\"],[\"data\",\"refs\",0,\"number\"]],\"attrs\":[]},{\"id\":\"pr\",\"type_label\":\"pull_request\",\"key\":[[\"data\",\"repo\"],[\"data\",\"pr\"]],\"attrs\":[{\"name\":\"verdict\",\"path\":[\"data\",\"verdict\"]}]},{\"id\":\"commit\",\"type_label\":\"commit\",\"key\":[[\"data\",\"sha\"]],\"attrs\":[{\"name\":\"author\",\"path\":[\"data\",\"author\"]},{\"name\":\"co_authored\",\"path\":[\"data\",\"co_authored\"]},{\"name\":\"repo\",\"path\":[\"data\",\"repo\"]}]},{\"id\":\"commit_sha\",\"type_label\":\"commit\",\"key\":[[\"data\",\"commit_sha\"]],\"attrs\":[]},{\"id\":\"repo\",\"type_label\":\"repository\",\"key\":[[\"data\",\"repo\"]],\"attrs\":[]},{\"id\":\"actor\",\"type_label\":\"person\",\"key\":[[\"data\",\"actor\"]],\"attrs\":[]},{\"id\":\"author\",\"type_label\":\"person\",\"key\":[[\"data\",\"author\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"issue_leg\",\"to\":\"pr\",\"kind\":\"has pull request\"},{\"from\":\"issue\",\"to\":\"issue_ref\",\"kind\":\"cross-references\"},{\"from\":\"issue\",\"to\":\"commit_sha\",\"kind\":\"referenced by commit\"},{\"from\":\"commit\",\"to\":\"commit_ref0\",\"kind\":\"references issue\"},{\"from\":\"commit\",\"to\":\"author\",\"kind\":\"authored by\"},{\"from\":\"issue\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"commit\",\"to\":\"repo\",\"kind\":\"belongs to repository\"},{\"from\":\"issue\",\"to\":\"actor\",\"kind\":\"acted on by\"}],\"links\":[]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1944,
+      "cache_read_tokens": 2074,
+      "cache_write_tokens": 12768,
+      "cost_usd": 0.0709308,
+      "latency_ms": 16226,
+      "started_at_ms": 1790883527432
+    }
+  ]
+}
