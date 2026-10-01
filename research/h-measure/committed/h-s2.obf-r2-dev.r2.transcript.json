@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "d6600d4473db2453",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"f28\",\"type_label\":\"data/f28\",\"key\":[[\"data\",\"f28\"]],\"attrs\":[{\"name\":\"f5\",\"path\":[\"data\",\"f5\"]},{\"name\":\"f100\",\"path\":[\"data\",\"f100\"]},{\"name\":\"f29\",\"path\":[\"data\",\"f29\"]},{\"name\":\"f93.f61\",\"path\":[\"data\",\"f93\",\"f61\"]},{\"name\":\"f93.f62\",\"path\":[\"data\",\"f93\",\"f62\"]}]},{\"id\":\"f65\",\"type_label\":\"data/f65\",\"key\":[[\"data\",\"f65\"]],\"attrs\":[{\"name\":\"f58\",\"path\":[\"data\",\"f58\"]},{\"name\":\"f5\",\"path\":[\"data\",\"f5\"]}]},{\"id\":\"f49\",\"type_label\":\"data/f65\",\"key\":[[\"data\",\"f49\"]],\"attrs\":[]},{\"id\":\"f71\",\"type_label\":\"data/f71\",\"key\":[[\"data\",\"f71\"]],\"attrs\":[]},{\"id\":\"f79\",\"type_label\":\"data/f79\",\"key\":[[\"data\",\"f79\"]],\"attrs\":[{\"name\":\"f101\",\"path\":[\"data\",\"f101\"]}]},{\"id\":\"f104\",\"type_label\":\"data/f104\",\"key\":[[\"data\",\"f104\"]],\"attrs\":[{\"name\":\"f93.f25\",\"path\":[\"data\",\"f93\",\"f25\"]}]},{\"id\":\"f53.f30\",\"type_label\":\"f53/f30\",\"key\":[[\"data\",\"f53\",\"f30\"]],\"attrs\":[{\"name\":\"f58\",\"path\":[\"data\",\"f58\"]},{\"name\":\"f72\",\"path\":[\"data\",\"f72\"]}]},{\"id\":\"f53.f39\",\"type_label\":\"f53/f39\",\"key\":[[\"data\",\"f53\",\"f39\"]],\"attrs\":[{\"name\":\"f17\",\"path\":[\"data\",\"f17\"]},{\"name\":\"f72\",\"path\":[\"data\",\"f72\"]},{\"name\":\"f73\",\"path\":[\"data\",\"f73\"]}]}],\"relationships\":[{\"from\":\"f104\",\"to\":\"f79\",\"kind\":\"owns\"},{\"from\":\"f79\",\"to\":\"f65\",\"kind\":\"contains\"},{\"from\":\"f65\",\"to\":\"f28\",\"kind\":\"contains\"},{\"from\":\"f65\",\"to\":\"f71\",\"kind\":\"references\"},{\"from\":\"f65\",\"to\":\"f53.f30\",\"kind\":\"references\"},{\"from\":\"f65\",\"to\":\"f53.f39\",\"kind\":\"references\"}],\"links\":[{\"survivor\":\"f65\",\"absorbed\":\"f49\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1607,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 34949,
+      "cost_usd": 0.155977,
+      "latency_ms": 12518,
+      "started_at_ms": 1790883157429
+    }
+  ]
+}
