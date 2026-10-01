@@ -577,6 +577,8 @@ unchanged (1,412,074 fresh). The fresh-world upper bound grows by 75.1 MiB (+19%
 deploy line (#197 ruling) is already crossed by v8 at 390.0 MiB, an unmeasured growth from 252 MiB
 that s2w#392 owns, so this PR does not decide links in `serve`; it records the cost. The fresh
 fold runs about three times slower, since every absorbed value mints an entity and then merges it.
+*(2026-10-01, s2w#392: 390.0 MiB is accepted without a bisect, and the line is now 480 MiB
+resident, gated as exact heap bytes by `cargo xtask discover-volume`; see 0025's s2w#392 note.)*
 
 **Fixture baseline** (`discovered_types.baseline.txt`). The type count is unchanged at 12. Three
 labels gain alias paths: the page label gains its two `page_title` paths and `meta/uri`, and the two
