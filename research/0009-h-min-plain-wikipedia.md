@@ -557,3 +557,19 @@ One pass over the fixture's 11,667 events gives 1,109,478 world events, down fro
 
 **Reading.** The rule removes the one integer-valued false type and changes nothing that
 `recentchange` scores. Free text is the open half: s2w#333.
+
+## Addendum 2026-09-30: what changes on the obfuscated stream (s2w#370 PR 2)
+
+Replicate r1 obfuscates `dev` under contract B2.2 (rules:
+`research/h-measure/obfuscation/recentchange.rules.toml`). Two things make its numbers differ from
+this note's by design, not by H-lite:
+
+1. **Plain and obfuscated ceilings differ.** `server_name` and `server_url` are hashed from the
+   record's `wiki` value (§B2.2: aliases "hashed the same way"), so on the obfuscated stream they are
+   byte-equal to `wiki` and the v0 alias limit does not bite on them. `meta.domain` is hashed as
+   its own value, because canary events carry it without a `wiki` (open for review). Compare an
+   obfuscated score with an obfuscated ceiling, never with the plain one.
+2. **Folded types have no context-collision rows.** `title`, `revision` and `page_id` fold `wiki`
+   into the hash (#17), so one name on two wikis gets two hashes and those types form no collision
+   groups. Context collisions are a reported diagnostic, not a §B3 scored metric; identity F1,
+   false merges and recovery are unaffected (`h_measure/obfuscate/tests.rs`, test 9).
