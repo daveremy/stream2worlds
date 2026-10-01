@@ -221,7 +221,12 @@ impl<'r> Transformer<'r> {
             .as_i64()
             .and_then(|seconds| seconds.checked_add(self.shift))
             .map(Value::from)
-            .ok_or_else(|| format!("{chain:?} is unix_seconds but holds {value}, not an integer that can be shifted"))
+            .ok_or_else(|| {
+                format!(
+                    "{chain:?} is unix_seconds but holds {}, not an integer that can be shifted",
+                    kind(value)
+                )
+            })
     }
 
     fn fallback(&mut self, chain: &[String], text: &str) -> Result<Value, String> {
@@ -270,7 +275,12 @@ impl<'r> Transformer<'r> {
         let url = match value {
             Value::String(url) => url,
             Value::Null => return Ok(Value::Null),
-            other => return Err(format!("{chain:?} has a url_query rule but holds {other}")),
+            other => {
+                return Err(format!(
+                    "{chain:?} has a url_query rule but holds {}",
+                    kind(other)
+                ));
+            }
         };
         let params = canon::query(url).unwrap_or_default();
         let mut hashes = Vec::new();
@@ -314,4 +324,16 @@ fn context(chain: &[String], path: &[String], record: Option<&Value>) -> Result<
             "the rule for {chain:?} reads {path:?}, which holds no string or number in a record that has {chain:?}; every such record needs it"
         )
     })
+}
+
+/// A value's JSON type, for an error message: an input value never reaches the error text.
+fn kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
+    }
 }

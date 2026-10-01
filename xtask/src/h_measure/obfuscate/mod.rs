@@ -216,7 +216,9 @@ impl Outputs {
                 root.join(DATA).join(format!("{stem}.obf-{replicate}.json"))
             })
             .collect();
-        if let Some(found) = corpora.iter().chain(&keys).find(|path| path.exists()) {
+        let staged = staged(request.meta);
+        let mut planned = corpora.iter().chain(&keys).chain(std::iter::once(&staged));
+        if let Some(found) = planned.find(|path| path.exists()) {
             return Err(format!(
                 "{} exists; an output is never overwritten (a new run is a new replicate name or a deleted file)",
                 found.display()
@@ -390,9 +392,15 @@ fn record(request: &Request<'_>, written: &[(PathBuf, Vec<u8>, Option<usize>)], 
 /// Rewrites the reused metadata through a new sibling file and a rename, so a failed write
 /// leaves the previous record whole.
 fn replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let staged = path.with_extension("json.new");
+    let staged = staged(path);
     write_new(&staged, bytes)?;
     fs::rename(&staged, path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Where a reused metadata file is staged before its rename; one left by a failed run is
+/// refused before anything is written.
+fn staged(meta: &Path) -> PathBuf {
+    meta.with_extension("json.new")
 }
 
 /// Writes a new file, creating its directory; an existing file is refused.
