@@ -21,24 +21,22 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
-- **Gate 3 has a private stream to run on.** A capture tool turns the dev-worker database, review
-  logs, GitHub and git into SSE in the Wikipedia frame format, and a 20-rule scrub gate refuses to
-  write if a path, email, phone or secret shape gets through. [#387](https://github.com/daveremy/stream2worlds/pull/387)
-- **The private stream has an answer key.** `private-key-v0.json` says who is who in it, and
-  `key.ts --check` prints counts, never values; the committed fixture reads 47 mentions and 12
-  entities. [#391](https://github.com/daveremy/stream2worlds/pull/391)
-- **The scorer counts links.** `h-measure` folds a mapping's link claims through the real `World`
-  fold, so two values that name one entity are scored the way the engine would merge them.
-  [#377](https://github.com/daveremy/stream2worlds/pull/377)
-- **System 2 can propose a mapping under a ledger.** Every call records tokens, cache tokens and
-  cost, and a missing count is an error. [#386](https://github.com/daveremy/stream2worlds/pull/386)
-- **Module sizes fail the build.** Each of the 14 modules over the 400-line cap has a ceiling at
-  its measured size, so none can grow without a `Baseline-growth:` trailer. [#382](https://github.com/daveremy/stream2worlds/pull/382)
+- **The raw-sample baseline runs live, and its first dry run caught a bug.** B3 showed the model a
+  different view of each event than the scorer read, so it scored zero everywhere. Fixed, it scores
+  F1 0.33 on `dev` for $0.47, and a stub-model test now guards the view. [#402](https://github.com/daveremy/stream2worlds/pull/402)
+- **The profiler links values that name one entity.** On a held-out span, recall rises from 0.36 to
+  0.68 and recovery from 0.14 to 0.98. Links stay measurement-only until the memory baseline is set.
+  [#397](https://github.com/daveremy/stream2worlds/pull/397)
+- **Gate 3's private stream is frozen.** 8,067 development events and 5,501 held-back test events,
+  pinned before anyone saw a score, with zero scrub refusals. [#396](https://github.com/daveremy/stream2worlds/pull/396)
+- **The scorer grades relationships, not just identity.** Answer keys can declare typed edges, such
+  as who edited which page, and an edge grader scores predictions by the contract's rules. [#404](https://github.com/daveremy/stream2worlds/pull/404)
+- **The private answer key passes a hand check.** All 60 sampled items agree with their sources,
+  across 10,673 mentions and 1,913 entities. [#399](https://github.com/daveremy/stream2worlds/pull/399)
 - **In progress:** gate 3, the run that asks whether System 2 beats heuristics and a raw-sample
-  LLM baseline ([#13](https://github.com/daveremy/stream2worlds/issues/13)): the first replicate over `dev` ([#370](https://github.com/daveremy/stream2worlds/issues/370)), the driver and the
-  $5 cap ([#373](https://github.com/daveremy/stream2worlds/issues/373)), and link predictions and scoring ([#245](https://github.com/daveremy/stream2worlds/issues/245)); naming the unnamed
-  types ([#351](https://github.com/daveremy/stream2worlds/issues/351)), the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)) and the live-demo label share
-  ([#342](https://github.com/daveremy/stream2worlds/issues/342)).
+  LLM baseline ([#13](https://github.com/daveremy/stream2worlds/issues/13)): re-freezing H on the pinned relationship keys ([#375](https://github.com/daveremy/stream2worlds/issues/375)), the memory
+  baseline for links ([#392](https://github.com/daveremy/stream2worlds/issues/392)), a no-match repair for System 2 ([#409](https://github.com/daveremy/stream2worlds/issues/409)), then the scored run
+  ([#374](https://github.com/daveremy/stream2worlds/issues/374)).
 
 ## Demos
 
