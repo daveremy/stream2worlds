@@ -8,8 +8,9 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
+use s2w_core::{EntityId, World, fold_one};
 use s2w_discover::rule_id;
-use s2w_model::{FieldPath, StreamMapping};
+use s2w_model::{FieldPath, NaturalKey, StreamMapping, WorldEvent};
 use s2w_system1::decode::{decode_path, entity_key, key_part, lookup, natural_key};
 use serde_json::Value;
 
@@ -143,8 +144,16 @@ pub(crate) fn key_mentions(spec: &KeySpec, corpus: &Decoded) -> Result<KeyMentio
 /// Applies a stream mapping. Each matching entity rule mentions its entity at the rule's last
 /// key path: a composite key lists its context parts first (a site id, then the object id
 /// within it), and the context usually keys a type of its own, so scoring every key path would
-/// put one `(record, path)` in two clusters. Two rules that place one mention in different
-/// clusters are an error naming both, never a silent choice.
+/// put one `(record, path)` in two clusters. Two rules that place one mention in different keys
+/// are an error naming both, never a silent choice.
+///
+/// The cluster is the entity the fold resolves the mention's key to after the whole corpus
+/// (s2w#245): per record the executor folds the claims `MappingEngine` makes, `EntityObserved`
+/// per matching rule and then `EntitiesMerged` per link whose two rules matched with different
+/// keys, into an [`s2w_core::World`], so the scorer joins aliases with the fold's own merge
+/// rule (first merge wins per absorbed key), not a replica of it. The cluster text is the
+/// natural key the resolved entity was minted from, so a mapping without links clusters by its
+/// natural keys exactly as before.
 pub(crate) fn mapping_mentions(
     mapping: &StreamMapping,
     corpus: &Decoded,
@@ -152,22 +161,35 @@ pub(crate) fn mapping_mentions(
     mapping
         .validate()
         .map_err(|e| format!("the mapping is not valid: {e}"))?;
-    // Each mention's cluster and the rule that placed it there, for the conflict message.
-    let mut placed: BTreeMap<Mention, (String, &str)> = BTreeMap::new();
+    // Each mention's key and the rule that placed it there, for the conflict message.
+    let mut placed: BTreeMap<Mention, (NaturalKey, &str)> = BTreeMap::new();
+    let mut world = World::default();
     for (record, value) in corpus.records(&mapping.decode)?.iter().enumerate() {
         let Some(value) = value else {
             continue;
         };
-        for rule in &mapping.entities {
-            let (Some(cluster), Some(last)) = (entity_key(value, rule), rule.key.last()) else {
+        let keys: Vec<Option<NaturalKey>> = mapping
+            .entities
+            .iter()
+            .map(|rule| entity_key(value, rule))
+            .collect();
+        for (rule, key) in mapping.entities.iter().zip(&keys) {
+            let (Some(key), Some(last)) = (key, rule.key.last()) else {
                 continue;
             };
-            let cluster = cluster.as_str().to_owned();
+            world = fold_one(
+                world,
+                &WorldEvent::EntityObserved {
+                    key: key.clone(),
+                    entity_type: rule.type_label.clone(),
+                    attrs: BTreeMap::new(),
+                },
+            );
             match placed.entry((record, rule_id(last))) {
                 Entry::Vacant(slot) => {
-                    slot.insert((cluster, &rule.id));
+                    slot.insert((key.clone(), &rule.id));
                 }
-                Entry::Occupied(slot) if slot.get().0 != cluster => {
+                Entry::Occupied(slot) if slot.get().0 != *key => {
                     return Err(format!(
                         "record {record}: rules {:?} and {:?} place the mention at {:?} in different clusters",
                         slot.get().1,
@@ -178,10 +200,43 @@ pub(crate) fn mapping_mentions(
                 Entry::Occupied(_) => {}
             }
         }
+        for link in &mapping.links {
+            if let (Some(survivor), Some(absorbed)) = (
+                matched(mapping, &keys, &link.survivor),
+                matched(mapping, &keys, &link.absorbed),
+            ) && survivor != absorbed
+            {
+                world = fold_one(world, &WorldEvent::EntitiesMerged { survivor, absorbed });
+            }
+        }
     }
-    let cluster = placed
-        .into_iter()
-        .map(|(mention, (cluster, _))| (mention, cluster))
+    resolved(&world, placed)
+}
+
+/// Each mention's cluster: the natural key the fold minted the entity its key resolves to from.
+fn resolved(
+    world: &World,
+    placed: BTreeMap<Mention, (NaturalKey, &str)>,
+) -> Result<Partition, String> {
+    // Ids are minted one per key, and every placed key was observed, so each has an id.
+    let minted: BTreeMap<EntityId, &NaturalKey> = placed
+        .values()
+        .filter_map(|(key, _)| world.id_of(key).map(|id| (id, key)))
         .collect();
+    let mut cluster = BTreeMap::new();
+    for (mention, (key, _)) in &placed {
+        let root = world
+            .id_of(key)
+            .map(|id| world.resolve(id))
+            .and_then(|id| minted.get(&id))
+            .ok_or_else(|| format!("the fold has no entity for the key {:?}", key.as_str()))?;
+        cluster.insert(mention.clone(), root.as_str().to_owned());
+    }
     Ok(Partition { cluster })
+}
+
+/// The key a rule id matched in this record, if it matched: the engine's own lookup.
+fn matched(mapping: &StreamMapping, keys: &[Option<NaturalKey>], id: &str) -> Option<NaturalKey> {
+    let index = mapping.entities.iter().position(|rule| rule.id == id)?;
+    keys.get(index)?.clone()
 }

@@ -21,6 +21,9 @@ pub(crate) struct Grade {
     /// The oracle v0 mapping's score ([`KeySpec::oracle`]): the ceiling to read `mapping`
     /// against, since a v0 mapping cannot join aliases with different values.
     pub ceiling: Score,
+    /// The oracle with links' score ([`KeySpec::oracle_with_links`]): the ceiling for a mapping
+    /// that may state links (decision 0027), which can join aliases with different values.
+    pub ceiling_links: Score,
     /// Abstained paths from the key executor, per mention path id.
     pub abstained: BTreeMap<String, usize>,
     /// Excluded mentions from the key executor (`no_identity`), per mention path id. The key
@@ -55,9 +58,14 @@ pub(crate) fn grade(
     // the key's excluded set applies to a prediction made on the mapping's own decoding.
     let predicted = without(mapping_mentions(mapping, mapping_corpus)?, &gold.excluded);
     let oracle = without(mapping_mentions(&spec.oracle()?, &corpus)?, &gold.excluded);
+    let linked = without(
+        mapping_mentions(&spec.oracle_with_links()?, &corpus)?,
+        &gold.excluded,
+    );
     Ok(Grade {
         mapping: score(&gold.partition, &predicted, &unscored),
         ceiling: score(&gold.partition, &oracle, &unscored),
+        ceiling_links: score(&gold.partition, &linked, &unscored),
         contexts: rows(spec, &gold.partition, &predicted, &oracle)?,
         excluded: gold.excluded_per_path(),
         abstained: gold.abstained,
