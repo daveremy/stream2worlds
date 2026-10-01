@@ -1,0 +1,22 @@
+# The public price table `cargo xtask gate3` charges a run by (s2w#373; contract dated note
+# 2026-09-30): dollars are reported tokens times these rates, in USD per million tokens. The
+# CLI's own cost figure is recorded as a cross-check only.
+#
+# One row per pinned model snapshot, keyed by the exact `--model` id. Anthropic's IDs are
+# pinned snapshots, dateless from the 4.6 models on (models overview page), so
+# `claude-sonnet-5-5` is itself the snapshot id.
+#
+# `cache_write` is the 1-hour cache-write rate: the CLI's envelope reports its cache writes as
+# `ephemeral_1h_input_tokens`, and the recorded envelope's `total_cost_usd` 0.0218742 equals
+# 2 input x $2 + 4 output x $10 + 531 cache-read x $0.20 + 5431 cache-write x $4 per MTok.
+#
+# A row is copied from the page. A committed replicate records the row it was charged by, and
+# `score` replays it at that recorded row, so a later price change never alters a scored run.
+
+[model."claude-sonnet-5-5"]
+input = 2.0
+output = 10.0
+cache_write = 4.0
+cache_read = 0.2
+source_url = "https://platform.claude.com/docs/en/about-claude/pricing"
+copied_on = "2026-09-30"

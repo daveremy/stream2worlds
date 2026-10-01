@@ -222,7 +222,7 @@ fn accept(reply: &str) -> Result<StreamMapping, String> {
 }
 
 /// Milliseconds since the Unix epoch, when the system clock reads after it.
-fn system_clock() -> Option<u64> {
+pub(crate) fn system_clock() -> Option<u64> {
     let since = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
     u64::try_from(since.as_millis()).ok()
 }

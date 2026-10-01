@@ -11,11 +11,13 @@
 use std::fs;
 use std::path::Path;
 
-use s2w_discover::{Config, PROFILER_VERSION};
+use s2w_discover::{Config, PROFILER_VERSION, Profile};
 use s2w_model::{MAPPING_VERSION, StreamMapping};
 use serde::Serialize;
+use serde_json::Value;
 
-use super::freeze::{Frozen, derive};
+use super::freeze::{Frozen, derived};
+use super::gate3::replay::{Scored, System2, reproduce};
 use super::grade::{Grade, grade};
 use super::pins::{Pins, Role, opened, sha256};
 use super::score::{Bcubed, Score, shown};
@@ -49,6 +51,9 @@ struct Report<'a> {
     corpus_sha256: &'a str,
     records: usize,
     keys: Vec<KeyReport>,
+    /// Set when the file is a committed gate-3 replicate: its mapping is the one graded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system2: Option<System2<'a>>,
 }
 
 /// Runs `score`, returning the markdown report.
@@ -56,20 +61,24 @@ pub(crate) fn run(root: &Path, request: &Request<'_>) -> Result<String, String> 
     let pins = Pins::load(root)?;
     let bytes =
         fs::read(request.frozen).map_err(|e| format!("{}: {e}", request.frozen.display()))?;
-    let frozen: Frozen =
-        serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", request.frozen.display()))?;
+    let input = Scored::read(&bytes, request.frozen)?;
+    let (frozen, committed) = (input.frozen(), input.committed());
     let scored = pins.corpus(request.corpus)?;
-    admissible(&pins, &frozen, scored.role, request)?;
+    admissible(&pins, frozen, scored.role, request)?;
     let specs = request
         .keys
         .iter()
         .map(|file| pins.key(root, file))
         .collect::<Result<Vec<_>, _>>()?;
-    pins_used(&pins, &frozen, request)?;
-    reproduced(&pins, &frozen, request)?;
+    pins_used(&pins, frozen, request)?;
+    let (profile, window) = reproduced(&pins, frozen, request)?;
+    if let Some(c) = committed {
+        reproduce(request.frozen, c, &profile, &window)?;
+    }
     let payloads = pins.payloads(request.dir, request.corpus)?;
     // An abstention is contract B3's degenerate output: it is graded as the empty prediction.
-    let mapping = frozen.mapping.clone().unwrap_or(StreamMapping {
+    let graded = committed.map_or(&frozen.mapping, |c| &c.mapping);
+    let mapping = graded.clone().unwrap_or(StreamMapping {
         version: MAPPING_VERSION,
         decode: Vec::new(),
         entities: Vec::new(),
@@ -86,12 +95,13 @@ pub(crate) fn run(root: &Path, request: &Request<'_>) -> Result<String, String> 
         });
     }
     let report = Report {
-        frozen: &frozen,
+        frozen,
         frozen_sha256: sha256(&bytes),
         corpus: request.corpus,
         corpus_sha256: &scored.sha256,
         records: payloads.len(),
         keys,
+        system2: committed.map(System2::of),
     };
     if let Some(path) = request.json {
         let text = serde_json::to_string_pretty(&report).map_err(|e| e.to_string())? + "\n";
@@ -171,7 +181,11 @@ fn pins_used(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), 
 /// Re-runs the freeze on the file's recorded corpus and window and refuses unless the file
 /// holds exactly what that run writes (pins aside, which `pins_used` compares), so a
 /// hand-written or edited mapping never scores (s2w#238).
-fn reproduced(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(), String> {
+fn reproduced(
+    pins: &Pins,
+    frozen: &Frozen,
+    request: &Request<'_>,
+) -> Result<(Profile, Vec<Value>), String> {
     let file = request.frozen.display();
     let config = format!("{:?}", Config::default());
     if (PROFILER_VERSION, config.as_str())
@@ -182,16 +196,17 @@ fn reproduced(pins: &Pins, frozen: &Frozen, request: &Request<'_>) -> Result<(),
             frozen.profiler_version, frozen.config
         ));
     }
-    let mut derived = derive(pins, request.dir, &frozen.corpus, frozen.window)
-        .map_err(|e| format!("re-running the freeze recorded in {file}: {e}"))?;
-    derived.pins.clone_from(&frozen.pins);
-    if derived != *frozen {
+    let (mut rederived, profile, window) =
+        derived(pins, request.dir, &frozen.corpus, frozen.window)
+            .map_err(|e| format!("re-running the freeze recorded in {file}: {e}"))?;
+    rederived.pins.clone_from(&frozen.pins);
+    if rederived != *frozen {
         return Err(format!(
             "{file} is not what freeze writes for its recorded inputs (the first {} events of {}): it was edited, not written by freeze, or the profiler changed without a version bump",
             frozen.window, frozen.corpus
         ));
     }
-    Ok(())
+    Ok((profile, window))
 }
 
 fn table(header: &[&str], rows: impl IntoIterator<Item = Vec<String>>) -> String {
@@ -339,6 +354,10 @@ fn markdown(report: &Report<'_>, request: &Request<'_>) -> String {
     } else {
         ""
     };
+    let system2 = report
+        .system2
+        .as_ref()
+        .map_or_else(String::new, System2::markdown);
     let mut out = format!(
         "# h-measure score\n\n{ALIAS_LIMIT}\n\nMapping {} (sha256 {}): profiler {} proposed {outcome} from the first {} events of {} (sha256 {}); it abstained on {} paths. Scored on {} (sha256 {}), {} records.{in_sample}\n\n",
         request.frozen.display(),
@@ -351,7 +370,7 @@ fn markdown(report: &Report<'_>, request: &Request<'_>) -> String {
         report.corpus,
         report.corpus_sha256,
         report.records,
-    );
+    ) + &system2;
     for key in &report.keys {
         out += &key_section(key);
     }

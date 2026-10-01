@@ -15,8 +15,9 @@ s2w-discover = { path = "../crates/s2w-discover" }
 s2w-model = { path = "../crates/s2w-model" }
 s2w-sources = { path = "../crates/s2w-sources" }
 s2w-system1 = { path = "../crates/s2w-system1" }
+s2w-system2 = { path = "../crates/s2w-system2" }
 serde.workspace = true
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["float_roundtrip"] }
 toml.workspace = true
 sha2.workspace = true
 syn.workspace = true

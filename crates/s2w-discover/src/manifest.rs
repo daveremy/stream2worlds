@@ -18,6 +18,9 @@ use s2w_model::{
     SentenceField, Slots, SourceInput, Template, TypeRow, fits_text,
 };
 
+use s2w_model::{FieldPath, Segment};
+use serde_json::Value;
+
 use crate::{Profile, Role as PathRole};
 
 /// The fallback's actor model name.
@@ -364,5 +367,46 @@ fn busiest<'a>(
         None
     } else {
         best.map(|(l, k, _)| (l, k))
+    }
+}
+
+/// One payload as JSON for a System 2 input's sample: each root field the profiler decodes is
+/// parsed in place, and every string is cut to `max_chars` characters. `None` for a payload that
+/// is not JSON. The dashboard input and the gate-3 mapping input share this rule.
+#[must_use]
+pub fn sample_event(payload: &[u8], decode: &[FieldPath], max_chars: usize) -> Option<Value> {
+    let mut value: Value = serde_json::from_slice(payload).ok()?;
+    if let Value::Object(fields) = &mut value {
+        for path in decode {
+            let [Segment::Key(key)] = path.0.as_slice() else {
+                continue;
+            };
+            if let Some(field) = fields.get_mut(key)
+                && let Some(parsed) = field
+                    .as_str()
+                    .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            {
+                *field = parsed;
+            }
+        }
+    }
+    truncate_strings(&mut value, max_chars);
+    Some(value)
+}
+
+fn truncate_strings(value: &mut Value, max_chars: usize) {
+    match value {
+        Value::String(text) => {
+            if let Some((cut, _)) = text.char_indices().nth(max_chars) {
+                text.truncate(cut);
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| truncate_strings(item, max_chars)),
+        Value::Object(fields) => fields
+            .values_mut()
+            .for_each(|field| truncate_strings(field, max_chars)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }

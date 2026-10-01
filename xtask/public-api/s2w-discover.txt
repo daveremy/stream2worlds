@@ -18,6 +18,7 @@ s2w_discover::contain: # [derive (Clone , Debug , PartialEq , Eq)] pub struct Co
 s2w_discover::diag: # [must_use] pub fn key_report (payloads : & [& [u8]] , cfg : & Config) -> String
 s2w_discover::manifest: # [derive (Clone , Copy , Debug , Default)] pub struct FallbackProposer ;
 s2w_discover::manifest: # [must_use] pub fn path_stats (profile : & Profile) -> Vec < PathStats >
+s2w_discover::manifest: # [must_use] pub fn sample_event (payload : & [u8] , decode : & [FieldPath] , max_chars : usize) -> Option < Value >
 s2w_discover::manifest: impl ManifestProposer for FallbackProposer
 s2w_discover::manifest: pub const FALLBACK_MODEL : & str = _ ;
 s2w_discover::manifest: pub const FALLBACK_VERSION : & str = _ ;

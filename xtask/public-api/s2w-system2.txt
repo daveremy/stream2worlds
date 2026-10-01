@@ -2,6 +2,7 @@
 s2w_system2: pub use exec :: { ExecLimits , ExecProvider , ExecSetupError , ReplyFormat } ;
 s2w_system2: pub use manifest :: System2Proposer ;
 s2w_system2: pub use mapping :: { CallGate , MAX_ATTEMPTS , MappingOutcome , MappingProposer , MappingResult , NoGate } ;
+s2w_system2: pub use probe :: { PROBE_CALL , clean_session_probe } ;
 s2w_system2: pub use provider :: { Provider , ProviderError , Reply } ;
 s2w_system2: pub use record :: CallRecord ;
 s2w_system2: pub use replay :: { ReplayError , ReplayProvider , recording_json } ;
@@ -32,6 +33,8 @@ s2w_system2::mapping: impl < P : Provider > MappingProposer < P > { pub fn propo
 s2w_system2::mapping: impl CallGate for NoGate
 s2w_system2::mapping: pub const MAX_ATTEMPTS : u32 = _ ;
 s2w_system2::mapping: pub trait CallGate { fn before_call (& mut self , prompt : & str , calls : & [CallRecord]) -> Result < () , String > ; }
+s2w_system2::probe: pub const PROBE_CALL : (u32 , u32) = _ ;
+s2w_system2::probe: pub fn clean_session_probe < P : Provider > (provider : & P , gate : & mut dyn CallGate ,) -> Result < CallRecord , (String , Option < Box < CallRecord > >) >
 s2w_system2::provider: # [derive (Clone , Debug , Default , PartialEq)] pub struct Reply { pub text : String , pub input_tokens : Option < u64 > , pub output_tokens : Option < u64 > , pub latency_ms : Option < u64 > , pub cache_read_tokens : Option < u64 > , pub cache_write_tokens : Option < u64 > , pub cost_usd : Option < f64 > , pub model : Option < String > }
 s2w_system2::provider: # [derive (Clone , Debug , PartialEq , Eq , thiserror :: Error)] # [non_exhaustive] pub enum ProviderError { Spawn (String) , Timeout { secs : u64 , latency_ms : u64 , stdout : Option < String > , } , StdoutTooLarge { limit : usize , latency_ms : u64 , stdout : String , } , Exit { status : String , stderr : String , latency_ms : u64 , stdout : Option < String > , } , NotUtf8 { latency_ms : u64 , } , StdoutHeld { latency_ms : u64 , } , Io (String) , Envelope { reason : String , latency_ms : u64 , stdout : String , } , Replayed { error : String , latency_ms : Option < u64 > , } , NotRecorded { prompt_hash : String , } }
 s2w_system2::provider: impl ProviderError { # [must_use] pub const fn latency_ms (& self) -> Option < u64 > }

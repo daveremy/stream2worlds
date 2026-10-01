@@ -24,8 +24,12 @@ const MAPPING_FORMAT: &str = include_str!("../prompts/mapping-format.txt");
 /// Appended to either mapping prompt for the one repair call of an attempt.
 const MAPPING_REPAIR: &str = include_str!("../prompts/mapping-repair.txt");
 
-/// The hash of both prompt files, 16 lowercase hex digits. It folds into `input_hash`, so an
-/// edit to either file is a new input.
+/// The clean-session probe (decision 0032): sent as is, it carries no data.
+pub(crate) const PROBE: &str = include_str!("../prompts/clean-session-probe.txt");
+
+/// The hash of the manifest and repair prompt files, 16 lowercase hex digits. It folds into
+/// `input_hash`, so an edit to either file is a new input. The probe is left out: it checks the
+/// session and carries no input.
 pub(crate) fn prompt_hash() -> String {
     files_hash(&[MANIFEST, REPAIR])
 }
