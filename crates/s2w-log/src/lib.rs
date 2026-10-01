@@ -4,25 +4,32 @@
 //! seam without I/O for composition and tests. System 1 verdicts and System 2 proposals sit
 //! beside the log in the same directory: see [`VerdictStore`] and [`ProposalStore`].
 
-use std::collections::{HashMap, VecDeque};
-use std::error::Error;
-use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension, TransactionBehavior, params};
-use s2w_model::{Cursor, ModelError, RawEvent, SourceId, Timestamp};
+use rusqlite::{Connection, OpenFlags, params};
+use s2w_model::{Cursor, RawEvent, SourceId};
 
+use append::resolve_duplicate;
+pub(crate) use error::map_constraint;
+use error::{map_fs_error, map_sqlite, map_try_lock_error};
+
+mod append;
+mod error;
 mod manifest;
 mod membership;
+mod memory;
 mod presentation;
 mod proposals;
 mod reader;
+mod sqlite;
 mod verdicts;
 
+pub use error::LogError;
 pub use manifest::WorldManifest;
 pub use membership::{EffectiveFrom, MembershipRow, members_at};
+pub use memory::InMemoryEventLog;
 pub use presentation::{Palette, Typefaces, WorldPresentation, WorldPresentationInput};
 pub use proposals::{
     Actor, ActorClassGrade, Decider, InMemoryProposalStore, NewDecision, NewProposal, Outcome,
@@ -30,6 +37,7 @@ pub use proposals::{
     SqliteProposalStore, StoredDecision, StoredProposal, Tally, grade,
 };
 pub use reader::LogReader;
+pub use sqlite::{ReadOnlySqliteEventLog, SqliteEventLog};
 pub use verdicts::{
     InMemoryVerdictStore, ReadOnlySqliteVerdictStore, SqliteVerdictStore, StoredVerdict,
     VerdictStore,
@@ -236,57 +244,6 @@ pub enum AppendOutcome {
     StaleGeneration,
 }
 
-/// Storage-neutral failures from an event log.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LogError {
-    /// An unclassified storage or filesystem operation failed.
-    Io(String),
-    /// The database or its declared schema version is corrupt or unsupported.
-    Corrupt(String),
-    /// Another durable log handle already holds the directory's writer lock.
-    Locked,
-    /// An event payload exceeded the 8 MiB defensive cap.
-    TooLarge,
-    /// A persisted cursor failed model validation.
-    InvalidCursor(ModelError),
-    /// Re-adding requires a cursor until adapters can resolve a live tail.
-    ReaddRequiresCursor,
-    /// A presentation record failed validation before being written.
-    InvalidPresentation(String),
-}
-
-impl fmt::Display for LogError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(message) => write!(formatter, "event-log I/O failed: {message}"),
-            Self::Corrupt(message) => write!(formatter, "event log is corrupt: {message}"),
-            Self::Locked => formatter.write_str("event log is already open by another writer"),
-            Self::TooLarge => formatter.write_str("event payload exceeds the 8 MiB limit"),
-            Self::ReaddRequiresCursor => formatter.write_str(
-                "re-add requires an explicit cursor: adapters cannot resolve a live tail",
-            ),
-            Self::InvalidCursor(error) => write!(formatter, "invalid stored cursor: {error}"),
-            Self::InvalidPresentation(message) => {
-                write!(formatter, "invalid presentation: {message}")
-            }
-        }
-    }
-}
-
-impl Error for LogError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::InvalidCursor(error) => Some(error),
-            Self::Io(_)
-            | Self::Corrupt(_)
-            | Self::Locked
-            | Self::TooLarge
-            | Self::ReaddRequiresCursor
-            | Self::InvalidPresentation(_) => None,
-        }
-    }
-}
-
 /// The storage seam used by the application composition root.
 pub trait EventLog {
     /// Appends one event and atomically advances its source cursor.
@@ -334,285 +291,6 @@ pub trait EventLog {
     fn head(&self) -> Result<Option<LogPosition>, LogError>;
 }
 
-/// An append-only in-memory event log.
-#[derive(Debug, Default)]
-pub struct InMemoryEventLog {
-    events: Vec<StoredEvent>,
-    cursors: HashMap<SourceId, (Cursor, LogPosition)>,
-    seen: HashMap<(SourceId, i64), LogPosition>,
-}
-
-impl InMemoryEventLog {
-    /// Constructs an empty in-memory log.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Classifies and, when new, stores one event; the shared body of both append paths.
-    fn insert(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
-        check_payload_size(event.payload.len())?;
-        let key = (event.source.clone(), content_hash(&event.payload));
-        if let Some(&position) = self.seen.get(&key) {
-            // A hash hit is a duplicate only when the payload bytes match, mirroring the
-            // SQLite path: a genuine hash collision is loud, never a silent drop.
-            let stored = self.stored_payload(position).ok_or_else(|| {
-                LogError::Corrupt(format!(
-                    "content hash points at missing position {}",
-                    position.as_u64()
-                ))
-            })?;
-            if stored != event.payload.as_slice() {
-                return Err(collision(event.source.as_str(), key.1, position));
-            }
-            // Duplicate: the cursor is untouched, so a redelivery cannot move it backwards.
-            return Ok(AppendOutcome::Duplicate(position));
-        }
-        let next = u64::try_from(self.events.len())
-            .map_err(|error| LogError::Io(error.to_string()))?
-            .checked_add(1)
-            .ok_or_else(|| LogError::Io("log position overflow".to_owned()))?;
-        let position = LogPosition(next);
-        self.cursors
-            .insert(event.source.clone(), (event.cursor.clone(), position));
-        let content_hash = key.1;
-        self.events.push(StoredEvent {
-            position,
-            event,
-            content_hash,
-        });
-        self.seen.insert(key, position);
-        Ok(AppendOutcome::Inserted(position))
-    }
-
-    /// The stored payload at `position`, if it is still held.
-    fn stored_payload(&self, position: LogPosition) -> Option<&[u8]> {
-        let index = usize::try_from(position.as_u64().checked_sub(1)?).ok()?;
-        self.events
-            .get(index)
-            .map(|stored| stored.event.payload.as_slice())
-    }
-}
-
-impl EventLog for InMemoryEventLog {
-    fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
-        self.insert(event)
-    }
-
-    fn append_batch(&mut self, events: Vec<RawEvent>) -> Result<Vec<AppendOutcome>, LogError> {
-        for event in &events {
-            check_payload_size(event.payload.len())?;
-        }
-        // All or nothing: apply to a copy and swap it in only when every event succeeded.
-        let mut staged = InMemoryEventLog {
-            events: self.events.clone(),
-            cursors: self.cursors.clone(),
-            seen: self.seen.clone(),
-        };
-        let outcomes = events
-            .into_iter()
-            .map(|event| staged.insert(event))
-            .collect::<Result<Vec<_>, _>>()?;
-        *self = staged;
-        Ok(outcomes)
-    }
-
-    fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, LogError> {
-        Ok(self.cursors.get(source).map(|(cursor, _)| cursor.clone()))
-    }
-
-    fn replay(
-        &self,
-        from: Option<LogPosition>,
-    ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
-        let after = from.map_or(0, LogPosition::as_u64);
-        Ok(Box::new(
-            self.events
-                .iter()
-                .filter(move |stored| stored.position.as_u64() > after)
-                .cloned()
-                .map(Ok),
-        ))
-    }
-
-    fn head(&self) -> Result<Option<LogPosition>, LogError> {
-        Ok(self.events.last().map(|stored| stored.position))
-    }
-}
-
-/// A durable SQLite-backed event log.
-pub struct SqliteEventLog {
-    connection: Connection,
-    _lock: File,
-}
-
-/// A lockless, read-only handle to an initialized SQLite event log.
-pub struct ReadOnlySqliteEventLog {
-    connection: Connection,
-}
-
-impl fmt::Debug for ReadOnlySqliteEventLog {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ReadOnlySqliteEventLog")
-            .finish_non_exhaustive()
-    }
-}
-
-impl ReadOnlySqliteEventLog {
-    /// Opens an existing event log without taking the writer lock or changing its schema.
-    ///
-    /// # Errors
-    /// Returns a storage error when the database cannot be opened and corruption when its
-    /// schema is absent or unsupported.
-    pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
-        let connection = open_sqlite_store_read_only(
-            directory.as_ref(),
-            DATABASE_FILE,
-            SCHEMA_VERSION,
-            |version| {
-                format!(
-                    "unsupported schema version {version}; expected {SCHEMA_VERSION}. this version cannot migrate that schema"
-                )
-            },
-        )?;
-        Ok(Self { connection })
-    }
-}
-
-impl LogReader for ReadOnlySqliteEventLog {
-    fn read_after(
-        &self,
-        from: Option<LogPosition>,
-    ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
-        replay_from(&self.connection, from)
-    }
-
-    fn read_head(&self) -> Result<Option<LogPosition>, LogError> {
-        head_of(&self.connection)
-    }
-}
-
-impl fmt::Debug for SqliteEventLog {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("SqliteEventLog")
-            .finish_non_exhaustive()
-    }
-}
-
-impl SqliteEventLog {
-    /// Opens or creates an event log in `directory`.
-    ///
-    /// The writer lock is acquired before SQLite is opened. WAL, full synchronous writes,
-    /// foreign keys, and recursive triggers are configured for every connection.
-    ///
-    /// # Errors
-    /// Returns [`LogError::Locked`] when another handle owns the directory lock, and a storage
-    /// or corruption error when the directory or database cannot be initialized safely.
-    pub fn open(directory: impl AsRef<Path>) -> Result<Self, LogError> {
-        let (connection, lock) = open_sqlite_store(
-            directory.as_ref(),
-            DATABASE_FILE,
-            LOCK_FILE,
-            "PRAGMA synchronous = FULL;
-             PRAGMA foreign_keys = ON;
-             PRAGMA recursive_triggers = ON;",
-            SCHEMA_VERSION,
-            |version| {
-                format!(
-                    "unsupported schema version {version}; expected {SCHEMA_VERSION}. this version cannot migrate that schema"
-                )
-            },
-            initialize_schema,
-        )?;
-        Ok(Self {
-            connection,
-            _lock: lock,
-        })
-    }
-}
-
-impl EventLog for SqliteEventLog {
-    fn append(&mut self, event: RawEvent) -> Result<AppendOutcome, LogError> {
-        let mut outcomes = EventLog::append_batch(self, vec![event])?;
-        outcomes
-            .pop()
-            .ok_or_else(|| LogError::Corrupt("a one-event append produced no outcome".to_owned()))
-    }
-
-    fn append_batch(&mut self, events: Vec<RawEvent>) -> Result<Vec<AppendOutcome>, LogError> {
-        for event in &events {
-            check_payload_size(event.payload.len())?;
-        }
-        if events.is_empty() {
-            return Ok(Vec::new());
-        }
-        let transaction = self
-            .connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(map_sqlite)?;
-        let outcomes = events
-            .iter()
-            .map(|event| insert_in(&transaction, event))
-            .collect::<Result<Vec<_>, _>>()?;
-        // Any error above returned early and dropped the transaction uncommitted: nothing of
-        // the batch is stored and no cursor moved.
-        transaction.commit().map_err(map_sqlite)?;
-        Ok(outcomes)
-    }
-
-    fn cursor(&self, source: &SourceId) -> Result<Option<Cursor>, LogError> {
-        let bytes: Option<Vec<u8>> = self
-            .connection
-            .query_row(
-                "SELECT cursor FROM cursors WHERE source = ?1",
-                [source.as_str()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(map_sqlite)?;
-        bytes
-            .map(Cursor::new)
-            .transpose()
-            .map_err(LogError::InvalidCursor)
-    }
-
-    fn replay(
-        &self,
-        from: Option<LogPosition>,
-    ) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
-        replay_from(&self.connection, from)
-    }
-
-    fn head(&self) -> Result<Option<LogPosition>, LogError> {
-        head_of(&self.connection)
-    }
-}
-
-/// The largest stored position: one `max(position)` query, `None` for an empty log.
-fn head_of(connection: &Connection) -> Result<Option<LogPosition>, LogError> {
-    let head: Option<i64> = connection
-        .query_row("SELECT MAX(position) FROM events", [], |row| row.get(0))
-        .map_err(map_sqlite)?;
-    head.map(LogPosition::from_sql).transpose()
-}
-
-fn replay_from(
-    connection: &Connection,
-    from: Option<LogPosition>,
-) -> Result<Box<dyn Iterator<Item = Result<StoredEvent, LogError>> + '_>, LogError> {
-    let last_seen = from.map_or(0, LogPosition::as_u64);
-    let mut replay = Replay {
-        connection,
-        last_seen,
-        buffer: VecDeque::new(),
-        finished: false,
-    };
-    replay.refill()?;
-    Ok(Box::new(replay))
-}
-
 /// Inserts one event inside an open transaction and advances its source cursor there.
 ///
 /// A duplicate or collision is classified by [`resolve_duplicate`] and leaves the cursor row
@@ -656,96 +334,6 @@ fn insert_in(
     LogPosition::from_sql(row_id).map(AppendOutcome::Inserted)
 }
 
-/// The loud error for a 64-bit content-hash collision between two distinct payloads.
-///
-/// Names the source, hash and stored position so a human can inspect the two events: the same
-/// event is redelivered on every restart, so this error repeats until someone acts on it.
-fn collision(source: &str, hash: i64, position: LogPosition) -> LogError {
-    LogError::Corrupt(format!(
-        "content-hash collision between distinct payloads: source {source}, hash {hash}, stored at position {}",
-        position.as_u64()
-    ))
-}
-
-/// Classifies an insert that changed no rows: a byte-identical redelivery, or a hash collision.
-///
-/// The stored payload bytes are compared against the new event's, because `UNIQUE(source,
-/// content_hash)` alone would silently drop a real event on a 64-bit hash collision between two
-/// distinct payloads. Nothing was inserted, so the cursor upsert is skipped entirely:
-/// `last_insert_rowid()` still reports the previous successful insert's row here and would
-/// corrupt `cursors.last_position`. A collision error aborts the whole transaction, batch
-/// included.
-fn resolve_duplicate(
-    transaction: &rusqlite::Transaction<'_>,
-    source: &str,
-    hash: i64,
-    payload: &[u8],
-) -> Result<AppendOutcome, LogError> {
-    let (position, stored_payload): (i64, Vec<u8>) = transaction
-        .query_row(
-            "SELECT position, payload FROM events WHERE source = ?1 AND content_hash = ?2",
-            params![source, hash],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(map_sqlite)?;
-    let position = LogPosition::from_sql(position)?;
-    if stored_payload != payload {
-        return Err(collision(source, hash, position));
-    }
-    Ok(AppendOutcome::Duplicate(position))
-}
-
-struct Replay<'connection> {
-    connection: &'connection Connection,
-    last_seen: u64,
-    buffer: VecDeque<StoredEvent>,
-    finished: bool,
-}
-
-impl Replay<'_> {
-    fn refill(&mut self) -> Result<(), LogError> {
-        let last_seen =
-            i64::try_from(self.last_seen).map_err(|error| LogError::Corrupt(error.to_string()))?;
-        let mut statement = self
-            .connection
-            .prepare(
-                "SELECT position, source, cursor, received_at, payload, content_hash
-                 FROM events
-                 WHERE position > ?1
-                 ORDER BY position
-                 LIMIT ?2",
-            )
-            .map_err(map_sqlite)?;
-        let mut rows = statement
-            .query(params![last_seen, REPLAY_PAGE_SIZE])
-            .map_err(map_sqlite)?;
-        while let Some(row) = rows.next().map_err(map_sqlite)? {
-            self.buffer.push_back(decode_stored_event(row)?);
-        }
-        if self.buffer.is_empty() {
-            self.finished = true;
-        }
-        Ok(())
-    }
-}
-
-impl Iterator for Replay<'_> {
-    type Item = Result<StoredEvent, LogError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.buffer.is_empty()
-            && !self.finished
-            && let Err(error) = self.refill()
-        {
-            self.finished = true;
-            return Some(Err(error));
-        }
-        let event = self.buffer.pop_front()?;
-        self.last_seen = event.position.as_u64();
-        Some(Ok(event))
-    }
-}
-
 fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
     let transaction = connection.transaction().map_err(map_sqlite)?;
     transaction
@@ -780,69 +368,10 @@ fn initialize_schema(connection: &mut Connection) -> Result<(), LogError> {
     transaction.commit().map_err(map_sqlite)
 }
 
-fn decode_stored_event(row: &rusqlite::Row<'_>) -> Result<StoredEvent, LogError> {
-    let position: i64 = row.get(0).map_err(map_sqlite)?;
-    let source: String = row.get(1).map_err(map_sqlite)?;
-    let cursor: Vec<u8> = row.get(2).map_err(map_sqlite)?;
-    let received_at: i64 = row.get(3).map_err(map_sqlite)?;
-    let payload: Vec<u8> = row.get(4).map_err(map_sqlite)?;
-    let content_hash: i64 = row.get(5).map_err(map_sqlite)?;
-
-    let position = LogPosition::from_sql(position)?;
-    let source = SourceId::new(source).map_err(|error| LogError::Corrupt(error.to_string()))?;
-    let cursor = Cursor::new(cursor).map_err(LogError::InvalidCursor)?;
-
-    Ok(StoredEvent {
-        position,
-        event: RawEvent {
-            source,
-            cursor,
-            received_at: Timestamp::from_millis(received_at),
-            payload,
-        },
-        content_hash,
-    })
-}
-
-fn map_sqlite(error: rusqlite::Error) -> LogError {
-    match error.sqlite_error_code() {
-        Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase) => {
-            LogError::Corrupt(error.to_string())
-        }
-        _ => LogError::Io(error.to_string()),
-    }
-}
-
-/// Maps a SQLite write error: a constraint violation becomes `on_violation()`; anything else
-/// goes through [`map_sqlite`].
-pub(crate) fn map_constraint(
-    error: rusqlite::Error,
-    on_violation: impl FnOnce() -> LogError,
-) -> LogError {
-    if error.sqlite_error_code() == Some(ErrorCode::ConstraintViolation) {
-        on_violation()
-    } else {
-        map_sqlite(error)
-    }
-}
-
-fn map_fs_error(error: std::io::Error) -> LogError {
-    LogError::Io(error.to_string())
-}
-
-/// Maps a failed [`File::try_lock`] to a [`LogError`]: only [`std::fs::TryLockError::WouldBlock`]
-/// means another handle holds the lock. Any other error is a real I/O failure and must not be
-/// mistaken for [`LogError::Locked`].
-fn map_try_lock_error(error: std::fs::TryLockError) -> LogError {
-    match error {
-        std::fs::TryLockError::WouldBlock => LogError::Locked,
-        std::fs::TryLockError::Error(io_error) => LogError::Io(io_error.to_string()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::env;
+    use std::error::Error;
     use std::fs;
     use std::io::{BufRead, BufReader, Read, Write};
     use std::path::{Path, PathBuf};
@@ -850,6 +379,8 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::time::Duration;
+
+    use s2w_model::{ModelError, Timestamp};
 
     use super::*;
 
