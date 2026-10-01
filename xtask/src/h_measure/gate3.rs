@@ -24,14 +24,16 @@ use super::{Flags, corpus_dir, flags, one};
 mod b3;
 pub(crate) mod committed;
 mod ledger;
+mod no_match;
 mod prices;
 pub(crate) mod replay;
 mod session;
 
 use committed::{
     B3, Committed, FORMAT, H_S2, KIND, PROVIDER, SAMPLE_EVENTS, SAMPLE_STRING_CHARS, input,
-    input_hash, propose_h_s2, run as run_arm, split,
+    input_hash, propose_h_s2, run as run_arm, sample_window, split,
 };
+use no_match::Sample;
 
 /// The command's usage line.
 pub(crate) const USAGE: &str = "cargo xtask gate3 commit --corpus NAME --window N --replicate K --model SNAPSHOT [--arm h-s2|b3] [--h-s2 FILE] [--out FILE] [--dir DIR] [--claude PATH] [--credentials PATH]";
@@ -186,9 +188,10 @@ pub(crate) fn commit(root: &Path, flags: &Flags) -> Result<String, String> {
         .as_deref()
         .map(|path| sized(path, &request, &heuristic, &price, (&profile, &events)))
         .transpose()?;
+    let sample = Sample::of_values(sample_window(&events))?;
     let session = session::Session::open(&request.credentials, now_ms())?;
     let proposer = MappingProposer::new(session.provider(&request.claude, request.model)?);
-    let ran = propose(&proposer, &price, &input, sized.as_ref());
+    let ran = propose(&proposer, &price, (&input, &sample), sized.as_ref());
     warn_if_refreshed(&session, &request.credentials);
     drop(session);
     let (ran, fitted) = ran?;
@@ -219,22 +222,24 @@ pub(crate) fn commit(root: &Path, flags: &Flags) -> Result<String, String> {
         failure,
         probe: ran.probe,
         spend: ran.spend,
+        no_match: ran.outcome.no_match,
         transcript_sha256: sha256(transcript.as_bytes()),
         budget,
     };
     write(&request, &committed, &transcript)
 }
 
-/// The arm's run through `proposer`: h-s2, or b3 when `sized`; b3 also reports its fits.
+/// The arm's run through `proposer`: h-s2 on `input` with its no-match `sample`, or b3 when
+/// `sized`; b3 also reports its fits.
 fn propose<P: Provider>(
     proposer: &MappingProposer<P>,
     price: &prices::Price,
-    input: &s2w_model::MappingInput,
+    (input, sample): (&s2w_model::MappingInput, &Sample),
     sized: Option<&b3::Sized>,
 ) -> Result<(committed::Ran, Option<b3::Fitted>), String> {
     match sized {
         None => run_arm(proposer.provider(), price, |prior| {
-            let (proposed, ()) = propose_h_s2(proposer, price, input, prior);
+            let (proposed, ()) = propose_h_s2(proposer, price, input, sample, prior);
             (proposed, None)
         }),
         Some(sized) => run_arm(proposer.provider(), price, |prior| {

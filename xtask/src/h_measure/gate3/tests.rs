@@ -162,10 +162,13 @@ impl Run {
     }
 }
 
-fn mapping_reply() -> String {
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    fs::read_to_string(repo.join(crate::obfuscation_raw::MAPPING)).unwrap()
-}
+/// A mapping that matches the fixture's stored events (`freeze_tests::corpus_text`): the
+/// envelope's `data` is a JSON string, so it decodes `data` first (s2w#409).
+const MATCHING_REPLY: &str = r#"{"version":2,"decode":[["data"]],"entities":[{"id":"page","type_label":"page","key":[["data","wiki"],["data","title"]],"attrs":[]},{"id":"user","type_label":"user","key":[["data","wiki"],["data","user"]],"attrs":[]}],"relationships":[]}"#;
+
+/// [`MATCHING_REPLY`] without its decode step, the shape of gate 3's second dry run: valid, and
+/// it matches no stored event, because `data` is a string there.
+const NO_MATCH_REPLY: &str = r#"{"version":2,"decode":[],"entities":[{"id":"page","type_label":"page","key":[["data","wiki"],["data","title"]],"attrs":[]},{"id":"user","type_label":"user","key":[["data","wiki"],["data","user"]],"attrs":[]}],"relationships":[]}"#;
 
 fn refused<T: std::fmt::Debug>(got: Result<T, String>, expected: &str) {
     let err = got.expect_err("should refuse");
@@ -174,10 +177,7 @@ fn refused<T: std::fmt::Debug>(got: Result<T, String>, expected: &str) {
 
 #[test]
 fn commit_writes_both_files_and_score_replays_them() {
-    let run = setup(
-        "ok",
-        &[envelope("none", 4), envelope(&mapping_reply(), 900)],
-    );
+    let run = setup("ok", &[envelope("none", 4), envelope(MATCHING_REPLY, 900)]);
     let said = run.commit(&[]).unwrap();
     assert!(said.contains("a mapping, 1 attempts, 2 calls"), "{said}");
     let doc = run.committed();
@@ -204,7 +204,7 @@ fn commit_writes_both_files_and_score_replays_them() {
 fn score_refuses_an_edited_committed_file_or_transcript() {
     let run = setup(
         "edit",
-        &[envelope("none", 4), envelope(&mapping_reply(), 900)],
+        &[envelope("none", 4), envelope(MATCHING_REPLY, 900)],
     );
     run.commit(&[]).unwrap();
     let original = fs::read(&run.out).unwrap();
@@ -383,4 +383,5 @@ fn argv_is_the_clean_session_command() {
 
 mod b3;
 mod b3_view;
+mod no_match;
 mod private_probe;

@@ -12,11 +12,12 @@
 //! budget.
 
 use s2w_model::{MappingInput, RawMappingInput};
-use s2w_system2::{CallGate, CallRecord, MappingProposer, Provider, raw_mapping_prompt};
+use s2w_system2::{CallGate, CallRecord, MappingProposer, NoCheck, Provider, raw_mapping_prompt};
 use serde_json::Value;
 
 use super::committed::{Budget, Fit, Proposed, hash_fields, json};
 use super::ledger::BudgetGate;
+use super::no_match::Sample;
 use super::prices::Price;
 
 /// How far, in percent of the h-s2 prompt's tokens, a fit's first prompt may run over.
@@ -203,7 +204,8 @@ fn budget_fit(fits: &[Fit], target: &Target<'_>) -> String {
 
 /// The B3 proposal: fit, propose, check, and refit until a fit's first prompt is within the
 /// budget, a proposal fails, or nothing larger fits. Each fit's calls pass a budget gate seeded
-/// with everything spent before them (`prior_usd` is the probe).
+/// with everything spent before them (`prior_usd` is the probe), and each fit's proposal runs
+/// the no-match check on the envelopes it sent (s2w#409).
 pub(crate) fn propose<Q: Provider>(
     proposer: &MappingProposer<Q>,
     price: &Price,
@@ -221,7 +223,7 @@ pub(crate) fn propose<Q: Provider>(
         let Some((k, input, prompt_bytes)) = fit(events, from, target) else {
             let reason = budget_fit(&fits, target);
             let last = sent.unwrap_or_else(|| sample(events, events.len().max(1), target));
-            let outcome = proposer.propose_raw(&last, &mut Stop(reason));
+            let outcome = proposer.propose_raw(&last, &mut Stop(reason), &NoCheck);
             let proposed = Proposed {
                 outcome,
                 calls,
@@ -230,7 +232,7 @@ pub(crate) fn propose<Q: Provider>(
             return (proposed, Fitted { fits, last });
         };
         let mut gate = BudgetGate::new(price, spent);
-        let outcome = proposer.propose_raw(&input, &mut gate);
+        let outcome = proposer.propose_raw(&input, &mut gate, &Sample::of_events(&input.events));
         let fit_charged = gate.charged(&outcome.calls);
         spent += fit_charged.iter().sum::<f64>();
         let tokens = first_prompt_tokens(&outcome.calls);

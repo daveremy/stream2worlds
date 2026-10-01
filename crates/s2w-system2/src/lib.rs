@@ -6,7 +6,8 @@
 //! replies keyed by prompt hash, so a run can be replayed without calling a model.
 //!
 //! [`MappingProposer`] proposes a stream mapping for either arm of the gate-3 comparison
-//! (decision 0032) under a [`CallGate`], and records every call as a [`CallRecord`].
+//! (decision 0032) under a [`CallGate`] and a [`MappingCheck`] (s2w#409), and records every call
+//! as a [`CallRecord`].
 //! [`clean_session_probe`] is the first call of a gate-3 run: it proves the session sees nothing
 //! besides the model's built-in system prompt.
 
@@ -23,7 +24,10 @@ mod replay;
 
 pub use exec::{ExecLimits, ExecProvider, ExecSetupError, ReplyFormat};
 pub use manifest::System2Proposer;
-pub use mapping::{CallGate, MAX_ATTEMPTS, MappingOutcome, MappingProposer, MappingResult, NoGate};
+pub use mapping::{
+    CallGate, MAX_ATTEMPTS, MappingCheck, MappingOutcome, MappingProposer, MappingResult, NoCheck,
+    NoGate, NoMatch,
+};
 pub use probe::{PROBE_CALL, clean_session_probe};
 pub use prompt::{mapping_prompt, raw_mapping_prompt};
 pub use provider::{Provider, ProviderError, Reply};

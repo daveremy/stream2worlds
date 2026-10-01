@@ -1,0 +1,5 @@
+Your previous reply was a valid mapping, but applied to the sampled events it matches nothing:
+in no sampled event does an entity rule resolve every one of its key paths to a scalar, after
+the mapping's decode steps, so the executor would claim no entity, relationship or link from
+this stream. Check every decode step and key path against the events as the executor reads
+them, and reply with a mapping whose rules match.

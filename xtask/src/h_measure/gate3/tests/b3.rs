@@ -3,10 +3,10 @@
 
 use std::fs;
 
-use super::{MODEL, Run, envelope, mapping_reply, refused, setup};
+use super::{MATCHING_REPLY, MODEL, Run, envelope, refused, setup};
 
 /// An envelope whose prompt reported `cache_write` cache-write tokens (input 2, cache read 531).
-fn cached(result: &str, cache_write: u64) -> String {
+pub(super) fn cached(result: &str, cache_write: u64) -> String {
     serde_json::json!({
         "type": "result", "subtype": "success", "is_error": false, "result": result,
         "total_cost_usd": 0.03,
@@ -18,11 +18,11 @@ fn cached(result: &str, cache_write: u64) -> String {
 }
 
 /// The h-s2 envelope's first-prompt tokens: 2 + 5431 + 531.
-const T: u64 = 5964;
+pub(super) const T: u64 = 5964;
 
 /// The same run as `run`, writing the b3 replicate beside the h-s2 one; `extra` replaces or
 /// adds flags.
-fn b3(run: &Run, extra: &[(&str, &str)]) -> (Run, Result<String, String>) {
+pub(super) fn b3(run: &Run, extra: &[(&str, &str)]) -> (Run, Result<String, String>) {
     let out = run.out.with_file_name("b3.dev.r1.json");
     let mut args = run.args.clone();
     let mut set = |name: &str, value: String| {
@@ -49,7 +49,7 @@ fn b3(run: &Run, extra: &[(&str, &str)]) -> (Run, Result<String, String>) {
     (b3, said)
 }
 
-fn calls_made(run: &Run) -> u32 {
+pub(super) fn calls_made(run: &Run) -> u32 {
     fs::read_to_string(run.root.join("fake/count")).map_or(0, |n| n.trim().parse().unwrap())
 }
 
@@ -59,9 +59,9 @@ fn b3_after_h_s2_is_sized_by_it_and_score_replays_it() {
         "b3",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 5431),
+            cached(MATCHING_REPLY, 5431),
         ],
     );
     run.commit(&[]).unwrap();
@@ -96,10 +96,10 @@ fn a_fit_over_the_tolerance_is_spent_and_refit_with_a_larger_k() {
         "b3-refit",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 6000),
-            cached(&mapping_reply(), 5431),
+            cached(MATCHING_REPLY, 6000),
+            cached(MATCHING_REPLY, 5431),
         ],
     );
     run.commit(&[]).unwrap();
@@ -136,11 +136,11 @@ fn a_replicate_that_never_fits_commits_a_budget_fit_failure() {
         "b3-nofit",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 6000),
-            cached(&mapping_reply(), 6000),
-            cached(&mapping_reply(), 6000),
+            cached(MATCHING_REPLY, 6000),
+            cached(MATCHING_REPLY, 6000),
+            cached(MATCHING_REPLY, 6000),
         ],
     );
     run.commit(&[]).unwrap();
@@ -163,7 +163,7 @@ fn a_replicate_that_never_fits_commits_a_budget_fit_failure() {
 fn b3_refusals_before_any_call() {
     let run = setup(
         "b3-refuse",
-        &[envelope("none", 4), envelope(&mapping_reply(), 900)],
+        &[envelope("none", 4), envelope(MATCHING_REPLY, 900)],
     );
     refused(b3(&run, &[]).1, "commit that first");
     assert_eq!(calls_made(&run), 0);
@@ -201,9 +201,9 @@ fn score_refuses_an_edited_b3_budget() {
         "b3-edit",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 5431),
+            cached(MATCHING_REPLY, 5431),
         ],
     );
     run.commit(&[]).unwrap();
@@ -233,9 +233,9 @@ fn a_fit_at_exactly_the_tolerance_is_kept() {
         "b3-edge",
         &[
             envelope("none", 4),
-            envelope(&mapping_reply(), 900),
+            envelope(MATCHING_REPLY, 900),
             envelope("none", 4),
-            cached(&mapping_reply(), 5729),
+            cached(MATCHING_REPLY, 5729),
         ],
     );
     run.commit(&[]).unwrap();

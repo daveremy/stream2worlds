@@ -1,8 +1,12 @@
 use s2w_model::{MappingInput, RawMappingInput, StreamMapping};
 use serde_json::{Value, json};
 
-use super::{CallGate, MAX_ATTEMPTS, MappingProposer, MappingResult, NoGate, accept};
+use super::{
+    CallGate, MAX_ATTEMPTS, MappingCheck, MappingProposer, MappingResult, NoCheck, NoGate, NoMatch,
+    accept,
+};
 use crate::prompt;
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -83,7 +87,7 @@ fn a_valid_first_reply_with_links_is_a_mapping_after_one_call() {
     let mut replay = ReplayProvider::new();
     replay.insert(&first, reply(&format!("```json\n{GOOD}\n```")));
 
-    let outcome = proposer(replay).propose(&input(), &mut NoGate);
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &NoCheck);
 
     assert_eq!(outcome.result, MappingResult::Mapping(good()));
     assert_eq!(outcome.attempts, 1);
@@ -112,7 +116,7 @@ fn a_bad_first_reply_is_repaired_in_the_same_attempt() {
     replay.insert(&first, reply(bad));
     replay.insert(&repair_of(&first, bad), reply(GOOD));
 
-    let outcome = proposer(replay).propose(&input(), &mut NoGate);
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &NoCheck);
 
     assert_eq!(outcome.result, MappingResult::Mapping(good()));
     assert_eq!(outcome.attempts, 1);
@@ -131,7 +135,7 @@ fn a_repaired_reply_that_still_fails_ends_the_proposal_without_a_second_attempt(
     replay.insert(&first, reply("not json"));
     replay.insert(&repair_of(&first, "not json"), reply(&invalid));
 
-    let outcome = proposer(replay).propose(&input(), &mut NoGate);
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &NoCheck);
 
     let text = failure(&outcome.result);
     assert!(text.starts_with("invalid: validator: "), "{text}");
@@ -141,7 +145,7 @@ fn a_repaired_reply_that_still_fails_ends_the_proposal_without_a_second_attempt(
 
 #[test]
 fn a_provider_failure_in_every_attempt_is_a_provider_failure_after_two_attempts() {
-    let outcome = proposer(ReplayProvider::new()).propose(&input(), &mut NoGate);
+    let outcome = proposer(ReplayProvider::new()).propose(&input(), &mut NoGate, &NoCheck);
 
     let text = failure(&outcome.result);
     assert!(
@@ -174,7 +178,7 @@ fn a_provider_failure_starts_a_second_attempt_from_the_first_prompt() {
     ];
     let replay = ReplayProvider::from_calls(&recorded).unwrap();
 
-    let outcome = proposer(replay).propose(&input(), &mut NoGate);
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &NoCheck);
 
     assert_eq!(outcome.result, MappingResult::Mapping(good()));
     assert_eq!(outcome.attempts, 2);
@@ -193,7 +197,7 @@ fn a_provider_failure_on_the_repair_call_starts_the_next_attempt() {
     // The first prompt always gets the bad reply; the repair prompt is not recorded.
     replay.insert(&first, reply("not json"));
 
-    let outcome = proposer(replay).propose(&input(), &mut NoGate);
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &NoCheck);
 
     assert!(failure(&outcome.result).starts_with("provider: "));
     let steps: Vec<_> = outcome.calls.iter().map(|c| (c.attempt, c.call)).collect();
@@ -228,7 +232,7 @@ fn a_gate_stop_ends_the_proposal_before_the_call_with_its_reason() {
         seen: vec![],
     };
 
-    let outcome = proposer(replay).propose(&input(), &mut gate);
+    let outcome = proposer(replay).propose(&input(), &mut gate, &NoCheck);
 
     assert_eq!(
         outcome.result,
@@ -242,7 +246,7 @@ fn a_gate_stop_ends_the_proposal_before_the_call_with_its_reason() {
         allow: 0,
         seen: vec![],
     };
-    let outcome = proposer(ReplayProvider::new()).propose(&input(), &mut closed);
+    let outcome = proposer(ReplayProvider::new()).propose(&input(), &mut closed, &NoCheck);
     assert_eq!(outcome.attempts, 0);
     assert!(outcome.calls.is_empty());
 }
@@ -253,7 +257,7 @@ fn the_raw_arm_has_its_own_prompt_and_files_hash() {
     let mut replay = ReplayProvider::new();
     replay.insert(&first, reply(GOOD));
 
-    let outcome = proposer(replay).propose_raw(&raw_input(), &mut NoGate);
+    let outcome = proposer(replay).propose_raw(&raw_input(), &mut NoGate, &NoCheck);
 
     assert_eq!(outcome.result, MappingResult::Mapping(good()));
     assert_eq!(
@@ -325,6 +329,7 @@ impl Provider for Scripted {
 
 #[test]
 fn a_recorded_run_with_a_retry_and_a_repair_replays_call_for_call() {
+    let no_match = no_match_reply();
     let script = VecDeque::from([
         Err(ProviderError::Timeout {
             secs: 5,
@@ -332,19 +337,212 @@ fn a_recorded_run_with_a_retry_and_a_repair_replays_call_for_call() {
             stdout: Some("partial".to_owned()),
         }),
         Ok(reply("not json")),
+        Ok(reply(&no_match)),
         Ok(reply(GOOD)),
     ]);
     let live = MappingProposer::new(Scripted(Mutex::new(script))).with_clock(|| Some(7));
-    let recorded = live.propose_raw(&raw_input(), &mut NoGate);
+    let recorded = live.propose_raw(&raw_input(), &mut NoGate, &DecodeStub::default());
     assert_eq!(recorded.result, MappingResult::Mapping(good()));
     let steps: Vec<_> = recorded.calls.iter().map(|c| (c.attempt, c.call)).collect();
-    assert_eq!(steps, [(1, 1), (2, 1), (2, 2)]);
+    assert_eq!(steps, [(1, 1), (2, 1), (2, 2), (2, 3)]);
+    assert_eq!(recorded.no_match, found(Some(true), 1, Some(false)));
 
     let text = recording_json(&recorded.calls).unwrap();
     let replay = ReplayProvider::from_json(&text).unwrap();
     let replayed = MappingProposer::new(replay)
         .with_clock(|| Some(7))
-        .propose_raw(&raw_input(), &mut NoGate);
+        .propose_raw(&raw_input(), &mut NoGate, &DecodeStub::default());
 
     assert_eq!(replayed, recorded);
+}
+
+/// The test stub of [`MappingCheck`] (s2w#409): a mapping with no decode step matches nothing,
+/// the shape of gate 3's second dry run, and any other mapping matches. It counts the calls
+/// made to it; with `fails` set, every call is an error.
+#[derive(Default)]
+struct DecodeStub {
+    fails: bool,
+    asked: Cell<u32>,
+}
+
+impl MappingCheck for DecodeStub {
+    fn no_match(&self, mapping: &StreamMapping) -> Result<bool, String> {
+        self.asked.set(self.asked.get() + 1);
+        if self.fails {
+            return Err("no sample".to_owned());
+        }
+        Ok(mapping.decode.is_empty())
+    }
+}
+
+/// [`GOOD`] without its decode step: valid, and a no-match to [`DecodeStub`].
+fn no_match_reply() -> String {
+    let mut mapping = good();
+    mapping.decode.clear();
+    serde_json::to_string(&mapping).unwrap()
+}
+
+/// The no-match repair prompt the proposer sends after `reply`.
+fn no_match_repair_of(first: &str, reply: &str) -> String {
+    prompt::mapping_repair_prompt(first, reply, prompt::MAPPING_NO_MATCH).unwrap()
+}
+
+fn found(first: Option<bool>, repair_calls: u32, after: Option<bool>) -> NoMatch {
+    NoMatch {
+        first,
+        repair_calls,
+        after,
+    }
+}
+
+fn steps(calls: &[CallRecord]) -> Vec<(u32, u32)> {
+    calls.iter().map(|c| (c.attempt, c.call)).collect()
+}
+
+#[test]
+fn a_valid_reply_that_matches_nothing_gets_one_no_match_repair() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let no_match = no_match_reply();
+    let mut replay = ReplayProvider::new();
+    replay.insert(&first, reply(&no_match));
+    replay.insert(&no_match_repair_of(&first, &no_match), reply(GOOD));
+    let check = DecodeStub::default();
+
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &check);
+
+    assert_eq!(outcome.result, MappingResult::Mapping(good()));
+    assert_eq!(outcome.attempts, 1);
+    assert_eq!(steps(&outcome.calls), [(1, 1), (1, 3)]);
+    assert_eq!(outcome.no_match, found(Some(true), 1, Some(false)));
+    assert_eq!(check.asked.get(), 2);
+}
+
+#[test]
+fn a_valid_reply_that_matches_gets_no_repair_call() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let mut replay = ReplayProvider::new();
+    replay.insert(&first, reply(GOOD));
+    let check = DecodeStub::default();
+
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &check);
+
+    assert_eq!(outcome.result, MappingResult::Mapping(good()));
+    assert_eq!(steps(&outcome.calls), [(1, 1)]);
+    assert_eq!(outcome.no_match, found(Some(false), 0, Some(false)));
+    assert_eq!(check.asked.get(), 1);
+}
+
+#[test]
+fn a_no_match_repair_that_still_matches_nothing_is_final() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let no_match = no_match_reply();
+    let mut replay = ReplayProvider::new();
+    replay.insert(&first, reply(&no_match));
+    replay.insert(&no_match_repair_of(&first, &no_match), reply(&no_match));
+
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &DecodeStub::default());
+
+    let expected: StreamMapping = serde_json::from_str(&no_match).unwrap();
+    assert_eq!(outcome.result, MappingResult::Mapping(expected));
+    assert_eq!(steps(&outcome.calls), [(1, 1), (1, 3)]);
+    assert_eq!(outcome.no_match, found(Some(true), 1, Some(true)));
+}
+
+#[test]
+fn a_no_match_repair_reply_that_fails_to_decode_is_invalid() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let no_match = no_match_reply();
+    let mut replay = ReplayProvider::new();
+    replay.insert(&first, reply(&no_match));
+    replay.insert(&no_match_repair_of(&first, &no_match), reply("not json"));
+
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &DecodeStub::default());
+
+    let text = failure(&outcome.result);
+    assert!(text.starts_with("invalid: "), "{text}");
+    assert_eq!(steps(&outcome.calls), [(1, 1), (1, 3)]);
+    assert_eq!(outcome.no_match, found(Some(true), 1, None));
+}
+
+#[test]
+fn a_format_repair_mapping_is_checked_and_repaired_once() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let no_match = no_match_reply();
+    let mut replay = ReplayProvider::new();
+    replay.insert(&first, reply("not json"));
+    replay.insert(&repair_of(&first, "not json"), reply(&no_match));
+    replay.insert(&no_match_repair_of(&first, &no_match), reply(GOOD));
+
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &DecodeStub::default());
+
+    assert_eq!(outcome.result, MappingResult::Mapping(good()));
+    assert_eq!(steps(&outcome.calls), [(1, 1), (1, 2), (1, 3)]);
+    assert_eq!(outcome.no_match, found(Some(true), 1, Some(false)));
+}
+
+#[test]
+fn a_check_error_stops_the_proposal_without_a_call() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let mut replay = ReplayProvider::new();
+    replay.insert(&first, reply(&no_match_reply()));
+    let check = DecodeStub {
+        fails: true,
+        ..DecodeStub::default()
+    };
+
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &check);
+
+    assert_eq!(
+        outcome.result,
+        MappingResult::Failure("check: no sample".to_owned())
+    );
+    assert_eq!(steps(&outcome.calls), [(1, 1)]);
+    assert_eq!(outcome.no_match, found(None, 0, None));
+}
+
+#[test]
+fn a_gate_stop_before_the_no_match_repair_is_the_failure() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let mut replay = ReplayProvider::new();
+    replay.insert(&first, reply(&no_match_reply()));
+    let mut gate = Budget {
+        allow: 1,
+        seen: vec![],
+    };
+
+    let outcome = proposer(replay).propose(&input(), &mut gate, &DecodeStub::default());
+
+    assert_eq!(
+        outcome.result,
+        MappingResult::Failure("budget: stop".to_owned())
+    );
+    assert_eq!(gate.seen, [0, 1]);
+    assert_eq!(steps(&outcome.calls), [(1, 1)]);
+    assert_eq!(outcome.no_match, found(Some(true), 0, None));
+}
+
+#[test]
+fn a_provider_failure_on_the_no_match_repair_starts_the_next_attempt() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let mut replay = ReplayProvider::new();
+    // The no-match repair prompt is not recorded, so both attempts fail on it.
+    replay.insert(&first, reply(&no_match_reply()));
+
+    let outcome = proposer(replay).propose(&input(), &mut NoGate, &DecodeStub::default());
+
+    assert!(failure(&outcome.result).starts_with("provider: "));
+    assert_eq!(steps(&outcome.calls), [(1, 1), (1, 3), (2, 1), (2, 3)]);
+    assert_eq!(outcome.no_match, found(Some(true), 1, None));
+}
+
+#[test]
+fn the_no_match_repair_message_is_the_same_in_both_arms() {
+    let first = prompt::mapping_prompt(&input()).unwrap();
+    let raw = prompt::raw_mapping_prompt(&raw_input()).unwrap();
+    let no_match = no_match_reply();
+    let h_s2 = no_match_repair_of(&first, &no_match);
+    let b3 = no_match_repair_of(&raw, &no_match);
+    assert_eq!(h_s2.strip_prefix(&first), b3.strip_prefix(&raw));
+    let fault = prompt::data_line(prompt::MAPPING_NO_MATCH).unwrap();
+    assert!(h_s2.contains(&format!("BEGIN FAULT\n{fault}\nEND FAULT")));
 }
