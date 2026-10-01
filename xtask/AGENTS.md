@@ -54,7 +54,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   `[[exempt]]` row's `reason` and `issue` are fields, not comments: `--tighten-baseline`
   rewrites the file through serde and drops comments. Enforced since s2w#66 PR 4: a PR that
   shrinks an exempt module runs `--tighten-baseline` and commits the result; one that grows it
-  needs the `Baseline-growth:` trailer. Burn-down: s2w#378.
+  raises the row's `lines` in a commit carrying the `Baseline-growth:` trailer. Burn-down: s2w#378.
   - `module_size/walk.rs`: `syn` AST traversal, test-only cfg exclusion, `#[path]`/`include!` refusal (`include_str!`/`include_bytes!` are expressions that add no module line and are not refused, s2w#66).
   - `module_size/depinfo.rs`: rustc dep-info backstop for compiled files the walker missed.
     Every walked target of a package is checked against the union of the package's walks: a
