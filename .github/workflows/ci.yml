@@ -5,6 +5,9 @@ name: ci
 # self-hosted. A missing runner makes jobs QUEUE, not fail.
 # Self-hosted rules: never write under bare /tmp (16 GB shared tmpfs) -- TMPDIR and
 # CARGO_TARGET_DIR are set by the "self-hosted paths" step below; the runner user cannot read /home/dave.
+# Exception, deliberate (s2w#369): test EXECUTION gets TMPDIR on a per-job /dev/shm dir. Tests keep
+# SQLite stores under temp_dir and fsync on every write; on the shared ext4 disk those fsyncs stalled
+# 15-22 s under hub IO pressure and timed tests out. Compilation still uses the on-disk TMPDIR.
 on:
   push:
     branches: [main]
@@ -39,8 +42,20 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: rustdoc (broken or private intra-doc links fail, s2w#251)
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+      - name: test scratch on tmpfs (s2w#369; self-hosted only, hosted keeps its TMPDIR)
+        if: runner.environment == 'self-hosted'
+        run: |
+          dir="/dev/shm/s2w-test-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$GITHUB_JOB"
+          mkdir -p "$dir"
+          echo "S2W_TEST_TMPDIR=$dir" >> "$GITHUB_ENV"
       - name: test
-        run: cargo test --workspace
+        run: |
+          cargo test --workspace --no-run
+          TMPDIR="${S2W_TEST_TMPDIR:-$TMPDIR}" cargo test --workspace
+      - name: remove tmpfs test scratch
+        if: always() && runner.environment == 'self-hosted' && env.S2W_TEST_TMPDIR != ''
+        run: |
+          case "$S2W_TEST_TMPDIR" in /dev/shm/s2w-test-?*) rm -rf -- "$S2W_TEST_TMPDIR" ;; esac
       - name: fitness functions
         run: cargo run --quiet --package xtask -- check  # not the alias: a .cargo/config would hide it
       - name: demo scripts (offline only -- demos themselves read a live stream, run them yourself)

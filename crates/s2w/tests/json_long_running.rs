@@ -288,8 +288,10 @@ fn serve_stops_cleanly_on_sigterm_after_writing_a_snapshot() {
         .expect("write one event");
     stdin.flush().expect("flush stdin");
     let mut seen = Vec::new();
+    // A hang guard, not a latency budget (s2w#369): serve fsyncs ~20 times before `serving on`,
+    // and on a write-saturated disk that alone took 15-22 s. The loop exits on the first match.
     let written = loop {
-        match lines_rx.recv_timeout(Duration::from_secs(10)) {
+        match lines_rx.recv_timeout(Duration::from_secs(60)) {
             Ok(line) => {
                 let done = line.contains("snapshot written at offset");
                 seen.push(line);

@@ -1182,7 +1182,9 @@ async fn reached(
     source: &SourceId,
     until: Until,
 ) -> serde_json::Value {
-    tokio::time::timeout(Duration::from_secs(5), async {
+    // A hang guard, not a latency budget (s2w#369): every store write fsyncs, and with the
+    // test directory on a write-saturated disk a 5 s budget timed out. The loop exits early.
+    tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             // Read the counters BEFORE the world: the bridge serves a batch's claims before
             // it publishes the batch's counters, so this world includes every counted event.
