@@ -373,7 +373,13 @@ fn no_plaintext_string_or_key_survives() {
     for event in events() {
         strings(&event, &mut plain);
     }
-    let leaked: Vec<_> = plain.iter().filter(|s| text.contains(s.as_str())).collect();
+    // The SSE field names (`id:`, `data:`) are framing, not corpus content.
+    let body: String = text
+        .lines()
+        .map(|line| line.trim_start_matches("id: ").trim_start_matches("data: "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let leaked: Vec<_> = plain.iter().filter(|s| body.contains(s.as_str())).collect();
     assert!(
         leaked.is_empty(),
         "{leaked:?} occur in the obfuscated corpus"
@@ -632,8 +638,55 @@ fn an_obfuscated_corpus_scores_as_the_plain_one_up_to_renaming() {
         !plain.excluded.is_empty(),
         "the fixture exercises a no_identity sentinel"
     );
-    let plain = renamed_ids(&serde_json::to_string(&plain).unwrap(), &fx.meta());
-    assert_eq!(plain, serde_json::to_string(&obf).unwrap());
+    // Compared as parsed JSON (both sides through the same text round trip): renaming
+    // changes the sort order of name-keyed maps.
+    let plain: Value = serde_json::from_str(&renamed_ids(
+        &serde_json::to_string(&plain).unwrap(),
+        &fx.meta(),
+    ))
+    .unwrap();
+    let obf: Value = serde_json::from_str(&serde_json::to_string(&obf).unwrap()).unwrap();
+    let (mut plain, mut obf) = (plain, obf);
+    let plain_rows = take_contexts(&mut plain);
+    let obf_rows = take_contexts(&mut obf);
+    assert_eq!(plain, obf);
+    // A fold puts the context into the hash, so one name in two contexts gets two hashes: the
+    // collision groups of a folded type are empty on the obfuscated stream by construction.
+    // Every unfolded type's row is unchanged.
+    assert_eq!(
+        plain_rows.keys().collect::<Vec<_>>(),
+        obf_rows.keys().collect::<Vec<_>>()
+    );
+    for (row, plain_row) in &plain_rows {
+        let folded = ["doc @ ", "ver @ "].iter().any(|t| row.starts_with(t));
+        if folded {
+            assert_eq!(obf_rows[row]["groups"], json!(0), "{row} keeps a group");
+        } else {
+            assert_eq!(&obf_rows[row], plain_row, "{row}");
+        }
+    }
+    assert!(
+        plain_rows
+            .iter()
+            .any(|(row, r)| row.starts_with("doc @ ") && r["groups"] != json!(0)),
+        "the fixture has a folded collision group to lose"
+    );
+}
+
+/// Removes and returns the grade's `contexts` object, wherever it sits.
+fn take_contexts(value: &mut Value) -> serde_json::Map<String, Value> {
+    match value {
+        Value::Object(map) => {
+            if let Some(Value::Object(rows)) = map.remove("contexts") {
+                return rows;
+            }
+            map.values_mut()
+                .map(take_contexts)
+                .find(|rows| !rows.is_empty())
+                .unwrap_or_default()
+        }
+        _ => serde_json::Map::new(),
+    }
 }
 
 fn at_name(meta: &Meta, top: &str) -> String {
