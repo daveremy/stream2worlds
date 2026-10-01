@@ -112,7 +112,7 @@ fn accept(reply: &str, input: &ManifestInput) -> Result<DashboardManifest, Strin
 }
 
 /// `reply` without surrounding whitespace and one surrounding code fence, if it has one.
-fn unfence(reply: &str) -> &str {
+pub(crate) fn unfence(reply: &str) -> &str {
     let trimmed = reply.trim();
     let Some(inner) = trimmed
         .strip_prefix("```")
