@@ -6,7 +6,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, reserved-4 for s2w#291 PR 2, reserved-5 for s2w#245 PR 4, and reserved-6 for s2w#375 (pinned by PR 1, still unopened); `reserved` opened as held-out by s2w#244, the others by the PRs named), and the private stream's `private-dev` and `private-test` (s2w#371, with their provenance sidecars): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, reserved-4 for s2w#291 PR 2, reserved-5 for s2w#245 PR 4, and reserved-6 for s2w#375 (pinned by PR 1, still unopened); `reserved` opened as held-out by s2w#244, the others by the PRs named), and the private stream's `private-dev` and `private-test` (s2w#371) and their second capture `private-dev-2` and `private-test-2` (s2w#375, pinned by PR 1), each with its provenance sidecar: role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `private/` | The private-stream capture (s2w#371): `capture.ts` (sources to SSE), `scrub.ts` (the fail-closed gate), `extract.ts` (the published `detail` regex table), `events.ts` (pure builders), `fixture.ts` and `fixture/synthetic-20.sse` (the only committed capture-format file: fake numbers and shas), `capture.test.ts`. See "Private stream" below. |
 | `prices.toml` | The public price table `cargo xtask gate3` charges a run by: one row per model snapshot, USD per million tokens, with its source page and date. |
@@ -93,6 +93,25 @@ pins. The order is in the git log: the corpus pins, then `frozen/h-min-v8.privat
 and its profile table. The private key (`private-key-v0.json`, s2w#372) was pinned before both,
 so this freeze is the one `private-test` is scored against. `private-test` stays `reserved` until
 that score opens it.
+
+**The second capture (s2w#375 PR 1, run 2026-10-01 UTC):** the same spans and command, taken after
+s2w#398 (sprint rows), s2w#405 (a sprint's actual `(slot HH:MM–)` start) and s2w#395 (`refs` as
+`{repo, number}`) merged. It supersedes the first capture for scoring; the pinned first captures
+stay as the record.
+
+| Corpus | Role | Span (UTC) | Events | `sprint.boundary` frames | Dropped (capture header) |
+|---|---|---|---|---|---|
+| `private-dev-2` | development | 2026-09-21T00:00Z to 2026-09-28T12:00Z | 8,072 | 62 (sprints 4 to 65) | 1,109 rows from other projects, 2,811 timeline events of other kinds, 6,907 frames outside the span, 116 refs to other repositories, 27 refs over the cap |
+| `private-test-2` | reserved | 2026-09-29T00:00Z to 2026-10-01T00:00Z | 5,524 | 23 (sprints 73 to 95) | 191 rows from other projects, 1,262 timeline events of other kinds, 987 frames outside the span, 17 refs to other repositories, 22 refs over the cap |
+
+A frame-level diff against the first capture, reported as counts only, adds 5 and 23
+`sprint.boundary` frames and removes nothing; the only changed field is `refs` on `commit` and
+`pr.opened` frames, as s2w#395 intends. The timeline drop counts grew because GitHub timelines
+gained events after the first capture. Every sprint row parsed (`unparsed` 0); seven rows carry an
+off-hour start (sprints 66 and 68 to 73), and since s2w#405 the capture uses it, so sprint 66
+(12:30Z) falls outside `private-dev-2` and sprint 72 (2026-09-28T23:36Z) outside
+`private-test-2`. `key.ts --check` on `private-dev-2` fails no rule. `private-test-2` stays
+`reserved`: only its stanza and the counts-only diff were read.
 
 ## Private answer key (s2w#372)
 
