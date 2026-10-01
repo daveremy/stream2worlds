@@ -2,7 +2,7 @@
   "format": 1,
   "replicate": "r1",
   "key_sha256": "3825c743fc0f0b8bb0d069dc14231934bfed1174827686edb7608703770aaf4d",
-  "rules_sha256": "e86363bb53bff9c8f60c17ef284089ff599e5d83cfd66f14e6d04aafb2650923",
+  "rules_sha256": "32149f68de5d99f4d89497b3cbae1659e79a0e7ab0e0f71f2400afb3afce4b32",
   "shift_seconds": -68587192,
   "fields": [
     {
@@ -1366,6 +1366,15 @@
       "count": 339
     }
   ],
+  "own_values": [
+    {
+      "path": [
+        "meta",
+        "domain"
+      ],
+      "count": 5
+    }
+  ],
   "unused_rules": [],
   "unobservable": [
     {
@@ -1418,7 +1427,7 @@
     "dev": {
       "file": "dev.obf-r1.raw.sse",
       "events": 200000,
-      "sha256": "0d4e67dc5767d2129a623788c9df20fcb01463cc79bbf5a02237bd5a54946e14"
+      "sha256": "f81c35abb7b39a29061bc4f610c77522ef01b30743e203e7003788cacfb8f6cd"
     }
   },
   "keys": {

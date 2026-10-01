@@ -220,7 +220,7 @@ With `--meta` naming an existing metadata file, the run reuses its field table a
 field path the table does not hold, a different key, a different rules file, a different
 replicate, or a corpus or answer key the metadata already records. It then appends its inputs
 and outputs (window name, file, sha256) to the metadata, unites the per-path treatments and
-undeclared numbers, sums the fallback counts, and keeps a rule listed as unused only if no
+undeclared numbers, sums the fallback and own-value counts, and keeps a rule listed as unused only if no
 run's input held its path, so the metadata stays the complete record of
 the replicate. An output that exists is refused; nothing is written unless every input
 transforms.
@@ -260,6 +260,12 @@ domain = "wiki"
 from = ["wiki"]            # alias: hash the value at `from`, so the two are byte-equal
 
 [[rule]]
+path = ["meta", "domain"]
+domain = "wiki"
+from = ["wiki"]
+own_if_absent = true       # a record with no `wiki` hashes its own value instead (counted)
+
+[[rule]]
 path = ["title"]
 domain = "title"
 fold = [["wiki"]]          # context values hashed in first: one title on two wikis, two hashes
@@ -294,12 +300,19 @@ reason = "a title named inside a comment"
 
 A rule sets exactly one of `domain`, `url_query` and `unix_seconds`; `fold`, `from` and
 `url_path` need a `domain`. A `url_path` value of any other shape is hashed whole as text and
-counted in the metadata.
+counted in the metadata. A `from` path a record lacks fails the run, unless the rule sets
+`own_if_absent`: then that record's own value is hashed in the rule's domain and counted in the
+metadata's `own_values`. A `from` path that is present but holds no string or number still fails.
 
 A fold changes what the context-collision rows can measure: one name under two contexts gets
 two hashes, so a folded type has no collision groups on the obfuscated stream. Every other
 number is the same as on the plain stream up to renaming; `h_measure/obfuscate/tests.rs` checks
 this on a synthetic stream.
+
+Replicate r1 (s2w#370) covers the development window: `[corpus.obf-r1-dev]` in `corpora.toml`,
+`dev-key-v2.obf-r1.json` in `keys.toml`, and `obfuscation/r1.meta.json`, from
+`obfuscation/recentchange.rules.toml`. Its key is outside the repository; the test window is
+obfuscated later under `--meta obfuscation/r1.meta.json`.
 
 ## How the base key was written
 

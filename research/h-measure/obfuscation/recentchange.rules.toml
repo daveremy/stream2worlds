@@ -19,12 +19,13 @@ path = ["server_url"]
 domain = "wiki"
 from = ["wiki"]
 
-# Not an alias via `from`: canary events carry `meta.domain` ("canary") and no `wiki`, and a
-# `from` rule fails closed on them. Hashed as its own value in the wiki domain until leg B
-# settles it (s2w#370 PR 2 checkpoint).
+# Canary events carry `meta.domain` ("canary") and no `wiki`: they hash their own value in the
+# wiki domain, counted in the metadata's `own_values` (karpathy ruling, s2w#370 2026-09-30).
 [[rule]]
 path = ["meta", "domain"]
 domain = "wiki"
+from = ["wiki"]
+own_if_absent = true
 
 # --- pages: fold wiki (#17 Q1, ruling 3) ---
 [[rule]]

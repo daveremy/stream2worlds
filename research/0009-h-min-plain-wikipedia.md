@@ -566,9 +566,11 @@ this note's by design, not by H-lite:
 
 1. **Plain and obfuscated ceilings differ.** `server_name` and `server_url` are hashed from the
    record's `wiki` value (§B2.2: aliases "hashed the same way"), so on the obfuscated stream they are
-   byte-equal to `wiki` and the v0 alias limit does not bite on them. `meta.domain` is hashed as
-   its own value, because canary events carry it without a `wiki` (open for review). Compare an
-   obfuscated score with an obfuscated ceiling, never with the plain one.
+   byte-equal to `wiki` and the v0 alias limit does not bite on them. `meta.domain` is too, with one
+   exception, the canary rule: canary events carry `meta.domain` and no `wiki`, so on those events
+   it hashes its own value in the wiki domain, and `obfuscation/r1.meta.json` counts them under
+   `own_values` (karpathy ruling, s2w#370 2026-09-30). Compare an obfuscated score with an
+   obfuscated ceiling, never with the plain one.
 2. **Folded types have no context-collision rows.** `title`, `revision` and `page_id` fold `wiki`
    into the hash (#17), so one name on two wikis gets two hashes and those types form no collision
    groups. Context collisions are a reported diagnostic, not a §B3 scored metric; identity F1,

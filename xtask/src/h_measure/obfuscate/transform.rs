@@ -42,6 +42,9 @@ pub(super) struct Stats {
     pub undeclared_numbers: BTreeSet<Vec<String>>,
     /// Values hashed whole as text because their URL rule did not match their shape, per path.
     pub fallbacks: BTreeMap<Vec<String>, usize>,
+    /// Values hashed as their own because the record lacked their rule's `from` path
+    /// (`own_if_absent`), per path.
+    pub own_values: BTreeMap<Vec<String>, usize>,
 }
 
 /// The transformer for one replicate.
@@ -249,7 +252,12 @@ impl<'r> Transformer<'r> {
         let domain = rule.domain.as_deref().unwrap_or(TEXT);
         let mut parts = folded(chain, &rule.fold, record)?;
         let canonical = if let Some(from) = &rule.from {
-            Some(context(chain, from, record)?)
+            if rule.own_if_absent && record.is_some_and(|r| lookup(r, from).is_none()) {
+                *self.stats.own_values.entry(chain.to_vec()).or_default() += 1;
+                Some(own.clone())
+            } else {
+                Some(context(chain, from, record)?)
+            }
         } else if let Some(url) = &rule.url_path {
             let base = context(chain, &url.base, record).ok();
             base.and_then(|base| canon::url_tail(&own, &base, &url.marker, &url.replace))

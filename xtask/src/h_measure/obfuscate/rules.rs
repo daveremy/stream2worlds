@@ -42,6 +42,11 @@ pub(super) struct Rule {
     /// An alias: hash the value at this path of the same record instead of the value here, so
     /// the alias becomes byte-equal to that path's hash.
     pub from: Option<Vec<String>>,
+    /// With `from`: a record that lacks the `from` path entirely hashes this path's own value
+    /// in the rule's domain instead of failing, and the run counts it in the metadata. A `from`
+    /// path that is present but holds no scalar still fails.
+    #[serde(default)]
+    pub own_if_absent: bool,
     /// The identifier is the tail of a URL: see [`UrlPath`].
     pub url_path: Option<UrlPath>,
     /// The value is a URL whose query parameters hold identifiers: each listed parameter
@@ -167,6 +172,9 @@ fn check_rule(rule: &Rule) -> Result<(), String> {
         return Err(format!(
             "rule {path:?}: fold, from and url_path need a domain"
         ));
+    }
+    if rule.own_if_absent && rule.from.is_none() {
+        return Err(format!("rule {path:?}: own_if_absent needs from"));
     }
     if rule.from.is_some() && rule.url_path.is_some() {
         return Err(format!("rule {path:?}: set from or url_path, not both"));
