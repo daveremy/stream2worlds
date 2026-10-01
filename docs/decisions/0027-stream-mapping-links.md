@@ -1,6 +1,6 @@
 # 0027: Stream mapping links (format version 2)
 
-Date: 2026-09-29 · Status: accepted (#245 PR 1: the format; PR 2: the executor) · Gate 3 · Issue #245 · Amends [0021](0021-stream-mapping-v0.md) (version 2), [0023](0023-routes-from-stored-mappings.md) (identity hashes the mapping's own version), [0005](0005-pure-fold.md) (a second producer of merges) · Builds on [0018](0018-no-compiled-domain-code.md)
+Date: 2026-09-29 · Status: accepted (#245 PR 1: the format; PR 2: the executor; PR 4: the profiler emits links) · Gate 3 · Issue #245 · Amends [0021](0021-stream-mapping-v0.md) (version 2), [0023](0023-routes-from-stored-mappings.md) (identity hashes the mapping's own version), [0005](0005-pure-fold.md) (a second producer of merges) · Builds on [0018](0018-no-compiled-domain-code.md)
 
 ## Context
 
@@ -129,7 +129,7 @@ Its identity, `mapping-25768f1123cac8c0`, is pinned.
 | 1 (this) | The format, this record, the 0005, 0021 and 0023 amendments; the h-measure preamble names the ceiling "the oracle-v0 mapping". |
 | 2 | `MappingEngine` claims merges (semantics 3 and 4); check 11 gains a merge arm and a version-2 fixture. |
 | 3 | h-measure scores through the fold, so a link can score; an "oracle with links" ceiling row. |
-| 4 | The profiler emits links from its 1:1 merges (`PROFILER_VERSION` 6, a 0022 amendment), with pre-registered predictions and the memory gate. |
+| 4 | The profiler emits links from its 1:1 merges (`PROFILER_VERSION` 9, a 0022 amendment), with pre-registered predictions and the memory gate. *2026-10-01: done; the links are measurement-only, since `serve` auto-applies version 1 until s2w#392 sets a memory baseline (0022's s2w#245 amendment; research 0009's s2w#245 addendum).* |
 
 ## Surfaces (0017)
 

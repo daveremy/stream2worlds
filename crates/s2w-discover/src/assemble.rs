@@ -6,19 +6,25 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use s2w_model::{
-    AttrRule, EntityRule, FieldPath, MAPPING_VERSION, RelationshipRule, StreamMapping,
+    AttrRule, EntityRule, FieldPath, LinkRule, MAPPING_VERSION, MAPPING_VERSION_LINKS,
+    RelationshipRule, StreamMapping,
 };
 
 use crate::flatten::{BOOL, INT, STR, Table, pct};
+use crate::link::one_to_one_links;
 use crate::roles::{Dependency, Follower, Role, aliased, candidate_dependent, repeat_groups};
 use crate::{Config, rule_id, type_labels};
 
-/// An entity type: an alias class, one representative value per event, and the key paths of
-/// classes merged into it as 1:1.
+/// An entity type: an alias class, one representative value per event, the key paths of
+/// classes merged into it as 1:1, which of those stay key paths (`aliases`, each its own entity
+/// rule under the type's label) and the links between them (survivor path, absorbed path;
+/// decision 0027). A merged path that is not an alias is an attribute.
 struct Type {
     members: Vec<usize>,
     values: Vec<Option<String>>,
     merged: Vec<usize>,
+    aliases: Vec<usize>,
+    links: Vec<(usize, usize)>,
 }
 
 /// Builds the mapping from the entity paths in `roles` and the paths in stage 5b's `links`, or
@@ -43,21 +49,62 @@ pub(crate) fn assemble(
     }
     let types = merge_one_to_one(table, key_classes(table, &keys, links, cfg), cfg);
     let key_set: BTreeSet<usize> = keys.iter().copied().collect();
+    let (entities, link_rules) = entity_rules(table, roles, &types, &key_set, cfg);
+    let mut relationships = relationships(table, &types, followers, &linked, cfg);
+    relationships.sort_by(|a, b| (&a.from, &a.to, &a.kind).cmp(&(&b.from, &b.to, &b.kind)));
+    let mapping = StreamMapping {
+        version: if link_rules.is_empty() {
+            MAPPING_VERSION
+        } else {
+            MAPPING_VERSION_LINKS
+        },
+        decode: table.decode.clone(),
+        entities,
+        relationships,
+        links: link_rules,
+    };
+    mapping
+        .validate()
+        .map_err(|e| format!("emitted mapping is invalid: {e}"))?;
+    Ok(mapping)
+}
+
+/// The entity rules of every type (its members, then its 1:1 aliases, under one label) and the
+/// links between them, each sorted.
+fn entity_rules(
+    table: &Table,
+    roles: &[Role],
+    types: &[Type],
+    key_set: &BTreeSet<usize>,
+    cfg: &Config,
+) -> (Vec<EntityRule>, Vec<LinkRule>) {
     let classes: Vec<Vec<FieldPath>> = types
         .iter()
-        .map(|ty| ty.members.iter().map(|&p| table.paths[p].clone()).collect())
+        .map(|ty| {
+            ty.members
+                .iter()
+                .chain(&ty.aliases)
+                .map(|&p| table.paths[p].clone())
+                .collect()
+        })
         .collect();
     let mut entities = Vec::new();
+    let mut links = Vec::new();
     for (ty, label) in types.iter().zip(type_labels(&classes)) {
         for &k in &ty.members {
             // Only an entity-test key has the repeat groups the attribute test reads; a key that
             // is unique per event (stage 5b's) has none, so it carries no attributes.
             let mut attrs = if roles[k] == Role::Entity {
-                attributes(table, k, &key_set, cfg)
+                attributes(table, k, key_set, cfg)
             } else {
                 Vec::new()
             };
-            attrs.extend(ty.merged.iter().map(|&m| attr(table, m)));
+            attrs.extend(
+                ty.merged
+                    .iter()
+                    .filter(|m| !ty.aliases.contains(m))
+                    .map(|&m| attr(table, m)),
+            );
             attrs.sort_by(|a, b| a.name.cmp(&b.name));
             entities.push(EntityRule {
                 id: rule_id(&table.paths[k]),
@@ -66,21 +113,22 @@ pub(crate) fn assemble(
                 attrs,
             });
         }
+        for &k in &ty.aliases {
+            entities.push(EntityRule {
+                id: rule_id(&table.paths[k]),
+                type_label: label.clone(),
+                key: vec![table.paths[k].clone()],
+                attrs: Vec::new(),
+            });
+        }
+        links.extend(ty.links.iter().map(|&(s, a)| LinkRule {
+            survivor: rule_id(&table.paths[s]),
+            absorbed: rule_id(&table.paths[a]),
+        }));
     }
     entities.sort_by(|a, b| a.id.cmp(&b.id));
-    let mut relationships = relationships(table, &types, followers, &linked, cfg);
-    relationships.sort_by(|a, b| (&a.from, &a.to, &a.kind).cmp(&(&b.from, &b.to, &b.kind)));
-    let mapping = StreamMapping {
-        version: MAPPING_VERSION,
-        decode: table.decode.clone(),
-        entities,
-        relationships,
-        links: Vec::new(),
-    };
-    mapping
-        .validate()
-        .map_err(|e| format!("emitted mapping is invalid: {e}"))?;
-    Ok(mapping)
+    links.sort_by(|a, b| (&a.absorbed, &a.survivor).cmp(&(&b.absorbed, &b.survivor)));
+    (entities, links)
 }
 
 /// Co-occurrence relationships between every two types, except that a leaf relates only to its
@@ -162,7 +210,9 @@ fn attr(table: &Table, path: usize) -> AttrRule {
 
 /// Merges classes that determine each other, transitively (1:1, research 0002 §4: two encodings of one
 /// entity). The key is chosen without names: most alias members, then most events, then most
-/// distinct values, then integer over string over bool. A tie keeps the classes apart.
+/// distinct values, then integer over string over bool. A tie keeps the classes apart. The
+/// losers are linked (`one_to_one_links`, when `cfg.links`) or, failing that, become the
+/// winner's attributes.
 fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Vec<Type> {
     let values: Vec<Vec<Option<String>>> = classes.iter().map(|c| class_values(table, c)).collect();
     let linked = |i: usize, j: usize| {
@@ -190,18 +240,26 @@ fn merge_one_to_one(table: &Table, classes: Vec<Vec<usize>>, cfg: &Config) -> Ve
         } else {
             &ranked[..]
         };
-        let merged: Vec<usize> = if unique_top {
+        let losers: Vec<&[usize]> = if unique_top {
             ranked[1..]
                 .iter()
-                .flat_map(|&(_, i)| classes[i].clone())
+                .map(|&(_, i)| classes[i].as_slice())
                 .collect()
         } else {
             Vec::new()
+        };
+        let merged: Vec<usize> = losers.iter().flat_map(|c| c.iter().copied()).collect();
+        let (aliases, links) = if cfg.links {
+            one_to_one_links(table, &classes[ranked[0].1], &losers)
+        } else {
+            (Vec::new(), Vec::new())
         };
         types.extend(winners.iter().map(|&(_, i)| Type {
             members: classes[i].clone(),
             values: values[i].clone(),
             merged: merged.clone(),
+            aliases: aliases.clone(),
+            links: links.clone(),
         }));
     }
     types

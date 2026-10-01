@@ -7,7 +7,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use s2w_model::{EntityRule, FieldPath, Segment, StreamMapping};
+use s2w_model::{
+    EntityRule, FieldPath, LinkRule, MAPPING_VERSION, MAPPING_VERSION_LINKS, Segment, StreamMapping,
+};
 use serde_json::{Value, json};
 
 use super::*;
@@ -403,9 +405,98 @@ fn the_near_unique_threshold_is_inclusive_on_the_rounded_down_ratio() {
 
 #[test]
 fn one_to_one_classes_merge_under_the_integer_key() {
+    // `c` and `cc` have equal numbers of values, so neither is the more specific: no link, and
+    // the loser stays an attribute (decision 0027).
     let m = mapping(run(&stream(1200), &[]).1);
     assert!(m.entities.iter().all(|e| e.id != "cc"));
     assert!(entity(&m, "c").attrs.iter().any(|x| x.name == "cc"));
+    assert!(m.links.is_empty());
+    assert_eq!(m.version, MAPPING_VERSION);
+}
+
+/// The base stream without `x.a` (so `a`'s class has one member) plus encodings of `a`'s entity
+/// named in `with`: `av` joins `a59` to `a58` (fewer values than `a`); `ay`, in nine events of
+/// ten, splits `a0` in two (more values than `a`, and fewer events).
+fn encodings(n: u64, with: &[&str]) -> Vec<Value> {
+    (0..)
+        .zip(stream(n))
+        .map(|(i, mut event): (u64, Value)| {
+            let a: u64 = event["a"].as_str().unwrap()[1..].parse().unwrap();
+            event.as_object_mut().unwrap().remove("x");
+            if with.contains(&"av") {
+                event["av"] = json!(format!("v{}", a.min(58)));
+            }
+            if with.contains(&"ay") && i % 10 != 0 {
+                let y = if a == 0 && i % 2 == 0 {
+                    "y-split".to_owned()
+                } else {
+                    format!("y{a}")
+                };
+                event["ay"] = json!(y);
+            }
+            event
+        })
+        .collect()
+}
+
+fn link(survivor: &str, absorbed: &str) -> LinkRule {
+    LinkRule {
+        survivor: survivor.to_owned(),
+        absorbed: absorbed.to_owned(),
+    }
+}
+
+#[test]
+fn a_one_to_one_loser_with_fewer_values_is_linked_into_the_winner() {
+    let m = mapping(run(&encodings(1200, &["av"]), &[]).1);
+    assert_eq!(m.version, MAPPING_VERSION_LINKS);
+    assert_eq!(m.links, [link("a", "av")]);
+    assert_eq!(entity(&m, "av").type_label, entity(&m, "a").type_label);
+    assert!(entity(&m, "av").attrs.is_empty());
+    assert!(entity(&m, "a").attrs.iter().all(|x| x.name != "av"));
+    assert!(
+        m.relationships
+            .iter()
+            .all(|r| r.from != "av" && r.to != "av")
+    );
+}
+
+#[test]
+fn the_survivor_is_the_class_with_more_values_not_the_merge_winner() {
+    // `a` wins the merge (more events) but `ay` has more values, so `ay` survives.
+    let m = mapping(run(&encodings(1200, &["ay"]), &[]).1);
+    assert_eq!(m.links, [link("ay", "a")]);
+    assert!(entity(&m, "ay").attrs.is_empty());
+    assert!(!entity(&m, "a").attrs.is_empty());
+    assert_eq!(entity(&m, "ay").type_label, entity(&m, "a").type_label);
+}
+
+#[test]
+fn every_other_class_of_a_merge_links_into_the_one_survivor() {
+    let m = mapping(run(&encodings(1200, &["av", "ay"]), &[]).1);
+    assert_eq!(m.links, [link("ay", "a"), link("ay", "av")]);
+    m.validate().unwrap();
+}
+
+#[test]
+fn with_links_off_every_loser_is_an_attribute_and_the_mapping_is_version_1() {
+    let off = Config {
+        links: false,
+        ..Config::default()
+    };
+    let events = encodings(1200, &["av", "ay"]);
+    let on = mapping(run(&events, &[]).1);
+    assert_eq!(
+        on.version, MAPPING_VERSION_LINKS,
+        "vacuous: no links with links on"
+    );
+    let m = mapping(run_with(&events, &[], &off).1);
+    assert_eq!(m.version, MAPPING_VERSION);
+    assert!(m.links.is_empty());
+    assert!(m.entities.iter().all(|e| e.id != "av" && e.id != "ay"));
+    let a = entity(&m, "a");
+    assert!(a.attrs.iter().any(|x| x.name == "av"));
+    assert!(a.attrs.iter().any(|x| x.name == "ay"));
 }
 
 #[test]
@@ -565,6 +656,10 @@ impl Obfuscate {
             r.from.clone_from(&ids[r.from.as_str()]);
             r.to.clone_from(&ids[r.to.as_str()]);
         }
+        for l in &mut out.links {
+            l.survivor.clone_from(&ids[l.survivor.as_str()]);
+            l.absorbed.clone_from(&ids[l.absorbed.as_str()]);
+        }
         canonical(out)
     }
 }
@@ -582,6 +677,8 @@ fn canonical(mut m: StreamMapping) -> StreamMapping {
     }
     m.relationships
         .sort_by(|a, b| (&a.from, &a.to, &a.kind).cmp(&(&b.from, &b.to, &b.kind)));
+    m.links
+        .sort_by(|a, b| (&a.absorbed, &a.survivor).cmp(&(&b.absorbed, &b.survivor)));
     m
 }
 
@@ -599,6 +696,16 @@ fn renaming_keys_and_hashing_strings_only_renames_the_mapping() {
     );
     assert_eq!(canonical(mapping(b)), obf.mapping(&a));
     assert_eq!(pb.event_type, pa.event_type.as_ref().map(|p| obf.path(p)));
+}
+
+#[test]
+fn renaming_is_invariant_with_links() {
+    let plain = encodings(1200, &["av", "ay"]);
+    let obf = Obfuscate::new(&plain);
+    let hidden: Vec<Value> = plain.iter().map(|v| obf.value(v)).collect();
+    let a = mapping(run(&plain, &[]).1);
+    assert_eq!(a.links.len(), 2, "vacuous: {:?}", a.links);
+    assert_eq!(canonical(mapping(run(&hidden, &[]).1)), obf.mapping(&a));
 }
 
 #[test]
