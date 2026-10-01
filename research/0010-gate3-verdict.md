@@ -18,8 +18,10 @@
 stream must pass on its own" is not met. No replicate was unmeasurable: all 20 committed files are
 mappings (no failure), every reported model is the configured snapshot, and no test span was opened
 before the predictions comment (issuecomment-5938191252) or before the 20 mappings reached `main`
-(596ea37). Git ancestry orders it: pins, freezes (#430), mappings (#432), predictions, openings
-(2842008), scores (a0a1237).
+(596ea37). GitHub push data orders it: freezes (#430 merged 18:40:29Z), predictions comment (18:44:06Z),
+first committed-mapping push (19:33:05Z), mappings on `main` (#432, 596ea37, 20:46:46Z), openings
+(2842008, a descendant of 596ea37), scores (a0a1237, pushed 21:14:45Z). Git ancestry cannot order a
+comment, so the comment is placed by its timestamp.
 
 | B4 item | obfuscated | private |
 |---|---|---|
@@ -34,7 +36,7 @@ before the predictions comment (issuecomment-5938191252) or before the 20 mappin
 How to read the rows:
 
 - **Obfuscated, first failing item: 1.** H+S2 is below H in every replicate.
-- **Private, first failing item: 2c by the plan's convention** (an undefined relationship F1 counts as
+- **Private, first failing item: 2c by the plan's convention, which is contract §B3 "Degenerate outputs"** (an undefined relationship F1 counts as
   a fail for the item that uses it). H's edge F1 is undefined on both streams (obfuscated: 44,564 predicted edges, none matches the key, so
   P and R are 0.0000; private: no edges predicted), so 2c cannot pass under that convention. Read an
   undefined edge F1 as 0 instead and 2c passes on both streams: the private first failing item
@@ -125,6 +127,12 @@ Nothing was re-tuned. These are findings.
   in an obfuscated dev window. This reveals a count only: no names, no values. `dev-key-v3.json`
   declares `log_params` an unscored prefix, so no scored row touches these paths. Option B (a table
   that can gain fields) is a follow-up, not done.
+- **`private-test-2` was opened before the mappings** (s2w#375 PR 2, for H's score; sanctioned by
+  the plan). It is not one of the five obfuscated test spans.
+- **Identical r2-r5 H+S2/B3 obfuscated scores are a real outcome.** Each replicate is scored with
+  its own mapping, key and corpus (distinct sha256s); the mappings cover the same structural
+  classes (one user path, one page path, one wiki alias), and B-cubed is alias-invariant. Low-digit
+  F1 values and relationship F1 differ per replicate.
 - **Plain `reserved-6` was already open** (s2w#375 PR 2). The obfuscated test span's blindness rests
   on the unseen replicate key and field table, which the held-out metadata (`obfuscation/rK.meta.json`,
   committed by this PR after every mapping) provide, not on the underlying events being unseen.
@@ -158,7 +166,10 @@ above the $5 per-file gate.
 1. **Gate 3 fails: stop and re-decide** (contract, kill criteria). The decision is Dave's. →
    deferred: karpathy to bring Dave; no code change here.
 2. **H's `wiki` and edge behaviour under obfuscation** (F1 0.6011 against 0.8104 on plain data) is the
-   biggest single number in this run and has no explanation yet. → deferred: follow-up to be
+   biggest single number in this run. Review traced the mechanism (not a scorer bug): obfuscation
+   ruling 2 makes `wiki`, `server_name`, `server_url` and `meta.domain` byte-equal, so the profiler's
+   `aliased` filter removes them as each other's dependents, H emits no wiki type, wiki recall falls
+   from 0.5598 to 0, and H's only edge type (user to page) aligns with no key edge. → deferred: follow-up to be
    filed by karpathy if Dave continues the slice.
 3. **Obfuscated `recovery` for H+S2 (0.0705) and the dropped types** suggest the System 2 mapping
    prompt loses types H keeps. → deferred: same follow-up.
