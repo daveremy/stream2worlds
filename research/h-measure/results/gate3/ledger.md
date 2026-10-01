@@ -53,7 +53,7 @@ Post-repair zero rate: files whose final mapping matches no sampled record, over
 
 ## Failed probes (no file written)
 
-Six clean-session probes answered something other than `none`, so those runs wrote no file. Each one was re-run once under the same replicate number, as ruling Q7 allows (up to 3 runs). Every re-run passed its probe. No stream reached 3 failures, so no stream is unmeasurable. Every failed reply named only the context that the CLI attaches to each prompt: a `userEmail` reminder and a `gitStatus` reminder for the empty scratch directory. No failed reply named the corpus, an instruction file or memory. Passing probes saw the same attachments and did not mention them, so a `none` reply shows the model reported nothing. It does not show the session was empty (follow-up issue linked in PR 2).
+Six clean-session probes answered something other than `none`, so those runs wrote no file. Each one was re-run once under the same replicate number, as ruling Q7 allows (up to 3 runs). Every re-run passed its probe. No stream reached 3 failures, so no stream is unmeasurable. Every failed reply named only the context that the CLI attaches to each prompt: a `userEmail` reminder and a `gitStatus` reminder for the empty scratch directory. No failed reply named the corpus, an instruction file or memory. Passing probes saw the same attachments and did not mention them, so a `none` reply shows the model reported nothing. It does not show the session was empty (follow-up: s2w#431).
 
 | arm | corpus | K | probe charge $ |
 |---|---|---|---|
