@@ -385,3 +385,38 @@ mod b3;
 mod b3_view;
 mod no_match;
 mod private_probe;
+
+#[test]
+fn parallel_sessions_get_distinct_homes() {
+    let dir = std::env::temp_dir().join(format!("s2w-gate3-distinct-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let creds = dir.join("c.json");
+    let now = now_ms();
+    let expires = now + MIN_TOKEN_LIFE_MS + 60_000;
+    fs::write(
+        &creds,
+        format!("{{\"claudeAiOauth\":{{\"expiresAt\":{expires}}}}}"),
+    )
+    .unwrap();
+    let sessions: Vec<Session> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                scope.spawn(|| {
+                    (0..16)
+                        .map(|_| Session::open(&creds, now).unwrap())
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap())
+            .collect()
+    });
+    let mut homes: Vec<&Path> = sessions.iter().map(Session::home).collect();
+    homes.sort();
+    homes.dedup();
+    assert_eq!(homes.len(), 8 * 16);
+    drop(sessions);
+    let _ = fs::remove_dir_all(&dir);
+}

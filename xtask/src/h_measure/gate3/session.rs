@@ -14,6 +14,7 @@ use std::fs;
 use std::io::Write as _;
 use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use s2w_system2::{ExecLimits, ExecProvider, MAX_ATTEMPTS, ReplyFormat};
@@ -33,6 +34,10 @@ pub(crate) const MIN_TOKEN_LIFE_MS: u64 = (MAX_CALLS * CALL_TIMEOUT.as_secs() + 
 
 /// Where the CLI reads its credentials, under `HOME`.
 const CREDENTIALS: &str = ".claude/.credentials.json";
+
+/// Sessions opened by this process: parallel callers share the pid and can share a clock tick,
+/// so the counter is what keeps their scratch `HOME`s apart.
+static OPENED: AtomicU64 = AtomicU64::new(0);
 
 /// A scratch `HOME`, removed when dropped.
 pub(crate) struct Session {
@@ -70,7 +75,9 @@ impl Session {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let home = std::env::temp_dir().join(format!("s2w-gate3-{}-{nanos}", std::process::id()));
+        let seq = OPENED.fetch_add(1, Ordering::Relaxed);
+        let home =
+            std::env::temp_dir().join(format!("s2w-gate3-{}-{nanos}-{seq}", std::process::id()));
         let session = Self { home, copied };
         let dir = session.home.join(".claude");
         fs::DirBuilder::new()
