@@ -21,24 +21,22 @@
 
 *Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
 
+- **A crate's public API can't change unnoticed.** `cargo xtask check` compares each library
+  crate's `pub` items with a committed snapshot, and `cargo xtask api --update` rewrites it on
+  purpose, so every API change is a visible diff in review.
+  [#362](https://github.com/daveremy/stream2worlds/pull/362)
+- **Module cycles in the server fail the build.** Check 15 is enforced, so the server's layers
+  depend in one direction only. [#359](https://github.com/daveremy/stream2worlds/pull/359)
+- **Lint exceptions can only go down.** A shrink-only count of `#[expect]` attributes fell from 66
+  to 53 across two sprints. [#366](https://github.com/daveremy/stream2worlds/pull/366)
 - **The demo reads as Wikipedia.** The viewer shows each type's name, noun and icon, a **Live
   changes** sentence feed, and Active now as `👤 1isall (22 changes)`. Types with no manifest row
   still show raw key text ([#351](https://github.com/daveremy/stream2worlds/issues/351)).
   [#350](https://github.com/daveremy/stream2worlds/pull/350)
-- **The demo names what it shows.** A System 2 manifest is stored on the demo box, and 20 of 20
-  sampled `/sentences` rows read clearly and match their events.
-  [#288](https://github.com/daveremy/stream2worlds/issues/288)
-- **A cold restart of the demo passes both gates.** All 10 cold restarts on the box load first
-  paint under 1 s and the graph under 3 s with 4 viewers.
-  [#331](https://github.com/daveremy/stream2worlds/issues/331)
-- **A scoring key can leave a whole path unscored.** `h-measure` key format 2 adds a prefix
-  entry, so `dev-key-v2*.json` list `{"prefix": ["data", "log_params"]}` instead of 84 exact
-  `log_params` paths. The v0 and v1 keys are unchanged.
-  [#348](https://github.com/daveremy/stream2worlds/pull/348)
 - **The `s2w` binary allocates through mimalloc.** The backfill's resident peak drops by 69-106
   MiB on the recorded load ([decision 0031](docs/decisions/0031-mimalloc-global-allocator.md)).
   [#353](https://github.com/daveremy/stream2worlds/pull/353)
-- **In progress:** naming the unnamed types ([#351](https://github.com/daveremy/stream2worlds/issues/351)),
+- **In progress:** splitting the 14 remaining oversized modules ([#66](https://github.com/daveremy/stream2worlds/issues/66)), naming the unnamed types ([#351](https://github.com/daveremy/stream2worlds/issues/351)),
   the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)) and the live-demo label share
   ([#342](https://github.com/daveremy/stream2worlds/issues/342)).
 
