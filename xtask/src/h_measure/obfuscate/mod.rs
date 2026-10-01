@@ -147,6 +147,7 @@ fn run(
             .cloned()
             .collect(),
         fallbacks: Vec::new(),
+        own_values: Vec::new(),
         unused_rules: rules
             .by_path
             .keys()
@@ -158,8 +159,9 @@ fn run(
         outputs: BTreeMap::new(),
         keys: BTreeMap::new(),
     };
-    (meta.fields, meta.treatments, meta.fallbacks) =
-        meta::rows(transformer.table(), &transformer.stats);
+    (meta.fields, meta.treatments) = meta::rows(transformer.table(), &transformer.stats);
+    meta.fallbacks = meta::counted(&transformer.stats.fallbacks);
+    meta.own_values = meta::counted(&transformer.stats.own_values);
     record(request, &written, &mut meta);
     let reused = prior.is_some();
     let meta = save(request, prior, meta, &written)?;
@@ -323,8 +325,9 @@ fn report(request: &Request<'_>, meta: &Meta, reused: bool) -> String {
         ));
     }
     let fallbacks: usize = meta.fallbacks.iter().map(|f| f.count).sum();
+    let own: usize = meta.own_values.iter().map(|f| f.count).sum();
     lines.push(format!(
-        "  undeclared number paths kept: {}; URL values hashed whole: {fallbacks}; unused rules: {:?}",
+        "  undeclared number paths kept: {}; URL values hashed whole: {fallbacks}; own values hashed (from absent): {own}; unused rules: {:?}",
         meta.undeclared_numbers.len(),
         meta.unused_rules
     ));

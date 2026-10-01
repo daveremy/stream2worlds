@@ -381,6 +381,96 @@ fn folds_split_contexts_and_aliases_hash_byte_equal() {
     }
 }
 
+/// `RULES` plus `origin` in the `site` domain and an alias `mirror` of it that hashes its own
+/// value when a record has no `origin` (`own_if_absent`). Events 0-5 carry `origin` equal to
+/// their `site`; events 6-11 carry `mirror: "canary"` and no `origin`, except that event 11
+/// holds `last_origin` when one is given.
+fn own_value_fixture(name: &str, last_origin: Option<Value>) -> Fx {
+    let mut all = events();
+    for (i, event) in all.iter_mut().enumerate() {
+        if i < 6 {
+            event["origin"] = event["site"].clone();
+            event["mirror"] = json!("upstream");
+        } else {
+            event["mirror"] = json!("canary");
+        }
+    }
+    if let Some(origin) = last_origin {
+        all[11]["origin"] = origin;
+    }
+    let fx = Fx::new(name, &[("dev", sse(&all))]);
+    let extra = "\n[[rule]]\npath = [\"origin\"]\ndomain = \"site\"\n\n[[rule]]\npath = [\"mirror\"]\ndomain = \"site\"\nfrom = [\"origin\"]\nown_if_absent = true\n";
+    fs::write(&fx.rules, format!("{RULES}{extra}")).unwrap();
+    fx
+}
+
+#[test]
+fn own_if_absent_aliases_when_present_and_hashes_its_own_value_when_absent() {
+    let fx = own_value_fixture("ownvalue", None);
+    fx.run("a.key", &["dev"], &fx.meta_path()).unwrap();
+    let (meta, out) = (fx.meta(), obfuscated(&fx, "dev"));
+    // Present: byte-equal to the source path's hash, so to `site`.
+    for event in &out[..6] {
+        assert_eq!(at(&meta, event, &["mirror"]), at(&meta, event, &["site"]));
+    }
+    // Absent: the own value hashed in the rule's domain; one value, one hash, no plaintext.
+    let canary = at(&meta, &out[6], &["mirror"]);
+    assert!(out[7..].iter().all(|e| at(&meta, e, &["mirror"]) == canary));
+    assert_ne!(canary, &json!("canary"));
+    assert!(out.iter().all(|e| at(&meta, e, &["site"]) != canary));
+    let counts: Vec<(Vec<String>, usize)> = (meta.own_values.iter())
+        .map(|f| (f.path.clone(), f.count))
+        .collect();
+    assert_eq!(counts, [(vec!["mirror".to_owned()], 6)]);
+}
+
+/// `bag` is an object on even events and an array of two numbers on odd ones.
+fn bag_fixture(name: &str, scalars_only: bool) -> Fx {
+    let mut all = events();
+    for (i, event) in all.iter_mut().enumerate() {
+        event["bag"] = if i % 2 == 0 {
+            json!({"n": 5})
+        } else {
+            json!([4000 + i, 4100 + i])
+        };
+    }
+    let fx = Fx::new(name, &[("dev", sse(&all))]);
+    let extra =
+        format!("\n[[rule]]\npath = [\"bag\"]\ndomain = \"bag\"\nscalars_only = {scalars_only}\n");
+    fs::write(&fx.rules, format!("{RULES}{extra}")).unwrap();
+    fx
+}
+
+#[test]
+fn scalars_only_hashes_array_elements_and_walks_objects() {
+    let fx = bag_fixture("bag", true);
+    fx.run("a.key", &["dev"], &fx.meta_path()).unwrap();
+    let (meta, out) = (fx.meta(), obfuscated(&fx, "dev"));
+    for (i, event) in out.iter().enumerate() {
+        let bag = at(&meta, event, &["bag"]);
+        if i % 2 == 0 {
+            assert_eq!(at(&meta, event, &["bag", "n"]), &json!(5));
+        } else {
+            let items = bag.as_array().unwrap();
+            assert!(items.iter().all(Value::is_string), "{bag}");
+            assert!(!bag.to_string().contains(&format!("{}", 4000 + i)));
+        }
+    }
+    let strict = bag_fixture("bag-strict", false);
+    let err = strict
+        .run("a.key", &["dev"], &strict.meta_path())
+        .unwrap_err();
+    assert!(err.contains("meets an object"), "{err}");
+}
+
+#[test]
+fn own_if_absent_still_fails_on_a_present_non_scalar_source() {
+    let fx = own_value_fixture("ownvalue-null", Some(Value::Null));
+    let err = fx.run("a.key", &["dev"], &fx.meta_path()).unwrap_err();
+    assert!(err.contains("holds no string or number"), "{err}");
+    assert!(!fx.meta_path().exists());
+}
+
 /// Every string leaf and object key of a JSON value.
 fn strings(value: &Value, out: &mut BTreeSet<String>) {
     match value {
@@ -607,6 +697,10 @@ fn rules_files_are_validated() {
         (
             "version = 1\n[[rule]]\npath = [\"a\"]\ndomian = \"d\"\n",
             "unknown field",
+        ),
+        (
+            "version = 1\n[[rule]]\npath = [\"a\"]\ndomain = \"d\"\nown_if_absent = true\n",
+            "own_if_absent needs from",
         ),
     ];
     for (text, expected) in bad {

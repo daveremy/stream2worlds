@@ -42,6 +42,9 @@ pub(super) struct Stats {
     pub undeclared_numbers: BTreeSet<Vec<String>>,
     /// Values hashed whole as text because their URL rule did not match their shape, per path.
     pub fallbacks: BTreeMap<Vec<String>, usize>,
+    /// Values hashed as their own because the record lacked their rule's `from` path
+    /// (`own_if_absent`), per path.
+    pub own_values: BTreeMap<Vec<String>, usize>,
 }
 
 /// The transformer for one replicate.
@@ -80,6 +83,17 @@ pub(super) fn collect_paths(
 fn lookup<'v>(record: &'v Value, path: &[String]) -> Option<&'v Value> {
     path.iter()
         .try_fold(record, |node, key| node.as_object()?.get(key))
+}
+
+/// Whether `record` lacks `path`: the object at its parent exists and has no such key. A parent
+/// that is missing or is not an object is not a lack; the caller's lookup then fails.
+fn lacks(record: &Value, path: &[String]) -> bool {
+    let Some((last, parent)) = path.split_last() else {
+        return false;
+    };
+    lookup(record, parent)
+        .and_then(Value::as_object)
+        .is_some_and(|object| !object.contains_key(last))
 }
 
 /// A scalar's text: a string as is, a number in its JSON form. Booleans and nulls have none.
@@ -133,7 +147,7 @@ impl<'r> Transformer<'r> {
     ) -> Result<Value, String> {
         match value {
             Value::Object(map) => {
-                if self.rules.by_path.contains_key(chain.as_slice()) {
+                if (self.rules.by_path.get(chain.as_slice())).is_some_and(|r| !r.scalars_only) {
                     return Err(format!(
                         "the rule for {chain:?} meets an object; rules apply to scalar values"
                     ));
@@ -249,7 +263,12 @@ impl<'r> Transformer<'r> {
         let domain = rule.domain.as_deref().unwrap_or(TEXT);
         let mut parts = folded(chain, &rule.fold, record)?;
         let canonical = if let Some(from) = &rule.from {
-            Some(context(chain, from, record)?)
+            if rule.own_if_absent && record.is_some_and(|r| lacks(r, from)) {
+                *self.stats.own_values.entry(chain.to_vec()).or_default() += 1;
+                Some(own.clone())
+            } else {
+                Some(context(chain, from, record)?)
+            }
         } else if let Some(url) = &rule.url_path {
             let base = context(chain, &url.base, record).ok();
             base.and_then(|base| canon::url_tail(&own, &base, &url.marker, &url.replace))

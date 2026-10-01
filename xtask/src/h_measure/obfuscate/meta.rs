@@ -29,7 +29,10 @@ pub(super) struct Meta {
     /// Paths holding numbers no rule declared, kept unchanged: check none is an identifier.
     pub undeclared_numbers: Vec<Vec<String>>,
     /// Values hashed whole as text because their URL rule did not match, per path.
-    pub fallbacks: Vec<Fallback>,
+    pub fallbacks: Vec<PathCount>,
+    /// Values hashed as their own because the record lacked their rule's `from` path
+    /// (`own_if_absent`), per path.
+    pub own_values: Vec<PathCount>,
     /// Rules whose path no input holds.
     pub unused_rules: Vec<Vec<String>>,
     /// Relationships and paths the obfuscated stream cannot show.
@@ -58,10 +61,10 @@ pub(super) struct Treatment {
     pub how: Vec<String>,
 }
 
-/// One path's URL fallbacks.
+/// One path's count: URL fallbacks, or own values hashed for an absent `from` path.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Fallback {
+pub(super) struct PathCount {
     pub path: Vec<String>,
     pub count: usize,
 }
@@ -82,7 +85,7 @@ impl Meta {
     /// caller) into this record, so the metadata lists every window obfuscated under it
     /// (contract B2.2). A corpus or answer key the record already holds is refused: each window
     /// is obfuscated once per replicate. Per-path statistics are combined: treatments and
-    /// undeclared numbers are united, fallback counts summed, and a rule stays unused only if
+    /// undeclared numbers are united, fallback and own-value counts summed, and a rule stays unused only if
     /// no run's input held its path.
     pub(super) fn absorb(&mut self, run: Meta) -> Result<(), String> {
         let again: Vec<&String> = (run.outputs.keys())
@@ -107,13 +110,8 @@ impl Meta {
                 how: how.into_iter().collect(),
             })
             .collect();
-        let mut counts: BTreeMap<Vec<String>, usize> = BTreeMap::new();
-        for f in self.fallbacks.drain(..).chain(run.fallbacks) {
-            *counts.entry(f.path).or_default() += f.count;
-        }
-        self.fallbacks = (counts.into_iter())
-            .map(|(path, count)| Fallback { path, count })
-            .collect();
+        self.fallbacks = summed(self.fallbacks.drain(..).chain(run.fallbacks));
+        self.own_values = summed(self.own_values.drain(..).chain(run.own_values));
         let numbers: BTreeSet<Vec<String>> = (self
             .undeclared_numbers
             .drain(..)
@@ -142,11 +140,28 @@ impl Meta {
     }
 }
 
-/// The per-path parts of the metadata, from the field table and the run's statistics.
-pub(super) fn rows(
-    table: &FieldTable,
-    stats: &Stats,
-) -> (Vec<FieldRow>, Vec<Treatment>, Vec<Fallback>) {
+/// Per-path counts with each path's counts summed, in path order.
+fn summed(counts: impl Iterator<Item = PathCount>) -> Vec<PathCount> {
+    let mut sums: BTreeMap<Vec<String>, usize> = BTreeMap::new();
+    for c in counts {
+        *sums.entry(c.path).or_default() += c.count;
+    }
+    counted(&sums)
+}
+
+/// Per-path counts as metadata rows, in path order.
+pub(super) fn counted(counts: &BTreeMap<Vec<String>, usize>) -> Vec<PathCount> {
+    counts
+        .iter()
+        .map(|(path, count)| PathCount {
+            path: path.clone(),
+            count: *count,
+        })
+        .collect()
+}
+
+/// The field table and the per-path treatments, from the field table and the run's statistics.
+pub(super) fn rows(table: &FieldTable, stats: &Stats) -> (Vec<FieldRow>, Vec<Treatment>) {
     let fields = table
         .0
         .iter()
@@ -163,13 +178,5 @@ pub(super) fn rows(
             how: how.iter().cloned().collect(),
         })
         .collect();
-    let fallbacks = stats
-        .fallbacks
-        .iter()
-        .map(|(path, count)| Fallback {
-            path: path.clone(),
-            count: *count,
-        })
-        .collect();
-    (fields, treatments, fallbacks)
+    (fields, treatments)
 }

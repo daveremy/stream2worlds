@@ -122,3 +122,9 @@ file = "private-key-v0.context-scored.json"
 variant = "context-scored"
 sha256 = "87ecdf88ce87cf7aef810486ac120ed9399b2311d575b689a740eac523005ee9"
 reading = "private-key-v0.json plus repo (alias ref_repo) and actor (alias author, no_identity [\"other\"]) as scored types (s2w#372 ruling 4): the report names which of the two a number came from"
+
+[[key]]
+file = "dev-key-v2.obf-r1.json"
+variant = "base"
+sha256 = "b98c0030c6695c20ea31fee09517c021964c8a3888db7060fcf3542ff757132f"
+reading = "dev-key-v2.json renamed for obfuscated replicate r1 (s2w#370 PR 2): paths through r1's field table, no_identity sentinels hashed in their domain, the rules file's unobservable paths added to unscored. Scores obf-r1-* corpora only"

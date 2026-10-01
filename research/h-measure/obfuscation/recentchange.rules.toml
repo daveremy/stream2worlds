@@ -1,0 +1,177 @@
+# Obfuscation rules for `mediawiki.recentchange` (s2w#370 PR 2), rules format 1
+# (research/h-measure/README.md, "Rules file"). Plan: s2w#370 comment 5923304975 §4-5;
+# rulings: comment 5923313148. Domain data, so it lives here and never in Rust (decision 0018).
+# PRIVATE until every gate-3 mapping is committed (contract B2.2; the repo is private until launch).
+version = 1
+
+# --- wiki and its aliases: byte-equal to `wiki` (ruling 2) ---
+[[rule]]
+path = ["wiki"]
+domain = "wiki"
+
+[[rule]]
+path = ["server_name"]
+domain = "wiki"
+from = ["wiki"]
+
+[[rule]]
+path = ["server_url"]
+domain = "wiki"
+from = ["wiki"]
+
+# Canary events carry `meta.domain` ("canary") and no `wiki`: they hash their own value in the
+# wiki domain, counted in the metadata's `own_values` (karpathy ruling, s2w#370 2026-09-30).
+[[rule]]
+path = ["meta", "domain"]
+domain = "wiki"
+from = ["wiki"]
+own_if_absent = true
+
+# --- pages: fold wiki (#17 Q1, ruling 3) ---
+[[rule]]
+path = ["title"]
+domain = "title"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["title_url"]
+domain = "title"
+fold = [["wiki"]]
+url_path = { base = ["server_url"], marker = "/wiki/", replace = [["_", " "]] }
+
+[[rule]]
+path = ["meta", "uri"]
+domain = "title"
+fold = [["wiki"]]
+url_path = { base = ["server_url"], marker = "/wiki/", replace = [["_", " "]] }
+
+# --- revisions: one type for old and new, fold wiki (#17 Q2a/Q2b) ---
+[[rule]]
+path = ["revision", "old"]
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["revision", "new"]
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["notify_url"]
+url_query = [
+  { param = "diff", domain = "revision", fold = [["wiki"]] },
+  { param = "oldid", domain = "revision", fold = [["wiki"]] },
+  { param = "rcid", domain = "rcid" },
+]
+
+# --- other identifiers: no fold (ruling 3) ---
+[[rule]]
+path = ["user"]
+domain = "user"
+
+[[rule]]
+path = ["log_id"]
+domain = "log"
+
+[[rule]]
+path = ["id"]
+domain = "rcid"
+
+[[rule]]
+path = ["meta", "id"]
+domain = "event"
+
+[[rule]]
+path = ["meta", "request_id"]
+domain = "request"
+
+# --- integer ids inside log_params (ruling 4); undeclared numbers are listed in the metadata ---
+[[rule]]
+path = ["log_params", "revid"]
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "previd"]
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "revision"]
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "ids"]     # revision deletion: an array of revision ids
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "blockId"]
+domain = "block"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "curid"]
+domain = "page_id"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "userid"]
+domain = "user_id"
+
+[[rule]]
+path = ["log_params", "log"]
+domain = "abuselog"
+
+# FlaggedRevs `review/approve` and `approve-i` carry a bare array, [revid, old stable revid,
+# "YYYYMMDDHHMMSS"]: both ints are revision ids (s2w#370 PR 2 review). Every element hashes in
+# the revision domain, the timestamp text included; elsewhere `log_params` is an object, walked
+# as usual.
+[[rule]]
+path = ["log_params"]
+domain = "revision"
+fold = [["wiki"]]
+scalars_only = true
+
+# --- time: `meta.dt` (RFC 3339) shifts by default; the unix integer shifts with it ---
+[[rule]]
+path = ["timestamp"]
+unix_seconds = true
+
+# --- what the transformation destroys (plan §5, ruling 7) ---
+[[unobservable]]
+path = ["comment"]
+reason = "page and user names linked inside free text are destroyed with the text"
+
+[[unobservable]]
+path = ["parsedcomment"]
+reason = "page and user names linked inside free text are destroyed with the text"
+
+[[unobservable]]
+path = ["log_action_comment"]
+reason = "page, user and filter names inside the generated text are destroyed with the text"
+
+[[unobservable]]
+from = "comment"
+to = "title"
+kind = "names"
+reason = "a page linked from an edit summary"
+
+[[unobservable]]
+from = "comment"
+to = "user"
+kind = "names"
+reason = "a user linked from an edit summary"
+
+[[unobservable]]
+from = "log_action_comment"
+to = "title"
+kind = "names"
+reason = "the log target page named in the generated log text"
+
+[[unobservable]]
+from = "notify_url"
+to = "revision"
+kind = "contains"
+reason = "the URL keeps its revision and rcid hashes but not its shape; a mapping cannot address substrings"

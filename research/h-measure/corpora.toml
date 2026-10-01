@@ -127,3 +127,19 @@ last_dt = "2026-09-30T02:15:00.000Z"
 events = 100000
 bytes = 156119122
 sha256 = "dfa075fbe5b58b368e7d3d895d9e27296bd75e695bd7f2150e5b130ac0e0166f"
+
+# Obfuscated replicates (s2w#370 PR 2; contract B2.2). Written by `cargo xtask h-measure
+# obfuscate` from a pinned corpus with research/h-measure/obfuscation/recentchange.rules.toml;
+# the replicate's metadata (field table, shift, input and output sha256) is
+# research/h-measure/obfuscation/<replicate>.meta.json. The key bytes are outside the repo.
+# Times inside these files are shifted by the replicate's secret constant, so no
+# since/until/first_dt/last_dt are given: they would publish the shift.
+[corpus.obf-r1-dev]
+role = "development"
+file = "dev.obf-r1.raw.sse"
+stream = "mediawiki.recentchange, obfuscated (replicate r1)"
+derived_from = "dev"
+replicate = "r1"
+events = 200000
+bytes = 141701518
+sha256 = "cf60870b00ac6ca36dcc4d47fdd9cbd1b329be46a261d4be46b58f65096a2284"
