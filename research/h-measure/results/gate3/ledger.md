@@ -66,7 +66,7 @@ Six clean-session probes answered something other than `none`, so those runs wro
 
 Failed-probe spend: $0.0859. This spend is in no committed file. **Run total: $4.2154** ($4.1295 committed + $0.0859 failed probes). The plan estimated $10–30.
 
-The runner also made 15 earlier attempts that the tool refused before any call. Those attempts spent $0. The shared OAuth access token had less than the 90 minutes a run needs, so the tool refused rather than refresh the token inside the scratch copy (lifeos#1252). The runs started after a normal session refreshed the token. No run printed the credentials-refresh warning.
+The runner also made 10 earlier attempts that the tool refused before any call. Those attempts spent $0. The shared OAuth access token had less than the 90 minutes a run needs, so the tool refused rather than refresh the token inside the scratch copy (lifeos#1252). The runs started after a normal session refreshed the token. No run printed the credentials-refresh warning.
 
 ## Notes
 
