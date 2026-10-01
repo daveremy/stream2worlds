@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "b300445b447eef9b",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"data.f100\",\"type_label\":\"data/f100\",\"key\":[[\"data\",\"f100\"]],\"attrs\":[{\"name\":\"f19\",\"path\":[\"data\",\"f19\"]},{\"name\":\"f20\",\"path\":[\"data\",\"f20\"]},{\"name\":\"f46\",\"path\":[\"data\",\"f46\"]},{\"name\":\"f79\",\"path\":[\"data\",\"f79\"]},{\"name\":\"f91\",\"path\":[\"data\",\"f91\"]},{\"name\":\"f52.f69\",\"path\":[\"data\",\"f52\",\"f69\"]},{\"name\":\"f66\",\"path\":[\"data\",\"f66\"]},{\"name\":\"f52.f78\",\"path\":[\"data\",\"f52\",\"f78\"]}]},{\"id\":\"data.f36\",\"type_label\":\"data/f36\",\"key\":[[\"data\",\"f36\"]],\"attrs\":[{\"name\":\"f20\",\"path\":[\"data\",\"f20\"]},{\"name\":\"f91\",\"path\":[\"data\",\"f91\"]}]},{\"id\":\"data.f4\",\"type_label\":\"data/f4\",\"key\":[[\"data\",\"f4\"]],\"attrs\":[]},{\"id\":\"data.f52.f57\",\"type_label\":\"f52/f57\",\"key\":[[\"data\",\"f52\",\"f57\"]],\"attrs\":[]},{\"id\":\"data.f7\",\"type_label\":\"data/f48+data/f7\",\"key\":[[\"data\",\"f7\"]],\"attrs\":[{\"name\":\"f46\",\"path\":[\"data\",\"f46\"]},{\"name\":\"f79\",\"path\":[\"data\",\"f79\"]},{\"name\":\"f91\",\"path\":[\"data\",\"f91\"]}]},{\"id\":\"data.f48\",\"type_label\":\"data/f48+data/f7\",\"key\":[[\"data\",\"f48\"]],\"attrs\":[]},{\"id\":\"data.f45.f80\",\"type_label\":\"f45/f80+f45/f92\",\"key\":[[\"data\",\"f45\",\"f80\"]],\"attrs\":[]},{\"id\":\"data.f45.f92\",\"type_label\":\"f45/f80+f45/f92\",\"key\":[[\"data\",\"f45\",\"f92\"]],\"attrs\":[]},{\"id\":\"data.f53.f60\",\"type_label\":\"f53/f60\",\"key\":[[\"data\",\"f53\",\"f60\"]],\"attrs\":[{\"name\":\"f46\",\"path\":[\"data\",\"f46\"]},{\"name\":\"f55\",\"path\":[\"data\",\"f55\"]},{\"name\":\"f73\",\"path\":[\"data\",\"f73\"]},{\"name\":\"f99\",\"path\":[\"data\",\"f99\"]}]},{\"id\":\"data.f53.f82\",\"type_label\":\"f53/f82\",\"key\":[[\"data\",\"f53\",\"f82\"]],\"attrs\":[{\"name\":\"f46\",\"path\":[\"data\",\"f46\"]},{\"name\":\"f66\",\"path\":[\"data\",\"f66\"]},{\"name\":\"f79\",\"path\":[\"data\",\"f79\"]},{\"name\":\"f99\",\"path\":[\"data\",\"f99\"]}]}],\"relationships\":[{\"from\":\"data.f100\",\"to\":\"data.f36\",\"kind\":\"belongs to\"},{\"from\":\"data.f100\",\"to\":\"data.f7\",\"kind\":\"relates to\"},{\"from\":\"data.f100\",\"to\":\"data.f4\",\"kind\":\"belongs to\"},{\"from\":\"data.f100\",\"to\":\"data.f52.f57\",\"kind\":\"relates to\"},{\"from\":\"data.f7\",\"to\":\"data.f45.f80\",\"kind\":\"relates to\"},{\"from\":\"data.f7\",\"to\":\"data.f45.f92\",\"kind\":\"relates to\"},{\"from\":\"data.f7\",\"to\":\"data.f53.f82\",\"kind\":\"relates to\"}],\"links\":[{\"survivor\":\"data.f7\",\"absorbed\":\"data.f48\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1851,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 34381,
+      "cost_usd": 0.156145,
+      "latency_ms": 13483,
+      "started_at_ms": 1790883467845
+    }
+  ]
+}
