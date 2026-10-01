@@ -9,7 +9,7 @@ issue = "s2w#378"
 
 [[exempt]]
 module = "s2w_app::dashboard"
-lines = 673
+lines = 641
 reason = "the dashboard proposer's filer: tail read, proposer input, manifest filing; not split in s2w#66"
 issue = "s2w#378"
 

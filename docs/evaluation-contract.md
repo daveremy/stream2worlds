@@ -645,3 +645,20 @@ corpus if the freeze recorded it, and each scored key, which must have been pinn
 freeze. Adding a corpus or key row no longer invalidates an earlier freeze. `score` proves the
 mapping and profile the file records. It takes the recorded pins as written: the commit that adds
 the frozen file proves its timing and that of each pin, and names the build to score it with. This note changes no arm, metric, threshold or stream.
+
+### 2026-09-30: provider 1 transport, dollars and replicates (s2w#373; addition, no change in meaning)
+
+Dave approved this note (option (a) on s2w#373) on 2026-09-30 by Telegram, message 2802.
+
+- **Transport.** Provider 1 may be called through a tool-less headless CLI pinned to a model
+  snapshot: the Claude CLI with `--tools ""`, `--strict-mcp-config`, `--no-session-persistence`
+  and a scratch `HOME` holding only its credentials, so no user instructions, memory, MCP server
+  or file reach the model. Its model id is a pinned snapshot id, dateless per Anthropic's
+  versioning page. Each run first proves the session clean with a probe whose reply must be
+  `none`. Decision 0032 has the mechanism.
+- **Dollars.** A run's dollars are its reported tokens times the public price table committed at
+  `research/h-measure/prices.toml`. The CLI's own cost figure is recorded only as a cross-check.
+- **Replicates.** A replicate is one independent session at the provider's default sampling. The
+  transport exposes no seed. One committed file holds one snapshot and has no tier escalation.
+
+This note changes no arm, metric, threshold or stream.

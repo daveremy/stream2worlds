@@ -25,6 +25,8 @@ The enforced list is `xtask/allowlist.toml`; `cargo xtask check` fails on anythi
 - Prompts are committed data under `prompts/`, not string constants; check 9 reads them, and
   the per-line vocabulary opt-out does not apply there. Untrusted input reaches a prompt only
   through the one JSON line encoder.
+- A gate-3 run's first call is the clean-session probe (`prompts/clean-session-probe.txt`,
+  decision 0032): the run goes on only when the reply is `none`.
 - One proposal attempt makes at most two model calls: the first, and one repair when the reply
   fails to decode or validate.
 - A mapping proposal (decision 0032) makes at most two attempts; only a provider failure starts

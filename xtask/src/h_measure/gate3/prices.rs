@@ -69,13 +69,10 @@ pub(crate) fn load(root: &Path, snapshot: &str) -> Result<Price, String> {
     Ok(price)
 }
 
-/// Token counts as `f64`; exact below 2^53, far past any call's count.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "token counts stay far below 2^53"
-)]
-const fn tokens(n: u64) -> f64 {
-    n as f64
+/// A token count as `f64`. A call's count is far below `u32::MAX`; a larger one saturates
+/// there, which over-charges it and so never lets a run past the cap.
+fn tokens(n: u64) -> f64 {
+    f64::from(u32::try_from(n).unwrap_or(u32::MAX))
 }
 
 impl Price {

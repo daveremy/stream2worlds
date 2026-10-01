@@ -124,3 +124,34 @@ provider 1 on 2026-09-30 (s2w#373). PR 2 adds the dated contract note.
 
 A committed run file is a research artifact, like an h-measure freeze. It has no view and no MCP
 surface.
+
+## Dated note 2026-09-30: what PR 2 built (s2w#373)
+
+`cargo xtask gate3 commit` (`xtask/src/h_measure/gate3/`) implements the three PR 2 sections
+above. It differs from them in these ways:
+
+- **File shape.** The committed file carries `kind: "s2w-gate3-committed"` (how `score` tells it
+  from a frozen mapping) and nests the corpus, its sha256, the window and every pin in
+  `heuristic`, which is exactly what `h-measure freeze` writes for the same corpus and window,
+  so `score` checks the H part as it checks a freeze. `prompt_hash` is `prompt_files_hash`. It
+  adds `price` (the `prices.toml` row it was charged by), `probe` (the probe's call record),
+  and `sample_events` / `sample_string_chars` (60 and 200). `score` replays the probe and the
+  transcript through the same function and budget gate as the live run, and also refuses a
+  replay whose spend differs from the recorded `spend`.
+- **Budget failure text.** The failure is `budget: spent $X, next call estimated $Y, cap $5.00`,
+  with fixed decimals so a replay writes it byte for byte. The estimate charges input at the
+  higher of the input and cache-write rates, because the CLI may cache-write the prompt. A call
+  that reported no tokens is charged its estimate.
+- **CLI cap.** `--max-budget-usd` is fixed at 5, the whole cap. `ExecProvider`'s argv is fixed per
+  provider, so the CLI cannot be given the per-call remainder; the gate enforces that.
+- **Credentials.** The scratch `HOME` gets a copy of the operator's credentials file only when
+  its access token stays valid for at least 30 more minutes. The CLI then never refreshes it:
+  OAuth refresh tokens are single-use, and a refresh inside the copy would spend the token the
+  operator's own sessions hold (lifeos#1252). A copy the CLI rewrote anyway is reported loudly
+  after the run.
+- **Probe wording.** The probe asks for anything besides the model's built-in system prompt and
+  the probe itself, because the CLI always sends a built-in system prompt.
+- **Call timeout.** Each call may run 15 minutes (`ExecLimits` default is 3), because a mapping
+  reply may use 16k output tokens.
+- **Probe failure.** A failed probe writes no file: the session is not proven clean, so there is
+  no replicate.
