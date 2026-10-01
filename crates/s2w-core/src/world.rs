@@ -18,8 +18,7 @@ pub const FOLD_VERSION: u32 = 1;
 ///
 /// A world snapshot is valid only for the fold that wrote it. A human-approved fold change edits
 /// the golden snapshot, which changes this value (`tests/fixture_hash.rs` fails until it is
-/// updated), so stored world snapshots invalidate even when [`FOLD_VERSION`] was not bumped. A
-/// literal rather than an `include_bytes!`, which the module-size walker cannot see through.
+/// updated), so stored world snapshots invalidate even when [`FOLD_VERSION`] was not bumped.
 pub const FOLD_FIXTURE_HASH: u64 = 0x4c02_9a2f_b104_1c8a;
 
 /// The default in-degree cap: past this many distinct sources, a relationship to an entity

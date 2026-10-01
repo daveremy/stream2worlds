@@ -129,12 +129,14 @@ impl<'ast> Visit<'ast> for Walker {
         syn::visit::visit_attribute(self, attr);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if mac.path.segments.last().is_some_and(|s| {
-            matches!(
-                s.ident.to_string().as_str(),
-                "include" | "include_str" | "include_bytes"
-            )
-        }) {
+        // Only `include!` splices Rust tokens that could hide items and lines from the count;
+        // `include_str!`/`include_bytes!` are `&'static str`/`&[u8]` expressions (s2w#66).
+        if mac
+            .path
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "include")
+        {
             self.findings.push(format!("{}: include! macros are opaque to the size check; inline the content as real module structure", self.key));
         }
         syn::visit::visit_macro(self, mac);

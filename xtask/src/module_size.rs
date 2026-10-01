@@ -268,7 +268,7 @@ mod tests {
     fn refuses_paths_and_includes_in_items_expressions_and_test_items() {
         let scratch = Scratch::new();
         let scan = scratch.scan("#[path = \"elsewhere.rs\"] mod a;\n#[cfg_attr(any(), path = \"elsewhere.rs\")] mod b;\ninclude!(\"opaque.rs\");\nfn f() { let _ = include_str!(\"x\"); let _ = include_bytes!(\"y\"); }\n#[cfg(test)] mod tests { include!(\"z\"); }\n");
-        assert_eq!(scan.findings.len(), 6, "{:?}", scan.findings);
+        assert_eq!(scan.findings.len(), 4, "{:?}", scan.findings);
         assert!(scan.findings[0].contains("explicit #[path] defeats the size check"));
         assert!(scan.findings[1].contains("cfg_attr path bypass"));
         assert!(
@@ -277,6 +277,12 @@ mod tests {
                 .all(|s| s.contains("include! macros are opaque"))
         );
         println!("{}", scan.findings.join("\n"));
+    }
+    #[test]
+    fn include_str_and_include_bytes_are_expressions_not_module_lines() {
+        let scratch = Scratch::new();
+        let scan = scratch.scan("const A: &str = include_str!(\"x\");\nfn f() -> &'static [u8] { include_bytes!(\"y\") }\n#[cfg(test)] mod tests { const B: &str = std::include_str!(\"z\"); }\n");
+        assert!(scan.findings.is_empty(), "{:?}", scan.findings);
     }
     fn config() -> Config {
         Config {
