@@ -2,7 +2,8 @@
 //!
 //! The judges are pure; [`read`], [`growth`] (which reads `origin/main` through `git`) and
 //! the runners do I/O. The runners live in `scale_run.rs` (`cargo xtask scale`, fold and parse instructions per event under
-//! Valgrind) and `scale_mem_check.rs` (the `check` hook, heap bytes per entity). A measurement
+//! Valgrind), `scale_mem_check.rs` (the `check` hook, heap bytes per entity) and
+//! `discover_volume_run.rs` (`cargo xtask discover-volume`, the discovered-mapping world heap). A measurement
 //! that cannot be read is a failure, never a pass.
 use std::path::Path;
 
@@ -11,10 +12,13 @@ use serde::de::DeserializeOwned;
 
 use crate::module_size::{git, trailer};
 
+pub(super) mod discover_volume;
 mod ir_bench;
 mod supply;
+pub(super) mod tighten;
+pub(super) use discover_volume::{DiscoverVolumeBaseline, VolumeMeasurement};
 pub(super) use ir_bench::IrBench;
-pub(super) use supply::Supply;
+pub(super) use supply::{Supply, tighten_text};
 
 /// The baseline file, relative to the workspace root.
 pub(super) const BASELINE: &str = "xtask/scale-baseline.toml";
@@ -32,6 +36,7 @@ pub(super) struct Baseline {
     pub(super) ir: IrBaseline,
     pub(super) parse: ParseBaseline,
     pub(super) memory: MemoryBaseline,
+    pub(super) discover_volume: DiscoverVolumeBaseline,
 }
 
 /// `[parse]`: System 1 parse instructions per raw event of the recorded fixture (s2w#166), same
@@ -125,6 +130,7 @@ pub(super) fn parse(text: &str) -> Result<Baseline, String> {
             "{BASELINE}: [ir] profile must be \"bench\" and every events / entities / relationships count must be > 0; fix the file"
         ));
     }
+    b.discover_volume.validate()?;
     Ok(b)
 }
 
@@ -326,7 +332,7 @@ fn judge_memory_baseline(
 /// and entities measurement sizes count too: raising one lowers the measured per-unit figure.
 pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'static str> {
     let keys = |b: &Baseline| {
-        [
+        let mut keys = vec![
             ("[ir] fold_ir_per_event", b.ir.fold_ir_per_event),
             (
                 "[ir.recorded] fold_ir_per_event",
@@ -354,13 +360,15 @@ pub(super) fn grown_keys(base: Option<&Baseline>, current: &Baseline) -> Vec<&'s
             ("[ir.recorded] events", b.ir.recorded.events),
             ("[parse] events", b.parse.events),
             ("[memory.recorded] entities", b.memory.recorded.entities),
-        ]
+        ];
+        keys.extend(b.discover_volume.guarded());
+        keys
     };
     let before = base.map(keys);
     keys(current)
         .iter()
         .enumerate()
-        .filter(|(i, (_, now))| before.is_none_or(|b| b[*i].1 < *now))
+        .filter(|(i, (_, now))| before.as_ref().is_none_or(|b| b[*i].1 < *now))
         .map(|(_, (name, _))| *name)
         .collect()
 }
@@ -387,45 +395,6 @@ pub(super) fn growth(root: &Path, current: &Baseline) -> Vec<String> {
                 .unwrap_or_default()
         )],
     }
-}
-
-/// `--tighten-baseline` for one supply's `[memory]` table: lowers `bytes_per_entity` and
-/// `bytes_per_relationship_reported` to the measurement, never raises either, and keeps every
-/// comment. `None` when nothing is lower.
-pub(super) fn tighten_text(text: &str, supply: Supply, m: &MemMeasurement) -> Option<String> {
-    let mut section = String::new();
-    let mut changed = false;
-    let mut out: Vec<String> = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with('[') {
-            section = trimmed.to_owned();
-        }
-        let lowered = (section == supply.memory())
-            .then(|| lower_line(trimmed, m))
-            .flatten();
-        changed |= lowered.is_some();
-        out.push(lowered.unwrap_or_else(|| line.to_owned()));
-    }
-    changed.then(|| out.join("\n") + "\n")
-}
-
-fn lower_line(line: &str, m: &MemMeasurement) -> Option<String> {
-    let (key, rest) = line.split_once('=')?;
-    let key = key.trim();
-    let measured = match key {
-        "bytes_per_entity" => m.bytes_per_entity,
-        "bytes_per_relationship_reported" => m.bytes_per_relationship,
-        _ => return None,
-    };
-    let (value, comment) = rest
-        .split_once('#')
-        .map_or((rest, None), |(v, c)| (v, Some(c)));
-    let current: u64 = value.trim().parse().ok()?;
-    (measured > 0 && measured < current).then(|| match comment {
-        Some(c) => format!("{key} = {measured} #{c}"),
-        None => format!("{key} = {measured}"),
-    })
 }
 
 #[cfg(test)]

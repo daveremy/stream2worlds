@@ -7,7 +7,7 @@
 //! instructions per event need Valgrind, so they live in `cargo xtask scale` instead.
 use std::path::Path;
 
-use crate::scale::{self, BASELINE, MemMeasurement, Supply};
+use crate::scale::{self, MemMeasurement, Supply};
 
 /// Runs the memory check; `tighten` also lowers `[memory]` values to the measurement.
 pub(super) fn check(root: &Path, tighten: bool) -> Vec<String> {
@@ -35,7 +35,11 @@ pub(super) fn check(root: &Path, tighten: bool) -> Vec<String> {
         problems.push("cannot tighten the scale baseline while its check fails; resolve the findings and retry".into());
     } else if tighten {
         for (supply, m) in &measured {
-            problems.extend(tighten_file(root, *supply, m));
+            problems.extend(scale::tighten::tighten_file(
+                root,
+                supply.memory(),
+                |text| scale::tighten_text(text, *supply, m),
+            ));
         }
     }
     problems
@@ -75,28 +79,4 @@ fn measure(root: &Path, supply: Supply) -> Result<MemMeasurement, String> {
             "{name}: UNKNOWN, `cargo test -p s2w-app --test scale_mem -- --ignored --exact {test}` left {e}; make sure that test exists under that exact name and prints its JSON line last"
         )
     })
-}
-
-fn tighten_file(root: &Path, supply: Supply, measured: &MemMeasurement) -> Vec<String> {
-    let path = root.join(BASELINE);
-    let result = std::fs::read_to_string(&path).and_then(|text| {
-        match scale::tighten_text(&text, supply, measured) {
-            Some(lowered) => std::fs::write(&path, lowered).map(|()| true),
-            None => Ok(false),
-        }
-    });
-    match result {
-        Ok(true) => {
-            println!(
-                "scale: lowered {} in {BASELINE} to the measurement",
-                supply.memory()
-            );
-            Vec::new()
-        }
-        Ok(false) => Vec::new(),
-        Err(e) => vec![format!(
-            "cannot tighten {}: {e}; check the file is writable and retry",
-            path.display()
-        )],
-    }
 }
