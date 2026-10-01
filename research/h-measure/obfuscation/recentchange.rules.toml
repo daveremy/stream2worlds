@@ -19,10 +19,12 @@ path = ["server_url"]
 domain = "wiki"
 from = ["wiki"]
 
+# Not an alias via `from`: canary events carry `meta.domain` ("canary") and no `wiki`, and a
+# `from` rule fails closed on them. Hashed as its own value in the wiki domain until leg B
+# settles it (s2w#370 PR 2 checkpoint).
 [[rule]]
 path = ["meta", "domain"]
 domain = "wiki"
-from = ["wiki"]
 
 # --- pages: fold wiki (#17 Q1, ruling 3) ---
 [[rule]]
@@ -91,6 +93,21 @@ fold = [["wiki"]]
 [[rule]]
 path = ["log_params", "previd"]
 domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "revision"]
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "ids"]     # revision deletion: an array of revision ids
+domain = "revision"
+fold = [["wiki"]]
+
+[[rule]]
+path = ["log_params", "blockId"]
+domain = "block"
 fold = [["wiki"]]
 
 [[rule]]
