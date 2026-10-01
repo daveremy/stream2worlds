@@ -303,6 +303,9 @@ A rule sets exactly one of `domain`, `url_query` and `unix_seconds`; `fold`, `fr
 counted in the metadata. A `from` path a record lacks fails the run, unless the rule sets
 `own_if_absent`: then that record's own value is hashed in the rule's domain and counted in the
 metadata's `own_values`. A `from` path that is present but holds no string or number still fails.
+A rule's path must hold scalars (alone or in arrays); an object there fails the run, unless the
+rule sets `scalars_only`, which hashes the scalars at the path and walks an object as if no rule
+named it (`log_params` is an object on most events and a bare array on a few).
 
 A fold changes what the context-collision rows can measure: one name under two contexts gets
 two hashes, so a folded type has no collision groups on the obfuscated stream. Every other

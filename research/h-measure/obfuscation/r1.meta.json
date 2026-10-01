@@ -2,7 +2,7 @@
   "format": 1,
   "replicate": "r1",
   "key_sha256": "3825c743fc0f0b8bb0d069dc14231934bfed1174827686edb7608703770aaf4d",
-  "rules_sha256": "32149f68de5d99f4d89497b3cbae1659e79a0e7ab0e0f71f2400afb3afce4b32",
+  "rules_sha256": "8be932e98ad4366eaedddf3a43dcb1bd01145b0a40c53b1e08056268b4c7d00f",
   "shift_seconds": -68587192,
   "fields": [
     {
@@ -668,8 +668,7 @@
         "log_params"
       ],
       "how": [
-        "hashed in text",
-        "number kept (undeclared)"
+        "hashed in revision"
       ]
     },
     {
@@ -1299,9 +1298,6 @@
       "old"
     ],
     [
-      "log_params"
-    ],
-    [
       "log_params",
       "auto"
     ],
@@ -1427,7 +1423,7 @@
     "dev": {
       "file": "dev.obf-r1.raw.sse",
       "events": 200000,
-      "sha256": "f81c35abb7b39a29061bc4f610c77522ef01b30743e203e7003788cacfb8f6cd"
+      "sha256": "cf60870b00ac6ca36dcc4d47fdd9cbd1b329be46a261d4be46b58f65096a2284"
     }
   },
   "keys": {

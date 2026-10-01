@@ -124,6 +124,16 @@ domain = "user_id"
 path = ["log_params", "log"]
 domain = "abuselog"
 
+# FlaggedRevs `review/approve` and `approve-i` carry a bare array, [revid, old stable revid,
+# "YYYYMMDDHHMMSS"]: both ints are revision ids (s2w#370 PR 2 review). Every element hashes in
+# the revision domain, the timestamp text included; elsewhere `log_params` is an object, walked
+# as usual.
+[[rule]]
+path = ["log_params"]
+domain = "revision"
+fold = [["wiki"]]
+scalars_only = true
+
 # --- time: `meta.dt` (RFC 3339) shifts by default; the unix integer shifts with it ---
 [[rule]]
 path = ["timestamp"]

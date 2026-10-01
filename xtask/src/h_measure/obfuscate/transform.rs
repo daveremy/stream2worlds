@@ -147,7 +147,7 @@ impl<'r> Transformer<'r> {
     ) -> Result<Value, String> {
         match value {
             Value::Object(map) => {
-                if self.rules.by_path.contains_key(chain.as_slice()) {
+                if (self.rules.by_path.get(chain.as_slice())).is_some_and(|r| !r.scalars_only) {
                     return Err(format!(
                         "the rule for {chain:?} meets an object; rules apply to scalar values"
                     ));

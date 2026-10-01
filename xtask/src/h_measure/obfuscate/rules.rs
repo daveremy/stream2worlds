@@ -48,6 +48,10 @@ pub(super) struct Rule {
     /// present but holds no string or number, still fails.
     #[serde(default)]
     pub own_if_absent: bool,
+    /// The rule applies to the scalars at its path, alone or as array elements; an object at
+    /// the path is walked as if no rule named it. Without it, an object at a rule's path fails.
+    #[serde(default)]
+    pub scalars_only: bool,
     /// The identifier is the tail of a URL: see [`UrlPath`].
     pub url_path: Option<UrlPath>,
     /// The value is a URL whose query parameters hold identifiers: each listed parameter

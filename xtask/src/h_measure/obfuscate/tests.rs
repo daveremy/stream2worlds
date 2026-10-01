@@ -424,6 +424,45 @@ fn own_if_absent_aliases_when_present_and_hashes_its_own_value_when_absent() {
     assert_eq!(counts, [(vec!["mirror".to_owned()], 6)]);
 }
 
+/// `bag` is an object on even events and an array of two numbers on odd ones.
+fn bag_fixture(name: &str, scalars_only: bool) -> Fx {
+    let mut all = events();
+    for (i, event) in all.iter_mut().enumerate() {
+        event["bag"] = if i % 2 == 0 {
+            json!({"n": 5})
+        } else {
+            json!([4000 + i, 4100 + i])
+        };
+    }
+    let fx = Fx::new(name, &[("dev", sse(&all))]);
+    let extra =
+        format!("\n[[rule]]\npath = [\"bag\"]\ndomain = \"bag\"\nscalars_only = {scalars_only}\n");
+    fs::write(&fx.rules, format!("{RULES}{extra}")).unwrap();
+    fx
+}
+
+#[test]
+fn scalars_only_hashes_array_elements_and_walks_objects() {
+    let fx = bag_fixture("bag", true);
+    fx.run("a.key", &["dev"], &fx.meta_path()).unwrap();
+    let (meta, out) = (fx.meta(), obfuscated(&fx, "dev"));
+    for (i, event) in out.iter().enumerate() {
+        let bag = at(&meta, event, &["bag"]);
+        if i % 2 == 0 {
+            assert_eq!(at(&meta, event, &["bag", "n"]), &json!(5));
+        } else {
+            let items = bag.as_array().unwrap();
+            assert!(items.iter().all(Value::is_string), "{bag}");
+            assert!(!bag.to_string().contains(&format!("{}", 4000 + i)));
+        }
+    }
+    let strict = bag_fixture("bag-strict", false);
+    let err = strict
+        .run("a.key", &["dev"], &strict.meta_path())
+        .unwrap_err();
+    assert!(err.contains("meets an object"), "{err}");
+}
+
 #[test]
 fn own_if_absent_still_fails_on_a_present_non_scalar_source() {
     let fx = own_value_fixture("ownvalue-null", Some(Value::Null));
