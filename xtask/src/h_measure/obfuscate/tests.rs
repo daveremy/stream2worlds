@@ -884,16 +884,32 @@ fn a_later_run_renames_a_key_alone_under_the_recorded_table() {
     let fx = Fx::new("keys-only", &[("dev", sse(&events()))]);
     fx.run("a.key", &["dev"], &fx.meta_path()).unwrap();
     let before = fx.meta();
+    let first_key = fx.renamed_key();
     pin_another(&fx, "toy-key-v3.json", &answer_v3());
     fx.run_keys("a.key", &[], &["toy-key-v3.json"], &fx.meta_path())
         .expect("a keys-only run under an existing meta");
     let after = fx.meta();
+    // Nothing the earlier run recorded is rewritten: the outputs, the field table and the
+    // earlier key's entry are equal, and its renamed file is byte-identical.
     assert_eq!(
-        after.outputs.keys().collect::<Vec<_>>(),
-        before.outputs.keys().collect::<Vec<_>>()
+        serde_json::to_value(&after.outputs).unwrap(),
+        serde_json::to_value(&before.outputs).unwrap()
     );
-    assert_eq!(after.fields.len(), before.fields.len());
-    assert!(after.keys.contains_key(ANSWER) && after.keys.contains_key("toy-key-v3.json"));
+    assert_eq!(
+        serde_json::to_value(&after.fields).unwrap(),
+        serde_json::to_value(&before.fields).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&after.keys[ANSWER]).unwrap(),
+        serde_json::to_value(&before.keys[ANSWER]).unwrap()
+    );
+    assert_eq!(after.keys.len(), before.keys.len() + 1);
+    assert!(after.keys.contains_key("toy-key-v3.json"));
+    assert_eq!(
+        fx.renamed_key(),
+        first_key,
+        "the earlier renamed key is untouched"
+    );
     let renamed: KeySpec = serde_json::from_str(
         &fs::read_to_string(fx.root.join(DATA).join("toy-key-v3.obf-r1.json")).unwrap(),
     )
@@ -911,8 +927,8 @@ fn a_later_run_renames_a_key_alone_under_the_recorded_table() {
 fn a_keys_only_run_needs_an_existing_meta() {
     let fx = Fx::new("keys-only-new", &[("dev", sse(&events()))]);
     let problem = fx
-        .run("a.key", &[], &fx.meta_path())
-        .expect_err("no corpus and no meta");
+        .run_keys("a.key", &[], &[ANSWER], &fx.meta_path())
+        .expect_err("a key, no corpus and no meta");
     assert!(problem.contains("--corpus is required"), "{problem}");
     assert!(!fx.meta_path().exists());
     // With the metadata present, a run with neither a corpus nor a key has nothing to do.
