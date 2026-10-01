@@ -1,8 +1,86 @@
-enforce = false # report-only until a later PR flips this
+enforce = true
 cap = 400
-# Keys use Rust module paths, e.g. "s2w_app::query::view", never filesystem paths.
-# [[exempt]]
-# module = "s2w_app::query::view"
-# lines = 0
-# reason = "..."
-# issue = "s2w#NN"
+
+[[exempt]]
+module = "s2w_app::bridge"
+lines = 556
+reason = "the live bridge: Bridge, its stats and verdict records over the System 1 engines; not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_app::dashboard"
+lines = 673
+reason = "the dashboard proposer's filer: tail read, proposer input, manifest filing; not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_app::discover"
+lines = 473
+reason = "the learned-mapping producer run at serve start; not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_app::group_commit"
+lines = 433
+reason = "group-commit buffer and flush policy; s2w#156 batches may shrink it first"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_app::query::http"
+lines = 1350
+reason = "axum handlers, QueryState and SSE deltas in one module; largest split, own PR"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_app::query::timeline"
+lines = 404
+reason = "the served world log window and its deltas; 4 lines over, not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_app::serve"
+lines = 800
+reason = "serve's process wiring: ingestion, bridge and query API (decision 0014); not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_app::serve::snapshots"
+lines = 480
+reason = "serve's snapshot restore, checkpoint and writer thread; not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_core::world"
+lines = 421
+reason = "the world state and its fold over WorldEvents; not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_discover::roles"
+lines = 410
+reason = "profiler stages 2 to 4: path statistics, event-type field, roles; not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_model::dashboard"
+lines = 526
+reason = "the dashboard manifest types (decision 0029); not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "s2w_model::dashboard::validate"
+lines = 555
+reason = "dashboard manifest shape and reference validation; not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "xtask::scale"
+lines = 404
+reason = "scale baseline config and judges; 4 lines over, not split in s2w#66"
+issue = "s2w#378"
+
+[[exempt]]
+module = "xtask::vocabulary"
+lines = 583
+reason = "check 9's denylist walkers over src, web view and prompts; not split in s2w#66"
+issue = "s2w#378"
