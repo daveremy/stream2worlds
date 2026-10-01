@@ -1,0 +1,20 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "cb0a275b12df9688",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"chain\",\"type_label\":\"chain\",\"key\":[[\"data\",\"f10\"]],\"attrs\":[{\"name\":\"f104\",\"path\":[\"data\",\"f104\"]},{\"name\":\"f75\",\"path\":[\"data\",\"f75\"]}]},{\"id\":\"account\",\"type_label\":\"account\",\"key\":[[\"data\",\"f6\"]],\"attrs\":[{\"name\":\"f61\",\"path\":[\"data\",\"f61\"]},{\"name\":\"f96\",\"path\":[\"data\",\"f96\"]},{\"name\":\"f84\",\"path\":[\"data\",\"f84\"]}]},{\"id\":\"pool\",\"type_label\":\"pool\",\"key\":[[\"data\",\"f13\"]],\"attrs\":[{\"name\":\"f96\",\"path\":[\"data\",\"f96\"]},{\"name\":\"f63\",\"path\":[\"data\",\"f63\"]}]},{\"id\":\"pool_alt\",\"type_label\":\"pool\",\"key\":[[\"data\",\"f12\"]],\"attrs\":[]},{\"id\":\"route\",\"type_label\":\"route\",\"key\":[[\"data\",\"f14\"]],\"attrs\":[{\"name\":\"f66\",\"path\":[\"data\",\"f66\"]},{\"name\":\"f55_f69\",\"path\":[\"data\",\"f55\",\"f69\"]}]},{\"id\":\"tx\",\"type_label\":\"transaction\",\"key\":[[\"data\",\"f74\"]],\"attrs\":[{\"name\":\"f55_f60\",\"path\":[\"data\",\"f55\",\"f60\"]},{\"name\":\"f55_f65\",\"path\":[\"data\",\"f55\",\"f65\"]},{\"name\":\"f79\",\"path\":[\"data\",\"f79\"]}]},{\"id\":\"f91_f7\",\"type_label\":\"counterparty\",\"key\":[[\"data\",\"f91\",\"f7\"]],\"attrs\":[{\"name\":\"f83\",\"path\":[\"data\",\"f83\"]}]},{\"id\":\"f91_f101\",\"type_label\":\"f91_f101\",\"key\":[[\"data\",\"f91\",\"f101\"]],\"attrs\":[{\"name\":\"f25\",\"path\":[\"data\",\"f25\"]},{\"name\":\"f1\",\"path\":[\"data\",\"f1\"]}]}],\"relationships\":[{\"from\":\"account\",\"to\":\"chain\",\"kind\":\"on chain\"},{\"from\":\"account\",\"to\":\"tx\",\"kind\":\"performs\"},{\"from\":\"account\",\"to\":\"pool\",\"kind\":\"uses\"},{\"from\":\"pool\",\"to\":\"chain\",\"kind\":\"on chain\"},{\"from\":\"pool\",\"to\":\"route\",\"kind\":\"routed via\"},{\"from\":\"tx\",\"to\":\"pool\",\"kind\":\"touches\"},{\"from\":\"pool\",\"to\":\"f91_f7\",\"kind\":\"related to\"}],\"links\":[{\"survivor\":\"pool\",\"absorbed\":\"pool_alt\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 1608,
+      "cache_read_tokens": 2074,
+      "cache_write_tokens": 33286,
+      "cost_usd": 0.14964280000000002,
+      "latency_ms": 13258,
+      "started_at_ms": 1790883393154
+    }
+  ]
+}
