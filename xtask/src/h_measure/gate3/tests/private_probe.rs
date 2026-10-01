@@ -68,7 +68,12 @@ fn the_probe_session_sees_nothing_of_a_private_corpus() {
         creds.display().to_string(),
     ])
     .collect();
-    commit(&root, &super::super::super::flags(&args).unwrap()).unwrap();
+    // A probe that sees context writes no file (`a_probe_that_sees_context_writes_nothing`),
+    // so a leak fails here: print what the observer saw.
+    commit(&root, &super::super::super::flags(&args).unwrap()).unwrap_or_else(|e| {
+        let seen = fs::read_to_string(root.join("fake/seen.txt")).unwrap_or_default();
+        panic!("{e}; the probe session saw: {seen}")
+    });
     let doc: serde_json::Value = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
     let seen = fs::read_to_string(root.join("fake/seen.txt")).unwrap();
     assert_eq!(

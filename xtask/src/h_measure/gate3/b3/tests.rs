@@ -99,6 +99,12 @@ fn prompt_tokens_are_input_plus_cache() {
     let calls = [record(None, None, None), record(Some(1), Some(2), Some(3))];
     assert_eq!(first_prompt_tokens(&calls), Some(6));
     assert_eq!(first_prompt_tokens(&calls[..1]), None);
+    let mut repair = record(Some(9), Some(9), Some(9));
+    repair.call = 2;
+    assert_eq!(
+        first_prompt_tokens(&[record(None, None, None), repair]),
+        None
+    );
 }
 
 #[test]

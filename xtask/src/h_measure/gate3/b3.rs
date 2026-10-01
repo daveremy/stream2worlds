@@ -87,10 +87,14 @@ pub(crate) fn prompt_tokens(call: &CallRecord) -> Option<u64> {
         .map(|input| input.saturating_add(read).saturating_add(written))
 }
 
-/// The first prompt tokens any of `calls` reported. Only a first call can be the first to
-/// report: a repair call follows a reply, and a reply always reports its tokens.
+/// The first prompt tokens a first call (call 1 of an attempt) reported. Every attempt's call 1
+/// sends the same first prompt, so a provider failure on attempt 1 falls to attempt 2's; a
+/// repair call (call 2) carries a reply too and never sets the count.
 pub(crate) fn first_prompt_tokens(calls: &[CallRecord]) -> Option<u64> {
-    calls.iter().find_map(prompt_tokens)
+    calls
+        .iter()
+        .filter(|call| call.call == 1)
+        .find_map(prompt_tokens)
 }
 
 /// The window's events as the stream carried them: each stored envelope's `data` string.

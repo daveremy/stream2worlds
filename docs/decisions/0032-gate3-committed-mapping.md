@@ -170,8 +170,9 @@ events of the same development window instead of H's result.
 - **The budget.** A b3 replicate is sized by the h-s2 replicate with the same corpus, window,
   replicate, model and price (`--h-s2 FILE`). Before any call, b3 replays that file exactly as
   `score` does, so a stale or hand-written h-s2 file never sets a budget. T is the prompt tokens
-  of the h-s2 transcript's first call that reported tokens: input plus cache read plus cache
-  write. The CLI caches the prompt, so `input_tokens` alone is a handful; the sum is what the
+  of the h-s2 transcript's first call 1 (an attempt's first prompt, never a repair) that
+  reported tokens: input plus cache read plus cache write. Every attempt's call 1 sends the same
+  prompt, so a provider failure on attempt 1 falls to attempt 2's. The CLI caches the prompt, so `input_tokens` alone is a handful; the sum is what the
   model read. It includes the CLI's built-in system prompt, which b3's calls carry too. An
   h-s2 replicate whose calls reported no tokens has no budget, and b3 refuses it.
 - **The sampler (frozen).** The events are each frame's `data` string as the stream carried
@@ -179,8 +180,10 @@ events of the same development window instead of H's result.
   first. k is the smallest value whose b3 first prompt is at most B bytes, where B is the
   h-s2 first prompt's length rebuilt from the committed heuristic. Bytes against bytes is the
   plan's "bytes/3" rule with the 3 cancelled on both sides, and it needs no estimate of the
-  CLI's system-prompt overhead.
-- **The check and refit.** After a fit's proposal, its first call that reported tokens is
+  CLI's system-prompt overhead. The b3 template (`mapping-raw.txt`) is shorter than the h-s2
+  one (`mapping.txt`), so b3 gets that difference (about 600 bytes) as extra event data before
+  the token check; the 105% check below bounds it.
+- **The check and refit.** After a fit's proposal, its first call 1 that reported tokens is
   counted the same way as T. Above 105% of T, the fit is spent (its calls stay in the
   transcript and the ledger) and the next fit is the smallest k above it that fits B. There is no fixed fit count:
   each fit's calls pass a budget gate seeded with everything spent before them, so the $5 cap
