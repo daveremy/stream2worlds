@@ -233,7 +233,8 @@ events of the same development window instead of H's result.
     B bytes, and the raw events read about 7% more tokens a byte than the h-s2 prompt, so 9 fits
     were spent ($3.2) before one sample happened to be small enough. **Ruled:** refit
     proportionally on the measured tokens (the check-and-refit bullet above). A unit test with
-    prompts 7% denser than h-s2's converges in 1 refit, where the old rule takes 5.
+    prompts 7% denser than h-s2's requires convergence within 2 refits; on its fixture the new
+    rule takes 1 and the old rule takes 5.
   - **Run 2:** the envelope view reads 17.7% more tokens a byte than the h-s2 prompt (its
     escaped `data` strings), and the proportional refit landed at 95.8% of T in one refit. b3
     scored F1 0.3301, so the raw-sample baseline is now measurable. This run's h-s2 reply left

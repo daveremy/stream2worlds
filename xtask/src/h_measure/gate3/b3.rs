@@ -121,7 +121,8 @@ pub(crate) fn raw_events(window: &[Value]) -> Result<Vec<String>, String> {
 /// The k a spent fit's refit starts from: the sample shrunk by the measured ratio. A fit at
 /// stride k sends about 1/k of the events, so shrinking the sample to `budget / tokens` of
 /// itself, times [`REFIT_PERCENT`], is a stride of `ceil(k * tokens / (budget * 0.97))`. It is
-/// always above k, so every refit sends a strictly smaller sample.
+/// always above k, so a refit never sends a larger sample, and the stride reaches the one-event
+/// sample in finitely many refits.
 pub(crate) fn refit_from(k: usize, tokens: u64, budget: u64) -> usize {
     let denominator = u128::from(budget) * u128::from(REFIT_PERCENT);
     if denominator == 0 {
