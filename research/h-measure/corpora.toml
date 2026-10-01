@@ -135,7 +135,8 @@ sha256 = "dfa075fbe5b58b368e7d3d895d9e27296bd75e695bd7f2150e5b130ac0e0166f"
 # whole window was already in the past at capture time. Only the replay's summary line, the frame
 # count, the byte size and the sha256 were read. Kept for #245 PR 4's score (links, decision 0027).
 [corpus.reserved-5]
-role = "reserved"
+# opened by s2w#245 PR 4, 2026-10-01 (UTC), after 31e2d8f (serve keeps version 1), e43152d (v9 dev freezes) and the predictions comment (issuecomment-5927730621, 08:31Z)
+role = "heldout"
 file = "reserved-5.raw.sse"
 stream = "mediawiki.recentchange"
 since = "2026-09-30T05:15:00Z"
