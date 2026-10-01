@@ -61,7 +61,9 @@ Percentages are whole percent on integer ratios, rounded down. All are `Config` 
    group rule over the events carrying both, ≥20 of them) are two encodings of one entity (research 0002 §4) and merge.
    The key is chosen without names: most alias members, then most events, then most distinct
    values, then integer over string over bool. A tie keeps them apart. The losers' paths become
-   attributes. A one-way dependency does not merge or demote.
+   attributes. A one-way dependency does not merge or demote. *2026-10-01 (s2w#245, `PROFILER_VERSION` 9): with
+   `Config::links` on, the losers' paths stay keys linked into the class with the most distinct
+   values, and the mapping is version 2; `serve` runs with it off. See the amendment below.*
 7. **Assemble.** Each class is one type; each member path is one entity rule. Attributes are
    non-key paths passing the dependency test under that key. A relationship joins two types
    that co-occur in ≥20 events: `n:1` from the many side when exactly one direction is
@@ -82,7 +84,7 @@ values across constant groups are at least half the constant groups, and the eve
 uses the 2% / 98% presence band. *2026-09-29 (s2w#250 PR 2): a third, the second entity test's
 "varies" guard: no one value of the follower on more than half of the events carrying both.*
 
-**Determinism.** `BTreeMap` only, no floats in any decision or output, no tie broken by a name.
+**Determinism.** `BTreeMap` only, no floats in any decision or output, no tie broken by a name. *2026-10-01 (s2w#245, `PROFILER_VERSION` 9): one documented exception, the member a stage 6 link names; see the amendment below.*
 Output rules are sorted by id, so their order follows the (renamed) names; the invariance
 contract below holds up to rule order, and the replay canonicalizes it.
 
@@ -527,6 +529,63 @@ equals v7's at both windows. Research 0009's #327 addendum has the per-span tabl
 numbers above come from `s2w_discover::key_report`, which `s2w-app`'s ignored `discover_diag`
 test prints for any recorded stream.
 
+## Amendment 2026-10-01: stage 6 links (s2w#245 PR 4, `PROFILER_VERSION` 9)
+
+Stage 6 merged two classes that determine each other and made the losers' paths attributes of the
+winner. A v0 mapping could say nothing else: it cannot join two different values that name one
+entity. Decision 0027's version-2 format can, with a link, and this amendment has stage 6 use it.
+
+**The rule (`link.rs`, `Config::links`, default on).** After a 1:1 merge, the losers' paths stay
+key paths under the winner's label. The **survivor** is the class with the most distinct values in
+the window, whichever class won the merge: a link joins an absorbed value to the first survivor it
+co-occurs with, so the side that determines the other must survive. Every other class links into
+it, and the mapping is version 2. A tie on the most distinct values gives no link, and the losers
+stay attributes (version 8's rule). With `links` off, every loser is an attribute and the mapping
+is version 1, exactly version 8's output. The winner and its label are chosen as before, without
+names.
+
+**The one tie a name can break.** A link names one rule per side (0027), so each class must offer
+one member: the most carried, then the most distinct (`link::link_member`). A tie that remains
+takes the first path in table order. Table order is first appearance in the stream, and within one
+payload it is `serde_json`'s map order, which sorts by key name. So this tie can follow a name. It
+is deterministic: the same payloads always give the same link. It is the one exception to "no tie
+is broken by a name" in this record, and `s2w-discover`'s `AGENTS.md` names it. The tied members
+are aliases (equal values in at least `alias_pct`, 99%, of the events carrying both), so either
+choice links the same entities in those events. Measured case: on `dev` at 10^4 the link into the
+wiki class names `data.meta.domain`, which ties with its alias `data.server_name` and comes first.
+Check 12 compares links exactly and passes on the recorded fixture. If a renaming ever flips this
+tie on a fixture, check 12 fails with a `links` difference, and the fix is to compare a link up to
+its tied members, not to change the rule.
+
+**Links are measurement-only; `serve` auto-applies version 1.** `s2w-app`'s
+`DiscoverConfig::default()` turns `links` off, and `discover/profile.rs` refuses a version-2
+mapping with a note instead of filing it (31e2d8f). A live world sees links only after s2w#392
+sets a memory baseline and a later change turns them on there. h-measure and check 12 run with
+`links` on.
+
+**Measured: claim volume and memory** (`crates/s2w-app/tests/discover_volume.rs`, release build,
+hub, links on; mapping discovered on the recorded fixture's first 10^4 events, then 10^5 events
+folded):
+
+| | entity rules | links | claims/event | merge claims | merges | entities | world, fresh | world, repeat | fresh events/s |
+|---|---|---|---|---|---|---|---|---|---|
+| v8 | 26 | 0 | 95.10 | 0 | 0 | 154,018 | 390.0 MiB | 30.2 MiB | 4,624 |
+| v9 | 33 | 4 | 103.81 | 384,938 | 170,504 | 324,579 | 465.1 MiB | 38.8 MiB | 1,578 |
+
+Claims rise by 8.71 per event (+9.2%), of which 3.85 are merge claims. Relationships are
+unchanged (1,412,074 fresh). The fresh-world upper bound grows by 75.1 MiB (+19%). The ~350 MiB
+deploy line (#197 ruling) is already crossed by v8 at 390.0 MiB, an unmeasured growth from 252 MiB
+that s2w#392 owns, so this PR does not decide links in `serve`; it records the cost. The fresh
+fold runs about three times slower, since every absorbed value mints an entity and then merges it.
+
+**Fixture baseline** (`discovered_types.baseline.txt`). The type count is unchanged at 12. Three
+labels gain alias paths: the page label gains its two `page_title` paths and `meta/uri`, and the two
+`user_text` labels gain the matching `user_central_id`.
+
+**Gate-3 score.** Research [0009](../../research/0009-h-min-plain-wikipedia.md)'s s2w#245 addendum
+has the pre-registered predictions and the `reserved-5` scores. At 10^4 the base-key F1 rises from
+0.5303 to 0.8063 and entity recovery from 0.1369 to 0.9807, with precision 0.9943.
+
 ## Out of scope
 
 Composite keys, carry-over of identity across events, inclusion dependencies, embeddings, a
@@ -538,6 +597,6 @@ pages and wikis at alias paths. Inclusion dependencies are #244.* *2026-09-29 (s
 `PROFILER_VERSION` 3 (amendment above). A `user` type needs a new entity criterion (#250 PR 2;
 *2026-09-29: done, `PROFILER_VERSION` 4, amendment above*);
 a revision recurs only across two paths, an inclusion dependency (#244); choosing among alias
-encodings of one entity needs a format that joins different values (#245).* *2026-09-29 (s2w#244): inclusion dependencies are stage 5b, `PROFILER_VERSION` 5 (amendment above).* Wiring into `serve` and
+encodings of one entity needs a format that joins different values (#245).* *2026-10-01 (s2w#245): that format is version 2 (decision [0027](0027-stream-mapping-links.md)), and stage 6 emits links at `PROFILER_VERSION` 9 (amendment above), for measurement only.* *2026-09-29 (s2w#244): inclusion dependencies are stage 5b, `PROFILER_VERSION` 5 (amendment above).* Wiring into `serve` and
 auto-apply (#163 PR 4; *2026-09-29: done, [decision 0025](0025-learned-mapping-auto-apply.md)*) and the mapping state surfaces [0017](0017-view-and-agents-first-class.md) requires (#163
 PR 5).

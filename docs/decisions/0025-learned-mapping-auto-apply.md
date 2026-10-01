@@ -84,6 +84,11 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
   decided-window skip matches this actor only, so a window that `h-lite/5` filed and a human
   rejected is profiled again at each start; the (source, identity) check then stops the write.
   Versions 2 to 4 remain `h-lite`.
+- *2026-10-01, #245 PR 4:* **version 1 only**. `PROFILER_VERSION` 9 can emit a version-2 mapping
+  with links (0027). The producer runs the profiler with `Config::links` off, so it files the
+  version-1 mapping version 8 would have filed, and it refuses a version-2 mapping with a note
+  instead of filing it. Serving links waits on s2w#392's memory baseline (0022's s2w#245
+  amendment: 465.1 MiB against v8's 390.0 MiB on the fresh-world bound).
 - **Grading** the policy's accuracy is #33/#56. No automatic revoke exists yet.
 - **Surfaces** ([0017](0017-view-and-agents-first-class.md)): which mapping a source runs is
   shown only in start-up notes, `s2w proposals list` and the proposals panel; the per-source

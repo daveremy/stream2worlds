@@ -575,3 +575,79 @@ this note's by design, not by H-lite:
    into the hash (#17), so one name on two wikis gets two hashes and those types form no collision
    groups. Context collisions are a reported diagnostic, not a §B3 scored metric; identity F1,
    false merges and recovery are unaffected (`h_measure/obfuscate/tests.rs`, test 9).
+
+## Addendum 2026-10-01 (UTC): links (s2w#245 PR 4, `PROFILER_VERSION` 9)
+
+**Change.** Decision 0022's s2w#245 amendment: stage 6 keeps a 1:1 merge's losers as key paths and
+links them into the class with the most distinct values, so the mapping is version 2 (decision
+[0027](../docs/decisions/0027-stream-mapping-links.md)). This is the first H change the oracle-v0
+reference does not bound: a mapping with links reads against the "ceiling with links" row. `serve`
+still auto-applies version 1 only, so the links are measured here and not yet served.
+
+**Hygiene.** `reserved-5` was pinned (2b7e4f1) before the profiler change and opened (49aefe1,
+role `heldout`) only after v9 was frozen on `dev` at both windows (e43152d). The predictions were
+posted on #245
+([comment](https://github.com/daveremy/stream2worlds/issues/245#issuecomment-5927730621), about
+08:35Z) after an in-sample check on `dev` and before `reserved-5` was read. Its amendments to the
+plan's §5 came from that check only. v8 is the saved build `xtask-v8-1e26249` scoring its own
+`dev` freezes. The freezes' links: at 10^4, `data.server_url` → `data.meta.domain`, `data.title` →
+`data.meta.uri` and `data.comment` → `data.parsedcomment`; at 2x10^5, `server_url` →
+`meta.domain` and `comment` and `log_action_comment` → `parsedcomment`, with **no `title` link**.
+
+**Result** (`reserved-5`, 100,000 events, base key `dev-key-v1`; reports in
+`h-measure/results/h-min-v{8,9}.dev-{10000,200000}.reserved-5.md`):
+
+| | N | P | R | F1 | recovery | `page` P / R | `wiki` P / R |
+|---|---|---|---|---|---|---|---|
+| v8 | 10^4 | 0.9924 | 0.3619 | 0.5303 | 0.1369 | 1.0000 / 0.2500 | 0.9987 / 0.2492 |
+| v9 | 10^4 | 0.9943 | 0.6781 | 0.8063 | 0.9807 | 0.9994 / 0.9987 | 0.9987 / 0.5607 |
+| v8 | 2x10^5 | 0.9865 | 0.4195 | 0.5887 | 0.1369 | 0.9995 / 0.5000 | 0.9987 / 0.2492 |
+| v9 | 2x10^5 | 0.9824 | 0.5631 | 0.7159 | 0.1369 | 0.9995 / 0.5000 | 0.9987 / 0.5607 |
+
+`user` P is 0.9675 in every row. Under `user-global`, v9 at 10^4 reads P 0.9992, R 0.6781, F1
+0.8079. Under the canonical-mention key, v9 at 10^4 has `page` P 0.9991 and R 1.0000 (v8: R 0)
+and `wiki` R 0.
+
+**The ceiling with links, per type** (the PR #377 deferred concern). The row is the same for both
+builds and both windows, as it should be (it does not read the mapping): P 0.9993, R 0.9989, F1
+0.9991. Per type, from the score's JSON output (`grade.ceiling_links.per_type`):
+
+| type | P | R |
+|---|---|---|
+| `event`, `log`, `page`, `revision`, `user` | 1.0000 | 1.0000 |
+| `wiki` | 0.9985 | 0.9976 |
+
+So the whole gap below 1.0 is `wiki`. Its four key paths (`data.meta.domain`, `data.server_name`,
+`data.server_url`, `data.wiki`) are aliases in almost every event; per path, the oracle's recall
+is 0.9972 on the first three and 0.9988 on `data.wiki`. Under the canonical-mention key the
+ceiling with links is 1.0000 / 1.0000 for every type.
+
+**Pre-registered predictions** (N = 10^4 unless named):
+
+| | prediction | measured | |
+|---|---|---|---|
+| P1 | `wiki` R in [0.53, 0.60]; `wiki` P ≥ 0.995 | R 0.5607, P 0.9987 | hit |
+| P2 | `page` R in [0.93, 1.00]; `page` P in [0.95, 0.99] | R 0.9987; P 0.9994 | **miss** (P above the band) |
+| P3 | R rises by [+0.25, +0.36]; P ≥ 0.95; F1 delta ≥ +0.18 | +0.3162; 0.9943; +0.2760 | hit |
+| P4 | recovery ≥ 0.60 | 0.9807 | hit |
+| P5 | grey band: F1 in [0.75, 0.85), recovery ≥ 0.60; no escalation | F1 0.8063, recovery 0.9807 | hit |
+| P6 | canonical-mention: `page` R ≥ 0.90; `page` P < 1.0; `wiki` R = 0 | 1.0000; 0.9991; 0 | hit |
+| P7 | ceiling with links: R ≥ 0.99, P ≥ 0.999; every type but `wiki` at 1.0000 | 0.9989, 0.9993; yes | hit |
+| P8 | 2x10^5: `page` R = v8's ± 0.01; recovery = v8's ± 0.01; `wiki` R in [0.53, 0.60]; F1 delta in [+0.08, +0.16] | 0.5000 (v8 0.5000); 0.1369 (0.1369); 0.5607; +0.1272 | hit |
+| control | v8's ceiling-with-links row equals v9's | equal | hit |
+
+P2 misses on the safe side: the in-sample check read `page` P 0.9808, and `reserved-5` reads
+0.9994. The band was set from earlier spans and was not revised. A miss is a finding, not a
+reason to retune; no threshold moved after `reserved-5` opened.
+
+**Which row of #4's decision table applies.** At 10^4 (the window `serve` uses), F1 0.8063 and
+recovery 0.9807: the 0.75 to 0.85 grey band. F1 is below 0.85, so there is no escalation to Dave.
+At 2x10^5 the row is unchanged from v8's ("entity recovery < 0.60"), because that freeze has no
+`title` link and recovery stays 0.1369.
+
+**Reading.** Links close most of the alias gap that the v0 format imposed: base-key recall at
+10^4 goes from 0.3619 to 0.6781, and the `page` type, written two ways, is recovered almost
+entirely. `data.wiki`, one of `wiki`'s four key paths, gets no rule (0 of its 99,995 mentions predicted), so `wiki` stays at R 0.56. The
+2x10^5 freeze loses the `title` link, and with it the gain on `page`: the window rule decides
+which merges happen, and this note does not resolve that. The links cost 75 MiB on the
+page-change memory bound and are not served yet (decision 0022's s2w#245 amendment, s2w#392).
