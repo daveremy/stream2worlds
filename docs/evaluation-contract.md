@@ -713,8 +713,7 @@ pinned. It changes no arm, metric, threshold, stream or span.
   after `private-key-v2*.json` was pinned).
 - **Order.** Freezes (commit 882a408), then the predictions comment on s2w#375 (15:44:55Z), then
   `reserved-6` and `private-test-2` flip from `reserved` to `heldout` (b4ca8f2), then the scores
-  (db10cc8). Key
-  before freeze is vacuous on `dev`, which was read long before; what fixes the relationship
+  (db10cc8). Key before freeze is vacuous on `dev`, which was read long before; what fixes the relationship
   scoring there is that the key's edge table was set in the s2w#388 plan (2026-10-01 08:20Z)
   before any H edge was scored.
 - **Scores.** `reserved-6` under `dev-key-v3.json` (identity and the first §B3 relationship

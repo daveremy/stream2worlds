@@ -739,6 +739,9 @@ sha256) and in one added line per key, `No relationships declared by this key (f
 earlier).`, which the #388 report format prints. Nothing else differs. The control report is not
 committed.
 
+Tally: 9 of 11 rows hit, 8 of the 10 held-out rows (P1 is in sample). The two misses are W2
+and W5.
+
 W2 misses by 0.0002: the whole gap is `wiki`'s (P 0.9975 here, 0.9985 on `reserved-5`). The row
 does not read the mapping, so the miss is a property of the span and the key, not of H's mapping. W5's recovery band was set from
 `reserved-5` and not revised from the in-sample check (which read 0.1883); `reserved-6` reads
