@@ -114,3 +114,6 @@ fn augment(
         col = prev;
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -148,10 +148,19 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     the mention-weighted false-merge rate, entity recovery (≥ 90% both ways, integer
     comparisons), the per-path table and spurious mentions. A zero denominator is `None`
     (undefined). Fixtures live in `h_measure/score/tests.rs`.
-  - `h_measure/grade.rs`: `grade` scores a mapping and the oracle ceiling on one corpus,
+    `majority` gives each scored predicted cluster its strict-majority key entity, for edges.
+  - `h_measure/edges.rs` (s2w#388): the §B3 edge scorer: strict-majority endpoint mapping,
+    predicted type `(from type, to type, kind)`, one-to-one type alignment by the in-house
+    Hungarian solver in `h_measure/edges/hungarian.rs` (tie: the lexicographically smallest
+    optimal pair list; tested against exhaustive enumeration), TP/FP/FN and micro P/R/F1.
+    Imports `score`, never `grade`. Fixtures live in `h_measure/edges/tests.rs`.
+  - `h_measure/fixtures.rs`: the contract's eight frozen scorer fixtures, in its order, each
+    with the property it must show; the selftest prints and checks them.
+  - `h_measure/grade.rs`: `grade` scores a mapping and the oracle ceilings on one corpus (and
+    their edges, when the key declares relationships),
     dropping the key's excluded mentions from both predictions first (the key has no mention
     there; a v0 mapping cannot exclude a value), and adds the `context` rows. It sits above
-    both `score` and `context` so neither imports the other (s2w#241).
+    `score`, `edges` and `context` so none imports another (s2w#241).
   - `h_measure/pins.rs`: reads `research/h-measure/keys.toml` and `corpora.toml` (with each
     corpus's `role`: development, heldout, reserved). A key or corpus that is not pinned, or
     whose sha256 does not match its pin, is refused, as is a corpus whose SSE frame count is not
@@ -174,7 +183,8 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     That last check re-reads the development corpus. An abstention is graded as the
     empty prediction. Writes a markdown report (alias limit first; per key the mapping and
     ceiling rows, per type, per path, context collisions, spurious, abstained and excluded
-    counts) and, with `--json`, every number. Refusals are tested in
+    counts, then the relationship section in `h_measure/report/edges.rs`, or one line for a key
+    without relationships) and, with `--json`, every number. Refusals are tested in
     `h_measure/report_tests.rs`.
   - `h_measure/context.rs`: the context-collision rows (the unfloored composite-key
     sub-metric; definition in `research/h-measure/README.md`), added to `Grade.contexts`.

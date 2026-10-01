@@ -403,3 +403,59 @@ fn score_names_the_freeze_re_run_when_its_recorded_window_is_impossible() {
         "re-running the freeze recorded in",
     );
 }
+
+/// Pins `v3.json`: the fixture key at format 3 with one relationship row between its first two
+/// mention paths, so a report holds one key with relationships and one without.
+fn pin_v3_key(root: &Path) {
+    let data = root.join(DATA);
+    let mut key: serde_json::Value =
+        serde_json::from_slice(&fs::read(data.join(KEY)).unwrap()).unwrap();
+    let paths: Vec<serde_json::Value> = key["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|t| t["mentions"].as_array().unwrap().iter())
+        .map(|m| m["path"].clone())
+        .take(2)
+        .collect();
+    key["version"] = 3.into();
+    key["relationships"] =
+        serde_json::json!([{ "type": "next", "from": paths[0], "to": paths[1] }]);
+    let bytes = serde_json::to_vec_pretty(&key).unwrap();
+    fs::write(data.join("v3.json"), &bytes).unwrap();
+    let mut rows = fs::read_to_string(data.join("keys.toml")).unwrap();
+    rows.push_str(&format!(
+        "\n[[key]]\nfile = \"v3.json\"\nvariant = \"v3\"\nsha256 = \"{}\"\n",
+        sha256(&bytes)
+    ));
+    fs::write(data.join("keys.toml"), rows).unwrap();
+}
+
+#[test]
+fn score_prints_edges_for_a_key_with_relationships_and_one_line_for_one_without() {
+    let (root, dir) = fixture("score-edges");
+    pin_v3_key(&root);
+    let out = root.join("frozen.json");
+    freeze(&root, &dir, "dev", 3, &out).expect("freezes");
+    let markdown = score(&root, &dir, &out, "dev", &[KEY, "v3.json"]).expect("scores");
+    let none = "No relationships declared by this key (format 2 or earlier).";
+    assert_eq!(markdown.matches(none).count(), 1, "{markdown}");
+    assert_eq!(
+        markdown
+            .matches("Relationships (contract B3, unique typed directed edges):")
+            .count(),
+        1
+    );
+    assert!(markdown.contains("| key edge type | key edges | aligned predicted type |"));
+    let json: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("score.json")).unwrap()).unwrap();
+    let grade = |i: usize| json["keys"][i]["grade"].clone();
+    for field in ["edges", "ceiling_edges", "ceiling_links_edges"] {
+        assert!(grade(0)[field].is_null(), "{field}");
+        assert!(grade(1)[field].is_object(), "{field}");
+    }
+    assert!(
+        grade(1)["ceiling_edges"]["micro"]["recall"].is_number()
+            || grade(1)["ceiling_edges"]["key_edges"] == 0
+    );
+}

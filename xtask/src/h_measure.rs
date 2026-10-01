@@ -267,6 +267,25 @@ fn grades_itself_perfectly(
             ));
         }
     }
+    edges_grade_perfectly(mapping, &own)
+}
+
+/// With relationship rules, the mapping's own key declares edges, and the mapping and the
+/// ceiling both score edge precision and recall 1.0 on a non-empty edge set.
+fn edges_grade_perfectly(mapping: &StreamMapping, own: &grade::Grade) -> Result<(), String> {
+    if mapping.relationships.is_empty() {
+        return Ok(());
+    }
+    for (row, graded) in [("mapping", &own.edges), ("ceiling", &own.ceiling_edges)] {
+        let perfect = graded.as_ref().is_some_and(|e| {
+            e.key_edges > 0 && e.micro.precision == Some(1.0) && e.micro.recall == Some(1.0)
+        });
+        if !perfect {
+            return Err(format!(
+                "scorer: {SAMPLE_MAPPING}'s edges graded against its own key do not score 1.0 ({row}: {graded:?})"
+            ));
+        }
+    }
     Ok(())
 }
 

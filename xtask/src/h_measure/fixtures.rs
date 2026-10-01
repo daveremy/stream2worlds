@@ -143,25 +143,25 @@ fn edge_fixtures() -> [Fixture; 3] {
         .cluster
         .insert((0, "t".to_owned()), "U\u{1f}1".to_owned());
     let tied = partition(&[
-        ("a", "T\u{1f}x"),
-        ("b", "T\u{1f}x"),
-        ("c", "T\u{1f}x"),
-        ("d", "T\u{1f}x"),
-        ("t", "U\u{1f}y"),
+        ("a", "T\u{1f}7"),
+        ("b", "T\u{1f}7"),
+        ("c", "T\u{1f}7"),
+        ("d", "T\u{1f}7"),
+        ("t", "U\u{1f}8"),
     ]);
     // Nine mentions of T1 and one of T2 in one predicted cluster.
     let paths: Vec<String> = (0..10).map(|i| format!("m{i}")).collect();
     let mut nine_key = partition(&[("t", "U\u{1f}1")]);
-    let mut nine = partition(&[("t", "U\u{1f}y")]);
+    let mut nine = partition(&[("t", "U\u{1f}8")]);
     for (i, path) in paths.iter().enumerate() {
         let gold = if i < 9 { "T\u{1f}1" } else { "T\u{1f}2" };
         nine_key.cluster.insert((0, path.clone()), gold.to_owned());
         nine.cluster
-            .insert((0, path.clone()), "T\u{1f}x".to_owned());
+            .insert((0, path.clone()), "T\u{1f}7".to_owned());
     }
     // One entity split across two clusters, each with an edge to the same target.
     let split_key = partition(&[("a", "T\u{1f}1"), ("b", "T\u{1f}1"), ("t", "U\u{1f}1")]);
-    let split = partition(&[("a", "T\u{1f}x"), ("b", "T\u{1f}z"), ("t", "U\u{1f}y")]);
+    let split = partition(&[("a", "T\u{1f}7"), ("b", "T\u{1f}9"), ("t", "U\u{1f}8")]);
     let key_edge = edges(&[("r", "T\u{1f}1", "U\u{1f}1")]);
     [
         Fixture {
@@ -169,7 +169,7 @@ fn edge_fixtures() -> [Fixture; 3] {
             key: tied_key,
             predicted: tied,
             key_edges: key_edge.clone(),
-            predicted_edges: edges(&[("r", "T\u{1f}x", "U\u{1f}y")]),
+            predicted_edges: edges(&[("r", "T\u{1f}7", "U\u{1f}8")]),
             holds: |_, e| e.micro.precision == Some(0.0) && e.no_majority == 1,
         },
         Fixture {
@@ -177,7 +177,7 @@ fn edge_fixtures() -> [Fixture; 3] {
             key: nine_key,
             predicted: nine,
             key_edges: key_edge.clone(),
-            predicted_edges: edges(&[("r", "T\u{1f}x", "U\u{1f}y")]),
+            predicted_edges: edges(&[("r", "T\u{1f}7", "U\u{1f}8")]),
             holds: |_, e| e.tp == 1 && e.micro.precision == Some(1.0),
         },
         Fixture {
@@ -185,7 +185,7 @@ fn edge_fixtures() -> [Fixture; 3] {
             key: split_key,
             predicted: split,
             key_edges: key_edge,
-            predicted_edges: edges(&[("r", "T\u{1f}x", "U\u{1f}y"), ("r", "T\u{1f}z", "U\u{1f}y")]),
+            predicted_edges: edges(&[("r", "T\u{1f}7", "U\u{1f}8"), ("r", "T\u{1f}9", "U\u{1f}8")]),
             holds: |_, e| {
                 (e.tp, e.fp) == (1, 1)
                     && near(e.micro.precision, 0.5)

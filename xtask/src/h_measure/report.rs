@@ -24,6 +24,8 @@ use super::score::{Bcubed, Score, shown};
 
 /// The report's first paragraph: the mapping format's alias limit (ruling on s2w#56,
 /// 2026-09-29), stated before any number.
+mod edges;
+
 const ALIAS_LIMIT: &str = "A v0 stream mapping cannot say that different values name one entity; a version-2 mapping can, with links (decision 0027). A key type whose mentions sit at alias paths holding different values (one entity written four ways) scores low recall even for a perfect v0 mapping. Read each mapping row against its ceiling row (the oracle-v0 mapping for that key), its ceiling-with-links row (that mapping plus a rule per alias path, linked into the oracle rule on the same identity, the ceiling for a mapping with links) and the canonical-mention key (alias paths unscored), not against 1.0.";
 
 /// What a score run reads, from the command line.
@@ -325,7 +327,7 @@ fn key_section(key: &KeyReport) -> String {
         table(&PER_PATH, paths),
         table(&CONTEXT, contexts),
         counts_line(g)
-    )
+    ) + &edges::section(g)
 }
 
 fn counts_line(g: &Grade) -> String {
