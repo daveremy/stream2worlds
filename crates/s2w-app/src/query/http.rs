@@ -1459,63 +1459,67 @@ mod membership_tests {
             .unwrap();
         (status, serde_json::from_slice(&bytes).unwrap())
     }
+    /// A world whose member source is removed at offset 2 and re-added at 3, with a second
+    /// source whose transitions tie at one offset, served with no bridge running. Returns the
+    /// directory the log lives in (removed on drop) and the router.
+    fn boundary_app(name: &str) -> (crate::tests::TestDirectory, Router) {
+        let dir = crate::tests::TestDirectory::new(name);
+        let mut log = SqliteEventLog::open(dir.path()).unwrap();
+        let source = SourceId::new("member").unwrap();
+        let clock = SourceId::new("clock").unwrap();
+        let mut timeline = Timeline::new(3);
+        log.bootstrap_source(&source).unwrap();
+        for n in 1..=3 {
+            log.append(RawEvent {
+                source: clock.clone(),
+                cursor: Cursor::new(vec![n]).unwrap(),
+                received_at: Timestamp::from_millis(i64::from(n)),
+                payload: vec![n],
+            })
+            .unwrap();
+            timeline.append(
+                Timestamp::from_millis(i64::from(n)),
+                WorldEvent::EntityObserved {
+                    key: s2w_core::NaturalKey::new(format!("e{n}")),
+                    entity_type: "thing".into(),
+                    attrs: Default::default(),
+                },
+            );
+            if n == 2 {
+                log.record_source_removed(&source).unwrap();
+            }
+        }
+        log.record_source_added(
+            &source,
+            EffectiveFrom::FromCursor(Cursor::new(vec![3]).unwrap()),
+        )
+        .unwrap();
+        // Equal-offset transitions: the last sequence wins, even across a second source.
+        let tied = SourceId::new("tied").unwrap();
+        log.bootstrap_source(&tied).unwrap();
+        log.record_source_removed(&tied).unwrap();
+        let manifest = WorldManifest::create_if_absent(
+            &mut log,
+            "default",
+            "Display name",
+            Timestamp::from_millis(0),
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(log.membership_at(1).unwrap(), vec![source.clone()]);
+        assert!(log.membership_at(2).unwrap().is_empty());
+        let app = router(
+            QueryState::new(timeline)
+                .with_metadata(Some(manifest), log.membership_history().unwrap()),
+        );
+        (dir, app)
+    }
+
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
-    )]
     fn sources_at_boundary_tests() {
         crate::tests::run(false, async {
-            let dir = crate::tests::TestDirectory::new("sources-http");
-            let mut log = SqliteEventLog::open(dir.path()).unwrap();
-            let source = SourceId::new("member").unwrap();
-            let clock = SourceId::new("clock").unwrap();
-            let mut timeline = Timeline::new(3);
-            log.bootstrap_source(&source).unwrap();
-            for n in 1..=3 {
-                log.append(RawEvent {
-                    source: clock.clone(),
-                    cursor: Cursor::new(vec![n]).unwrap(),
-                    received_at: Timestamp::from_millis(i64::from(n)),
-                    payload: vec![n],
-                })
-                .unwrap();
-                timeline.append(
-                    Timestamp::from_millis(i64::from(n)),
-                    WorldEvent::EntityObserved {
-                        key: s2w_core::NaturalKey::new(format!("e{n}")),
-                        entity_type: "thing".into(),
-                        attrs: Default::default(),
-                    },
-                );
-                if n == 2 {
-                    log.record_source_removed(&source).unwrap();
-                }
-            }
-            log.record_source_added(
-                &source,
-                EffectiveFrom::FromCursor(Cursor::new(vec![3]).unwrap()),
-            )
-            .unwrap();
-            // Equal-offset transitions: the last sequence wins, even across a second source.
-            let tied = SourceId::new("tied").unwrap();
-            log.bootstrap_source(&tied).unwrap();
-            log.record_source_removed(&tied).unwrap();
-            let manifest = WorldManifest::create_if_absent(
-                &mut log,
-                "default",
-                "Display name",
-                Timestamp::from_millis(0),
-                &[],
-                &[],
-            )
-            .unwrap();
-            assert_eq!(log.membership_at(1).unwrap(), vec![source.clone()]);
-            assert!(log.membership_at(2).unwrap().is_empty());
-            let app = router(
-                QueryState::new(timeline)
-                    .with_metadata(Some(manifest), log.membership_history().unwrap()),
-            );
+            let (_dir, app) = boundary_app("sources-http");
             // No bridge runs here, so the member reports zeros alongside its name.
             let member = serde_json::json!([{
                 "source": "member",
@@ -1532,6 +1536,13 @@ mod membership_tests {
             ] {
                 assert_eq!(get(&app, path).await, (StatusCode::OK, expected));
             }
+        });
+    }
+
+    #[test]
+    fn sources_reject_unknown_worlds_and_bad_offsets() {
+        crate::tests::run(false, async {
+            let (_dir, app) = boundary_app("sources-http-errors");
             for (path, status, code) in [
                 (
                     "/worlds/unknown/sources",
@@ -1560,53 +1571,56 @@ mod membership_tests {
         });
     }
 
+    /// A world with one unrouted member, `feed.unrouted`, whose three events (two JSON
+    /// payloads and one that is not JSON) a bridge has consumed. Returns the directory the log
+    /// lives in (removed on drop), the served state and the source.
+    fn bridge_consumed(name: &str) -> (crate::tests::TestDirectory, QueryState, SourceId) {
+        let dir = crate::tests::TestDirectory::new(name);
+        let mut log = SqliteEventLog::open(dir.path()).unwrap();
+        let unrouted = SourceId::new("feed.unrouted").unwrap();
+        log.bootstrap_source(&unrouted).unwrap();
+        for (n, payload) in [r#"{"n":1}"#, "not json", r#"{"n":3}"#]
+            .into_iter()
+            .enumerate()
+        {
+            log.append(RawEvent {
+                source: unrouted.clone(),
+                cursor: Cursor::new(vec![u8::try_from(n).unwrap() + 1]).unwrap(),
+                received_at: Timestamp::from_millis(i64::try_from(n).unwrap() + 1),
+                payload: payload.as_bytes().to_vec(),
+            })
+            .unwrap();
+        }
+        let manifest = WorldManifest::create_if_absent(
+            &mut log,
+            "default",
+            "Unrouted",
+            Timestamp::from_millis(0),
+            &[],
+            &[],
+        )
+        .unwrap();
+        let state = QueryState::new(Timeline::new(3))
+            .with_metadata(Some(manifest), log.membership_history().unwrap());
+        let mut bridge = crate::bridge::Bridge::new(
+            log,
+            SqliteVerdictStore::open(dir.path()).unwrap(),
+            crate::bridge::EngineRegistry::with_defaults(),
+            state.clone(),
+            crate::bridge::BridgeConfig::default(),
+        )
+        .unwrap();
+        bridge.poll_once().unwrap();
+        (dir, state, unrouted)
+    }
+
     /// A bridge that has consumed an unrouted member's events is visible through the route:
     /// per-source counters and the most recent raw events, most recent first, with payloads
     /// decoded as JSON when they parse and kept as text when they do not.
     #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "scenario test: setup and assertions read as one sequence, and splitting would hide the shared fixture"
-    )]
     fn sources_serve_per_source_bridge_consumption() {
         crate::tests::run(false, async {
-            let dir = crate::tests::TestDirectory::new("sources-bridge");
-            let mut log = SqliteEventLog::open(dir.path()).unwrap();
-            let unrouted = SourceId::new("feed.unrouted").unwrap();
-            log.bootstrap_source(&unrouted).unwrap();
-            for (n, payload) in [r#"{"n":1}"#, "not json", r#"{"n":3}"#]
-                .into_iter()
-                .enumerate()
-            {
-                log.append(RawEvent {
-                    source: unrouted.clone(),
-                    cursor: Cursor::new(vec![u8::try_from(n).unwrap() + 1]).unwrap(),
-                    received_at: Timestamp::from_millis(i64::try_from(n).unwrap() + 1),
-                    payload: payload.as_bytes().to_vec(),
-                })
-                .unwrap();
-            }
-            let manifest = WorldManifest::create_if_absent(
-                &mut log,
-                "default",
-                "Unrouted",
-                Timestamp::from_millis(0),
-                &[],
-                &[],
-            )
-            .unwrap();
-            let state = QueryState::new(Timeline::new(3))
-                .with_metadata(Some(manifest), log.membership_history().unwrap());
-            let mut bridge = crate::bridge::Bridge::new(
-                log,
-                SqliteVerdictStore::open(dir.path()).unwrap(),
-                crate::bridge::EngineRegistry::with_defaults(),
-                state.clone(),
-                crate::bridge::BridgeConfig::default(),
-            )
-            .unwrap();
-            bridge.poll_once().unwrap();
-
+            let (_dir, state, _) = bridge_consumed("sources-bridge");
             let app = router(state.clone());
             let (status, http_body) = get(&app, "/worlds/default/sources").await;
             let mcp = crate::mcp::WorldMcp::new(state.clone());
@@ -1636,9 +1650,18 @@ mod membership_tests {
                     }])
                 )
             );
+        });
+    }
 
+    #[test]
+    fn sources_report_a_rebuild_in_progress() {
+        crate::tests::run(false, async {
+            let (_dir, state, unrouted) = bridge_consumed("sources-bridge-rebuild");
+            let app = router(state.clone());
+            let mcp = crate::mcp::WorldMcp::new(state.clone());
             // A live rebuild in progress (s2w#184) is reported on the source it is for, by
-            // both surfaces; with none in progress the field is absent (above).
+            // both surfaces. With none in progress the field is absent
+            // (sources_serve_per_source_bridge_consumption).
             state_rebuilding(&state, &unrouted);
             let (_, http_body) = get(&app, "/worlds/default/sources").await;
             let tool = mcp.sources(rmcp::handler::server::wrapper::Parameters(
