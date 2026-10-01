@@ -6,7 +6,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 
 | File | What |
 |---|---|
-| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, and reserved-4 for s2w#291 PR 2; `reserved` opened as held-out by s2w#244, the others by the PRs named): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
+| `corpora.toml` | The corpora (dev, heldout, heldout-2, reserved, reserved-2 for s2w#250 PR 1, reserved-3 for s2w#250 PR 2, and reserved-4 for s2w#291 PR 2; `reserved` opened as held-out by s2w#244, the others by the PRs named), and the private stream's `private-dev` and `private-test` (s2w#371, with their provenance sidecars): role, window, event count, byte size, sha256. The corpora themselves are not committed. |
 | `capture.sh` | The command that produced them, with `research/scripts/eventstreams_replay.py --all-wikis --raw-sse --max-events N`. |
 | `private/` | The private-stream capture (s2w#371): `capture.ts` (sources to SSE), `scrub.ts` (the fail-closed gate), `extract.ts` (the published `detail` regex table), `events.ts` (pure builders), `fixture.ts` and `fixture/synthetic-20.sse` (the only committed capture-format file: fake numbers and shas), `capture.test.ts`. See "Private stream" below. |
 | `prices.toml` | The public price table `cargo xtask gate3` charges a run by: one row per model snapshot, USD per million tokens, with its source page and date. |
@@ -25,6 +25,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `frozen/h-lite-v4.dev-N.pins-244.json`, `results/h-lite-v4.dev-N.reserved.md` | v4 re-frozen on `dev` under the pins after `reserved` was opened (only that pin line differs from `h-lite-v4.dev-N.json`, which `score` refused for `reserved` until s2w#277), and its `reserved` reports beside v5's. *Correction 2026-09-30 (s2w#277): `score` now accepts a freeze made before its span was opened, so `h-lite-v4.dev-N.json` scores on `reserved` directly; re-scored from 455c547 plus the fix, both windows' reports differ from the committed ones only in the line naming the mapping file. These files stay as the record of what #244 scored.* |
 | `frozen/h-min-v6.dev-N.json`, `frozen/h-min-v7.dev-N.json`, `results/h-min-v{6,7}.dev-N.reserved-4.md` | H-min `PROFILER_VERSION` 6 (s2w#291 PR 1, frozen before any PR 2 change) and 7 (s2w#291 PR 2, RFC 3339 date-times are a format, decision 0030; frozen after `reserved-4` was opened), and their `reserved-4` reports under `dev-key-v1.json` and `dev-key-v1.user-global.json`. v6 was scored from a build of a280af2 plus the `reserved-4` opening. The demo's date-time types (#291 item 5) reproduce only on live page-change logs captured by `s2w watch` (21,528 + 5,232 events, 2026-09-27, kept outside the repo); the recorded page-change fixture (11,667 events) cannot show them, so research 0009's #291 addendum reads them from those logs. |
 | `frozen/h-min-v8.dev-N.json`, `results/h-min-v8.dev-N.reserved-4.md` | H-min `PROFILER_VERSION` 8 (s2w#327, the integer return floor): frozen on `dev` after every span was opened, and its `reserved-4` reports. Each freeze equals v7's except the version and config text; research 0009's #327 addendum has v8 on every opened span. |
+| `frozen/h-min-v8.private-dev-8067.json`, `results/h-min-v8.private-dev-8067.profile.md` | H-min `PROFILER_VERSION` 8 frozen on the whole `private-dev` span (s2w#371 PR 2), after the corpus pins and the private key pin, and its `private-dev` profile table. The freeze `private-test` is scored against. |
 
 ## Rules
 
@@ -71,8 +72,20 @@ the s2w#371 issue comments.
   (CI runs it in the `bundle` job). The fixture test fails if `fixture/synthetic-20.sse` differs
   from what `fixture.ts` prints; regenerate with `fixture.ts --write`, never by hand.
 
-The capture run, its `corpora.toml` pins (`private-dev` development, `private-test` reserved) and
-the freeze are s2w#371 PR 2.
+**The capture (s2w#371 PR 2, run 2026-10-01 UTC after both spans had ended):**
+
+| Corpus | Role | Span (UTC) | Events | Dropped (capture header) |
+|---|---|---|---|---|
+| `private-dev` | development | 2026-09-21T00:00Z to 2026-09-28T12:00Z | 8,067 | 1,109 rows from other projects, 2,720 timeline events of other kinds, 6,632 frames outside the span |
+| `private-test` | reserved | 2026-09-29T00:00Z to 2026-10-01T00:00Z | 5,501 | 191 rows from other projects, 1,168 timeline events of other kinds, 717 frames outside the span |
+
+The scrub gate refused nothing (a refusal writes nothing at all), and no review-seat field lost its
+shape. Both files and their sidecars are in the default `--dir`, with a byte-identical second copy
+in `~/.lifeos/s2w-private/`; `--dir ~/.lifeos/s2w-private` scores from the copy against the same
+pins. The order is in the git log: the corpus pins, then `frozen/h-min-v8.private-dev-8067.json`
+and its profile table. The private key (`private-key-v0.json`, s2w#372) was pinned before both,
+so this freeze is the one `private-test` is scored against. `private-test` stays `reserved` until
+that score opens it.
 
 ## Private answer key (s2w#372)
 
