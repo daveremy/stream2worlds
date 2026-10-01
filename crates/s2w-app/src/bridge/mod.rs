@@ -217,7 +217,7 @@ pub enum BridgeError {
 
 /// What a [`Bridge`] is built from: [`Bridge::new`]'s inputs, which [`Bridge::resume`] takes
 /// together with the position it continues after.
-pub struct BridgeParts<R: LogReader, V: VerdictStore> {
+pub struct BridgeParts<R, V> {
     /// The log the bridge reads.
     pub reader: R,
     /// The verdict store the bridge serves stored verdicts from and records new ones in.
