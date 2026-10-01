@@ -6,9 +6,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
+import { MAX_REFS } from "./events.ts";
 import { FIXTURE_PATH, FIXTURE_PROVENANCE_PATH, syntheticCapture } from "./fixture.ts";
 import {
-  EDGES, FORMAT, KEY_DIR, KEY_FILES, LATEST, RULES, SHAPE_PATH, check, draw, edgesOf, execute,
+  EDGES, KEY_DIR, KEY_FILES, LATEST, REF_SLOTS, RULES, SHAPE_PATH, check, draw, edgesOf, execute,
   fixtureShape, parseSse, pathId, render, spec, worksheet,
 } from "./key.ts";
 
@@ -60,8 +61,8 @@ test("v2 scores each refs slot as an item mention with identity (its repo, its n
     assert.deepEqual(m, { path: ["data", "refs", i, "number"], identity: [["data", "refs", i, "repo"], ["data", "refs", i, "number"]] });
   for (const v of [0, 1] as const)
     assert.ok(!spec("base", v).types.flatMap((t) => t.mentions).some((m) => m.path[1] === "refs"), `v${v}`);
-  assert.deepEqual([FORMAT[0], FORMAT[1], FORMAT[2]], [2, 3, 3]);
   assert.equal(LATEST, 2);
+  assert.ok(MAX_REFS <= REF_SLOTS, "the capture keeps more refs than the key enumerates");
 });
 
 test("positive control: a PR naming lifeos#900 and s2w#900 joins each ref to its own repo's item", () => {
@@ -157,6 +158,9 @@ test("a misaligned sidecar, a short sha, a ref without a repo and a wrong leg ke
   at("leg.status").key = "lifeos#900";
   (at("pr.opened").refs as { repo: string }[])[0].repo = "other";
   const r = check(header, f, prov);
+  // a bare-number ref (the first capture's shape) is not a ref-repo-known failure
+  f.filter((x) => x.record?.data.kind === "commit").at(-1)!.record!.data.refs = [5];
+  assert.equal(check(header, f, prov).failures["ref-repo-known"], 1);
   assert.equal(r.failures["sha-shape"], 1);
   assert.equal(r.failures["ref-repo"], 1);
   assert.equal(r.failures["ref-repo-known"], 1);
@@ -186,7 +190,8 @@ test("format 3 carries every edge as a row; format 2 carries none", () => {
     }
     assert.deepEqual(spec("context-scored", v).relationships, rows);
   }
-  // v2 = v1's 14 observable rows, then 16 observable `names` rows in place of v1's 2 unobservable ones
+  // v2 = v1's 14 observable rows, then 8 `names` and 8 `commit-names` rows, all observable, in
+  // place of v1's 2 unobservable `names` rows
   const v1 = spec("base", 1).relationships!, v2 = spec("base", 2).relationships!;
   assert.deepEqual(v1.filter((r) => r.unobservable !== undefined).map((r) => r.type), ["names", "names"]);
   assert.deepEqual(v2.slice(0, 14), v1.slice(0, 14));

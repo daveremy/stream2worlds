@@ -146,7 +146,7 @@ plan comment of 2026-10-01T12:46Z.
   gold edges.
 - **Two pinned readings:** the base key leaves `repo` and `actor` unscored (two repo values and
   one observable actor would carry a large share of the micro score for a trivially keyed
-  field). `private-key-v0.context-scored.json` (variant `context-scored`) scores `repo` (alias
+  field). Each version's `.context-scored.json` (variant `context-scored`) scores `repo` (alias
   `ref_repo`, and from v2 `refs.i.repo`) and `actor` (alias `author`, `other` excluded). Every
   version has both files. A score report names the variant each number came from.
 - **Relationships (`private-key-v1.json`, s2w#388):** `EDGES` in `private/key.ts` lists the
@@ -178,7 +178,7 @@ plan comment of 2026-10-01T12:46Z.
   capture's sidecar: `sidecar-aligned` (one sidecar line per frame, same id), `sha-shape` (every
   commit mention is 40 lowercase hex), `sha-resolved` (a leg's `sha` or a seat's `head_sha` is
   the sidecar's `sha_resolved`), `ref-repo`, `ref-repo-known` (every `refs.i.repo` is `lifeos` or
-  `s2w`), `seat-issue` (a seat without an issue is marked
+  `s2w`; a bare-number ref, the first capture's shape, is skipped), `seat-issue` (a seat without an issue is marked
   `issue_unobservable` exactly when no PR has its branch) and `leg-key` (a leg's `key` is
   `repo#issue`). It prints counts (mentions per path, entity sizes per type, abstentions, rule
   failures, observed edges, and legs naming a PR opened outside the span, which is counted but

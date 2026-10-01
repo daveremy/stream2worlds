@@ -28,7 +28,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { MARK, MAX_REFS, REPOS } from "./events.ts";
+import { MARK, REPOS } from "./events.ts";
 import { FIXTURE_PATH } from "./fixture.ts";
 
 type Seg = string | number;
@@ -51,8 +51,10 @@ export type KeyVersion = 0 | 1 | 2;
 export type Format = 2 | 3;
 export const FORMAT: Record<KeyVersion, Format> = { 0: 2, 1: 3, 2: 3 };
 
-/** The `refs` slots a key enumerates: the capture keeps at most `MAX_REFS` per frame (s2w#395 Q2). */
-const SLOTS = Array.from({ length: MAX_REFS }, (_, i) => i);
+/** The `refs` slots v2 enumerates. A literal, not the capture's `MAX_REFS`, so the pinned v2
+ * file cannot change with the capture; `key.test.ts` checks `MAX_REFS` still fits (s2w#395 Q2). */
+export const REF_SLOTS = 8;
+const SLOTS = Array.from({ length: REF_SLOTS }, (_, i) => i);
 const refNumber = (i: number) => d("refs", i, "number");
 const refRepo = (i: number) => d("refs", i, "repo");
 
@@ -170,7 +172,7 @@ export const edgesOf = (version: KeyVersion = LATEST): Edge[] => [
   // slot is an item mention, so the rows are observable: one per slot and source. The commit
   // rows take their own label: the scorer aligns each key edge type with ONE predicted
   // (from type, to type, kind), so one `names` type holding item -> item and commit -> item
-  // edges would cap any mapping, the oracle included, at half of them.
+  // edges would cap any mapping, the oracle included, at the larger group's share of them.
   ...(version >= 2
     ? [...SLOTS.map((i) => edge("names", ["pr.opened"], d("number"), refNumber(i))),
       ...SLOTS.map((i) => edge("commit-names", ["commit"], d("sha"), refNumber(i)))]
@@ -340,8 +342,12 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
       if (written !== p.sha_resolved) failures["sha-resolved"] += 1;
     }
     if (x.ref_number != null && !REPOS.includes(x.ref_repo as never)) failures["ref-repo"] += 1;
-    // every kept ref names a repo the capture knows (the capture drops and counts any other)
-    if (Array.isArray(x.refs)) for (const r of x.refs) if (!REPOS.includes((r as { repo?: unknown })?.repo as never)) failures["ref-repo-known"] += 1;
+    // every kept `{repo, number}` ref names a repo the capture knows (the capture drops and
+    // counts any other). A bare number is the first capture's shape, which v2 does not score.
+    for (const r of Array.isArray(x.refs) ? x.refs : []) {
+      const repo = r !== null && typeof r === "object" ? (r as { repo?: unknown }).repo : undefined;
+      if (typeof r === "object" && !REPOS.includes(repo as never)) failures["ref-repo-known"] += 1;
+    }
     if (x.kind === "review.seat") {
       const expect = x.issue === null && p.branch_pr === null;
       if (p.issue_unobservable !== expect) failures["seat-issue"] += 1;
