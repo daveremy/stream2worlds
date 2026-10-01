@@ -116,13 +116,16 @@ the latter. Every sprint row parsed (`unparsed` 0); seven rows carry an off-hour
 
 ## Private answer key (s2w#372)
 
-`private-key-v0.json` is the private stream's answer key, in key format 2, so `score` reads it as
-it reads `dev-key-v2.json`. Identity is the source system's own identifier, never a judgment.
-Plan and rulings: the s2w#372 issue comments of 2026-10-01.
+`private-key-v2.json` is the private stream's current answer key, in key format 3; `score` reads
+it as it reads `dev-key-v3.json`. It scores captures whose `refs` are `{repo, number}`
+(`private-dev-2` onward). `private-key-v0.json` (format 2) and `private-key-v1.json` (format 3)
+stay pinned for the first capture. Identity is the source system's own identifier, never a
+judgment. Plan and rulings: the s2w#372 issue comments of 2026-10-01, and for v2 the s2w#395
+plan comment of 2026-10-01T12:46Z.
 
 | Type | Identity | Mention paths (alias paths join on equal identity values) |
 |---|---|---|
-| `item` | `(repo, number)`: issues and PRs share one number space per repository | `number`, `issue`, `key` (`"s2w#372"` on a leg), `pr`, `ref_number` (identity `(ref_repo, ref_number)`) |
+| `item` | `(repo, number)`: issues and PRs share one number space per repository | `number`, `issue`, `key` (`"s2w#372"` on a leg), `pr`, `ref_number` (identity `(ref_repo, ref_number)`), and from v2 `refs.0.number` to `refs.7.number` (identity `(refs.i.repo, refs.i.number)`) |
 | `commit` | the 40-hex sha | `sha`, `head_sha`, `merge_commit_sha`, `commit_sha`, `parents.0`, `parents.1` |
 | `branch` | `(repo, name)` | `branch`, `head_ref` |
 | `sprint` | the sprint number | `sprint`, `slot`, `file_id` |
@@ -130,14 +133,22 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
 | `comment` | `comment_id` | `comment_id` (singleton-only type) |
 
 - **Unscored:** plumbing and values (`kind`, `ts`, `step`, `verdict`, `engine`, `model`, `pts`,
-  `base_ref`, `row_id` and the rest of the key file's list), and `refs`: the captures v0 was
-  pinned against keep a bare `#n` and drop every prefixed ref, so a ref's repository is unknown
-  there. The capture now carries it (Private stream above); a later key version scores it (s2w#395).
+  `base_ref`, `row_id` and the rest of the key file's list). v0 and v1 also leave all of `refs`
+  unscored: the captures they were pinned against keep a bare `#n` and drop every prefixed ref
+  (dropped, not stripped: `lifeos#5` is lost), so no field names a ref's repository there.
+- **`refs` (v2, s2w#395):** the capture now writes each ref as `{repo, number}` (Private stream
+  above), at most 8 per frame. v2 makes each slot `refs.i.number` an `item` mention with the
+  same `(repo, number)` identity as every other item path, so `lifeos#900` and `s2w#900` named
+  in one PR body join two different items. The base key lists `refs.i.repo` as unscored, as it
+  lists `ref_repo`. `key.ts --check` with v2 on `private-dev-2` fails no rule (`ref-repo-known` included):
+  1,589 ref mentions (base key: 15,246 mentions under v1, 16,835 under v2), 57 more `item`
+  entities (items named only by a ref in the span), and 629 `names` plus 960 `commit-names`
+  gold edges.
 - **Two pinned readings:** the base key leaves `repo` and `actor` unscored (two repo values and
   one observable actor would carry a large share of the micro score for a trivially keyed
-  field). `private-key-v0.context-scored.json` (variant `context-scored`) scores `repo` (alias
-  `ref_repo`) and `actor` (alias `author`, `other` excluded). A score report names the variant
-  each number came from.
+  field). Each version's `.context-scored.json` (variant `context-scored`) scores `repo` (alias
+  `ref_repo`, and from v2 `refs.i.repo`) and `actor` (alias `author`, `other` excluded). Every
+  version has both files. A score report names the variant each number came from.
 - **Relationships (`private-key-v1.json`, s2w#388):** `EDGES` in `private/key.ts` lists the
   typed directed edges (§B3) between mentions of one frame, with `key.ts --edges` printing them
   as JSON. `private-key-v1.json` and `private-key-v1.context-scored.json` are v0 in key format 3
@@ -147,11 +158,18 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
   is the co-occurrence of its two mentions in one frame, and `head-commit` also fires on a
   `pr.opened` frame that carries `head_sha` (a true edge, ruling 3). `reviews-item` has no edge
   on a seat whose `issue` is null (marked `issue_unobservable`): there is no `issue` mention.
-  v0 stays pinned and scores identity exactly as before.
+  v0 stays pinned and scores identity exactly as before. In v2 the two `names -> refs` rows
+  become 16 observable rows, one per slot: `names` (`number -> refs.i.number` on `pr.opened`,
+  item to item) and `commit-names` (`sha -> refs.i.number` on `commit`, commit to item). They
+  carry two labels because the edge scorer aligns each key edge type with one predicted
+  `(from type, to type, kind)`; one label over both type pairs would cap any mapping, the
+  oracle included, at the larger of the two.
 - **Generated, never hand-edited:** `node --experimental-strip-types
-  research/h-measure/private/key.ts --write` writes the v1 key files and
-  `private/fixture/synthetic-20.key-shape.json` (with `edges_per_type`, the unique gold edges
-  per relationship type); `key.test.ts` also checks that v0 is still what format 2 renders. A
+  research/h-measure/private/key.ts --write` writes the v2 key files and
+  `private/fixture/synthetic-20.key-shape.json` (v2's shapes, and v1's under `v1.base` and
+  `v1.context-scored`, each with `edges_per_type`, the unique gold edges per relationship type);
+  `key.test.ts` also checks that `spec(variant, 0)` and `spec(variant, 1)` still render the
+  pinned v0 and v1 files byte for byte. A
   changed key is a new file and a new `keys.toml` row, never an edit. The key must be pinned
   before the H freeze that `private-test` is scored against: `score` refuses a key the freeze did
   not record.
@@ -159,7 +177,8 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
   executes the key with the Rust executor's semantics and checks each mention against the
   capture's sidecar: `sidecar-aligned` (one sidecar line per frame, same id), `sha-shape` (every
   commit mention is 40 lowercase hex), `sha-resolved` (a leg's `sha` or a seat's `head_sha` is
-  the sidecar's `sha_resolved`), `ref-repo`, `seat-issue` (a seat without an issue is marked
+  the sidecar's `sha_resolved`), `ref-repo`, `ref-repo-known` (every `refs.i.repo` is `lifeos` or
+  `s2w`; a bare-number ref, the first capture's shape, is skipped), `seat-issue` (a seat without an issue is marked
   `issue_unobservable` exactly when no PR has its branch) and `leg-key` (a leg's `key` is
   `repo#issue`). It prints counts (mentions per path, entity sizes per type, abstentions, rule
   failures, observed edges, and legs naming a PR opened outside the span, which is counted but
@@ -567,7 +586,7 @@ comments of 2026-10-01.
   (`targets`), `log_id -> user` (`logged-by`), `title -> wiki` (`page-on`) and `user -> wiki`
   (`user-on`); `event` (`meta.id`) has none. The four other Wikipedia variants stay format 2:
   they vary identity readings, and a format-2 key reports "No relationships declared".
-  `private-key-v1*.json` are above; `dev-key-v3.obf-r1.json` is under "Obfuscating a
+  `private-key-v1*.json` and `private-key-v2*.json` are above; `dev-key-v3.obf-r1.json` is under "Obfuscating a
   replicate".
 
 ### Scoring edges (contract §B3 "Relationships")

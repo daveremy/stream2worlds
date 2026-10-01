@@ -76,21 +76,35 @@ fn the_rust_executor_agrees_with_key_ts_on_the_fixture() {
         .expect("the shape file reads");
     let committed: Value = serde_json::from_str(&text).expect("the shape file parses");
     let payloads = fixture();
-    for (variant, file, v0) in [
-        ("base", "private-key-v1.json", "private-key-v0.json"),
+    // `key.ts` writes v2's shape under the variant's name and v1's under `v1.<variant>`.
+    for (variant, v2, v1, v0) in [
+        (
+            "base",
+            "private-key-v2.json",
+            "private-key-v1.json",
+            "private-key-v0.json",
+        ),
         (
             "context-scored",
+            "private-key-v2.context-scored.json",
             "private-key-v1.context-scored.json",
             "private-key-v0.context-scored.json",
         ),
     ] {
-        assert_eq!(
-            shape(&key(file), &payloads),
-            committed[variant],
-            "{file}: regenerate with key.ts --write; if it still differs, the executors disagree"
-        );
+        let v1_shape = &committed[format!("v1.{variant}")];
+        for (file, want) in [(v2, &committed[variant]), (v1, v1_shape)] {
+            assert!(
+                want.is_object(),
+                "{file}: the shape file has no section for it"
+            );
+            assert_eq!(
+                &shape(&key(file), &payloads),
+                want,
+                "{file}: regenerate with key.ts --write; if it still differs, the executors disagree"
+            );
+        }
         // v0 (format 2) is v1 without its relationship rows: the same partition, no edges.
-        let mut partition = committed[variant].clone();
+        let mut partition = v1_shape.clone();
         partition
             .as_object_mut()
             .expect("a variant is an object")
@@ -163,5 +177,64 @@ fn the_v1_key_grades_edges_on_the_fixture() {
     assert_eq!(
         mapping.tp, 0,
         "the item-only mapping declares no relationship"
+    );
+}
+
+/// private-key-v2 (s2w#395) scores `refs` as item mentions: its 16 ref rows (`names` from a PR,
+/// `commit-names` from a commit) are observable, so nothing is counted unobservable, and the
+/// ceiling with links still reaches every key edge, the fixture's four ref edges included. One
+/// label over both endpoint type pairs would cap that recall: the scorer aligns each key edge
+/// type with one predicted type.
+#[test]
+fn the_v2_key_scores_refs_edges_on_the_fixture() {
+    let spec = key("private-key-v2.json");
+    assert_eq!(
+        spec.relationships
+            .iter()
+            .filter(|row| row.label == "names" || row.label == "commit-names")
+            .count(),
+        16
+    );
+    let graded = grade(
+        &spec,
+        &item_mapping(&json!([["data", "repo"], ["data", "number"]])),
+        &fixture(),
+    )
+    .expect("grades");
+    let linked = graded.ceiling_links_edges.expect("a v2 key scores edges");
+    assert_eq!(linked.unobservable, 0);
+    assert_eq!(linked.micro.recall, Some(1.0), "{linked:?}");
+    let v1 = grade(
+        &key("private-key-v1.json"),
+        &item_mapping(&json!([["data", "repo"], ["data", "number"]])),
+        &fixture(),
+    )
+    .expect("grades")
+    .ceiling_links_edges
+    .expect("a v1 key scores edges");
+    assert_eq!(
+        linked.key_edges,
+        v1.key_edges + 4,
+        "the fixture's 4 ref edges"
+    );
+    // The negative control for the two-label design: one `names` label over both source
+    // types gives two predicted kinds for one key type, and one-to-one alignment drops one.
+    let mut one_label = spec.clone();
+    for row in &mut one_label.relationships {
+        if row.label == "commit-names" {
+            row.label = "names".to_owned();
+        }
+    }
+    let merged = grade(
+        &one_label,
+        &item_mapping(&json!([["data", "repo"], ["data", "number"]])),
+        &fixture(),
+    )
+    .expect("grades")
+    .ceiling_links_edges
+    .expect("a one-label key scores edges");
+    assert!(
+        merged.micro.recall.is_some_and(|r| r < 1.0),
+        "one `names` label must cap recall: {merged:?}"
     );
 }
