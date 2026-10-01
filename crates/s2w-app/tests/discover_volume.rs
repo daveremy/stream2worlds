@@ -4,8 +4,9 @@
 //!
 //! Two questions, both on the recorded fixture (11,667 events of a real stream):
 //! 1. Window: profile the first 1k, 5k and 10k events and the whole fixture with the production
-//!    `Config`, and report whether each mapping identity equals the whole fixture's. (The plan
-//!    asked for 20k; the fixture holds fewer, so its full length is the largest window here.)
+//!    `Config` (`Config::default()`, links on, unlike the volume fold below), and report whether
+//!    each mapping identity equals the whole fixture's. (The plan asked for 20k; the fixture
+//!    holds fewer, so its full length is the largest window here.)
 //! 2. Volume: fold 10^5 events under the 10k-window mapping (`DISCOVER_WINDOW`) and report
 //!    claims per event, entities, relationships, resident world bytes and events per second.
 //!    The fixture is cycled to 10^5 two ways, which bracket a real stream: `repeat` replays it

@@ -85,12 +85,14 @@ relationships = 19512 # pinned; the test's JSON line must agree
 # decisions 0022, 0025; s2w#392). Counted by dhat, release profile: the fold allocates the same
 # sequence every run, so the figure reproduces to the byte (two hub runs, 2026-10-01).
 [discover_volume]
-# Measured 399,243,516 B (380.7 MiB) on 2026-10-01, PROFILER_VERSION 9, hub, rustc 1.98.1.
-# Baseline; > +tolerance fails. Accepted as is, not bisected (s2w#392 ruling, 2026-10-01).
+# First measured 399,243,516 B (380.7 MiB) on 2026-10-01, PROFILER_VERSION 9, hub, rustc
+# 1.98.1; `--tighten-baseline` may lower the value below that figure. Baseline; > +tolerance
+# fails. Accepted as is, not bisected (s2w#392 ruling, 2026-10-01).
 heap_bytes = 399243516
 # Hard ceiling: decision 0025's deploy line, 480 MiB resident, restated in heap bytes with the
-# measured heap/RSS ratio (399,243,516 / 408,956,928 = 0.9762): 480 MiB x 0.9762. Leaves room
-# for version-2 links (+75 MiB resident measured by s2w#245). Above this always fails.
+# exact measured heap/RSS ratio: 503,316,480 x 399,243,516 / 408,956,928, rounded up (the ratio
+# is about 0.97625). Leaves room for version-2 links: the same fold with links on measured
+# 465 MiB resident (+75 MiB, s2w#245), about 476 MB of heap. Above this always fails.
 budget_bytes = 491361871
 # Informational: the plain discover_volume target's VmRSS delta for the same fold (390.0 MiB,
 # the figure decisions 0022 and 0025 quote), from a release hand run on 2026-10-01. Set by hand;
