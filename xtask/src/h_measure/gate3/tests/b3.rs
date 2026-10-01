@@ -116,6 +116,13 @@ fn a_fit_over_the_tolerance_is_spent_and_refit_with_a_larger_k() {
     // Every fit's calls are in the transcript and the ledger.
     assert_eq!(doc["spend"]["calls"], 3);
     b3.score().unwrap();
+    // A raised budget would have kept the first fit: the replay fits once and refuses.
+    let original = fs::read(&b3.out).unwrap();
+    let mut budget = doc["budget"].clone();
+    budget["input_tokens"] = 7000.into();
+    b3.edit(&b3.out, "budget", budget);
+    refused(b3.score(), "not the recorded fits");
+    fs::write(&b3.out, &original).unwrap();
     // A replay that would fit differently refuses.
     let mut budget = doc["budget"].clone();
     budget["fits"][1]["k"] = 3.into();
@@ -217,4 +224,25 @@ fn score_refuses_an_edited_b3_budget() {
     fs::write(&b3.out, &original).unwrap();
     // The h-s2 replicate scores unchanged beside it.
     run.score().unwrap();
+}
+
+#[test]
+fn a_fit_at_exactly_the_tolerance_is_kept() {
+    // 2 + 531 + 5729 = 6262 tokens: 105% of 5964 is 6262.2.
+    let run = setup(
+        "b3-edge",
+        &[
+            envelope("none", 4),
+            envelope(&mapping_reply(), 900),
+            envelope("none", 4),
+            cached(&mapping_reply(), 5729),
+        ],
+    );
+    run.commit(&[]).unwrap();
+    let (b3, said) = b3(&run, &[]);
+    assert!(said.unwrap().contains("a mapping, 1 attempts, 2 calls"));
+    assert_eq!(
+        b3.committed()["budget"]["fits"].as_array().unwrap().len(),
+        1
+    );
 }

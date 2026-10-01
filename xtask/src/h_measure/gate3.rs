@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use s2w_system2::{CallRecord, MappingProposer, Provider, mapping_prompt, recording_json};
+use s2w_system2::{MappingProposer, Provider, mapping_prompt, recording_json};
 use serde_json::Value;
 
 use super::freeze::derived;
@@ -292,9 +292,7 @@ fn sized(
             "{shown}: its corpus, window, pins, replicate, model or price is not this run's; b3 is sized by the h-s2 replicate with all of them the same"
         ));
     }
-    replay::reproduce(path, &h_s2, profile, events)?;
-    let transcript = replay::transcript_path(path)?;
-    let calls = transcript_calls(&transcript)?;
+    let calls = replay::reproduce(path, &h_s2, profile, events)?;
     let input_tokens = b3::first_prompt_tokens(&calls).ok_or_else(|| {
         format!("{shown}: no h-s2 call reported tokens, so this replicate has no budget")
     })?;
@@ -308,14 +306,6 @@ fn sized(
         prompt_bytes,
         raw: b3::raw_events(events)?,
     })
-}
-
-/// The calls a transcript (recording format 2) holds, in order.
-fn transcript_calls(path: &Path) -> Result<Vec<CallRecord>, String> {
-    let shown = |e: String| format!("{}: {e}", path.display());
-    let text = fs::read(path).map_err(|e| shown(e.to_string()))?;
-    let mut doc: Value = serde_json::from_slice(&text).map_err(|e| shown(e.to_string()))?;
-    serde_json::from_value(doc["calls"].take()).map_err(|e| shown(e.to_string()))
 }
 
 /// Writes the transcript, then the committed file; removes the transcript if the second write

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use s2w_discover::Profile;
 use s2w_model::MappingInput;
-use s2w_system2::{MappingProposer, ReplayProvider, mapping_prompt};
+use s2w_system2::{CallRecord, MappingProposer, ReplayProvider, mapping_prompt};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -60,7 +60,8 @@ fn admitted(file: &Path, committed: &Committed) -> Result<(), String> {
 }
 
 /// Refuses `committed` (read from `file`) unless it is what a run of this build wrote, given
-/// the profile and window events `score` re-derived for its heuristic.
+/// the profile and window events `score` re-derived for its heuristic. Returns its
+/// transcript's calls, every one of which the replay asked for, in order.
 ///
 /// # Errors
 ///
@@ -70,7 +71,7 @@ pub(crate) fn reproduce(
     committed: &Committed,
     profile: &Profile,
     window: &[Value],
-) -> Result<(), String> {
+) -> Result<Vec<CallRecord>, String> {
     let shown = file.display();
     admitted(file, committed)?;
     let path = transcript_path(file)?;
@@ -112,7 +113,29 @@ pub(crate) fn reproduce(
             committed.input_hash
         ));
     }
-    replayed(file, committed, &ran)
+    replayed(file, committed, &ran)?;
+    let calls = transcript_calls(&transcript).map_err(|e| format!("{}: {e}", path.display()))?;
+    let recorded: Vec<&str> = calls.iter().map(|c| c.prompt_hash.as_str()).collect();
+    if proposer.provider().calls() != recorded {
+        return Err(format!(
+            "{}: replaying it asks {} calls, not the {} it holds: the file or the transcript was edited",
+            path.display(),
+            proposer.provider().calls().len(),
+            recorded.len()
+        ));
+    }
+    Ok(calls)
+}
+
+/// The calls a transcript (recording format 2) holds, in order.
+fn transcript_calls(text: &str) -> Result<Vec<CallRecord>, String> {
+    #[derive(serde::Deserialize)]
+    struct Calls {
+        calls: Vec<CallRecord>,
+    }
+    serde_json::from_str::<Calls>(text)
+        .map(|c| c.calls)
+        .map_err(|e| e.to_string())
 }
 
 /// Replays a b3 file's fits within `budget` from the h-s2 `input` its budget was built from:

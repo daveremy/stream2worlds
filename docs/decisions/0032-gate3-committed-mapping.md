@@ -159,3 +159,47 @@ above. It differs from them in these ways:
   reply may use 16k output tokens.
 - **Probe failure.** A failed probe writes no file: the session is not proven clean, so there is
   no replicate. The error names what the probe was charged.
+
+## Dated note 2026-10-01: what PR 3 built (s2w#373)
+
+`cargo xtask gate3 commit --arm b3` (`xtask/src/h_measure/gate3/b3.rs`) is the raw-sample
+baseline of contract §B1: the same model, task, prompt format and System 2 path
+(`MappingProposer::propose_raw` shares `propose`'s attempt and repair loop) as h-s2, given raw
+events of the same development window instead of H's result.
+
+- **The budget.** A b3 replicate is sized by the h-s2 replicate with the same corpus, window,
+  replicate, model and price (`--h-s2 FILE`). Before any call, b3 replays that file exactly as
+  `score` does, so a stale or hand-written h-s2 file never sets a budget. T is the prompt tokens
+  of the h-s2 transcript's first call that reported tokens: input plus cache read plus cache
+  write. The CLI caches the prompt, so `input_tokens` alone is a handful; the sum is what the
+  model read. It includes the CLI's built-in system prompt, which b3's calls carry too. An
+  h-s2 replicate whose calls reported no tokens has no budget, and b3 refuses it.
+- **The sampler (frozen).** The events are each frame's `data` string as the stream carried
+  it: no profile, no H, no truncation. The sample is every k-th event of the window from the
+  first. k is the smallest value whose b3 first prompt is at most B bytes, where B is the
+  h-s2 first prompt's length rebuilt from the committed heuristic. Bytes against bytes is the
+  plan's "bytes/3" rule with the 3 cancelled on both sides, and it needs no estimate of the
+  CLI's system-prompt overhead.
+- **The check and refit.** After a fit's proposal, its first call that reported tokens is
+  counted the same way as T. Above 105% of T, the fit is spent (its calls stay in the
+  transcript and the ledger) and the next fit is the smallest k above it that fits B. There is no fixed fit count:
+  each fit's calls pass a budget gate seeded with everything spent before them, so the $5 cap
+  bounds the refits. When not even one event fits B, or an over-budget fit was already a
+  one-event sample (every larger k samples the same first event), the replicate is committed
+  with `failure: "budget-fit: ..."`.
+- **Two samples, one window.** h-s2's sample is the 60 newest events of the window, after H;
+  b3's is every k-th event from the first. The difference is planned: both are within the
+  window, and each arm gets the sample its input form calls for.
+- **File shape.** A b3 committed file carries `heuristic` (the same freeze, for its pins and its
+  B) and adds `budget`: the h-s2 file's sha256, T, B, and every fit (`k`, events, prompt bytes,
+  calls, first-prompt tokens). Its `input_hash` hashes the h-s2 input, the last raw input sent
+  and `prompt_files_hash`. `score` replays every fit and refuses unless the fits, the input
+  hash, the result, the attempts and the spend all match. h-s2 files are unchanged (FORMAT 1).
+- **Private-corpus probe test.** Deferred from s2w#371: a stand-in private corpus (the
+  synthetic private fixture, pinned as a development corpus) and a fake `claude` that answers
+  the probe `none` only when nothing it can observe (stdin, argv, environment, working
+  directory, `HOME` and their parents) names the corpus directory, its name or any of its
+  events. The committed probe reply is `none`, and the same observer given the corpus
+  directory in its environment reports it.
+
+DRYRUN_PLACEHOLDER
