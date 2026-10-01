@@ -13,18 +13,20 @@ use s2w_system1::decode::key_part;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod relationships;
 mod unscored;
 
+pub(crate) use relationships::RelationshipRow;
 pub(crate) use unscored::{Unscored, UnscoredPath, UnscoredPrefix};
 
 /// The newest key-spec version, the one [`KeySpec::from_mapping`] writes. Version 1 adds
 /// [`MentionRule::no_identity`]; version 2 adds the prefix form of an unscored entry
-/// ([`UnscoredPath::Prefix`], s2w#224). A version-0 or version-1 spec reads exactly as it
-/// always did.
-pub(crate) const KEY_VERSION: u32 = 2;
+/// ([`UnscoredPath::Prefix`], s2w#224); version 3 adds [`KeySpec::relationships`] (s2w#388).
+/// A spec of an earlier version reads exactly as it always did.
+pub(crate) const KEY_VERSION: u32 = 3;
 
 /// Every key-spec version this harness reads.
-pub(crate) const KEY_VERSIONS: [u32; 3] = [0, 1, KEY_VERSION];
+pub(crate) const KEY_VERSIONS: [u32; 4] = [0, 1, 2, KEY_VERSION];
 
 /// A key spec. Every mention rule's path names where a mention sits; its identity paths name the
 /// values that identify the entity. Two mention rules of one type whose identity values are equal
@@ -46,6 +48,11 @@ pub(crate) struct KeySpec {
     /// covers itself and every path under it.
     #[serde(default)]
     pub unscored: Vec<UnscoredPath>,
+    /// Format 3: typed, directed edges between two mention paths of one record (contract B3
+    /// "Relationships"). Absent from a file, and never written, when empty, so an earlier
+    /// format's file reads and writes byte for byte as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationships: Vec<RelationshipRow>,
 }
 
 /// One key entity type.
@@ -90,7 +97,8 @@ impl KeySpec {
     /// [`super::mentions::mapping_mentions`] scores. Grading a mapping against this key must
     /// find the two partitions equal; the self-test checks that, so the two executors cannot
     /// drift apart. Rules that repeat a type's mention path with the same identity collapse to
-    /// one rule; any other clash fails validation.
+    /// one rule; any other clash fails validation. Each relationship rule becomes a row from its
+    /// `from` rule's mention path to its `to` rule's, so the edges are checked the same way.
     pub(crate) fn from_mapping(mapping: &StreamMapping) -> Result<Self, String> {
         mapping
             .validate()
@@ -120,6 +128,7 @@ impl KeySpec {
             decode: mapping.decode.clone(),
             types,
             unscored: Vec::new(),
+            relationships: relationships::of_mapping(mapping)?,
         };
         spec.validate()?;
         Ok(spec)
@@ -136,7 +145,8 @@ impl KeySpec {
     /// splits their entity: a second limit of the format, pinned by a fixture. The mapping
     /// format cannot exclude a value, so a rule with `no_identity` still gets its entity rule;
     /// [`super::grade::grade`] drops the key's excluded mentions from every prediction, the
-    /// oracle's included, so the ceiling honours the exclusion.
+    /// oracle's included, so the ceiling honours the exclusion. Each observable relationship row
+    /// whose two mention paths both got a rule gets a relationship rule between them.
     pub(crate) fn oracle(&self) -> Result<StreamMapping, String> {
         self.oracle_mapping(false)
     }
@@ -149,6 +159,7 @@ impl KeySpec {
     /// links. Graded as the "ceiling with links" row beside the oracle-v0 row, never in place of
     /// it. An alias key has the type's label and one part, so an alias value textually equal to
     /// another one-part key of that type is the same entity (decision 0027's shared label).
+    /// Relationship rows reach alias endpoints through the alias rules.
     pub(crate) fn oracle_with_links(&self) -> Result<StreamMapping, String> {
         self.oracle_mapping(true)
     }
@@ -209,8 +220,8 @@ impl KeySpec {
                 MAPPING_VERSION_LINKS
             },
             decode: self.decode.clone(),
+            relationships: relationships::oracle_rules(&self.relationships, &entities),
             entities,
-            relationships: Vec::new(),
             links,
         };
         mapping
@@ -288,7 +299,7 @@ impl KeySpec {
                 self.validate_rule_identity(&kind.label, rule)?;
             }
         }
-        Ok(())
+        relationships::validate(&self.relationships, self.version, &paths)
     }
 }
 

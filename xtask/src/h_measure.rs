@@ -6,9 +6,9 @@
 //! `MappingEngine`, the executor `serve` runs: every predicted cluster must be an entity the
 //! engine proposes for that record, and every entity it proposes must be a cluster. It then reads
 //! the mapping as a key spec ([`key::KeySpec::from_mapping`]) and checks the key executor
-//! places the same mentions in the same clusters, grades the mapping against that key with
-//! [`score`] (it and the oracle ceiling must score 1.0), and prints the contract's frozen
-//! fixtures (B3: the 4/9 case and an all-singletons prediction).
+//! places the same mentions in the same clusters, checks edge parity (s2w#388), grades the
+//! mapping against that key with [`score`] (it and the oracle ceiling must score 1.0), and
+//! prints the contract's frozen fixtures (B3: the 4/9 case and an all-singletons prediction).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -147,8 +147,11 @@ fn selftest(root: &Path) -> Result<String, String> {
     let mapping: StreamMapping = serde_json::from_str(&read(root, SAMPLE_MAPPING)?)
         .map_err(|e| format!("{SAMPLE_MAPPING}: {e}"))?;
     let corpus = mentions::Decoded::new(&payloads, &mapping.decode);
-    let predicted = mentions::mapping_mentions(&mapping, &corpus)?;
-    let proposed = engine_entities(&mapping, &payloads)?;
+    let mentions::MappingMentions {
+        partition: predicted,
+        edges,
+    } = mentions::mapping_mentions(&mapping, &corpus)?;
+    let (proposed, claimed) = engine_claims(&mapping, &payloads)?;
     let executed: BTreeSet<(usize, String)> = predicted
         .cluster
         .iter()
@@ -171,7 +174,26 @@ fn selftest(root: &Path) -> Result<String, String> {
         ));
     }
     let own_key = key::KeySpec::from_mapping(&mapping)?;
-    let graded = mentions::key_mentions(&own_key, &corpus)?.partition;
+    let gold = mentions::key_mentions(&own_key, &corpus)?;
+    mention_parity(&gold.partition, &predicted)?;
+    edge_parity(&own_key, &mapping, &corpus, &gold.edges, (&edges, &claimed))?;
+    let clusters: BTreeSet<&String> = predicted.cluster.values().collect();
+    grades_itself_perfectly(&own_key, &mapping, &payloads)?;
+    Ok(format!(
+        "h-measure selftest: executor parity with MappingEngine and with the mapping's own key on {SAMPLE}: {} records, {} mentions, {} clusters, {} edges; graded against its own key: F1 1, recovery 1, ceiling 1\n{}",
+        payloads.len(),
+        predicted.cluster.len(),
+        clusters.len(),
+        edges.len(),
+        reference_fixtures()?
+    ))
+}
+
+/// The mapping's own key places exactly the mapping's mentions in the same clusters.
+fn mention_parity(
+    graded: &mentions::Partition,
+    predicted: &mentions::Partition,
+) -> Result<(), String> {
     if graded != predicted {
         let first = graded
             .cluster
@@ -190,15 +212,44 @@ fn selftest(root: &Path) -> Result<String, String> {
             predicted.cluster.len()
         ));
     }
-    let clusters: BTreeSet<&String> = predicted.cluster.values().collect();
-    grades_itself_perfectly(&own_key, &mapping, &payloads)?;
-    Ok(format!(
-        "h-measure selftest: executor parity with MappingEngine and with the mapping's own key on {SAMPLE}: {} records, {} mentions, {} clusters; graded against its own key: F1 1, recovery 1, ceiling 1\n{}",
-        payloads.len(),
-        predicted.cluster.len(),
-        clusters.len(),
-        reference_fixtures()?
-    ))
+    Ok(())
+}
+
+/// Edge parity (s2w#388): the executor's edges are `MappingEngine`'s relationship claims (for a
+/// mapping without links, whose clusters are the natural keys themselves), and the mapping's own
+/// key places exactly those edges, as does the key's oracle. A mapping with relationship rules
+/// and no edge on the sample makes the check vacuous, which fails.
+fn edge_parity(
+    own_key: &key::KeySpec,
+    mapping: &StreamMapping,
+    corpus: &mentions::Decoded,
+    gold: &BTreeSet<mentions::Edge>,
+    (predicted, engine): (&BTreeSet<mentions::Edge>, &BTreeSet<mentions::Edge>),
+) -> Result<(), String> {
+    if mapping.links.is_empty() && engine != predicted {
+        return Err(format!(
+            "edge parity: the executor and MappingEngine disagree on {SAMPLE}'s relationships ({} engine edges, {} executor edges)",
+            engine.len(),
+            predicted.len()
+        ));
+    }
+    if !mapping.relationships.is_empty() && predicted.is_empty() {
+        return Err(format!(
+            "edge parity: {SAMPLE} gave no edges for {SAMPLE_MAPPING}'s relationship rules, so the check is vacuous"
+        ));
+    }
+    let oracle = mentions::mapping_mentions(&own_key.oracle()?, corpus)?.edges;
+    for (row, edges) in [("own key", gold), ("oracle", &oracle)] {
+        if edges != predicted {
+            return Err(format!(
+                "edge parity: {SAMPLE_MAPPING} read as a key spec ({row}) does not reproduce its own edges ({} vs {} mapping edges; first difference {:?})",
+                edges.len(),
+                predicted.len(),
+                edges.symmetric_difference(predicted).next()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The mapping graded against its own key, and the key's oracle, both score 1.0.
@@ -248,14 +299,16 @@ fn reference_fixtures() -> Result<String, String> {
     Ok(table)
 }
 
-/// `(record, natural key)` for every entity `MappingEngine` proposes.
-fn engine_entities(
-    mapping: &StreamMapping,
-    payloads: &[Value],
-) -> Result<BTreeSet<(usize, String)>, String> {
+/// Per record the clusters `MappingEngine` proposes, and its relationship claims as edges.
+type Claims = (BTreeSet<(usize, String)>, BTreeSet<mentions::Edge>);
+
+/// The entities `MappingEngine` proposes per record, and its relationship claims as edges
+/// between natural keys (the clusters of a mapping without links).
+fn engine_claims(mapping: &StreamMapping, payloads: &[Value]) -> Result<Claims, String> {
     let engine = MappingEngine::new(mapping.clone()).map_err(|e| e.to_string())?;
     let source = SourceId::new("fixture").map_err(|e| e.to_string())?;
     let mut entities = BTreeSet::new();
+    let mut edges = BTreeSet::new();
     for (record, payload) in payloads.iter().enumerate() {
         let position = u64::try_from(record).map_err(|e| e.to_string())?;
         let event = RawEvent {
@@ -266,13 +319,23 @@ fn engine_entities(
         };
         if let Verdict::Propose { claims, .. } = engine.evaluate(&event) {
             for claim in claims {
-                if let WorldEvent::EntityObserved { key, .. } = claim {
-                    entities.insert((record, key.as_str().to_owned()));
+                match claim {
+                    WorldEvent::EntityObserved { key, .. } => {
+                        entities.insert((record, key.as_str().to_owned()));
+                    }
+                    WorldEvent::RelationshipObserved { from, to, kind } => {
+                        edges.insert(mentions::Edge {
+                            label: kind,
+                            from: from.as_str().to_owned(),
+                            to: to.as_str().to_owned(),
+                        });
+                    }
+                    _ => {}
                 }
             }
         }
     }
-    Ok(entities)
+    Ok((entities, edges))
 }
 
 fn read(root: &Path, rel: &str) -> Result<String, String> {

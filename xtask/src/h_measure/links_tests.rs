@@ -12,7 +12,9 @@ use super::key::KeySpec;
 use super::mentions::{Decoded, Partition, mapping_mentions};
 
 fn mentions(mapping: &StreamMapping, payloads: &[Value]) -> Partition {
-    mapping_mentions(mapping, &Decoded::new(payloads, &mapping.decode)).expect("the mapping runs")
+    mapping_mentions(mapping, &Decoded::new(payloads, &mapping.decode))
+        .expect("the mapping runs")
+        .partition
 }
 
 fn linked(links: &Value) -> StreamMapping {

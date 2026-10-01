@@ -113,7 +113,8 @@ Plan and rulings: the s2w#372 issue comments of 2026-10-01.
   each number came from.
 - **Relationships are declared, not scored:** `EDGES` in `private/key.ts` lists the typed
   directed edges (§B3) between mentions of one frame, with `key.ts --edges` printing them as
-  JSON. The edge grader and a key format that carries them are s2w#388.
+  JSON. Key format 3 (below) carries them; the edge grader and a `private-key-v1.json` that
+  declares them are s2w#388's next PRs.
 - **Generated, never hand-edited:** `node --experimental-strip-types
   research/h-measure/private/key.ts --write` writes both key files and
   `private/fixture/synthetic-20.key-shape.json`. A changed key is a new file and a new
@@ -455,3 +456,50 @@ uncommitted corpus). A v2 key differs from v1 only on a corpus
 that holds a `log_params` path the dev corpus does not. `score` refuses a key that the freeze
 did not record, so a v2 key grades mappings frozen after these pins, not the files already in
 `frozen/`.
+
+## Key format 3: relationships (#388)
+
+Format 3 is format 2 plus a `relationships` table: typed, directed edges between two mention
+paths of one record (contract §B3 "Relationships"). Plan and rulings: the s2w#388 issue
+comments of 2026-10-01.
+
+```json
+"version": 3,
+"relationships": [
+  { "type": "parent", "from": ["data", "sha"],    "to": ["data", "parents", 0] },
+  { "type": "parent", "from": ["data", "sha"],    "to": ["data", "parents", 1] },
+  { "type": "names",  "from": ["data", "number"], "to": ["data", "refs"],
+    "unobservable": "refs drop the repo prefix" }
+]
+```
+
+- **Semantics.** A record holds a row's edge when both of its paths hold a gold mention there:
+  the test the engine applies to a `RelationshipRule` (both endpoint rules matched in one
+  payload), with no guard field. The edge is `(type, from entity, to entity)`; the key's edges
+  are the unique set over the corpus, so an edge seen in 400 records is one edge. Direction is as
+  written: the reverse is another edge. An abstained or excluded endpoint is no mention, so it
+  places no edge. Rows sharing a `type` form one key edge type (the two `parent` rows above).
+- **Validation.** `relationships` needs `"version"` 3 or later. A `type` is non-empty without
+  U+001F; `from` and `to` are well-formed and differ; an observable row's `from` and `to` are
+  each a mention path of the key (of any type). A row listed twice, or two rows on one
+  `(from, to)` pair, is refused: one pair carries one edge type.
+- **Unobservable rows.** `"unobservable": "<reason>"` (the reason is required) marks an edge the
+  stream cannot show. Such a row may name any path, a mention path or not; it places no gold edge
+  and is counted, never scored.
+- **Predicted edges.** The mapping executor turns each relationship rule whose two endpoint
+  rules matched (the engine's `RelationshipObserved` claim) into `(kind, from cluster, to
+  cluster)`, each endpoint resolved through the same fold as its mention, so links join edge
+  endpoints too.
+- **Oracle.** The oracle-v0 mapping gets a relationship rule per observable row whose two
+  mention paths both got an oracle rule; a row touching an alias path gets none, so the ceiling
+  shows that limit as it shows the alias limit. The oracle with links reaches alias endpoints
+  through its alias rules.
+- **Back-compat.** A format 0–2 file has no `relationships`, reads exactly as before, writes no
+  such field, and its oracles have no relationship rules, so nothing a pinned v0–v2 key scores
+  changes. `from_mapping` writes format 3, one row per relationship rule, and the selftest checks
+  that a mapping read as its own key (and that key's oracle) places exactly the mapping's edges,
+  and that those equal `MappingEngine`'s relationship claims.
+- **Not yet.** This build reads, validates and executes format 3; the edge scorer (§B3
+  precision and recall) and the report rows are s2w#388's second PR, and the first format-3
+  key files with their pins are its third. Until that PR, `obfuscate` refuses a key with
+  relationships rather than leave its rows on plain paths.

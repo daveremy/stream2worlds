@@ -12,6 +12,7 @@ fn key_mentions(spec: &KeySpec, payloads: &[Value]) -> Result<KeyMentions, Strin
 
 fn mapping_mentions(rules: &StreamMapping, payloads: &[Value]) -> Result<Partition, String> {
     super::mentions::mapping_mentions(rules, &Decoded::new(payloads, &rules.decode))
+        .map(|found| found.partition)
 }
 
 fn spec(value: &Value) -> KeySpec {
@@ -53,8 +54,8 @@ fn the_example_spec_is_valid() {
 #[test]
 fn another_version_is_rejected() {
     let mut value = example();
-    value["version"] = json!(3);
-    rejects(&value, "version 3");
+    value["version"] = json!(4);
+    rejects(&value, "version 4");
 }
 
 #[test]
@@ -323,9 +324,44 @@ fn the_committed_sample_passes_the_selftest() {
         .expect("xtask sits in the workspace root");
     let report = super::selftest(root).expect("parity holds");
     assert!(
-        report.contains("20 records, 60 mentions, 44 clusters"),
+        report.contains("20 records, 60 mentions, 44 clusters, 40 edges"),
         "{report}"
     );
+}
+
+/// The selftest's edge parity fires (s2w#388): a key that drops one of the mapping's edges, an
+/// engine that disagrees with the executor, and a mapping whose relationship rules place no edge
+/// all fail it.
+#[test]
+fn edge_parity_fails_on_a_missing_edge_or_a_vacuous_sample() {
+    let rules: StreamMapping = serde_json::from_value(json!({
+        "version": 1, "decode": [],
+        "entities": [
+            { "id": "a", "type_label": "A", "key": [["a"]], "attrs": [] },
+            { "id": "b", "type_label": "B", "key": [["b"]], "attrs": [] }
+        ],
+        "relationships": [{ "from": "a", "to": "b", "kind": "k" }]
+    }))
+    .expect("the mapping deserializes");
+    let payloads = [json!({ "a": 1, "b": 2 }), json!({ "a": 3, "b": 4 })];
+    let corpus = Decoded::new(&payloads, &rules.decode);
+    let own = KeySpec::from_mapping(&rules).expect("a key");
+    let mapped = super::mentions::mapping_mentions(&rules, &corpus)
+        .expect("runs")
+        .edges;
+    super::edge_parity(&own, &rules, &corpus, &mapped, (&mapped, &mapped)).expect("parity holds");
+    let mut short = mapped.clone();
+    short.pop_first();
+    let problem =
+        super::edge_parity(&own, &rules, &corpus, &short, (&mapped, &mapped)).expect_err("drift");
+    assert!(problem.contains("own key"), "{problem}");
+    let problem = super::edge_parity(&own, &rules, &corpus, &mapped, (&mapped, &short))
+        .expect_err("engine drift");
+    assert!(problem.contains("MappingEngine"), "{problem}");
+    let empty = std::collections::BTreeSet::new();
+    let problem =
+        super::edge_parity(&own, &rules, &corpus, &empty, (&empty, &empty)).expect_err("vacuous");
+    assert!(problem.contains("vacuous"), "{problem}");
 }
 
 /// Every key file `research/h-measure/keys.toml` pins parses as a key spec, validates, and
@@ -352,21 +388,44 @@ fn every_pinned_key_file_is_a_valid_key() {
             .unwrap_or_else(|e| panic!("{}: not a key spec: {e}", pin.file));
         spec.validate()
             .unwrap_or_else(|e| panic!("{}: invalid: {e}", pin.file));
-        spec.oracle()
+        let oracle = spec
+            .oracle()
             .unwrap_or_else(|e| panic!("{}: no oracle mapping: {e}", pin.file));
-        spec.oracle_with_links()
+        let linked = spec
+            .oracle_with_links()
             .unwrap_or_else(|e| panic!("{}: no oracle mapping with links: {e}", pin.file));
+        // Format 3 changes nothing an earlier file scores (s2w#388): no relationship row reads
+        // in, none writes back out, and neither oracle gains a relationship rule.
+        if spec.version < 3 {
+            let written = serde_json::to_value(&spec).expect("the spec serializes");
+            assert!(
+                spec.relationships.is_empty() && written.get("relationships").is_none(),
+                "{}: format {} carries relationships",
+                pin.file,
+                spec.version
+            );
+            assert!(
+                oracle.relationships.is_empty() && linked.relationships.is_empty(),
+                "{}",
+                pin.file
+            );
+        }
         // A file's format is part of its pin: a `-v0` file is format 0, whatever came later.
         if pin.file.starts_with("dev-key-v0") {
             assert_eq!(spec.version, 0, "{}", pin.file);
         }
         versions.insert(spec.version);
     }
-    assert!(
-        versions.contains(&super::key::KEY_VERSION),
-        "no pinned key uses format {}",
-        super::key::KEY_VERSION
-    );
+    // Format 3's first pinned files (`dev-key-v3`, `private-key-v1`) are s2w#388 PR 3, which
+    // pins them and empties this list; until then every other format must have a pin.
+    const NOT_YET_PINNED: [u32; 1] = [super::key::KEY_VERSION];
+    for version in super::key::KEY_VERSIONS {
+        assert_ne!(
+            versions.contains(&version),
+            NOT_YET_PINNED.contains(&version),
+            "format {version}: pinned and listed as not yet pinned, or neither (empty NOT_YET_PINNED once a format-3 key is pinned)"
+        );
+    }
 }
 
 /// A format-1 spec: type `T` at `n`, identity (`ctx`, `n`), with `no_identity` as given.
