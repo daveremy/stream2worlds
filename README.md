@@ -419,7 +419,7 @@ cargo xtask check
 cargo xtask api     # public API vs xtask/public-api/; --update rewrites the snapshots
 cargo deny check licenses advisories bans
 cargo xtask scale   # Linux only: needs valgrind and gungraun-runner (CI job `scale`)
-cargo xtask discover-volume   # world heap under a learned mapping (CI job `discover-volume`; a release build, then ~5 minutes under dhat)
+cargo xtask discover-volume   # world heap under a learned mapping (CI job `discover-volume`, ~5 min)
 ```
 
 Rust 1.98 or later. `cargo xtask check` is the fitness-function suite described above; when it fails, its message says what to change. The separate `cargo deny` gate rejects unapproved dependency licences and RustSec advisories. `cargo xtask scale` measures fold instructions per event under Valgrind; install `valgrind` and `cargo install gungraun-runner --version 0.20.0 --locked` (the version `s2w-app` pins for `gungraun`) first.

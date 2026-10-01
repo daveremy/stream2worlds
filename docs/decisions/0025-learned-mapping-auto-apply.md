@@ -98,9 +98,9 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
   the same `discover_volume` fold (10^4-event window, 10^5 fresh-string events), version 2
   measured 252.0 MiB with 97,633 entities and 916,641 relationships; version 8 measures
   390.0 MiB with 154,018 and 1,412,074 (0022). The bound grew 55%, entities 58% and
-  relationships 54%: the growth is the world's size, not bytes per entity. It is the entities
-  versions 3 to 5 added on purpose (H-min, `user` recall 1.0), less the version 6 to 8 cuts
-  (0022's amendments). The one accepted false class left, and the known cost, is
+  relationships 54%: the growth is the world's size, not bytes per entity. By 0022's per-version tables (a different harness, the
+  page-change fixture at 1.5x10^5), that is the entities versions 4 and 5 added on purpose
+  (`user`, then H-min), less the version 6 to 8 cuts; this fold was not bisected. The one accepted false class left, and the known cost, is
   `revision/comment`, 5.2% of world events on the page-change fixture (0022's s2w#327
   amendment).
   `cargo xtask discover-volume` (CI job `discover-volume`, table `[discover_volume]` in
@@ -110,9 +110,9 @@ on a key's name (checks 11 and 12 still gate the engine and the profiler).
   heap/resident ratio of about 0.976. A run more than 5% (`tolerance_percent`) above the
   baseline fails, and raising the baseline needs a `Baseline-growth: s2w#<N>` trailer on a
   commit in the PR. `budget_bytes` is 491,361,871 B (468.6 MiB): 480 MiB resident at that
-  ratio, from the 1 GiB demo box less `serve`'s measured overhead over the world, with a
-  margin. A run above it always fails. Version-2 links (465.1 MiB resident, about 454 MiB of
-  heap, 0022's s2w#245 amendment) fit under the budget but sit about 19% above the baseline,
+  ratio: the 1 GiB demo box less `serve`'s overhead over the world, with a margin (the
+  s2w#392 plan and ruling). A run above it always fails. Version-2 links (465.1 MiB resident, about 454 MiB or 476 MB
+  of heap, 0022's s2w#245 amendment) fit under the budget but sit about 19% above the baseline,
   so turning them on in `serve` is a later change that raises `heap_bytes` with a trailer.
   Until then the producer files version 1 only.
 - **Grading** the policy's accuracy is #33/#56. No automatic revoke exists yet.
