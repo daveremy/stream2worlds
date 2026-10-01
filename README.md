@@ -36,7 +36,10 @@
 - **The `s2w` binary allocates through mimalloc.** The backfill's resident peak drops by 69-106
   MiB on the recorded load ([decision 0031](docs/decisions/0031-mimalloc-global-allocator.md)).
   [#353](https://github.com/daveremy/stream2worlds/pull/353)
-- **In progress:** splitting the 14 remaining oversized modules ([#66](https://github.com/daveremy/stream2worlds/issues/66)), naming the unnamed types ([#351](https://github.com/daveremy/stream2worlds/issues/351)),
+- **In progress:** gate 3, the run that asks whether System 2 beats heuristics and a raw-sample
+  LLM baseline ([#13](https://github.com/daveremy/stream2worlds/issues/13)); turning module-size
+  enforcement on with a ceiling for each of the 14 remaining oversized modules
+  ([#66](https://github.com/daveremy/stream2worlds/issues/66)); naming the unnamed types ([#351](https://github.com/daveremy/stream2worlds/issues/351)),
   the manifest noun ([#347](https://github.com/daveremy/stream2worlds/issues/347)) and the live-demo label share
   ([#342](https://github.com/daveremy/stream2worlds/issues/342)).
 
