@@ -56,10 +56,16 @@ pub(crate) fn grade(
     };
     // A mention's record is its index in `payloads` whichever decode steps built the corpus, so
     // the key's excluded set applies to a prediction made on the mapping's own decoding.
-    let predicted = without(mapping_mentions(mapping, mapping_corpus)?, &gold.excluded);
-    let oracle = without(mapping_mentions(&spec.oracle()?, &corpus)?, &gold.excluded);
+    let predicted = without(
+        mapping_mentions(mapping, mapping_corpus)?.partition,
+        &gold.excluded,
+    );
+    let oracle = without(
+        mapping_mentions(&spec.oracle()?, &corpus)?.partition,
+        &gold.excluded,
+    );
     let linked = without(
-        mapping_mentions(&spec.oracle_with_links()?, &corpus)?,
+        mapping_mentions(&spec.oracle_with_links()?, &corpus)?.partition,
         &gold.excluded,
     );
     Ok(Grade {

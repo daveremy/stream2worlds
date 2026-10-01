@@ -92,7 +92,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   executor over `crates/s2w-system1/testdata/raw-sample.jsonl` with `sample.mapping.json` and
   checks it against `MappingEngine` (every predicted cluster is an entity the engine proposes
   for that record, and the reverse), then reads the mapping as its own key spec and checks the
-  key executor gives the same partition. An empty result fails. It then grades the mapping
+  key executor gives the same partition. An empty result fails. Edge parity (s2w#388): the
+  executor's edges equal `MappingEngine`'s relationship claims (mapping without links), and the
+  mapping's own key and that key's oracle place exactly those edges; relationship rules with no
+  edge on the sample fail as vacuous. It then grades the mapping
   against its own key (mapping and oracle ceiling must both score 1.0) and scores and prints the
   contract's frozen fixtures (the 4/9 case, all-singletons). Self-tests live in
   `h_measure/tests.rs`, which also runs the selftest, so `cargo test` enforces parity.
@@ -102,7 +105,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   runs the private-stream key on the synthetic fixture: the Rust executor must reproduce the
   partition shape `research/h-measure/private/key.ts` committed, and the fixture must score a
   number-only item mapping as a false merge.
-  - `h_measure/key.rs`: the answer-key spec, format versions 0, 1 and 2 (`decode`, `types` with
+  - `h_measure/key.rs`: the answer-key spec, format versions 0 to 3 (`decode`, `types` with
     mention rules `{path, identity}`, `unscored`; format 1 adds an optional `no_identity` list of
     sentinel values on a mention rule whose path is an identity path: a record holding one there
     has no mention, compared as key parts; format 2 adds the `unscored` prefix form, s2w#224),
@@ -118,6 +121,13 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
       mention path ids `score` drops predictions by. Prefixes match whole `rule_id` segments.
       Validation refuses a prefix before format 2, an entry listed twice, and an entry at or
       under another entry's prefix. Self-tests in `key/unscored/tests.rs`.
+    - `h_measure/key/relationships.rs` (s2w#388): format 3's `relationships` rows, typed
+      directed edges between two mention paths of one record, their validation (format 3 only;
+      an observable row joins two mention paths; one type per `(from, to)` pair; an
+      `unobservable` row needs a reason and may name any path), the rows `from_mapping` writes
+      (one per relationship rule) and the oracle's relationship rules (rows whose two paths both
+      got an oracle rule). Self-tests, including both executors' edges, in
+      `key/relationships/tests.rs`.
   - `h_measure/mentions.rs`: the key and mapping executors. A mention is `(record index,
     s2w_discover::rule_id(path))`. A mapping rule mentions its entity at its **last** key path:
     a composite key lists context parts first, and the context usually keys a type of its own.
@@ -129,7 +139,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     a mapping without links clusters by its natural keys as before.
     `key_mentions` validates its spec first, reports as abstained paths the mentions it
     skips because an identity path held no key part, and as excluded mentions the ones whose
-    path held a `no_identity` value. `Decoded` applies one list of decode steps
+    path held a `no_identity` value. Both executors also return edges (s2w#388): the key's
+    gold edges per observable relationship row whose two paths hold a gold mention in a record,
+    and the mapping's per relationship rule whose two endpoint rules matched, endpoints
+    resolved through the same fold as the mentions; each set is unique over the corpus. `Decoded` applies one list of decode steps
     to a corpus once; every executor whose steps match shares it.
   - `h_measure/score.rs`: B-cubed P/R/F1 (micro, per type, and without singleton-only types),
     the mention-weighted false-merge rate, entity recovery (≥ 90% both ways, integer
@@ -177,7 +190,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     TOML rules file (format 1). `canon.rs`: URL tails and query parameters. `transform.rs`: the
     field table and the per-event walk (undeclared strings are text-hashed, RFC 3339 strings are
     shifted, numbers are kept and listed). `rekey.rs`: the answer key renamed to the obfuscated
-    paths. `meta.rs`: the metadata file. Fixtures, including a grade of the obfuscated corpus
+    paths (a key with relationships is refused until s2w#388 PR 3 renames its rows). `meta.rs`: the metadata file. Fixtures, including a grade of the obfuscated corpus
     against the renamed key, live in `h_measure/obfuscate/tests.rs`.
   - The first pre-registered run (s2w#56 PR 3, research 0009): frozen files in
     `research/h-measure/frozen/`, reports in `research/h-measure/results/`. `score` re-runs the

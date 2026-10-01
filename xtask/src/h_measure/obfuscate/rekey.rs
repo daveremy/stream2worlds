@@ -25,6 +25,15 @@ pub(super) fn rekey(
             spec.decode
         ));
     }
+    // Renaming edge rows, and matching the rules file's unobservable relationship rows to
+    // them, is s2w#388 PR 3; until then a format-3 key with relationships fails closed rather
+    // than keeping plain paths the obfuscated corpus does not hold.
+    if !spec.relationships.is_empty() {
+        return Err(
+            "the key declares relationships, which this build does not rename yet (s2w#388 PR 3)"
+                .to_owned(),
+        );
+    }
     let mut out = spec.clone();
     for kind in &mut out.types {
         for rule in &mut kind.mentions {

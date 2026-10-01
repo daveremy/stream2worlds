@@ -824,3 +824,28 @@ fn at_name(meta: &Meta, top: &str) -> String {
         .name
         .clone()
 }
+
+/// A format-3 key's relationship rows name plain paths; until `rekey` renames them (s2w#388 PR
+/// 3) obfuscating with such a key fails closed and writes nothing.
+#[test]
+fn a_key_with_relationships_is_refused_until_rekey_renames_them() {
+    let fx = Fx::new("relationships", &[("dev", sse(&events()))]);
+    let mut key = answer();
+    key["version"] = json!(3);
+    key["relationships"] =
+        json!([{ "type": "on", "from": ["data", "doc"], "to": ["data", "site"] }]);
+    let bytes = serde_json::to_vec_pretty(&key).unwrap();
+    let data = fx.root.join(DATA);
+    fs::write(data.join(ANSWER), &bytes).unwrap();
+    let pin = format!(
+        "[[key]]\nfile = \"{ANSWER}\"\nvariant = \"base\"\nsha256 = \"{}\"\n",
+        sha256(&bytes)
+    );
+    fs::write(data.join("keys.toml"), pin).unwrap();
+    let problem = fx
+        .run("a.key", &["dev"], &fx.meta_path())
+        .expect_err("a key with relationships is refused");
+    assert!(problem.contains("s2w#388 PR 3"), "{problem}");
+    assert!(!fx.meta_path().exists(), "a refused run writes nothing");
+    assert!(!fx.dir.join("dev.obf-r1.raw.sse").exists());
+}
