@@ -72,6 +72,10 @@
 //!     `Baseline-growth: s2w#<N>` trailer (s2w#156).
 //! 19. **Public API** (`public_api.rs`, snapshots in `xtask/public-api/`): every lib crate's
 //!     `pub` items match its committed snapshot; `cargo xtask api --update` rewrites them (s2w#68).
+//! 20. **No private capture** (`private_capture.rs`): over `git ls-files -co --exclude-standard`,
+//!     no `*.sse` under `research/` except the synthetic fixture (which must carry the synthetic
+//!     header), no `*.provenance.jsonl` anywhere, and no non-Rust file with a line starting with
+//!     the private capture header (s2w#371).
 //!
 //! Escape hatches: the compiler forbids `unwrap`, `expect`, `todo!`,
 //! `unimplemented!`, `dbg!`, `unsafe` and unreachable `pub`, and no attribute can override a
@@ -99,6 +103,7 @@ mod module_cycles;
 mod module_size;
 mod obfuscation;
 mod obfuscation_raw;
+mod private_capture;
 mod public_api;
 mod readme_scale;
 mod scale;
@@ -272,6 +277,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
     problems.extend(readme_scale::check(root, &table));
     problems.extend(expect_count::check(root, &meta, tighten));
     problems.extend(public_api::check(root, &meta));
+    problems.extend(private_capture::check(root));
     for listed in allow.crates.keys() {
         if !members.contains_key(listed.as_str()) {
             problems.push(format!(
@@ -306,7 +312,7 @@ fn check(root: &Path, tighten: bool) -> Result<String, Vec<String>> {
 
     if problems.is_empty() {
         Ok(format!(
-            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers, frozen contract, expect count, public API: {} crates, {} external dependencies",
+            "✓ dependency allowlist, stack table, AGENTS.md, lint inheritance, no overrides, golden replay, module sizes, domain vocabulary, obfuscation replay, raw obfuscation replay, profiler obfuscation replay, clippy config, scale memory, decision numbers, frozen contract, expect count, public API, no private capture: {} crates, {} external dependencies",
             meta.packages.len(),
             used_external.len()
         ))

@@ -20,7 +20,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
 
 ## Invariants
 
-- Rust source is read only as `syn` ASTs, never as text or regexes. Other inputs: Cargo metadata, this crate's own TOML config, rustc dep-info files (the walker backstop), `git show`/`git log` for the exemption and scale-baseline ratchets (decision 0001, amendment), and the JSON the scale measurements print or write (s2w#32).
+- Rust source is read only as `syn` ASTs, never as text or regexes. Other inputs: Cargo metadata, this crate's own TOML config, rustc dep-info files (the walker backstop), `git show`/`git log` for the exemption and scale-baseline ratchets (decision 0001, amendment), `git ls-files` for check 20's file list (non-Rust files are read as bytes for the private capture header; `*.rs` files are skipped), and the JSON the scale measurements print or write (s2w#32).
 - A measurement that cannot be read (no JSON line, a failed run, a stale or missing summary, a zero) is a failure, never a pass.
 - Every violation message says what to do next.
 - A new check is shown to fire (break the rule on purpose, watch it fail) before it is trusted.
@@ -183,6 +183,7 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
     does on the plain key's `wiki`). Reports and notes call it the oracle-v0 ceiling (#245).
 - `scale_mem_check.rs`: check 13, heap bytes per entity. It spawns a nested `cargo test -p s2w-app --test scale_mem -- --ignored --exact …` once per event supply (s2w#174) and needs the JSON line each test prints. It does not check the fixture against the baseline's `[recorded] fixture_fnv1a64`: the recorded test is protected by the same pin compiled into `crates/s2w-app/tests/support/recorded.rs` (`FIXTURE_HASH`, checked by `load()`). Keep the two values equal; `cargo xtask scale` checks the baseline key.
 - `decision_numbers.rs`: check 14, no two `docs/decisions/` files share a numeric prefix (`0021-x.md` and `21-y.md` count as the same number); the failure names every file holding it. A missing directory fails.
+- `private_capture.rs`: check 20, no private-stream capture in the repository (s2w#371). Over every file `git ls-files -co --exclude-standard` lists: no `*.sse` under `research/` except the synthetic fixture, which must start with the synthetic header; no `*.provenance.jsonl` anywhere; no non-Rust file with a line starting with the private capture header. A git failure, an unreadable file or a missing `research/` fails.
 - `contract_frozen.rs`: check 16, the signed `docs/evaluation-contract.md` only grows by dated
   notes. Every byte above `## Dated notes after sign-off` must hash to `SIGNED_SHA256`; changes
   at or below that heading are free. The pin is in the source rather than a tagged commit so the
