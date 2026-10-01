@@ -27,6 +27,7 @@ test("the committed fixture sidecar is exactly what fixture.ts generates", () =>
   assert.equal(prov, syntheticCapture().provenance, "regenerate with: node --experimental-strip-types research/h-measure/private/fixture.ts --write");
 });
 
+// Names only: the sha256 pin itself is checked by xtask's private_key_tests (Pins::key).
 test("the keys are pinned in keys.toml", () => {
   const toml = readFileSync(join(KEY_DIR, "keys.toml"), "utf8");
   for (const f of [BASE_FILE, CONTEXT_FILE]) assert.ok(toml.includes(`file = "${f}"`), f);

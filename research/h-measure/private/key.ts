@@ -142,6 +142,9 @@ export const EDGES: Edge[] = [
 export const pathId = (p: Path) => p.join(".");
 
 /** `s2w_system1::decode::key_part`: a string, an i64 integer or a boolean; typed, so 0 ≠ "0". */
+// A number is keyed when it is a safe integer. Rust's `as_i64` also rejects a float literal
+// such as `1.0`, which JSON.parse reads as 1; the capture writes through JSON.stringify, which
+// never emits one, so the two agree on every capture this tool reads.
 function keyPart(v: unknown): string | undefined {
   if (typeof v === "string" || typeof v === "boolean") return JSON.stringify(v);
   if (typeof v === "number" && Number.isSafeInteger(v)) return JSON.stringify(v);
@@ -265,6 +268,7 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
       if (p.issue_unobservable !== expect) failures["seat-issue"] += 1;
     }
     if (x.kind === "leg.status") {
+      // A tripwire: today's capture derives `issue` from `key`, so this only fires if that changes.
       if (x.key !== `${x.repo}#${x.issue}`) failures["leg-key"] += 1;
       if (x.pr != null && !opened.has(`${x.repo}#${x.pr}`)) legPrUnopened += 1;
     }
@@ -282,7 +286,7 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
   return {
     frames: frames.length,
     undecodable,
-    capture_header: header.slice(1), // line 1 is the provenance line; 2-3 are the command and the drop counts
+    capture_header: header.slice(1, 3), // line 1 is the provenance line; 2-3 are the command and the drop counts
     key: shape(s, frames),
     context_scored: shape(spec("context-scored"), frames),
     failures, failed,
@@ -292,7 +296,7 @@ export function check(header: string[], frames: Frame[], provenanceText: string)
   };
 }
 
-// ---- the hand-inspection worksheet (PR 2) ----
+// ---- the hand-inspection worksheet (run on the private span in PR 2) ----
 
 /** mulberry32: a small seeded PRNG, so a (seed, N) worksheet is reproducible. */
 function prng(seed: number): () => number {
@@ -326,6 +330,12 @@ export function draw(mentions: Mention[], n: number, seed: number): Mention[] {
 const GH: Record<string, string> = { lifeos: "daveremy/lifeos", s2w: "daveremy/stream2worlds" };
 const CLONE: Record<string, string> = { lifeos: "$HOME/lifeos", s2w: "$HOME/code/stream2worlds" };
 
+function known(table: Record<string, string>, repo: unknown): string {
+  const v = Object.hasOwn(table, String(repo)) ? table[String(repo)] : undefined;
+  if (v === undefined) throw new Error(`key.ts: no source lookup for repo ${JSON.stringify(repo)}`);
+  return v;
+}
+
 /** The exact source lookup a human runs to confirm one mention. */
 function lookupCommand(x: Record<string, unknown>, p: Record<string, unknown>, path: string): string {
   switch (p.source) {
@@ -336,11 +346,11 @@ function lookupCommand(x: Record<string, unknown>, p: Record<string, unknown>, p
       return `sed -n '${o % 100000}p' "$HOME/lifeos/logs/review-seats/${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6)}.jsonl"`;
     }
     case "github":
-      return `gh api repos/${GH[String(x.repo)]}/${x.is_pr ? "pulls" : "issues"}/${Number(x.number)}`;
+      return `gh api repos/${known(GH, x.repo)}/${x.is_pr ? "pulls" : "issues"}/${Number(x.number)}`;
     case "github-timeline":
-      return `gh api --paginate repos/${GH[String(x.repo)]}/issues/${Number(x.number)}/timeline`;
+      return `gh api --paginate repos/${known(GH, x.repo)}/issues/${Number(x.number)}/timeline`;
     case "git":
-      return `git -C "${CLONE[String(x.repo)]}" show -s --format='%H %P' ${path.startsWith("data.parents") ? String(x.sha) : String(p.sha)}`;
+      return `git -C "${known(CLONE, x.repo)}" show -s --format='%H %P' ${path.startsWith("data.parents") ? String(x.sha) : String(p.sha)}`;
     case "sprint-log":
       return `grep -n '^| ${Number(x.sprint)} |' "$HOME/lifeos/docs/sprints/README.md"`;
     default:

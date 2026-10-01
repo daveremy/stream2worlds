@@ -112,11 +112,14 @@ fn the_fixture_reproduces_the_scoring() {
     .expect("grades");
     let merged = by_number.mapping.false_merge.expect("a precision");
     assert!(merged > 0.0, "{merged}");
-    assert!(by_number.mapping.micro.f1 < by_repo.mapping.micro.f1);
+    let f1_number = by_number.mapping.micro.f1.expect("an f1");
+    let f1_repo = by_repo.mapping.micro.f1.expect("an f1");
+    assert!(f1_number < f1_repo, "{f1_number} < {f1_repo}");
     // The oracle joins no alias (`key`, `slot`, `file_id`), so its ceiling misses mentions
     // but never merges two entities.
     assert_eq!(by_repo.ceiling.false_merge, Some(0.0));
-    assert!(by_repo.ceiling.micro.recall < Some(1.0));
+    let recall = by_repo.ceiling.micro.recall.expect("a ceiling recall");
+    assert!(recall < 1.0, "{recall}");
     assert!(by_repo.ceiling.singleton_types.contains("seat"));
     assert!(by_repo.ceiling.singleton_types.contains("comment"));
 }
