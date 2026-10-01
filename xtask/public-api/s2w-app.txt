@@ -31,9 +31,10 @@ s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { # 
 s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pub fn new (reader : R , verdicts : V , registry : EngineRegistry , state : QueryState , config : BridgeConfig ,) -> Result < Self , BridgeError > }
 s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pub fn poll_once (& mut self) -> Result < PollReport , BridgeError > }
 s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pub fn restart (self , registry : EngineRegistry , resume : Option < LogPosition > ,) -> Result < Self , BridgeError > }
-s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pub fn resume (reader : R , verdicts : V , registry : EngineRegistry , state : QueryState , config : BridgeConfig , position : LogPosition ,) -> Result < Self , BridgeError > }
+s2w_app::bridge: impl < R : LogReader , V : VerdictStore > Bridge < R , V > { pub fn resume (parts : BridgeParts < R , V > , position : LogPosition) -> Result < Self , BridgeError > }
 s2w_app::bridge: impl Default for BridgeConfig
 s2w_app::bridge: pub struct Bridge < R : LogReader , V : VerdictStore > { } ..
+s2w_app::bridge: pub struct BridgeParts < R , V > { pub reader : R , pub verdicts : V , pub registry : EngineRegistry , pub state : QueryState , pub config : BridgeConfig }
 s2w_app::bridge: pub use registry :: { EngineRegistry , RegistryError , Route } ;
 s2w_app::bridge::registry: # [derive (Clone , Debug , PartialEq , Eq)] pub enum Route { Exact (String) , Prefix (String) }
 s2w_app::bridge::registry: # [derive (Debug , Clone , PartialEq , Eq , thiserror :: Error)] pub enum RegistryError { VersionConflict { name : String , registered : u32 , rejected : u32 , } }

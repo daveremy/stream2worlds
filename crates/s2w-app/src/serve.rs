@@ -21,7 +21,7 @@ use s2w_sources::source::{CursorLookup, Ending, SourceError, Started};
 use tokio::net::TcpListener;
 use tokio::sync::{oneshot, watch};
 
-use crate::bridge::{Bridge, BridgeConfig, BridgeError, EngineRegistry};
+use crate::bridge::{Bridge, BridgeConfig, BridgeError, BridgeParts, EngineRegistry};
 use crate::discover::in_run::{InRun, Seed, SinkReporter};
 use crate::discover::{self, DiscoverConfig};
 use crate::query::{QueryState, router};
@@ -511,9 +511,16 @@ fn start_bridge(
         batch: Rc::new(Cell::new(config.batch.max(1))),
     };
     let bridge = match resume {
-        Some(position) => {
-            Bridge::resume(reader, verdicts, registry, state.clone(), config, position)
-        }
+        Some(position) => Bridge::resume(
+            BridgeParts {
+                reader,
+                verdicts,
+                registry,
+                state: state.clone(),
+                config,
+            },
+            position,
+        ),
         None => Bridge::new(reader, verdicts, registry, state.clone(), config),
     }
     .map_err(|error| AppError::BridgeStopped(error.to_string()))?;

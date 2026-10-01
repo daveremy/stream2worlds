@@ -3,7 +3,7 @@
 
 use s2w_log::{LogError, LogPosition, LogReader, StoredEvent, StoredVerdict, VerdictStore};
 use s2w_model::{Timestamp, WorldEvent};
-use s2w_system1::{AbstainReason, Verdict};
+use s2w_system1::{AbstainReason, Engine, Verdict};
 
 use super::{Bridge, BridgeStats, evaluate_one};
 use crate::query::SourceStats;
@@ -65,29 +65,13 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
 
     /// Judges one event into `judged`, which it leaves untouched on error. `rows` are the
     /// stored verdicts at positions after the previous event through this one.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
-    )]
     fn judge_event(
         &mut self,
         event: &StoredEvent,
         rows: &[StoredVerdict],
         judged: &mut Judged,
     ) -> Result<(), LogError> {
-        let at = event.position.as_u64();
-        if let Some(row) = rows.iter().find(|row| row.position != event.position) {
-            return Err(LogError::Corrupt(format!(
-                "a stored verdict names log position {}, which holds no event",
-                row.position.as_u64()
-            )));
-        }
-        if rows.iter().any(|row| row.event_hash != event.content_hash) {
-            return Err(LogError::Corrupt(format!(
-                "stored verdicts at log position {at} judged a different event than the log holds"
-            )));
-        }
-
+        check_rows(event, rows)?;
         let engines = self.registry.engines_for(&event.event.source);
         let mut stats = BridgeStats {
             consumed: 1,
@@ -112,63 +96,8 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
                 );
             }
         }
-        let mut verdicts = Vec::with_capacity(engines.len());
-        let mut new_rows = Vec::new();
-        for engine in engines {
-            // Rows at one position are in write order, so the first match is the one first
-            // served (the lowest seq), whatever its version.
-            if let Some(row) = rows.iter().find(|row| row.engine == engine.name()) {
-                let verdict: Verdict = serde_json::from_slice(&row.verdict).map_err(|error| {
-                    LogError::Corrupt(format!(
-                        "stored verdict of engine '{}' at log position {at} does not decode: {error}",
-                        row.engine
-                    ))
-                })?;
-                stats.replayed += 1;
-                if row.version != engine.version() {
-                    stats.replayed_stale_version += 1;
-                }
-                verdicts.push(verdict);
-            } else {
-                let record = evaluate_one(event, engine);
-                stats.evaluated += 1;
-                if let Verdict::Abstain {
-                    reason: AbstainReason::Panicked(message),
-                } = &record.verdict
-                {
-                    eprintln!(
-                        "s2w: bridge: engine '{}' panicked at log position {at}: {message}",
-                        record.engine
-                    );
-                }
-                new_rows.push(record.to_stored(event.content_hash)?);
-                verdicts.push(record.verdict);
-            }
-        }
-
-        let received = event.event.received_at;
-        let mut claims = Vec::new();
-        for verdict in verdicts {
-            match verdict {
-                Verdict::Propose {
-                    claims: proposed, ..
-                } => {
-                    if proposed.is_empty() {
-                        stats.proposed_empty += 1;
-                    }
-                    stats.proposed_claims += proposed.len() as u64;
-                    claims.extend(proposed.into_iter().map(|claim| (received, claim)));
-                }
-                Verdict::Abstain { reason } => match reason {
-                    AbstainReason::NotMine => stats.abstained.not_mine += 1,
-                    AbstainReason::Unparseable(_) => stats.abstained.unparseable += 1,
-                    AbstainReason::Insufficient(_) => stats.abstained.insufficient += 1,
-                    AbstainReason::Panicked(_) => stats.engine_panics += 1,
-                    AbstainReason::BelowThreshold { .. } => stats.abstained.below_threshold += 1,
-                    AbstainReason::Ambiguous { .. } => stats.abstained.ambiguous += 1,
-                },
-            }
-        }
+        let (verdicts, new_rows) = judge_engines(event, rows, &engines, &mut stats)?;
+        let claims = tally(verdicts, event.event.received_at, &mut stats);
         judged.stats.add(&stats);
         judged
             .per_source
@@ -179,4 +108,98 @@ impl<R: LogReader, V: VerdictStore> Bridge<R, V> {
         judged.claims.extend(claims);
         Ok(())
     }
+}
+
+/// Checks that every stored row in `rows` names `event`'s position and judged its content.
+fn check_rows(event: &StoredEvent, rows: &[StoredVerdict]) -> Result<(), LogError> {
+    if let Some(row) = rows.iter().find(|row| row.position != event.position) {
+        return Err(LogError::Corrupt(format!(
+            "a stored verdict names log position {}, which holds no event",
+            row.position.as_u64()
+        )));
+    }
+    if rows.iter().any(|row| row.event_hash != event.content_hash) {
+        return Err(LogError::Corrupt(format!(
+            "stored verdicts at log position {} judged a different event than the log holds",
+            event.position.as_u64()
+        )));
+    }
+    Ok(())
+}
+
+/// Each engine's verdict on `event`, in `engines` order: the stored one from `rows` when the
+/// engine has one, otherwise a fresh evaluation, which also yields a new row to store. Counts
+/// both kinds into `stats`.
+fn judge_engines(
+    event: &StoredEvent,
+    rows: &[StoredVerdict],
+    engines: &[&dyn Engine],
+    stats: &mut BridgeStats,
+) -> Result<(Vec<Verdict>, Vec<StoredVerdict>), LogError> {
+    let at = event.position.as_u64();
+    let mut verdicts = Vec::with_capacity(engines.len());
+    let mut new_rows = Vec::new();
+    for &engine in engines {
+        // Rows at one position are in write order, so the first match is the one first
+        // served (the lowest seq), whatever its version.
+        if let Some(row) = rows.iter().find(|row| row.engine == engine.name()) {
+            let verdict: Verdict = serde_json::from_slice(&row.verdict).map_err(|error| {
+                LogError::Corrupt(format!(
+                    "stored verdict of engine '{}' at log position {at} does not decode: {error}",
+                    row.engine
+                ))
+            })?;
+            stats.replayed += 1;
+            if row.version != engine.version() {
+                stats.replayed_stale_version += 1;
+            }
+            verdicts.push(verdict);
+        } else {
+            let record = evaluate_one(event, engine);
+            stats.evaluated += 1;
+            if let Verdict::Abstain {
+                reason: AbstainReason::Panicked(message),
+            } = &record.verdict
+            {
+                eprintln!(
+                    "s2w: bridge: engine '{}' panicked at log position {at}: {message}",
+                    record.engine
+                );
+            }
+            new_rows.push(record.to_stored(event.content_hash)?);
+            verdicts.push(record.verdict);
+        }
+    }
+    Ok((verdicts, new_rows))
+}
+
+/// The claims `verdicts` propose, each stamped `received`, counting every outcome into `stats`.
+fn tally(
+    verdicts: Vec<Verdict>,
+    received: Timestamp,
+    stats: &mut BridgeStats,
+) -> Vec<(Timestamp, WorldEvent)> {
+    let mut claims = Vec::new();
+    for verdict in verdicts {
+        match verdict {
+            Verdict::Propose {
+                claims: proposed, ..
+            } => {
+                if proposed.is_empty() {
+                    stats.proposed_empty += 1;
+                }
+                stats.proposed_claims += proposed.len() as u64;
+                claims.extend(proposed.into_iter().map(|claim| (received, claim)));
+            }
+            Verdict::Abstain { reason } => match reason {
+                AbstainReason::NotMine => stats.abstained.not_mine += 1,
+                AbstainReason::Unparseable(_) => stats.abstained.unparseable += 1,
+                AbstainReason::Insufficient(_) => stats.abstained.insufficient += 1,
+                AbstainReason::Panicked(_) => stats.engine_panics += 1,
+                AbstainReason::BelowThreshold { .. } => stats.abstained.below_threshold += 1,
+                AbstainReason::Ambiguous { .. } => stats.abstained.ambiguous += 1,
+            },
+        }
+    }
+    claims
 }

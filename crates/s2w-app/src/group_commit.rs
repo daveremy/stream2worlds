@@ -161,10 +161,6 @@ struct Totals {
 /// # Errors
 ///
 /// Returns the first error from the log, `decode.convert` or `decode.on_error`.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
-)]
 pub(crate) async fn pump<S, T, E, C, O, M>(
     mut write: impl FnMut(Vec<RawEvent>, &[(SourceId, i64)]) -> Result<Vec<AppendOutcome>, LogError>,
     mut source: S,
@@ -186,14 +182,9 @@ where
         sources,
         check: mut membership,
     } = membership;
-    let mut generations = Vec::new();
-    for source in sources {
-        let (member, generation) = membership(source)?;
-        if !member {
-            return Ok(true);
-        }
-        generations.push((source.clone(), generation));
-    }
+    let Some(generations) = member_generations(sources, &mut membership)? else {
+        return Ok(true);
+    };
     let mut stopped = false;
     let mut buffer: Vec<RawEvent> = Vec::with_capacity(MAX_BATCH);
     let mut deadline: Option<Instant> = None;
@@ -203,10 +194,8 @@ where
         if stopped {
             return Ok(true);
         }
-        for (source, _) in &generations {
-            if !membership(source)?.0 {
-                return Ok(true);
-            }
+        if !all_members(&generations, &mut membership)? {
+            return Ok(true);
         }
         let mut commit = |events| {
             let outcomes = write(events, &generations)?;
@@ -220,31 +209,18 @@ where
             }
             Ok(outcomes)
         };
-        let next = match deadline {
-            Some(at) => {
-                if let Ok(next) = tokio::time::timeout_at(at, source.next()).await {
-                    next
-                } else {
-                    flush_and_report(&mut commit, &mut buffer, &mut totals, report)?;
-                    deadline = None;
-                    continue;
-                }
-            }
-            None => source.next().await,
+        let Some(next) = next_before(&mut source, deadline).await else {
+            flush_and_report(&mut commit, &mut buffer, &mut totals, report)?;
+            deadline = None;
+            continue;
         };
         let outcome = match next {
             None => {
                 flush_and_report(&mut commit, &mut buffer, &mut totals, report)?;
                 return Ok(stopped);
             }
-            Some(Ok(item)) => convert(item).map(|event| {
-                if buffer.is_empty() {
-                    deadline = Some(Instant::now() + MAX_DELAY);
-                }
-                totals.last_cursor =
-                    Some(String::from_utf8_lossy(event.cursor.as_bytes()).into_owned());
-                buffer.push(event);
-            }),
+            Some(Ok(item)) => convert(item)
+                .map(|event| buffer_event(event, &mut buffer, &mut deadline, &mut totals)),
             Some(Err(error)) => on_error(error).map(|(message, retry)| {
                 if retry {
                     totals.reconnects += 1;
@@ -261,6 +237,66 @@ where
             deadline = None;
         }
     }
+}
+
+/// Each of `sources` with its membership generation, or `None` as soon as `check` reports one
+/// is not a member.
+fn member_generations<M>(
+    sources: &[SourceId],
+    check: &mut M,
+) -> Result<Option<Vec<(SourceId, i64)>>, AppError>
+where
+    M: FnMut(&SourceId) -> Result<(bool, i64), AppError>,
+{
+    let mut generations = Vec::new();
+    for source in sources {
+        let (member, generation) = check(source)?;
+        if !member {
+            return Ok(None);
+        }
+        generations.push((source.clone(), generation));
+    }
+    Ok(Some(generations))
+}
+
+/// The stream's next item, or `None` if `deadline` passes before it arrives.
+async fn next_before<S: Stream + Unpin>(
+    source: &mut S,
+    deadline: Option<Instant>,
+) -> Option<Option<S::Item>> {
+    match deadline {
+        Some(at) => tokio::time::timeout_at(at, source.next()).await.ok(),
+        None => Some(source.next().await),
+    }
+}
+
+/// Appends `event` to `buffer` and records its cursor in `totals`. The first event into an
+/// empty buffer starts the `deadline` by which the buffer is flushed.
+fn buffer_event(
+    event: RawEvent,
+    buffer: &mut Vec<RawEvent>,
+    deadline: &mut Option<Instant>,
+    totals: &mut Totals,
+) {
+    if buffer.is_empty() {
+        *deadline = Some(Instant::now() + MAX_DELAY);
+    }
+    totals.last_cursor = Some(String::from_utf8_lossy(event.cursor.as_bytes()).into_owned());
+    buffer.push(event);
+}
+
+/// Whether `check` still reports every source in `generations` as a member, stopping at the
+/// first that is not.
+fn all_members<M>(generations: &[(SourceId, i64)], check: &mut M) -> Result<bool, AppError>
+where
+    M: FnMut(&SourceId) -> Result<(bool, i64), AppError>,
+{
+    for (source, _) in generations {
+        if !check(source)?.0 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Consumes a started source's stream into `log` with group commit until it ends, reporting
