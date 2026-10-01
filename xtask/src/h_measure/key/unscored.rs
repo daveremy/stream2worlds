@@ -6,12 +6,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use s2w_discover::rule_id;
 use s2w_model::FieldPath;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::well_formed;
 
 /// One `unscored` entry.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum UnscoredPath {
     /// A JSON array: exactly this path (every format).
@@ -23,7 +23,7 @@ pub(crate) enum UnscoredPath {
 
 /// The body of [`UnscoredPath::Prefix`]. A struct of its own because `deny_unknown_fields` has
 /// no effect on a variant of an `untagged` enum, only on a struct.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct UnscoredPrefix {
     /// The covered path. Every path that starts with its segments is covered too.

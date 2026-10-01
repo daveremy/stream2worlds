@@ -9,12 +9,12 @@ use s2w_model::{
     EntityRule, FieldPath, KEY_SEPARATOR, KeyPart, MAPPING_VERSION, Segment, StreamMapping,
 };
 use s2w_system1::decode::key_part;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod unscored;
 
-pub(crate) use unscored::{Unscored, UnscoredPath};
+pub(crate) use unscored::{Unscored, UnscoredPath, UnscoredPrefix};
 
 /// The newest key-spec version, the one [`KeySpec::from_mapping`] writes. Version 1 adds
 /// [`MentionRule::no_identity`]; version 2 adds the prefix form of an unscored entry
@@ -29,7 +29,7 @@ pub(crate) const KEY_VERSIONS: [u32; 3] = [0, 1, KEY_VERSION];
 /// values that identify the entity. Two mention rules of one type whose identity values are equal
 /// mention one entity, which is how aliases with different values join (`server` and a canonical
 /// id, say).
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct KeySpec {
     /// The format version; one of [`KEY_VERSIONS`].
@@ -48,7 +48,7 @@ pub(crate) struct KeySpec {
 }
 
 /// One key entity type.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct KeyType {
     /// The type's name, as data.
@@ -60,7 +60,7 @@ pub(crate) struct KeyType {
 
 /// One mention rule: a record mentions an entity at `path` when `path` and every identity path
 /// hold a key part, and the value at `path` is not one of `no_identity`.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MentionRule {
     /// Where the mention sits.
@@ -70,7 +70,7 @@ pub(crate) struct MentionRule {
     /// Format 1: sentinel values at `path` that mean "no identity". A record holding one there
     /// mentions nothing at `path`: no mention, so neither a singleton nor a merge. Compared as
     /// key parts, so `0` and `"0"` differ. Only on a rule whose `path` is an identity path.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub no_identity: Vec<Value>,
 }
 
