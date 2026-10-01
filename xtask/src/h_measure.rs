@@ -26,6 +26,7 @@ use serde_json::Value;
 
 mod context;
 mod freeze;
+pub(crate) mod gate3;
 mod grade;
 pub(crate) mod key;
 pub(crate) mod mentions;

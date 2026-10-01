@@ -68,7 +68,10 @@ pub(crate) struct Pins {
 
 pub(crate) use crate::sha256;
 
-fn toml_file<T: for<'de> Deserialize<'de>>(root: &Path, name: &str) -> Result<T, String> {
+pub(super) fn toml_file<T: for<'de> Deserialize<'de>>(
+    root: &Path,
+    name: &str,
+) -> Result<T, String> {
     let rel = format!("{DATA}/{name}");
     let text = fs::read_to_string(root.join(&rel)).map_err(|e| format!("{rel}: {e}"))?;
     toml::from_str(&text).map_err(|e| format!("{rel}: {e}"))

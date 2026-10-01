@@ -119,13 +119,16 @@ fn main() -> ExitCode {
     if args.first().is_some_and(|a| a == "h-measure") {
         return h_measure::run(&workspace_root(), &args[1..]);
     }
+    if args.first().is_some_and(|a| a == "gate3") {
+        return h_measure::gate3::run(&workspace_root(), &args[1..]);
+    }
     if args.first().is_some_and(|a| a == "api") {
         return public_api::run(&workspace_root(), &args[1..]);
     }
     let tighten = args == ["check", "--tighten-baseline"];
     if args != ["check"] && !tighten {
         eprintln!(
-            "usage: cargo xtask check [--tighten-baseline] | cargo xtask api [--update] | cargo xtask scale | cargo xtask h-measure selftest|freeze|score"
+            "usage: cargo xtask check [--tighten-baseline] | cargo xtask api [--update] | cargo xtask scale | cargo xtask h-measure selftest|freeze|score | cargo xtask gate3 commit"
         );
         return ExitCode::from(2);
     }

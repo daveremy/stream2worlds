@@ -12,7 +12,8 @@ mapping against an answer key (s2w#56).
   `RawEvent`s), `s2w-system1` (same check, runs the golden log through `JsonClaimsEngine`; check
   11 runs a recorded raw stream through `MappingEngine`), `s2w-discover` (check 12 profiles a
   recorded raw stream twice), `s2w-sources` (checks 12 and 13 and `cargo xtask scale` cut a
-  recorded stream into frames with the live SSE adapter's `replay_frames`, s2w#174), `sha2`
+  recorded stream into frames with the live SSE adapter's `replay_frames`, s2w#174),
+  `s2w-system2` (`cargo xtask gate3` runs and replays the gate-3 mapping proposer, s2w#373), `sha2`
   (the crate-root `sha256` helper: `h_measure/pins.rs` checks answer keys and corpora against
   their sha256 pins, s2w#56; `contract_frozen.rs` hashes the signed evaluation contract, s2w#59)
 

@@ -36,7 +36,7 @@ normal = ["s2w-app", "s2w-log", "s2w-model", "serde_json", "mimalloc"]
 normal = ["s2w-model", "s2w-log"]
 
 [crates.xtask]
-normal = ["serde", "serde_json", "toml", "s2w-core", "s2w-discover", "s2w-model", "s2w-sources", "s2w-system1", "syn", "proc-macro2", "quote", "sha2"]
+normal = ["serde", "serde_json", "toml", "s2w-core", "s2w-discover", "s2w-model", "s2w-sources", "s2w-system1", "s2w-system2", "syn", "proc-macro2", "quote", "sha2"]
 
 # Every external dependency names the README "Technical architecture" row that explains it.
 [external.serde]
