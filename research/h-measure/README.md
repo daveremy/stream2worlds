@@ -11,6 +11,7 @@ Data for `cargo xtask h-measure`, which grades a stream mapping against an answe
 | `private/` | The private-stream capture (s2w#371): `capture.ts` (sources to SSE), `scrub.ts` (the fail-closed gate), `extract.ts` (the published `detail` regex table), `events.ts` (pure builders), `fixture.ts` and `fixture/synthetic-20.sse` (the only committed capture-format file: fake numbers and shas), `capture.test.ts`. See "Private stream" below. |
 | `prices.toml` | The public price table `cargo xtask gate3` charges a run by: one row per model snapshot, USD per million tokens, with its source page and date. |
 | `committed/` | Committed gate-3 replicates (`<arm>.<corpus>.r<k>.json`) and their transcripts (`.transcript.json`), written by `cargo xtask gate3 commit`. See "Committing a System 2 mapping" below. |
+| `results/gate3/`, `gate3-summary.ts` | The gate-3 scores (s2w#374 PR 3): 30 reports (`<arm>.<stream>.rK.{md,json}`, `h`, `h-s2`, `b3` on `obf` and `private`, r2 to r6), `ledger.md` (the committed files' spend and fits) and `summary.md`, which `node research/h-measure/gate3-summary.ts` generates from them (B4 items, graded predictions). |
 | `keys.toml` | Every answer key's sha256, pinned before any score is run, and the reading of #17 it encodes. |
 | `dev-key-v0.json` | dev-key v0: the base key (key-spec format v0, `xtask/src/h_measure/key.rs`). |
 | `dev-key-v0.<variant>.json` | Sensitivity variants. Each differs from the base only as `keys.toml` says; `diff` the files to see the variant. |

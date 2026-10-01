@@ -1,0 +1,1461 @@
+{
+  "frozen": {
+    "corpus": "private-dev-2",
+    "corpus_sha256": "d3f91c4dae1fba3ddc86872cc2879d640638fdd6fb059dc91de78fe965ef0766",
+    "window": 8072,
+    "profiler_version": "9",
+    "config": "Config { min_events: 1000, min_support: 20, min_groups: 5, event_id_pct: 98, grey_uniqueness_pct: 90, min_recurrence_pct: 10, fd_accept_pct: 95, fd_grey_pct: 80, type_uniqueness_pct: 90, alias_pct: 99, decode_pct: 100, category_max: 32, spread_groups_pct: 25, spread_window_pct: 10, churn_pct: 90, return_pct: 30, contain_pct: 10, carry_pct: 95, contain_cap: 250000, links: true }",
+    "pins": {
+      "corpus dev": "Development dev.raw.sse 200000 53d35b1c8631cc506d762a855ea554d4ca833f5c02a6fe80c5ceeb52205ae4dd",
+      "corpus heldout": "Heldout heldout.raw.sse 100000 ad07885cf791b8de760a8f94aca5a45bd5d8d0476be8b0baf695807737809cf6",
+      "corpus heldout-2": "Heldout heldout-2.raw.sse 100000 4432c2a8533e0080a2a97344a2aa5ed1273aafc951faf673dcdb36b65800bc22",
+      "corpus obf-r1-dev": "Development dev.obf-r1.raw.sse 200000 cf60870b00ac6ca36dcc4d47fdd9cbd1b329be46a261d4be46b58f65096a2284",
+      "corpus obf-r2-dev": "Development dev.obf-r2.raw.sse 200000 f77717e875f36b46eb0e2a340599dd1da097d56eafeedefac8a7a88a2371ceac",
+      "corpus obf-r2-reserved-6": "Reserved reserved-6.obf-r2.raw.sse 100000 5e5d714e83d44b397dd2f1fb407f26b350100db82c92c64f1cc4eae25081905c",
+      "corpus obf-r3-dev": "Development dev.obf-r3.raw.sse 200000 0fb6e674d9eece9397958e7f11b6cf3719fc4a48780813bf1a2244486a31a1ec",
+      "corpus obf-r3-reserved-6": "Reserved reserved-6.obf-r3.raw.sse 100000 46581df299a1ed4572fcc107e1a93ddea5b1676a58e8ba158872240e1b9422e2",
+      "corpus obf-r4-dev": "Development dev.obf-r4.raw.sse 200000 10096e68682e88b77e47fa81bac2e45fc749c47e760868c975997f1425da513d",
+      "corpus obf-r4-reserved-6": "Reserved reserved-6.obf-r4.raw.sse 100000 ce13f3b89acea1c88965982c9cd324f2d42b3cdc2bc309d4f4fff96e0942f783",
+      "corpus obf-r5-dev": "Development dev.obf-r5.raw.sse 200000 d5e5e17f8052fcdf32a74aad8def392763f6f026a21004f28de2253292f02aab",
+      "corpus obf-r5-reserved-6": "Reserved reserved-6.obf-r5.raw.sse 100000 56409c818602faf076f993c6623465452fbe155dd916220e52375e0c90c94df9",
+      "corpus obf-r6-dev": "Development dev.obf-r6.raw.sse 200000 91948fb864b0752ea08e3980ef484f48a5acb2fc3d5f05c935a4478cc5526091",
+      "corpus obf-r6-reserved-6": "Reserved reserved-6.obf-r6.raw.sse 100000 11dff7ce49bda518a20a71f8378ea5c56b58d06249d44645ddcf6458b010a42f",
+      "corpus private-dev": "Development private-dev.raw.sse 8067 1e3fea5a96878a33ac603f3a5e98ffbe51f15e5e92d0fcb8d6c49fa931d4507d",
+      "corpus private-dev-2": "Development private-dev-2.raw.sse 8072 d3f91c4dae1fba3ddc86872cc2879d640638fdd6fb059dc91de78fe965ef0766",
+      "corpus private-test": "Reserved private-test.raw.sse 5501 f19f69eddb2e4528f04d35e6307869b48131a5dfcf7cdb339f32e4d931109357",
+      "corpus private-test-2": "Heldout private-test-2.raw.sse 5524 4314ec45a06c44fc77d9d25a9c856c8ddda948ac17f86bce8cd127c1478dccc5",
+      "corpus reserved": "Heldout reserved.raw.sse 100000 b420214c92c0ac8151b2b64279cbebd9c8250349b28712dc898974dc7a56f501",
+      "corpus reserved-2": "Heldout reserved-2.raw.sse 100000 bc857dc278d835186afec68705fa2e1313b720bb8eafd99390738496afa27a5c",
+      "corpus reserved-3": "Heldout reserved-3.raw.sse 100000 32593b5564824be07dc47d7b85ba2f378c03b32d0cf19efac03b6c9fbbf84447",
+      "corpus reserved-4": "Heldout reserved-4.raw.sse 100000 dfa075fbe5b58b368e7d3d895d9e27296bd75e695bd7f2150e5b130ac0e0166f",
+      "corpus reserved-5": "Heldout reserved-5.raw.sse 100000 7bc24d57e4940db06a0f6d2edb153db24ed6c54b22ad230be1a654c0ca472320",
+      "corpus reserved-6": "Heldout reserved-6.raw.sse 100000 2df0593c1e3121808a0e5df237f6fb3efdb9cd99170ed584a6bf0679f63619f4",
+      "key dev-key-v0.canonical-mention.json": "30990677e66034db8ce6db38105e00853421efe3f84665e95ece01e3ba02a799",
+      "key dev-key-v0.json": "bb117cb4718039c39f85329c17b721e8f85178ad78ee44bded479032a3cfa3da",
+      "key dev-key-v0.q1-no-wiki.json": "51a8cef868519ef78c7c7e36d2fecebecf9df0606555b108e2a574a5ccf7d8d6",
+      "key dev-key-v0.q3-rcid-scored.json": "3fb72a0aeff2b91062285199b6c20d45eec193e381f5289efca237ff89ebc87a",
+      "key dev-key-v0.q4-separate.json": "935aeb4683234964d5c47f7ff35cb57be9d3bbfdcf64088362a059bf148161ec",
+      "key dev-key-v0.user-global.json": "1eb93fba72f46c7cb1c60d458a1785717e6316651c62135163619feb500716a0",
+      "key dev-key-v1.canonical-mention.json": "82fa6b0118fb35d3c6f8f446fe78776d84d87a8e8bfe960b0bc9fb6aca1ff4b4",
+      "key dev-key-v1.json": "006c50d4a8067c620a157534cb17f5cdfcf64f58ff275184aafaaefc55a48595",
+      "key dev-key-v1.q1-no-wiki.json": "5cb8a5658054920c10f220a38dc7338ccf44c2f5a466d0993bb0ee5215542514",
+      "key dev-key-v1.q3-rcid-scored.json": "bd1ae190f4dc115d88f8755587dbacae85466ff998d3e4712c9bdf13bdd344c2",
+      "key dev-key-v1.q4-separate.json": "9f0be88923f7eebf95a9f76f1158120b64657c5e36490353da7794edec68d236",
+      "key dev-key-v1.user-global.json": "8454ec7e6ec60d21e8b714fcc8c74cfc6253e2d63d9efd541a1dcda8ebc473df",
+      "key dev-key-v2.canonical-mention.json": "a559964891f28df5feb04930643f6e8ea596d043426980c7f01adfb6d43e81f2",
+      "key dev-key-v2.json": "dd42ae26b5d7bbd32d44e8a45bc3a95af6bcbe124f8b157d38ae0546008d9d5c",
+      "key dev-key-v2.obf-r1.json": "b98c0030c6695c20ea31fee09517c021964c8a3888db7060fcf3542ff757132f",
+      "key dev-key-v2.q1-no-wiki.json": "8b130d07b238fde4772c6bb0aa2b390df4a8b4b0b73ed0c089c2b8bcdf34b374",
+      "key dev-key-v2.q3-rcid-scored.json": "ffc94b1907ed3f41183aa8dfb148fea232375375e88685f91135affad3f246b0",
+      "key dev-key-v2.q4-separate.json": "40cbf908ac2ea703bc622080e9c5feea47f79f9a32abd4105b724a5d471333fb",
+      "key dev-key-v2.user-global.json": "ffa2f158dcbc8a4203344b6689271830ba785b29e8371dd77758b8c47063018a",
+      "key dev-key-v3.canonical-mention.json": "8376b36c3e31c6b4e1f7689afcffebb63604ad35933981ac999e4e44208afda3",
+      "key dev-key-v3.json": "39d4949621c0e6558a728f06ceb1a5b00e9696cc96fc6b885953dfc75a1be6df",
+      "key dev-key-v3.obf-r1.json": "e52d2415a7541fc180b97d13cbd9cee53ed3ad714986fd2118e99ae87056c1cd",
+      "key dev-key-v3.obf-r2.json": "6ee8bf5695d120856e792298ae26a801b38813048c1e69392155d972289f1c13",
+      "key dev-key-v3.obf-r3.json": "2c014e10f51070fcf33b1100ab1bfdecab6fdb2b234e5262abc0045e388fe10a",
+      "key dev-key-v3.obf-r4.json": "51a56df258214fa7ec1a5aeda3714e0b148fd0b1c8a12bc1117c1fa2850e3725",
+      "key dev-key-v3.obf-r5.json": "6f01af0f38b7735ffb5aaee61eb5cef63808adfd82ba4eeb9e1ca5306465ee3a",
+      "key dev-key-v3.obf-r6.json": "eb6974232e1ebb2cb082c312d4950ec173225a303e5ad8fb8948666c397f28d5",
+      "key private-key-v0.context-scored.json": "87ecdf88ce87cf7aef810486ac120ed9399b2311d575b689a740eac523005ee9",
+      "key private-key-v0.json": "f5e283b98e6022bf530527857ef63b2100bead90f80661785546954981f411c2",
+      "key private-key-v1.context-scored.json": "28c154992b1eca449e354101ae4bdc3d1fcd54ff4ecf18d5a8e80f18ef5a064f",
+      "key private-key-v1.json": "cb79688c39191cf1f914c0557771c4841015f7546b49645c7d49e06ad6b4480a",
+      "key private-key-v2.context-scored.json": "e02500f7164797e6d3841f6210c2d1aac4d749fec02d7bda66bb2b018a35fcbe",
+      "key private-key-v2.json": "2f1b2db99692ab1867cb9204092d87e243b10d96c0eec3af6fd532e3f0dba3da"
+    },
+    "profile": {
+      "events": 8072,
+      "skipped": 0,
+      "event_type": "data.kind",
+      "abstained": {
+        "data.sha": "GreyUniqueness"
+      }
+    },
+    "mapping": {
+      "version": 1,
+      "decode": [
+        [
+          "data"
+        ]
+      ],
+      "entities": [
+        {
+          "id": "data.pr",
+          "type_label": "data/pr",
+          "key": [
+            [
+              "data",
+              "pr"
+            ]
+          ],
+          "attrs": [
+            {
+              "name": "data.key",
+              "path": [
+                "data",
+                "key"
+              ]
+            },
+            {
+              "name": "data.kind",
+              "path": [
+                "data",
+                "kind"
+              ]
+            },
+            {
+              "name": "data.repo",
+              "path": [
+                "data",
+                "repo"
+              ]
+            }
+          ]
+        }
+      ],
+      "relationships": []
+    }
+  },
+  "frozen_sha256": "3131511696159c0d65073e454cec7b1a49cddd833dd67275c1eada77b0170fb1",
+  "corpus": "private-test-2",
+  "corpus_sha256": "4314ec45a06c44fc77d9d25a9c856c8ddda948ac17f86bce8cd127c1478dccc5",
+  "records": 5524,
+  "keys": [
+    {
+      "file": "private-key-v2.json",
+      "variant": "base",
+      "sha256": "2f1b2db99692ab1867cb9204092d87e243b10d96c0eec3af6fd532e3f0dba3da",
+      "grade": {
+        "mapping": {
+          "micro": {
+            "precision": 1.0,
+            "recall": 0.50522685109021,
+            "f1": 0.6712966231293083
+          },
+          "false_merge": 0.0,
+          "recovery": 0.11413454270597127,
+          "repeated": 1323,
+          "singleton_types": [
+            "comment"
+          ],
+          "without_singleton_types": {
+            "precision": 1.0,
+            "recall": 0.5221195908521625,
+            "f1": 0.6860427971495361
+          },
+          "per_type": {
+            "branch": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": null
+            },
+            "comment": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": null
+            },
+            "commit": {
+              "precision": 1.0,
+              "recall": 0.39282026298914796,
+              "f1": 0.5640645436132754
+            },
+            "item": {
+              "precision": 1.0,
+              "recall": 0.5960765650939177,
+              "f1": 0.7469272817232836
+            },
+            "seat": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": null
+            },
+            "sprint": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": null
+            }
+          },
+          "per_path": {
+            "data.branch": {
+              "key": 140,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.comment_id": {
+              "key": 391,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.commit_sha": {
+              "key": 830,
+              "predicted": 830,
+              "recall": 0.6957544463568585
+            },
+            "data.file_id": {
+              "key": 23,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.head_ref": {
+              "key": 163,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.head_sha": {
+              "key": 227,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.issue": {
+              "key": 1295,
+              "predicted": 1295,
+              "recall": 0.7437388235695179
+            },
+            "data.key": {
+              "key": 1291,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.merge_commit_sha": {
+              "key": 163,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.number": {
+              "key": 3270,
+              "predicted": 3270,
+              "recall": 0.7787116826667889
+            },
+            "data.parents.0": {
+              "key": 877,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.parents.1": {
+              "key": 5,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.pr": {
+              "key": 168,
+              "predicted": 168,
+              "recall": 0.15686232293737343
+            },
+            "data.ref_number": {
+              "key": 847,
+              "predicted": 847,
+              "recall": 0.7933262522200846
+            },
+            "data.refs.0.number": {
+              "key": 877,
+              "predicted": 877,
+              "recall": 0.7848845164820378
+            },
+            "data.refs.1.number": {
+              "key": 293,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.refs.2.number": {
+              "key": 86,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.refs.3.number": {
+              "key": 36,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.refs.4.number": {
+              "key": 24,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.refs.5.number": {
+              "key": 15,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.refs.6.number": {
+              "key": 7,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.refs.7.number": {
+              "key": 5,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.seat_id": {
+              "key": 29,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.sha": {
+              "key": 977,
+              "predicted": 977,
+              "recall": 0.6468960074384849
+            },
+            "data.slot": {
+              "key": 23,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.sprint": {
+              "key": 23,
+              "predicted": 0,
+              "recall": 0.0
+            }
+          },
+          "spurious": {}
+        },
+        "ceiling": {
+          "micro": {
+            "precision": 1.0,
+            "recall": 0.8052873885488857,
+            "f1": 0.8921431497908889
+          },
+          "false_merge": 0.0,
+          "recovery": 0.890400604686319,
+          "repeated": 1323,
+          "singleton_types": [
+            "comment"
+          ],
+          "without_singleton_types": {
+            "precision": 1.0,
+            "recall": 0.7987769873963851,
+            "f1": 0.888133429539327
+          },
+          "per_type": {
+            "branch": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "comment": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "commit": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "item": {
+              "precision": 1.0,
+              "recall": 0.7209923817806878,
+              "f1": 0.8378798063413699
+            },
+            "seat": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "sprint": {
+              "precision": 1.0,
+              "recall": 0.11111111111111106,
+              "f1": 0.1999999999999999
+            }
+          },
+          "per_path": {
+            "data.branch": {
+              "key": 140,
+              "predicted": 140,
+              "recall": 1.0
+            },
+            "data.comment_id": {
+              "key": 391,
+              "predicted": 391,
+              "recall": 1.0
+            },
+            "data.commit_sha": {
+              "key": 830,
+              "predicted": 830,
+              "recall": 1.0
+            },
+            "data.file_id": {
+              "key": 23,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.head_ref": {
+              "key": 163,
+              "predicted": 163,
+              "recall": 1.0
+            },
+            "data.head_sha": {
+              "key": 227,
+              "predicted": 227,
+              "recall": 1.0
+            },
+            "data.issue": {
+              "key": 1295,
+              "predicted": 1295,
+              "recall": 0.7755398699682926
+            },
+            "data.key": {
+              "key": 1291,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.merge_commit_sha": {
+              "key": 163,
+              "predicted": 163,
+              "recall": 1.0
+            },
+            "data.number": {
+              "key": 3270,
+              "predicted": 3270,
+              "recall": 0.8686401875197651
+            },
+            "data.parents.0": {
+              "key": 877,
+              "predicted": 877,
+              "recall": 1.0
+            },
+            "data.parents.1": {
+              "key": 5,
+              "predicted": 5,
+              "recall": 1.0
+            },
+            "data.pr": {
+              "key": 168,
+              "predicted": 168,
+              "recall": 0.9989737274220032
+            },
+            "data.ref_number": {
+              "key": 847,
+              "predicted": 847,
+              "recall": 0.9070989197088666
+            },
+            "data.refs.0.number": {
+              "key": 877,
+              "predicted": 877,
+              "recall": 0.8166617310489657
+            },
+            "data.refs.1.number": {
+              "key": 293,
+              "predicted": 293,
+              "recall": 0.9150967546543451
+            },
+            "data.refs.2.number": {
+              "key": 86,
+              "predicted": 86,
+              "recall": 0.9013328263968315
+            },
+            "data.refs.3.number": {
+              "key": 36,
+              "predicted": 36,
+              "recall": 0.8837492520242736
+            },
+            "data.refs.4.number": {
+              "key": 24,
+              "predicted": 24,
+              "recall": 0.9369892009045745
+            },
+            "data.refs.5.number": {
+              "key": 15,
+              "predicted": 15,
+              "recall": 0.9038821554821003
+            },
+            "data.refs.6.number": {
+              "key": 7,
+              "predicted": 7,
+              "recall": 0.9431787724470652
+            },
+            "data.refs.7.number": {
+              "key": 5,
+              "predicted": 5,
+              "recall": 1.0
+            },
+            "data.seat_id": {
+              "key": 29,
+              "predicted": 29,
+              "recall": 1.0
+            },
+            "data.sha": {
+              "key": 977,
+              "predicted": 977,
+              "recall": 1.0
+            },
+            "data.slot": {
+              "key": 23,
+              "predicted": 0,
+              "recall": 0.0
+            },
+            "data.sprint": {
+              "key": 23,
+              "predicted": 23,
+              "recall": 0.3333333333333332
+            }
+          },
+          "spurious": {}
+        },
+        "ceiling_links": {
+          "micro": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "false_merge": 0.0,
+          "recovery": 1.0,
+          "repeated": 1323,
+          "singleton_types": [
+            "comment"
+          ],
+          "without_singleton_types": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "per_type": {
+            "branch": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "comment": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "commit": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "item": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "seat": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "sprint": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            }
+          },
+          "per_path": {
+            "data.branch": {
+              "key": 140,
+              "predicted": 140,
+              "recall": 1.0
+            },
+            "data.comment_id": {
+              "key": 391,
+              "predicted": 391,
+              "recall": 1.0
+            },
+            "data.commit_sha": {
+              "key": 830,
+              "predicted": 830,
+              "recall": 1.0
+            },
+            "data.file_id": {
+              "key": 23,
+              "predicted": 23,
+              "recall": 1.0
+            },
+            "data.head_ref": {
+              "key": 163,
+              "predicted": 163,
+              "recall": 1.0
+            },
+            "data.head_sha": {
+              "key": 227,
+              "predicted": 227,
+              "recall": 1.0
+            },
+            "data.issue": {
+              "key": 1295,
+              "predicted": 1295,
+              "recall": 1.0
+            },
+            "data.key": {
+              "key": 1291,
+              "predicted": 1291,
+              "recall": 1.0
+            },
+            "data.merge_commit_sha": {
+              "key": 163,
+              "predicted": 163,
+              "recall": 1.0
+            },
+            "data.number": {
+              "key": 3270,
+              "predicted": 3270,
+              "recall": 1.0
+            },
+            "data.parents.0": {
+              "key": 877,
+              "predicted": 877,
+              "recall": 1.0
+            },
+            "data.parents.1": {
+              "key": 5,
+              "predicted": 5,
+              "recall": 1.0
+            },
+            "data.pr": {
+              "key": 168,
+              "predicted": 168,
+              "recall": 1.0
+            },
+            "data.ref_number": {
+              "key": 847,
+              "predicted": 847,
+              "recall": 1.0
+            },
+            "data.refs.0.number": {
+              "key": 877,
+              "predicted": 877,
+              "recall": 1.0
+            },
+            "data.refs.1.number": {
+              "key": 293,
+              "predicted": 293,
+              "recall": 1.0
+            },
+            "data.refs.2.number": {
+              "key": 86,
+              "predicted": 86,
+              "recall": 1.0
+            },
+            "data.refs.3.number": {
+              "key": 36,
+              "predicted": 36,
+              "recall": 1.0
+            },
+            "data.refs.4.number": {
+              "key": 24,
+              "predicted": 24,
+              "recall": 1.0
+            },
+            "data.refs.5.number": {
+              "key": 15,
+              "predicted": 15,
+              "recall": 1.0
+            },
+            "data.refs.6.number": {
+              "key": 7,
+              "predicted": 7,
+              "recall": 1.0
+            },
+            "data.refs.7.number": {
+              "key": 5,
+              "predicted": 5,
+              "recall": 1.0
+            },
+            "data.seat_id": {
+              "key": 29,
+              "predicted": 29,
+              "recall": 1.0
+            },
+            "data.sha": {
+              "key": 977,
+              "predicted": 977,
+              "recall": 1.0
+            },
+            "data.slot": {
+              "key": 23,
+              "predicted": 23,
+              "recall": 1.0
+            },
+            "data.sprint": {
+              "key": 23,
+              "predicted": 23,
+              "recall": 1.0
+            }
+          },
+          "spurious": {}
+        },
+        "abstained": {},
+        "excluded": {},
+        "undecodable": 0,
+        "contexts": {
+          "branch @ data.repo": {
+            "groups": 1,
+            "entities": 2,
+            "mentions": 2,
+            "mapping": {
+              "precision": null,
+              "recall": 0.0,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            }
+          },
+          "item @ data.ref_repo": {
+            "groups": 0,
+            "entities": 0,
+            "mentions": 0,
+            "mapping": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "item @ data.refs.0.repo": {
+            "groups": 3,
+            "entities": 6,
+            "mentions": 153,
+            "mapping": {
+              "precision": 1.0,
+              "recall": 0.5687005725985159,
+              "f1": 0.7250594313948349
+            },
+            "ceiling": {
+              "precision": 1.0,
+              "recall": 0.6520240626371029,
+              "f1": 0.789363880809685
+            }
+          },
+          "item @ data.refs.1.repo": {
+            "groups": 2,
+            "entities": 4,
+            "mentions": 64,
+            "mapping": {
+              "precision": 1.0,
+              "recall": 0.5832331730769237,
+              "f1": 0.7367621939646997
+            },
+            "ceiling": {
+              "precision": 1.0,
+              "recall": 0.7430889423076932,
+              "f1": 0.852611618686434
+            }
+          },
+          "item @ data.refs.2.repo": {
+            "groups": 0,
+            "entities": 0,
+            "mentions": 0,
+            "mapping": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "item @ data.refs.3.repo": {
+            "groups": 0,
+            "entities": 0,
+            "mentions": 0,
+            "mapping": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "item @ data.refs.4.repo": {
+            "groups": 0,
+            "entities": 0,
+            "mentions": 0,
+            "mapping": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "item @ data.refs.5.repo": {
+            "groups": 0,
+            "entities": 0,
+            "mentions": 0,
+            "mapping": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "item @ data.refs.6.repo": {
+            "groups": 0,
+            "entities": 0,
+            "mentions": 0,
+            "mapping": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "item @ data.refs.7.repo": {
+            "groups": 0,
+            "entities": 0,
+            "mentions": 0,
+            "mapping": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            },
+            "ceiling": {
+              "precision": null,
+              "recall": null,
+              "f1": null
+            }
+          },
+          "item @ data.repo": {
+            "groups": 1,
+            "entities": 2,
+            "mentions": 6,
+            "mapping": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            },
+            "ceiling": {
+              "precision": 1.0,
+              "recall": 1.0,
+              "f1": 1.0
+            }
+          }
+        },
+        "edges": {
+          "micro": {
+            "precision": 1.0,
+            "recall": 0.4930323846908734,
+            "f1": 0.6604443275930065
+          },
+          "key_edges": 5095,
+          "predicted": 2512,
+          "tp": 2512,
+          "fp": 0,
+          "fn": 2583,
+          "per_type": {
+            "commit-names": {
+              "key_edges": 899,
+              "aligned": "commit → issue, references issue",
+              "tp": 716,
+              "fp": 0,
+              "fn": 183,
+              "score": {
+                "precision": 1.0,
+                "recall": 0.796440489432703,
+                "f1": 0.886687306501548
+              }
+            },
+            "cross-references": {
+              "key_edges": 847,
+              "aligned": "issue → issue, cross-references",
+              "tp": 847,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "has-comment": {
+              "key_edges": 391,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 391,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "head-branch": {
+              "key_edges": 163,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 163,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "head-commit": {
+              "key_edges": 164,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 164,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "leg-branch": {
+              "key_edges": 59,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 59,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "leg-commit": {
+              "key_edges": 95,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 95,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "leg-pr": {
+              "key_edges": 119,
+              "aligned": "issue → pull_request, has pull request",
+              "tp": 119,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "merged-as": {
+              "key_edges": 163,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 163,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "names": {
+              "key_edges": 444,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 444,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "parent": {
+              "key_edges": 882,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 882,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "references": {
+              "key_edges": 830,
+              "aligned": "issue → commit, referenced by commit",
+              "tp": 830,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "reviews-branch": {
+              "key_edges": 17,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 17,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "reviews-commit": {
+              "key_edges": 20,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 20,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "reviews-item": {
+              "key_edges": 2,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 2,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            }
+          },
+          "unaligned_predicted": {},
+          "no_majority": 0,
+          "dropped_unscored": 2442,
+          "unobservable": 0,
+          "dropped_unobservable": 0
+        },
+        "ceiling_edges": {
+          "micro": {
+            "precision": 1.0,
+            "recall": 0.9464180569185476,
+            "f1": 0.9724715135625693
+          },
+          "key_edges": 5095,
+          "predicted": 4822,
+          "tp": 4822,
+          "fp": 0,
+          "fn": 273,
+          "per_type": {
+            "commit-names": {
+              "key_edges": 899,
+              "aligned": "commit → item, commit-names",
+              "tp": 899,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "cross-references": {
+              "key_edges": 847,
+              "aligned": "item → item, cross-references",
+              "tp": 847,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "has-comment": {
+              "key_edges": 391,
+              "aligned": "item → comment, has-comment",
+              "tp": 391,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "head-branch": {
+              "key_edges": 163,
+              "aligned": "item → branch, head-branch",
+              "tp": 163,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "head-commit": {
+              "key_edges": 164,
+              "aligned": "item → commit, head-commit",
+              "tp": 164,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "leg-branch": {
+              "key_edges": 59,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 59,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "leg-commit": {
+              "key_edges": 95,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 95,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "leg-pr": {
+              "key_edges": 119,
+              "aligned": null,
+              "tp": 0,
+              "fp": 0,
+              "fn": 119,
+              "score": {
+                "precision": null,
+                "recall": 0.0,
+                "f1": null
+              }
+            },
+            "merged-as": {
+              "key_edges": 163,
+              "aligned": "item → commit, merged-as",
+              "tp": 163,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "names": {
+              "key_edges": 444,
+              "aligned": "item → item, names",
+              "tp": 444,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "parent": {
+              "key_edges": 882,
+              "aligned": "commit → commit, parent",
+              "tp": 882,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "references": {
+              "key_edges": 830,
+              "aligned": "item → commit, references",
+              "tp": 830,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "reviews-branch": {
+              "key_edges": 17,
+              "aligned": "seat → branch, reviews-branch",
+              "tp": 17,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "reviews-commit": {
+              "key_edges": 20,
+              "aligned": "seat → commit, reviews-commit",
+              "tp": 20,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "reviews-item": {
+              "key_edges": 2,
+              "aligned": "seat → item, reviews-item",
+              "tp": 2,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            }
+          },
+          "unaligned_predicted": {},
+          "no_majority": 0,
+          "dropped_unscored": 0,
+          "unobservable": 0,
+          "dropped_unobservable": 0
+        },
+        "ceiling_links_edges": {
+          "micro": {
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "key_edges": 5095,
+          "predicted": 5095,
+          "tp": 5095,
+          "fp": 0,
+          "fn": 0,
+          "per_type": {
+            "commit-names": {
+              "key_edges": 899,
+              "aligned": "commit → item, commit-names",
+              "tp": 899,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "cross-references": {
+              "key_edges": 847,
+              "aligned": "item → item, cross-references",
+              "tp": 847,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "has-comment": {
+              "key_edges": 391,
+              "aligned": "item → comment, has-comment",
+              "tp": 391,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "head-branch": {
+              "key_edges": 163,
+              "aligned": "item → branch, head-branch",
+              "tp": 163,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "head-commit": {
+              "key_edges": 164,
+              "aligned": "item → commit, head-commit",
+              "tp": 164,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "leg-branch": {
+              "key_edges": 59,
+              "aligned": "item → branch, leg-branch",
+              "tp": 59,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "leg-commit": {
+              "key_edges": 95,
+              "aligned": "item → commit, leg-commit",
+              "tp": 95,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "leg-pr": {
+              "key_edges": 119,
+              "aligned": "item → item, leg-pr",
+              "tp": 119,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "merged-as": {
+              "key_edges": 163,
+              "aligned": "item → commit, merged-as",
+              "tp": 163,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "names": {
+              "key_edges": 444,
+              "aligned": "item → item, names",
+              "tp": 444,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "parent": {
+              "key_edges": 882,
+              "aligned": "commit → commit, parent",
+              "tp": 882,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "references": {
+              "key_edges": 830,
+              "aligned": "item → commit, references",
+              "tp": 830,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "reviews-branch": {
+              "key_edges": 17,
+              "aligned": "seat → branch, reviews-branch",
+              "tp": 17,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "reviews-commit": {
+              "key_edges": 20,
+              "aligned": "seat → commit, reviews-commit",
+              "tp": 20,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            },
+            "reviews-item": {
+              "key_edges": 2,
+              "aligned": "seat → item, reviews-item",
+              "tp": 2,
+              "fp": 0,
+              "fn": 0,
+              "score": {
+                "precision": 1.0,
+                "recall": 1.0,
+                "f1": 1.0
+              }
+            }
+          },
+          "unaligned_predicted": {},
+          "no_majority": 0,
+          "dropped_unscored": 0,
+          "unobservable": 0,
+          "dropped_unobservable": 0
+        }
+      }
+    }
+  ],
+  "system2": {
+    "arm": "h-s2",
+    "replicate": 2,
+    "model": "claude-sonnet-5-5",
+    "failure": null,
+    "usd": 0.081391,
+    "no_match": {
+      "first": false,
+      "repair_calls": 0,
+      "after": false
+    }
+  }
+}

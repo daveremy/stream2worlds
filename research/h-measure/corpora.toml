@@ -201,8 +201,8 @@ bytes = 142409572
 sha256 = "f77717e875f36b46eb0e2a340599dd1da097d56eafeedefac8a7a88a2371ceac"
 
 [corpus.obf-r2-reserved-6]
-# reserved for s2w#374 PR 3, which opens it
-role = "reserved"
+# opened by s2w#374 PR 3, 2026-10-01 (UTC), after the 20 committed mappings (596ea37, PR 2) and the predictions comment (issuecomment-5938191252)
+role = "heldout"
 file = "reserved-6.obf-r2.raw.sse"
 stream = "mediawiki.recentchange, obfuscated (replicate r2)"
 derived_from = "reserved-6"
@@ -222,8 +222,8 @@ bytes = 140796429
 sha256 = "0fb6e674d9eece9397958e7f11b6cf3719fc4a48780813bf1a2244486a31a1ec"
 
 [corpus.obf-r3-reserved-6]
-# reserved for s2w#374 PR 3, which opens it
-role = "reserved"
+# opened by s2w#374 PR 3, 2026-10-01 (UTC), after the 20 committed mappings (596ea37, PR 2) and the predictions comment (issuecomment-5938191252)
+role = "heldout"
 file = "reserved-6.obf-r3.raw.sse"
 stream = "mediawiki.recentchange, obfuscated (replicate r3)"
 derived_from = "reserved-6"
@@ -243,8 +243,8 @@ bytes = 142292179
 sha256 = "10096e68682e88b77e47fa81bac2e45fc749c47e760868c975997f1425da513d"
 
 [corpus.obf-r4-reserved-6]
-# reserved for s2w#374 PR 3, which opens it
-role = "reserved"
+# opened by s2w#374 PR 3, 2026-10-01 (UTC), after the 20 committed mappings (596ea37, PR 2) and the predictions comment (issuecomment-5938191252)
+role = "heldout"
 file = "reserved-6.obf-r4.raw.sse"
 stream = "mediawiki.recentchange, obfuscated (replicate r4)"
 derived_from = "reserved-6"
@@ -264,8 +264,8 @@ bytes = 141880435
 sha256 = "d5e5e17f8052fcdf32a74aad8def392763f6f026a21004f28de2253292f02aab"
 
 [corpus.obf-r5-reserved-6]
-# reserved for s2w#374 PR 3, which opens it
-role = "reserved"
+# opened by s2w#374 PR 3, 2026-10-01 (UTC), after the 20 committed mappings (596ea37, PR 2) and the predictions comment (issuecomment-5938191252)
+role = "heldout"
 file = "reserved-6.obf-r5.raw.sse"
 stream = "mediawiki.recentchange, obfuscated (replicate r5)"
 derived_from = "reserved-6"
@@ -285,8 +285,8 @@ bytes = 141776782
 sha256 = "91948fb864b0752ea08e3980ef484f48a5acb2fc3d5f05c935a4478cc5526091"
 
 [corpus.obf-r6-reserved-6]
-# reserved for s2w#374 PR 3, which opens it
-role = "reserved"
+# opened by s2w#374 PR 3, 2026-10-01 (UTC), after the 20 committed mappings (596ea37, PR 2) and the predictions comment (issuecomment-5938191252)
+role = "heldout"
 file = "reserved-6.obf-r6.raw.sse"
 stream = "mediawiki.recentchange, obfuscated (replicate r6)"
 derived_from = "reserved-6"

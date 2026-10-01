@@ -720,3 +720,12 @@ pinned. It changes no arm, metric, threshold, stream or span.
   rows), its canonical-mention variant, `dev-key-v2.user-global.json` and `dev-key-v1.json`;
   `private-test-2` under `private-key-v2.json` and its context-scored variant. Results: research
   0009's s2w#375 addendum. Links stay measurement-only; `serve` runs version 1 until s2w#392.
+
+### 2026-10-01: gate-3 run (s2w#374; record, no change in meaning)
+
+Gate 3 was run once under the signed B4 on `claude-sonnet-5-5`, replicates r2 to r6 (r1 stays the
+s2w#402 dry run). **Both streams fail**; the verdict, the item-by-item numbers and the graded
+predictions are in [research 0010](../research/0010-gate3-verdict.md). B4 stands as signed; the
+kill criterion "stop and re-decide if gate 3 fails" now applies and the decision is Dave's. One
+convention is recorded: an undefined relationship F1 (H's edge F1 is undefined on both streams) fails
+item 2c; the verdict does not depend on it (items 1, 3 and 4 fail on measured numbers).

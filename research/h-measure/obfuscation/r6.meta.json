@@ -1,0 +1,1742 @@
+{
+  "format": 1,
+  "replicate": "r6",
+  "key_sha256": "be56639f287a184d36c104f53ea3de869ed10bde16a20906c5403d82729dc78c",
+  "rules_sha256": "8be932e98ad4366eaedddf3a43dcb1bd01145b0a40c53b1e08056268b4c7d00f",
+  "shift_seconds": -109813381,
+  "fields": [
+    {
+      "path": [
+        "$schema"
+      ],
+      "name": "f91"
+    },
+    {
+      "path": [
+        "bot"
+      ],
+      "name": "f19"
+    },
+    {
+      "path": [
+        "comment"
+      ],
+      "name": "f48"
+    },
+    {
+      "path": [
+        "id"
+      ],
+      "name": "f3"
+    },
+    {
+      "path": [
+        "length"
+      ],
+      "name": "f39"
+    },
+    {
+      "path": [
+        "length",
+        "new"
+      ],
+      "name": "f104"
+    },
+    {
+      "path": [
+        "length",
+        "old"
+      ],
+      "name": "f62"
+    },
+    {
+      "path": [
+        "log_action"
+      ],
+      "name": "f73"
+    },
+    {
+      "path": [
+        "log_action_comment"
+      ],
+      "name": "f2"
+    },
+    {
+      "path": [
+        "log_id"
+      ],
+      "name": "f55"
+    },
+    {
+      "path": [
+        "log_params"
+      ],
+      "name": "f53"
+    },
+    {
+      "path": [
+        "log_params",
+        "accepted"
+      ],
+      "name": "f65"
+    },
+    {
+      "path": [
+        "log_params",
+        "action"
+      ],
+      "name": "f81"
+    },
+    {
+      "path": [
+        "log_params",
+        "actions"
+      ],
+      "name": "f61"
+    },
+    {
+      "path": [
+        "log_params",
+        "added"
+      ],
+      "name": "f8"
+    },
+    {
+      "path": [
+        "log_params",
+        "auto"
+      ],
+      "name": "f74"
+    },
+    {
+      "path": [
+        "log_params",
+        "autoreview"
+      ],
+      "name": "f63"
+    },
+    {
+      "path": [
+        "log_params",
+        "blockId"
+      ],
+      "name": "f102"
+    },
+    {
+      "path": [
+        "log_params",
+        "cascade"
+      ],
+      "name": "f26"
+    },
+    {
+      "path": [
+        "log_params",
+        "changed"
+      ],
+      "name": "f89"
+    },
+    {
+      "path": [
+        "log_params",
+        "count"
+      ],
+      "name": "f84"
+    },
+    {
+      "path": [
+        "log_params",
+        "count",
+        "files"
+      ],
+      "name": "f54"
+    },
+    {
+      "path": [
+        "log_params",
+        "count",
+        "revisions"
+      ],
+      "name": "f15"
+    },
+    {
+      "path": [
+        "log_params",
+        "curid"
+      ],
+      "name": "f98"
+    },
+    {
+      "path": [
+        "log_params",
+        "derived"
+      ],
+      "name": "f5"
+    },
+    {
+      "path": [
+        "log_params",
+        "description"
+      ],
+      "name": "f37"
+    },
+    {
+      "path": [
+        "log_params",
+        "details"
+      ],
+      "name": "f44"
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "cascade"
+      ],
+      "name": "f10"
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "expiry"
+      ],
+      "name": "f1"
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "level"
+      ],
+      "name": "f32"
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "type"
+      ],
+      "name": "f14"
+    },
+    {
+      "path": [
+        "log_params",
+        "duration"
+      ],
+      "name": "f94"
+    },
+    {
+      "path": [
+        "log_params",
+        "edits"
+      ],
+      "name": "f51"
+    },
+    {
+      "path": [
+        "log_params",
+        "expiry"
+      ],
+      "name": "f11"
+    },
+    {
+      "path": [
+        "log_params",
+        "filter"
+      ],
+      "name": "f60"
+    },
+    {
+      "path": [
+        "log_params",
+        "finalTargetCount"
+      ],
+      "name": "f59"
+    },
+    {
+      "path": [
+        "log_params",
+        "flags"
+      ],
+      "name": "f28"
+    },
+    {
+      "path": [
+        "log_params",
+        "group-label"
+      ],
+      "name": "f90"
+    },
+    {
+      "path": [
+        "log_params",
+        "ids"
+      ],
+      "name": "f9"
+    },
+    {
+      "path": [
+        "log_params",
+        "img_sha1"
+      ],
+      "name": "f38"
+    },
+    {
+      "path": [
+        "log_params",
+        "img_timestamp"
+      ],
+      "name": "f82"
+    },
+    {
+      "path": [
+        "log_params",
+        "interwiki"
+      ],
+      "name": "f34"
+    },
+    {
+      "path": [
+        "log_params",
+        "language"
+      ],
+      "name": "f103"
+    },
+    {
+      "path": [
+        "log_params",
+        "log"
+      ],
+      "name": "f96"
+    },
+    {
+      "path": [
+        "log_params",
+        "movepages"
+      ],
+      "name": "f6"
+    },
+    {
+      "path": [
+        "log_params",
+        "new-state"
+      ],
+      "name": "f56"
+    },
+    {
+      "path": [
+        "log_params",
+        "newgroups"
+      ],
+      "name": "f70"
+    },
+    {
+      "path": [
+        "log_params",
+        "newmetadata"
+      ],
+      "name": "f12"
+    },
+    {
+      "path": [
+        "log_params",
+        "newmodel"
+      ],
+      "name": "f22"
+    },
+    {
+      "path": [
+        "log_params",
+        "newuser"
+      ],
+      "name": "f95"
+    },
+    {
+      "path": [
+        "log_params",
+        "nfield"
+      ],
+      "name": "f83"
+    },
+    {
+      "path": [
+        "log_params",
+        "noredir"
+      ],
+      "name": "f50"
+    },
+    {
+      "path": [
+        "log_params",
+        "ofield"
+      ],
+      "name": "f86"
+    },
+    {
+      "path": [
+        "log_params",
+        "old-state"
+      ],
+      "name": "f23"
+    },
+    {
+      "path": [
+        "log_params",
+        "oldgroups"
+      ],
+      "name": "f87"
+    },
+    {
+      "path": [
+        "log_params",
+        "oldmetadata"
+      ],
+      "name": "f42"
+    },
+    {
+      "path": [
+        "log_params",
+        "oldmodel"
+      ],
+      "name": "f88"
+    },
+    {
+      "path": [
+        "log_params",
+        "olduser"
+      ],
+      "name": "f72"
+    },
+    {
+      "path": [
+        "log_params",
+        "override"
+      ],
+      "name": "f68"
+    },
+    {
+      "path": [
+        "log_params",
+        "pageMessage"
+      ],
+      "name": "f29"
+    },
+    {
+      "path": [
+        "log_params",
+        "previd"
+      ],
+      "name": "f33"
+    },
+    {
+      "path": [
+        "log_params",
+        "removed"
+      ],
+      "name": "f40"
+    },
+    {
+      "path": [
+        "log_params",
+        "restrictions"
+      ],
+      "name": "f17"
+    },
+    {
+      "path": [
+        "log_params",
+        "restrictions",
+        "actions"
+      ],
+      "name": "f43"
+    },
+    {
+      "path": [
+        "log_params",
+        "restrictions",
+        "namespaces"
+      ],
+      "name": "f41"
+    },
+    {
+      "path": [
+        "log_params",
+        "revId"
+      ],
+      "name": "f25"
+    },
+    {
+      "path": [
+        "log_params",
+        "revid"
+      ],
+      "name": "f35"
+    },
+    {
+      "path": [
+        "log_params",
+        "revision"
+      ],
+      "name": "f21"
+    },
+    {
+      "path": [
+        "log_params",
+        "section"
+      ],
+      "name": "f101"
+    },
+    {
+      "path": [
+        "log_params",
+        "sitewide"
+      ],
+      "name": "f97"
+    },
+    {
+      "path": [
+        "log_params",
+        "subject"
+      ],
+      "name": "f13"
+    },
+    {
+      "path": [
+        "log_params",
+        "suppressredirects"
+      ],
+      "name": "f24"
+    },
+    {
+      "path": [
+        "log_params",
+        "tags"
+      ],
+      "name": "f75"
+    },
+    {
+      "path": [
+        "log_params",
+        "target"
+      ],
+      "name": "f47"
+    },
+    {
+      "path": [
+        "log_params",
+        "type"
+      ],
+      "name": "f67"
+    },
+    {
+      "path": [
+        "log_params",
+        "userid"
+      ],
+      "name": "f64"
+    },
+    {
+      "path": [
+        "log_type"
+      ],
+      "name": "f99"
+    },
+    {
+      "path": [
+        "meta"
+      ],
+      "name": "f52"
+    },
+    {
+      "path": [
+        "meta",
+        "domain"
+      ],
+      "name": "f49"
+    },
+    {
+      "path": [
+        "meta",
+        "dt"
+      ],
+      "name": "f78"
+    },
+    {
+      "path": [
+        "meta",
+        "id"
+      ],
+      "name": "f30"
+    },
+    {
+      "path": [
+        "meta",
+        "offset"
+      ],
+      "name": "f85"
+    },
+    {
+      "path": [
+        "meta",
+        "partition"
+      ],
+      "name": "f18"
+    },
+    {
+      "path": [
+        "meta",
+        "request_id"
+      ],
+      "name": "f57"
+    },
+    {
+      "path": [
+        "meta",
+        "stream"
+      ],
+      "name": "f16"
+    },
+    {
+      "path": [
+        "meta",
+        "topic"
+      ],
+      "name": "f69"
+    },
+    {
+      "path": [
+        "meta",
+        "uri"
+      ],
+      "name": "f76"
+    },
+    {
+      "path": [
+        "minor"
+      ],
+      "name": "f77"
+    },
+    {
+      "path": [
+        "namespace"
+      ],
+      "name": "f79"
+    },
+    {
+      "path": [
+        "notify_url"
+      ],
+      "name": "f58"
+    },
+    {
+      "path": [
+        "parsedcomment"
+      ],
+      "name": "f7"
+    },
+    {
+      "path": [
+        "patrolled"
+      ],
+      "name": "f71"
+    },
+    {
+      "path": [
+        "revision"
+      ],
+      "name": "f45"
+    },
+    {
+      "path": [
+        "revision",
+        "new"
+      ],
+      "name": "f80"
+    },
+    {
+      "path": [
+        "revision",
+        "old"
+      ],
+      "name": "f92"
+    },
+    {
+      "path": [
+        "server_name"
+      ],
+      "name": "f31"
+    },
+    {
+      "path": [
+        "server_script_path"
+      ],
+      "name": "f20"
+    },
+    {
+      "path": [
+        "server_url"
+      ],
+      "name": "f27"
+    },
+    {
+      "path": [
+        "timestamp"
+      ],
+      "name": "f66"
+    },
+    {
+      "path": [
+        "title"
+      ],
+      "name": "f93"
+    },
+    {
+      "path": [
+        "title_url"
+      ],
+      "name": "f100"
+    },
+    {
+      "path": [
+        "type"
+      ],
+      "name": "f46"
+    },
+    {
+      "path": [
+        "user"
+      ],
+      "name": "f36"
+    },
+    {
+      "path": [
+        "wiki"
+      ],
+      "name": "f4"
+    }
+  ],
+  "treatments": [
+    {
+      "path": [
+        "$schema"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "bot"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "comment"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "id"
+      ],
+      "how": [
+        "hashed in rcid"
+      ]
+    },
+    {
+      "path": [
+        "length",
+        "new"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "length",
+        "old"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_action"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_action_comment"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_id"
+      ],
+      "how": [
+        "hashed in log"
+      ]
+    },
+    {
+      "path": [
+        "log_params"
+      ],
+      "how": [
+        "hashed in revision"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "accepted"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "action"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "actions"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "added"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "auto"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "autoreview"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "blockId"
+      ],
+      "how": [
+        "hashed in block"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "cascade"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "changed"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "count"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "count",
+        "files"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "count",
+        "revisions"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "curid"
+      ],
+      "how": [
+        "hashed in page_id"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "derived"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "description"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "cascade"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "expiry"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "level"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "details",
+        "type"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "duration"
+      ],
+      "how": [
+        "date-time shifted",
+        "hashed in text",
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "edits"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "expiry"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "filter"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "finalTargetCount"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "flags"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "group-label"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "ids"
+      ],
+      "how": [
+        "hashed in revision"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "img_sha1"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "img_timestamp"
+      ],
+      "how": [
+        "date-time shifted",
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "interwiki"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "language"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "log"
+      ],
+      "how": [
+        "hashed in abuselog"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "movepages"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "new-state"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "newgroups"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "newmodel"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "newuser"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "nfield"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "noredir"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "ofield"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "old-state"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "oldgroups"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "oldmodel"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "olduser"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "override"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "pageMessage"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "previd"
+      ],
+      "how": [
+        "hashed in revision"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "restrictions",
+        "actions"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "restrictions",
+        "namespaces"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "revId"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "revid"
+      ],
+      "how": [
+        "hashed in revision"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "revision"
+      ],
+      "how": [
+        "hashed in revision"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "section"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "sitewide"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "subject"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "suppressredirects"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "tags"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "target"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "type"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "log_params",
+        "userid"
+      ],
+      "how": [
+        "hashed in user_id"
+      ]
+    },
+    {
+      "path": [
+        "log_type"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "domain"
+      ],
+      "how": [
+        "hashed in wiki"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "dt"
+      ],
+      "how": [
+        "date-time shifted"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "id"
+      ],
+      "how": [
+        "hashed in event"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "offset"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "partition"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "request_id"
+      ],
+      "how": [
+        "hashed in request"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "stream"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "topic"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "meta",
+        "uri"
+      ],
+      "how": [
+        "hashed in text (URL shape not matched)",
+        "hashed in title"
+      ]
+    },
+    {
+      "path": [
+        "minor"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "namespace"
+      ],
+      "how": [
+        "number kept (undeclared)"
+      ]
+    },
+    {
+      "path": [
+        "notify_url"
+      ],
+      "how": [
+        "url-query hashed"
+      ]
+    },
+    {
+      "path": [
+        "parsedcomment"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "patrolled"
+      ],
+      "how": [
+        "kept"
+      ]
+    },
+    {
+      "path": [
+        "revision",
+        "new"
+      ],
+      "how": [
+        "hashed in revision"
+      ]
+    },
+    {
+      "path": [
+        "revision",
+        "old"
+      ],
+      "how": [
+        "hashed in revision"
+      ]
+    },
+    {
+      "path": [
+        "server_name"
+      ],
+      "how": [
+        "hashed in wiki"
+      ]
+    },
+    {
+      "path": [
+        "server_script_path"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "server_url"
+      ],
+      "how": [
+        "hashed in wiki"
+      ]
+    },
+    {
+      "path": [
+        "timestamp"
+      ],
+      "how": [
+        "unix-seconds shifted"
+      ]
+    },
+    {
+      "path": [
+        "title"
+      ],
+      "how": [
+        "hashed in title"
+      ]
+    },
+    {
+      "path": [
+        "title_url"
+      ],
+      "how": [
+        "hashed in text (URL shape not matched)",
+        "hashed in title"
+      ]
+    },
+    {
+      "path": [
+        "type"
+      ],
+      "how": [
+        "hashed in text"
+      ]
+    },
+    {
+      "path": [
+        "user"
+      ],
+      "how": [
+        "hashed in user"
+      ]
+    },
+    {
+      "path": [
+        "wiki"
+      ],
+      "how": [
+        "hashed in wiki"
+      ]
+    }
+  ],
+  "undeclared_numbers": [
+    [
+      "length",
+      "new"
+    ],
+    [
+      "length",
+      "old"
+    ],
+    [
+      "log_params",
+      "auto"
+    ],
+    [
+      "log_params",
+      "changed"
+    ],
+    [
+      "log_params",
+      "count"
+    ],
+    [
+      "log_params",
+      "count",
+      "files"
+    ],
+    [
+      "log_params",
+      "count",
+      "revisions"
+    ],
+    [
+      "log_params",
+      "duration"
+    ],
+    [
+      "log_params",
+      "edits"
+    ],
+    [
+      "log_params",
+      "finalTargetCount"
+    ],
+    [
+      "log_params",
+      "nfield"
+    ],
+    [
+      "log_params",
+      "ofield"
+    ],
+    [
+      "log_params",
+      "override"
+    ],
+    [
+      "log_params",
+      "restrictions",
+      "namespaces"
+    ],
+    [
+      "log_params",
+      "revId"
+    ],
+    [
+      "meta",
+      "offset"
+    ],
+    [
+      "meta",
+      "partition"
+    ],
+    [
+      "namespace"
+    ]
+  ],
+  "fallbacks": [
+    {
+      "path": [
+        "meta",
+        "uri"
+      ],
+      "count": 591
+    },
+    {
+      "path": [
+        "title_url"
+      ],
+      "count": 591
+    }
+  ],
+  "own_values": [
+    {
+      "path": [
+        "meta",
+        "domain"
+      ],
+      "count": 10
+    }
+  ],
+  "unused_rules": [],
+  "unobservable": [
+    {
+      "path": [
+        "comment"
+      ],
+      "reason": "page and user names linked inside free text are destroyed with the text"
+    },
+    {
+      "path": [
+        "parsedcomment"
+      ],
+      "reason": "page and user names linked inside free text are destroyed with the text"
+    },
+    {
+      "path": [
+        "log_action_comment"
+      ],
+      "reason": "page, user and filter names inside the generated text are destroyed with the text"
+    },
+    {
+      "from": "comment",
+      "to": "title",
+      "kind": "names",
+      "reason": "a page linked from an edit summary"
+    },
+    {
+      "from": "comment",
+      "to": "user",
+      "kind": "names",
+      "reason": "a user linked from an edit summary"
+    },
+    {
+      "from": "log_action_comment",
+      "to": "title",
+      "kind": "names",
+      "reason": "the log target page named in the generated log text"
+    },
+    {
+      "from": "notify_url",
+      "to": "revision",
+      "kind": "contains",
+      "reason": "the URL keeps its revision and rcid hashes but not its shape; a mapping cannot address substrings"
+    }
+  ],
+  "inputs": {
+    "dev": "53d35b1c8631cc506d762a855ea554d4ca833f5c02a6fe80c5ceeb52205ae4dd",
+    "reserved-6": "2df0593c1e3121808a0e5df237f6fb3efdb9cd99170ed584a6bf0679f63619f4"
+  },
+  "outputs": {
+    "dev": {
+      "file": "dev.obf-r6.raw.sse",
+      "events": 200000,
+      "sha256": "91948fb864b0752ea08e3980ef484f48a5acb2fc3d5f05c935a4478cc5526091"
+    },
+    "reserved-6": {
+      "file": "reserved-6.obf-r6.raw.sse",
+      "events": 100000,
+      "sha256": "11dff7ce49bda518a20a71f8378ea5c56b58d06249d44645ddcf6458b010a42f"
+    }
+  },
+  "keys": {
+    "dev-key-v3.json": {
+      "file": "dev-key-v3.obf-r6.json",
+      "sha256": "eb6974232e1ebb2cb082c312d4950ec173225a303e5ad8fb8948666c397f28d5"
+    }
+  }
+}

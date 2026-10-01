@@ -1,0 +1,72 @@
+# h-measure score
+
+A v0 stream mapping cannot say that different values name one entity; a version-2 mapping can, with links (decision 0027). A key type whose mentions sit at alias paths holding different values (one entity written four ways) scores low recall even for a perfect v0 mapping. Read each mapping row against its ceiling row (the oracle-v0 mapping for that key), its ceiling-with-links row (that mapping plus a rule per alias path, linked into the oracle rule on the same identity, the ceiling for a mapping with links) and the canonical-mention key (alias paths unscored), not against 1.0.
+
+Mapping research/h-measure/frozen/h-min-v9.obf-r3-dev-10000.json (sha256 d0a8945061722b6dfd9b4c6122e016fefaca2cfa3f374cc33b62782d59044a06): profiler 9 proposed a mapping from the first 10000 events of obf-r3-dev (sha256 0fb6e674d9eece9397958e7f11b6cf3719fc4a48780813bf1a2244486a31a1ec); it abstained on 15 paths. Scored on obf-r3-reserved-6 (sha256 46581df299a1ed4572fcc107e1a93ddea5b1676a58e8ba158872240e1b9422e2), 100000 records.
+
+## Key dev-key-v3.obf-r3.json (base, sha256 2c014e10f51070fcf33b1100ab1bfdecab6fdb2b234e5262abc0045e388fe10a)
+
+| row | P | R | F1 | false-merge (mention-weighted) | recovery |
+| --- | --- | --- | --- | --- | --- |
+| mapping | 0.9913 | 0.4313 | 0.6011 | 0.0087 | 0.9819 |
+| mapping, without singleton-only types ["event", "log"] | 0.9913 | 0.4882 | 0.6542 |  |  |
+| ceiling | 1.0000 | 0.4069 | 0.5785 | 0.0000 | 0.2060 |
+| ceiling, without singleton-only types ["event", "log"] | 1.0000 | 0.3287 | 0.4948 |  |  |
+| ceiling with links | 1.0000 | 1.0000 | 1.0000 | 0.0000 | 1.0000 |
+
+| type | P | R | F1 | ceiling P | ceiling R | ceiling F1 |
+| --- | --- | --- | --- | --- | --- | --- |
+| event | undefined | 0.0000 | undefined | 1.0000 | 1.0000 | 1.0000 |
+| log | undefined | 0.0000 | undefined | 1.0000 | 1.0000 | 1.0000 |
+| page | 1.0000 | 0.9987 | 0.9993 | 1.0000 | 0.2500 | 0.4000 |
+| revision | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| user | 0.9668 | 1.0000 | 0.9831 | 1.0000 | 1.0000 | 1.0000 |
+| wiki | undefined | 0.0000 | undefined | 1.0000 | 0.0625 | 0.1176 |
+
+| key path | key mentions | predicted | recall | ceiling recall |
+| --- | --- | --- | --- | --- |
+| data.f11.f32 | 100000 | 0 | 0.0000 | 1.0000 |
+| data.f11.f38 | 99995 | 0 | 0.0000 | 0.0000 |
+| data.f19 | 99995 | 99995 | 0.9987 | 0.5000 |
+| data.f29 | 99995 | 99995 | 0.9986 | 0.0000 |
+| data.f39 | 99995 | 0 | 0.0000 | 0.0000 |
+| data.f4 | 99995 | 99995 | 1.0000 | 1.0000 |
+| data.f42 | 99995 | 0 | 0.0000 | 0.2500 |
+| data.f63.f59 | 43445 | 43445 | 1.0000 | 1.0000 |
+| data.f63.f61 | 38647 | 38647 | 1.0000 | 1.0000 |
+| data.f71 | 3135 | 0 | 0.0000 | 1.0000 |
+| data.f77 | 99995 | 0 | 0.0000 | 0.0000 |
+
+Context collisions (the composite-key sub-metric, unfloored):
+
+| type @ context | groups | entities | mentions | P | R | F1 | ceiling P | ceiling R | ceiling F1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| log @ data.f42 | 0 | 0 | 0 | undefined | undefined | undefined | undefined | undefined | undefined |
+| page @ data.f1 | 0 | 0 | 0 | undefined | undefined | undefined | undefined | undefined | undefined |
+| page @ data.f42 | 0 | 0 | 0 | undefined | undefined | undefined | undefined | undefined | undefined |
+| revision @ data.f42 | 0 | 0 | 0 | undefined | undefined | undefined | undefined | undefined | undefined |
+| user @ data.f42 | 350 | 871 | 11626 | 0.7143 | 1.0000 | 0.8333 | 1.0000 | 1.0000 | 1.0000 |
+
+Spurious predicted mentions: 0 at 0 paths (most: []). Key abstained: {"data.f11.f38": 5}. Excluded (no_identity): {"data.f71": 1515}. Undecodable records: 0.
+
+Relationships (contract B3, unique typed directed edges):
+
+| row | key edges | predicted | TP | FP | FN | P | R | F1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| mapping | 178265 | 44564 | 0 | 44564 | 178265 | 0.0000 | 0.0000 | undefined |
+| ceiling | 178265 | 178265 | 178265 | 0 | 0 | 1.0000 | 1.0000 | 1.0000 |
+| ceiling with links | 178265 | 178265 | 178265 | 0 | 0 | 1.0000 | 1.0000 | 1.0000 |
+
+| key edge type | key edges | aligned predicted type | TP | FP | FN | P | R | F1 | ceiling R |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| by | 43445 | (unaligned) | 0 | 0 | 43445 | undefined | 0.0000 | undefined | 1.0000 |
+| edits | 43445 | (unaligned) | 0 | 0 | 43445 | undefined | 0.0000 | undefined | 1.0000 |
+| follows | 38647 | (unaligned) | 0 | 0 | 38647 | undefined | 0.0000 | undefined | 1.0000 |
+| logged-by | 3135 | (unaligned) | 0 | 0 | 3135 | undefined | 0.0000 | undefined | 1.0000 |
+| page-on | 42139 | (unaligned) | 0 | 0 | 42139 | undefined | 0.0000 | undefined | 1.0000 |
+| targets | 3135 | (unaligned) | 0 | 0 | 3135 | undefined | 0.0000 | undefined | 1.0000 |
+| user-on | 4319 | (unaligned) | 0 | 0 | 4319 | undefined | 0.0000 | undefined | 1.0000 |
+
+Unaligned predicted edge types (all false): data/f4 → data/f19+data/f29+f11/f93, n:m (44564). Predicted edges with a no-majority endpoint: 1339. Dropped (unscored endpoint): 121337. Unobservable key rows: 0 (predicted edges dropped on them: 0). Key edge types with no edge in this corpus: none.
+
+
