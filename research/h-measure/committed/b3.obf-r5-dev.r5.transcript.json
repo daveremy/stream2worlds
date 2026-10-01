@@ -1,0 +1,35 @@
+{
+  "format": 2,
+  "calls": [
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "a9625a386038219e",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"account\",\"type_label\":\"account\",\"key\":[[\"data\",\"f10\"]],\"attrs\":[{\"name\":\"platform\",\"path\":[\"data\",\"f79\"]}]},{\"id\":\"group\",\"type_label\":\"group\",\"key\":[[\"data\",\"f6\"]],\"attrs\":[{\"name\":\"kind\",\"path\":[\"data\",\"f61\"]}]},{\"id\":\"actor\",\"type_label\":\"actor\",\"key\":[[\"data\",\"f74\"]],\"attrs\":[{\"name\":\"category\",\"path\":[\"data\",\"f96\"]},{\"name\":\"count\",\"path\":[\"data\",\"f75\"]}]}],\"relationships\":[{\"from\":\"account\",\"to\":\"group\",\"kind\":\"associated with\"},{\"from\":\"account\",\"to\":\"actor\",\"kind\":\"associated with\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 738,
+      "cache_read_tokens": 2074,
+      "cache_write_tokens": 40651,
+      "cost_usd": 0.1704028,
+      "latency_ms": 7965,
+      "started_at_ms": 1790883436995
+    },
+    {
+      "attempt": 1,
+      "call": 1,
+      "prompt_hash": "3259a76f1982ad1d",
+      "reply": "{\"version\":2,\"decode\":[[\"data\"]],\"entities\":[{\"id\":\"owner\",\"type_label\":\"owner\",\"key\":[[\"data\",\"f10\"]],\"attrs\":[{\"name\":\"owner_alt\",\"path\":[\"data\",\"f104\"]}]},{\"id\":\"source\",\"type_label\":\"source\",\"key\":[[\"data\",\"f6\"]],\"attrs\":[]},{\"id\":\"group\",\"type_label\":\"group\",\"key\":[[\"data\",\"f79\"]],\"attrs\":[]}],\"relationships\":[{\"from\":\"owner\",\"to\":\"source\",\"kind\":\"has\"},{\"from\":\"owner\",\"to\":\"group\",\"kind\":\"belongs to\"}]}",
+      "error": null,
+      "model": "claude-sonnet-5-5",
+      "input_tokens": 2,
+      "output_tokens": 904,
+      "cache_read_tokens": 535,
+      "cache_write_tokens": 34612,
+      "cost_usd": 0.14759899999999998,
+      "latency_ms": 10269,
+      "started_at_ms": 1790883444965
+    }
+  ]
+}
