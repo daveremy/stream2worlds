@@ -14,13 +14,18 @@ on:
   push:
     branches: [main]
   pull_request:
+# Queue policy (daveremy/lifeos#1276): one runner serves every run, so the queue is the cost.
+# A PR run is superseded by its own branch's next push (cancel). A push to main is never
+# cancelled: its group is the commit SHA, so every merge gets its own verdict.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'push' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   gates:
     timeout-minutes: 60
     runs-on: &s2w-runner ${{ vars.S2W_RUNNER == 'down' && 'ubuntu-latest' || fromJSON('["self-hosted","s2w"]') }}
+    outputs:
+      scale: ${{ steps.paths.outputs.scale }}
     steps:
       - name: self-hosted paths (no bare /tmp; per-job cargo target under the runner user's cache)
         if: runner.environment == 'self-hosted'
@@ -32,6 +37,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: does this change need the scale job? (lifeos#1276; main and any doubt run it)
+        id: paths
+        run: |
+          # Skip only when EVERY changed file is one that cannot move a Valgrind instruction count:
+          # markdown, docs/, research/, demos/ and the web frontend. Any other path (or any doubt) runs scale.
+          scale=true
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            if files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD) && [ -n "$files" ]; then
+              if ! printf '%s\n' "$files" | grep -Ev '(^|/)[^/]*\.md$|^(docs|research|demos)/|^crates/[^/]+/web/' | grep -q .; then
+                scale=false
+              fi
+            fi
+          fi
+          echo "scale=$scale" >> "$GITHUB_OUTPUT"
+          echo "scale job needed: $scale"
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.98"
@@ -77,6 +97,10 @@ jobs:
           tool: cargo-deny
       - run: cargo deny --all-features check licenses advisories bans
   scale:
+    # needs gates: a PR that fails fmt/clippy/tests never spends runner time on Valgrind, and a
+    # change that cannot move the baseline skips this job outright (lifeos#1276).
+    needs: gates
+    if: success() && needs.gates.outputs.scale == 'true'
     timeout-minutes: 60
     # Fold instructions per event under Valgrind (s2w#32, decision 0004). The [ir] baseline in
     # xtask/scale-baseline.toml is per runner image (hosted ubuntu-latest vs the hub runner's valgrind/glibc differ); switching runner mode can trip it and needs a re-baseline.
