@@ -7,9 +7,9 @@ name: ci
 # CARGO_TARGET_DIR are set by the "self-hosted paths" step below; the runner user cannot read /home/dave.
 # Exception, deliberate (s2w#369): test EXECUTION gets TMPDIR on a per-job /dev/shm dir. Tests keep
 # SQLite stores under temp_dir and fsync on every write; on the shared ext4 disk those fsyncs stalled
-# 15-22 s under hub IO pressure and timed tests out. The dir is small (~1 MB), removed after the job,
-# and dirs older than a day are swept. Compilation stays on disk, except doctests, which rustdoc
-# builds during the run.
+# 15-22 s under hub IO pressure and timed tests out. The dir is small (measured peak 16 MB, ~1 MB at
+# end of run), removed after the job, and dirs older than a day are swept. Compilation stays on
+# disk, except doctests, which rustdoc builds during the run.
 on:
   push:
     branches: [main]
