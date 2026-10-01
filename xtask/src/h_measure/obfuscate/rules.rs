@@ -174,7 +174,9 @@ fn check_rule(rule: &Rule) -> Result<(), String> {
     if rule.domain.as_deref() == Some("") {
         return Err(format!("rule {path:?} has an empty domain"));
     }
-    rule.fold.iter().try_for_each(|p| check_path("fold path", p))?;
+    rule.fold
+        .iter()
+        .try_for_each(|p| check_path("fold path", p))?;
     if let Some(from) = &rule.from {
         check_path("from path", from)?;
     }
@@ -193,7 +195,10 @@ fn check_rule(rule: &Rule) -> Result<(), String> {
                 "rule {path:?}: every url_query entry needs a distinct param and a domain"
             ));
         }
-        param.fold.iter().try_for_each(|p| check_path("fold path", p))?;
+        param
+            .fold
+            .iter()
+            .try_for_each(|p| check_path("fold path", p))?;
     }
     Ok(())
 }

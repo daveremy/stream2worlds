@@ -37,7 +37,15 @@ mod transform;
 mod tests;
 
 /// The flags `obfuscate` takes.
-const FLAGS: [&str; 7] = ["rules", "key-file", "replicate", "corpus", "key", "meta", "dir"];
+const FLAGS: [&str; 7] = [
+    "rules",
+    "key-file",
+    "replicate",
+    "corpus",
+    "key",
+    "meta",
+    "dir",
+];
 
 /// One `obfuscate` run.
 pub(super) struct Request<'a> {
@@ -61,7 +69,10 @@ pub(super) struct Request<'a> {
 /// `cargo xtask h-measure obfuscate` from parsed flags.
 pub(super) fn command(root: &Path, flags: &Flags, dir: &Path) -> Result<String, String> {
     if let Some(name) = flags.keys().find(|n| !FLAGS.contains(&n.as_str())) {
-        return Err(format!("obfuscate takes no --{name}; usage: {}", super::USAGE));
+        return Err(format!(
+            "obfuscate takes no --{name}; usage: {}",
+            super::USAGE
+        ));
     }
     let replicate = one(flags, "replicate")?;
     let meta = match flags.get("meta") {
@@ -102,7 +113,7 @@ fn run(
 ) -> Result<String, String> {
     let pins = Pins::load(root)?;
     let prior = prior(request, rules, &keyed)?;
-    let (paths, inputs) = scan(&pins, request)?;
+    let Scan { paths, inputs } = scan(&pins, request)?;
     let table = match &prior {
         Some(meta) => reuse(meta, &paths)?,
         None => FieldTable(keyed.field_names(&paths)),
@@ -128,15 +139,26 @@ fn run(
         shift_seconds: transformer.shift(),
         fields: Vec::new(),
         treatments: Vec::new(),
-        undeclared_numbers: transformer.stats.undeclared_numbers.iter().cloned().collect(),
+        undeclared_numbers: transformer
+            .stats
+            .undeclared_numbers
+            .iter()
+            .cloned()
+            .collect(),
         fallbacks: Vec::new(),
-        unused_rules: rules.by_path.keys().filter(|p| !paths.contains(*p)).cloned().collect(),
+        unused_rules: rules
+            .by_path
+            .keys()
+            .filter(|p| !paths.contains(*p))
+            .cloned()
+            .collect(),
         unobservable: rules.unobservable.clone(),
         inputs,
         outputs: BTreeMap::new(),
         keys: BTreeMap::new(),
     };
-    (meta.fields, meta.treatments, meta.fallbacks) = meta::rows(transformer.table(), &transformer.stats);
+    (meta.fields, meta.treatments, meta.fallbacks) =
+        meta::rows(transformer.table(), &transformer.stats);
     record(request, &written, &mut meta);
     for (path, bytes, _) in &written {
         write_new(path, bytes)?;
@@ -229,9 +251,17 @@ fn prior(request: &Request<'_>, rules: &Rules, keyed: &Keyed) -> Result<Option<M
     let meta: Meta = serde_json::from_str(&text).map_err(|e| format!("{shown}: {e}"))?;
     let checks = [
         ("format", meta.format.to_string(), META_FORMAT.to_string()),
-        ("replicate", meta.replicate.clone(), request.replicate.to_owned()),
+        (
+            "replicate",
+            meta.replicate.clone(),
+            request.replicate.to_owned(),
+        ),
         ("key", meta.key_sha256.clone(), keyed.fingerprint()),
-        ("shift", meta.shift_seconds.to_string(), keyed.shift().to_string()),
+        (
+            "shift",
+            meta.shift_seconds.to_string(),
+            keyed.shift().to_string(),
+        ),
         ("rules", meta.rules_sha256.clone(), rules.sha256.clone()),
     ];
     for (what, recorded, now) in checks {
@@ -254,10 +284,13 @@ fn reuse(meta: &Meta, paths: &BTreeSet<Vec<String>>) -> Result<FieldTable, Strin
 }
 
 /// Every field path in the inputs, and each input's pinned sha256.
-fn scan(
-    pins: &Pins,
-    request: &Request<'_>,
-) -> Result<(BTreeSet<Vec<String>>, BTreeMap<String, String>), String> {
+struct Scan {
+    paths: BTreeSet<Vec<String>>,
+    inputs: BTreeMap<String, String>,
+}
+
+/// Reads every input once, collecting its field paths and pinned sha256.
+fn scan(pins: &Pins, request: &Request<'_>) -> Result<Scan, String> {
     let mut paths = BTreeSet::new();
     let mut inputs = BTreeMap::new();
     for name in request.corpora {
@@ -268,7 +301,7 @@ fn scan(
         }
         inputs.insert(name.clone(), pins.corpus(name)?.sha256.clone());
     }
-    Ok((paths, inputs))
+    Ok(Scan { paths, inputs })
 }
 
 /// `(id, data)` of each stored envelope.
@@ -276,7 +309,12 @@ fn frames(envelopes: &[Value], name: &str) -> Result<Vec<(String, String)>, Stri
     envelopes
         .iter()
         .map(|envelope| {
-            let text = |field: &str| envelope.get(field).and_then(Value::as_str).map(str::to_owned);
+            let text = |field: &str| {
+                envelope
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            };
             text("id")
                 .zip(text("data"))
                 .ok_or_else(|| format!("corpus {name}: a frame lacks an id: or data: line"))
@@ -303,14 +341,25 @@ fn transform_corpus(
 
 /// Records each written file's name and sha256 in the metadata.
 fn record(request: &Request<'_>, written: &[(PathBuf, Vec<u8>, Option<usize>)], meta: &mut Meta) {
-    let shown = |path: &Path| path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+    let shown = |path: &Path| {
+        path.file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    };
     let (corpora, keys) = written.split_at(request.corpora.len());
     for (name, (path, bytes, events)) in request.corpora.iter().zip(corpora) {
-        let entry = Written { file: shown(path), events: *events, sha256: crate::sha256(bytes) };
+        let entry = Written {
+            file: shown(path),
+            events: *events,
+            sha256: crate::sha256(bytes),
+        };
         meta.outputs.insert(name.clone(), entry);
     }
     for (file, (path, bytes, _)) in request.keys.iter().zip(keys) {
-        let entry = Written { file: shown(path), events: None, sha256: crate::sha256(bytes) };
+        let entry = Written {
+            file: shown(path),
+            events: None,
+            sha256: crate::sha256(bytes),
+        };
         meta.keys.insert(file.clone(), entry);
     }
 }
@@ -338,10 +387,16 @@ fn report(request: &Request<'_>, meta: &Meta, reused: bool) -> String {
     )];
     for (name, out) in &meta.outputs {
         let events = out.events.unwrap_or_default();
-        lines.push(format!("  corpus {name} -> {}: {events} events, sha256 {}", out.file, out.sha256));
+        lines.push(format!(
+            "  corpus {name} -> {}: {events} events, sha256 {}",
+            out.file, out.sha256
+        ));
     }
     for (file, out) in &meta.keys {
-        lines.push(format!("  key {file} -> {DATA}/{}: sha256 {}", out.file, out.sha256));
+        lines.push(format!(
+            "  key {file} -> {DATA}/{}: sha256 {}",
+            out.file, out.sha256
+        ));
     }
     let fallbacks: usize = meta.fallbacks.iter().map(|f| f.count).sum();
     lines.push(format!(
@@ -349,8 +404,15 @@ fn report(request: &Request<'_>, meta: &Meta, reused: bool) -> String {
         meta.undeclared_numbers.len(),
         meta.unused_rules
     ));
-    let how = if reused { "reused, not rewritten" } else { "written" };
+    let how = if reused {
+        "reused, not rewritten"
+    } else {
+        "written"
+    };
     lines.push(format!("  metadata {} ({how})", request.meta.display()));
-    lines.push("Pin each output in corpora.toml / keys.toml before freezing or scoring with it.".to_owned());
+    lines.push(
+        "Pin each output in corpora.toml / keys.toml before freezing or scoring with it."
+            .to_owned(),
+    );
     lines.join("\n")
 }

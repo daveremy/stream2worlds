@@ -297,7 +297,9 @@ fn folded(
     fold: &[Vec<String>],
     record: Option<&Value>,
 ) -> Result<Vec<String>, String> {
-    fold.iter().map(|path| context(chain, path, record)).collect()
+    fold.iter()
+        .map(|path| context(chain, path, record))
+        .collect()
 }
 
 /// The scalar text at `path` of `record`; an error when there is no record or no scalar there.

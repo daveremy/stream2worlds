@@ -73,7 +73,10 @@ mod tests {
 
     #[test]
     fn percent_decoding_reads_utf8_and_refuses_bad_escapes() {
-        assert_eq!(percent_decode("Ca%C3%B1a_x", false).as_deref(), Some("Caña_x"));
+        assert_eq!(
+            percent_decode("Ca%C3%B1a_x", false).as_deref(),
+            Some("Caña_x")
+        );
         assert_eq!(percent_decode("a+b", true).as_deref(), Some("a b"));
         assert_eq!(percent_decode("a+b", false).as_deref(), Some("a+b"));
         assert_eq!(percent_decode("50%", false), None);
@@ -84,11 +87,25 @@ mod tests {
     #[test]
     fn url_tail_needs_the_base_and_marker() {
         let swap = [("_".to_owned(), " ".to_owned())];
-        let tail = url_tail("https://h.example/d/Big_%C3%B1?x=1", "https://h.example", "/d/", &swap);
+        let tail = url_tail(
+            "https://h.example/d/Big_%C3%B1?x=1",
+            "https://h.example",
+            "/d/",
+            &swap,
+        );
         assert_eq!(tail.as_deref(), Some("Big ñ"));
-        assert_eq!(url_tail("https://other/d/Big", "https://h.example", "/d/", &swap), None);
-        assert_eq!(url_tail("https://h.example/e/Big", "https://h.example", "/d/", &swap), None);
-        assert_eq!(url_tail("https://h.example/d/", "https://h.example", "/d/", &swap), None);
+        assert_eq!(
+            url_tail("https://other/d/Big", "https://h.example", "/d/", &swap),
+            None
+        );
+        assert_eq!(
+            url_tail("https://h.example/e/Big", "https://h.example", "/d/", &swap),
+            None
+        );
+        assert_eq!(
+            url_tail("https://h.example/d/", "https://h.example", "/d/", &swap),
+            None
+        );
     }
 
     #[test]

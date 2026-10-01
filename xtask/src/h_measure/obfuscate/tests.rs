@@ -128,8 +128,9 @@ fn answer() -> Value {
     })
 }
 
-/// One event on site `site` (`a` or `b`), doc `doc` (plain text with spaces).
-fn event(site: &str, doc: &str, who: &str, new: u64, old: Option<u64>, entry: u64) -> Value {
+/// One event on site `site` (`a` or `b`), doc `doc` (plain text with spaces); `(new, old)` is
+/// the event's version pair.
+fn event(site: &str, doc: &str, who: &str, (new, old): (u64, Option<u64>), entry: u64) -> Value {
     let base = format!("https://{site}.example");
     let link_doc = doc.replace(' ', "_").replace('ñ', "%C3%B1");
     let mut ver = json!({"new": new});
@@ -154,7 +155,7 @@ fn event(site: &str, doc: &str, who: &str, new: u64, old: Option<u64>, entry: u6
         "note": format!("Moved {doc} quickly"),
         "kind": "change",
         "size": {"old": 10, "new": 12},
-        "flag": new % 2 == 0,
+        "flag": new.is_multiple_of(2),
         "tags": ["warm", "musky"],
         "gone": null
     })
@@ -164,18 +165,18 @@ fn event(site: &str, doc: &str, who: &str, new: u64, old: Option<u64>, entry: u6
 /// event's `ver.old` is an earlier one's `ver.new`; one `doc_link` has an unmatched shape.
 fn events() -> Vec<Value> {
     let mut all = vec![
-        event("a", "Big Thing", "Ulla", 101, None, 0),
-        event("a", "Big Thing", "Ulla", 102, Some(101), 0),
-        event("a", "Caña Rio", "Ymir", 103, None, 0),
-        event("a", "Caña Rio", "Ulla", 104, Some(103), 7),
-        event("b", "Big Thing", "Ulla", 105, None, 0),
-        event("b", "Big Thing", "Wren", 106, Some(105), 0),
-        event("b", "Quiet Pond", "Wren", 107, None, 7),
-        event("b", "Quiet Pond", "Ymir", 108, Some(107), 9101),
-        event("a", "Moss Hill", "Ymir", 109, None, 0),
-        event("a", "Moss Hill", "Wren", 110, Some(109), 0),
-        event("b", "Moss Hill", "Ulla", 111, None, 0),
-        event("b", "Moss Hill", "Ulla", 112, Some(111), 0),
+        event("a", "Big Thing", "Ulla", (101, None), 0),
+        event("a", "Big Thing", "Ulla", (102, Some(101)), 0),
+        event("a", "Caña Rio", "Ymir", (103, None), 0),
+        event("a", "Caña Rio", "Ulla", (104, Some(103)), 7),
+        event("b", "Big Thing", "Ulla", (105, None), 0),
+        event("b", "Big Thing", "Wren", (106, Some(105)), 0),
+        event("b", "Quiet Pond", "Wren", (107, None), 7),
+        event("b", "Quiet Pond", "Ymir", (108, Some(107)), 9101),
+        event("a", "Moss Hill", "Ymir", (109, None), 0),
+        event("a", "Moss Hill", "Wren", (110, Some(109)), 0),
+        event("b", "Moss Hill", "Ulla", (111, None), 0),
+        event("b", "Moss Hill", "Ulla", (112, Some(111)), 0),
     ];
     all[8]["doc_link"] = json!("https://a.example/w/run?x=1");
     all
@@ -211,7 +212,10 @@ impl Fx {
         fs::write(keys.join("b.key"), KEY_B).unwrap();
         let answer = serde_json::to_vec_pretty(&answer()).unwrap();
         fs::write(data.join(ANSWER), &answer).unwrap();
-        let pin = format!("[[key]]\nfile = \"{ANSWER}\"\nvariant = \"base\"\nsha256 = \"{}\"\n", sha256(&answer));
+        let pin = format!(
+            "[[key]]\nfile = \"{ANSWER}\"\nvariant = \"base\"\nsha256 = \"{}\"\n",
+            sha256(&answer)
+        );
         fs::write(data.join("keys.toml"), pin).unwrap();
         let mut manifest = String::new();
         for (corpus, text) in corpora {
@@ -225,7 +229,12 @@ impl Fx {
         fs::write(data.join("corpora.toml"), manifest).unwrap();
         let rules = root.join("toy.rules.toml");
         fs::write(&rules, RULES).unwrap();
-        Self { root, dir, rules, keys }
+        Self {
+            root,
+            dir,
+            rules,
+            keys,
+        }
     }
 
     fn meta_path(&self) -> PathBuf {
@@ -301,7 +310,10 @@ fn the_same_key_and_inputs_give_identical_bytes_and_meta_reuse_does_too() {
     let three = Fx::new("det-3", &[("dev", sse(&events()))]);
     three.run("a.key", &["dev"], &one.meta_path()).unwrap();
     assert_eq!(one.output("dev"), three.output("dev"));
-    assert!(!three.meta_path().exists(), "a reused metadata file is not rewritten");
+    assert!(
+        !three.meta_path().exists(),
+        "a reused metadata file is not rewritten"
+    );
 }
 
 #[test]
@@ -311,7 +323,10 @@ fn domains_separate_values_and_one_domain_joins_them() {
     // `who` is unfolded: one value, one hash in every record.
     assert_eq!(at(&meta, &out[0], &["who"]), at(&meta, &out[4], &["who"]));
     // One value in one domain at two paths: event 2's `ver.old` is event 1's `ver.new`.
-    assert_eq!(at(&meta, &out[0], &["ver", "new"]), at(&meta, &out[1], &["ver", "old"]));
+    assert_eq!(
+        at(&meta, &out[0], &["ver", "new"]),
+        at(&meta, &out[1], &["ver", "old"])
+    );
     // The same digits in two domains: event 1's `serial` and event 8's `entry` are both 9101.
     assert_eq!(events()[0]["serial"], events()[7]["entry"]);
     let serial = at(&meta, &out[0], &["serial"]);
@@ -358,11 +373,21 @@ fn no_plaintext_string_or_key_survives() {
     for event in events() {
         strings(&event, &mut plain);
     }
-    for leaked in plain.iter().filter(|s| text.contains(s.as_str())) {
-        panic!("{leaked:?} occurs in the obfuscated corpus");
-    }
-    assert!(!text.contains("topic") && !text.contains("offset"), "id: lines are hashed");
-    let names: BTreeSet<String> = fx.meta().fields.iter().map(|row| row.name.clone()).collect();
+    let leaked: Vec<_> = plain.iter().filter(|s| text.contains(s.as_str())).collect();
+    assert!(
+        leaked.is_empty(),
+        "{leaked:?} occur in the obfuscated corpus"
+    );
+    assert!(
+        !text.contains("topic") && !text.contains("offset"),
+        "id: lines are hashed"
+    );
+    let names: BTreeSet<String> = fx
+        .meta()
+        .fields
+        .iter()
+        .map(|row| row.name.clone())
+        .collect();
     for event in obfuscated(&fx, "dev") {
         let event_keys: Vec<_> = event.as_object().unwrap().keys().collect();
         assert!(event_keys.iter().all(|key| names.contains(*key)));
@@ -375,7 +400,11 @@ fn the_field_order_is_a_permutation_drawn_from_the_key() {
     let two = Fx::new("order-b", &[("dev", sse(&events()))]);
     two.run("b.key", &["dev"], &two.meta_path()).unwrap();
     let table = |fx: &Fx| -> Vec<(Vec<String>, String)> {
-        fx.meta().fields.into_iter().map(|row| (row.path, row.name)).collect()
+        fx.meta()
+            .fields
+            .into_iter()
+            .map(|row| (row.path, row.name))
+            .collect()
     };
     let (a, b) = (table(&one), table(&two));
     assert_ne!(a, b, "two keys gave one field order");
@@ -413,12 +442,24 @@ fn identifiers_in_urls_hash_as_their_fields_do() {
     let fx = ran("canon");
     let (meta, out) = (fx.meta(), obfuscated(&fx, "dev"));
     // `Caña_Rio`, percent-encoded with `_` for space, is the doc `Caña Rio` on its site.
-    assert_eq!(at(&meta, &out[2], &["doc_link"]), at(&meta, &out[2], &["doc"]));
-    assert_eq!(at(&meta, &out[0], &["doc_link"]), at(&meta, &out[0], &["doc"]));
+    assert_eq!(
+        at(&meta, &out[2], &["doc_link"]),
+        at(&meta, &out[2], &["doc"])
+    );
+    assert_eq!(
+        at(&meta, &out[0], &["doc_link"]),
+        at(&meta, &out[0], &["doc"])
+    );
     // Event 9's link has another shape: hashed whole, counted.
-    assert_ne!(at(&meta, &out[8], &["doc_link"]), at(&meta, &out[8], &["doc"]));
+    assert_ne!(
+        at(&meta, &out[8], &["doc_link"]),
+        at(&meta, &out[8], &["doc"])
+    );
     assert_eq!(meta.fallbacks.len(), 1);
-    assert_eq!((meta.fallbacks[0].path.clone(), meta.fallbacks[0].count), (vec!["doc_link".to_owned()], 1));
+    assert_eq!(
+        (meta.fallbacks[0].path.clone(), meta.fallbacks[0].count),
+        (vec!["doc_link".to_owned()], 1)
+    );
     // The query parameters, each in its own domain, joined by `/`.
     let s = |v: &Value| v.as_str().unwrap().to_owned();
     let link = s(at(&meta, &out[1], &["link"]));
@@ -437,10 +478,14 @@ fn a_reused_table_refuses_a_new_field() {
     let mut extra = events();
     extra[0]["novel"] = json!("Zest");
     let second = Fx::new("reuse-2", &[("dev", sse(&extra))]);
-    let err = second.run("a.key", &["dev"], &first.meta_path()).unwrap_err();
+    let err = second
+        .run("a.key", &["dev"], &first.meta_path())
+        .unwrap_err();
     assert!(err.contains("not in the replicate's field table"), "{err}");
     assert!(!second.dir.join("dev.obf-r1.raw.sse").exists());
-    let err = second.run("b.key", &["dev"], &first.meta_path()).unwrap_err();
+    let err = second
+        .run("b.key", &["dev"], &first.meta_path())
+        .unwrap_err();
     assert!(err.contains("different key"), "{err}");
 }
 
@@ -487,8 +532,12 @@ fn a_key_file_inside_the_repository_is_refused() {
 #[test]
 fn a_truncated_hash_collision_fails() {
     let mut keyed = super::hash::Keyed::narrow([3; 32], 1);
-    let found = (0..300).map(|i| keyed.value("text", &[&format!("v{i}")])).find(Result::is_err);
-    let err = found.expect("300 values in 256 one-byte hashes must collide").unwrap_err();
+    let found = (0..300)
+        .map(|i| keyed.value("text", &[&format!("v{i}")]))
+        .find(Result::is_err);
+    let err = found
+        .expect("300 values in 256 one-byte hashes must collide")
+        .unwrap_err();
     assert!(err.contains("collision"), "{err}");
     // The same input twice is not a collision.
     assert_eq!(keyed.value("text", &["v0"]), keyed.value("text", &["v0"]));
@@ -500,11 +549,26 @@ fn rules_files_are_validated() {
     let bad = [
         ("version = 2\n", "version"),
         ("version = 1\n[[rule]]\npath = [\"a\"]\n", "set exactly one"),
-        ("version = 1\n[[rule]]\npath = [\"a\"]\ndomain = \"d\"\nunix_seconds = true\n", "set exactly one"),
-        ("version = 1\n[[rule]]\npath = [\"a\"]\nunix_seconds = true\nfold = [[\"b\"]]\n", "need a domain"),
-        ("version = 1\n[[rule]]\npath = [\"a\"]\ndomain = \"d\"\n[[rule]]\npath = [\"a\"]\ndomain = \"e\"\n", "two rules"),
-        ("version = 1\n[[unobservable]]\nfrom = \"a\"\nreason = \"r\"\n", "all of from, to and kind"),
-        ("version = 1\n[[rule]]\npath = [\"a\"]\ndomian = \"d\"\n", "unknown field"),
+        (
+            "version = 1\n[[rule]]\npath = [\"a\"]\ndomain = \"d\"\nunix_seconds = true\n",
+            "set exactly one",
+        ),
+        (
+            "version = 1\n[[rule]]\npath = [\"a\"]\nunix_seconds = true\nfold = [[\"b\"]]\n",
+            "need a domain",
+        ),
+        (
+            "version = 1\n[[rule]]\npath = [\"a\"]\ndomain = \"d\"\n[[rule]]\npath = [\"a\"]\ndomain = \"e\"\n",
+            "two rules",
+        ),
+        (
+            "version = 1\n[[unobservable]]\nfrom = \"a\"\nreason = \"r\"\n",
+            "all of from, to and kind",
+        ),
+        (
+            "version = 1\n[[rule]]\npath = [\"a\"]\ndomian = \"d\"\n",
+            "unknown field",
+        ),
     ];
     for (text, expected) in bad {
         let err = Rules::parse(text, String::new()).unwrap_err();
@@ -522,16 +586,26 @@ fn renamed_ids(text: &str, meta: &Meta) -> String {
             let renamed: Vec<String> = (1..=row.path.len())
                 .map(|depth| {
                     let chain = &row.path[..depth];
-                    meta.fields.iter().find(|r| r.path == chain).unwrap().name.clone()
+                    meta.fields
+                        .iter()
+                        .find(|r| r.path == chain)
+                        .unwrap()
+                        .name
+                        .clone()
                 })
                 .collect();
-            (format!("data.{}", row.path.join(".")), format!("data.{}", renamed.join(".")))
+            (
+                format!("data.{}", row.path.join(".")),
+                format!("data.{}", renamed.join(".")),
+            )
         })
         .collect();
     pairs.sort_by_key(|(plain, _)| std::cmp::Reverse(plain.len()));
     pairs
         .iter()
-        .fold(text.to_owned(), |text, (plain, renamed)| text.replace(plain, renamed))
+        .fold(text.to_owned(), |text, (plain, renamed)| {
+            text.replace(plain, renamed)
+        })
 }
 
 #[test]
@@ -542,13 +616,22 @@ fn an_obfuscated_corpus_scores_as_the_plain_one_up_to_renaming() {
     renamed_key.validate().unwrap();
     let note = json!(["data", at_name(&fx.meta(), "note")]);
     let unscored = serde_json::to_value(&renamed_key.unscored).unwrap();
-    assert!(unscored.as_array().unwrap().contains(&note), "the unobservable path is unscored");
+    assert!(
+        unscored.as_array().unwrap().contains(&note),
+        "the unobservable path is unscored"
+    );
     let plain_payloads = envelopes(&sse(&events())).unwrap();
     let obf_payloads = envelopes(&fx.output("dev")).unwrap();
     let plain = grade(&plain_key, &plain_key.oracle().unwrap(), &plain_payloads).unwrap();
     let obf = grade(&renamed_key, &renamed_key.oracle().unwrap(), &obf_payloads).unwrap();
-    assert!(plain.mapping.micro.f1.is_some_and(|f1| f1 > 0.0), "the plain grade is vacuous");
-    assert!(!plain.excluded.is_empty(), "the fixture exercises a no_identity sentinel");
+    assert!(
+        plain.mapping.micro.f1.is_some_and(|f1| f1 > 0.0),
+        "the plain grade is vacuous"
+    );
+    assert!(
+        !plain.excluded.is_empty(),
+        "the fixture exercises a no_identity sentinel"
+    );
     let plain = renamed_ids(&serde_json::to_string(&plain).unwrap(), &fx.meta());
     assert_eq!(plain, serde_json::to_string(&obf).unwrap());
 }

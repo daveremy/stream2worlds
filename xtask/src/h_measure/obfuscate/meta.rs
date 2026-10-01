@@ -83,7 +83,9 @@ impl Meta {
         let mut table = BTreeMap::new();
         let mut names = std::collections::BTreeSet::new();
         for row in &self.fields {
-            if !names.insert(&row.name) || table.insert(row.path.clone(), row.name.clone()).is_some() {
+            if !names.insert(&row.name)
+                || table.insert(row.path.clone(), row.name.clone()).is_some()
+            {
                 return Err(format!(
                     "the metadata's field table lists {:?} or {:?} twice",
                     row.path, row.name
@@ -95,7 +97,10 @@ impl Meta {
 }
 
 /// The per-path parts of the metadata, from the field table and the run's statistics.
-pub(super) fn rows(table: &FieldTable, stats: &Stats) -> (Vec<FieldRow>, Vec<Treatment>, Vec<Fallback>) {
+pub(super) fn rows(
+    table: &FieldTable,
+    stats: &Stats,
+) -> (Vec<FieldRow>, Vec<Treatment>, Vec<Fallback>) {
     let fields = table
         .0
         .iter()
