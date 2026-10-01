@@ -29,12 +29,13 @@ mod freeze;
 mod grade;
 pub(crate) mod key;
 pub(crate) mod mentions;
+mod obfuscate;
 mod pins;
 mod report;
 pub(crate) mod score;
 
 /// The command's usage line.
-pub(crate) const USAGE: &str = "cargo xtask h-measure selftest | freeze --corpus NAME --window N --out FILE [--dir DIR] | profile --corpus NAME --window N [--dir DIR] | score --mapping FILE --corpus NAME --key FILE [--key FILE ...] [--json FILE] [--dir DIR]";
+pub(crate) const USAGE: &str = "cargo xtask h-measure selftest | freeze --corpus NAME --window N --out FILE [--dir DIR] | profile --corpus NAME --window N [--dir DIR] | score --mapping FILE --corpus NAME --key FILE [--key FILE ...] [--json FILE] [--dir DIR] | obfuscate --rules FILE --key-file FILE --replicate NAME --corpus NAME [--corpus NAME ...] [--key FILE ...] [--meta FILE] [--dir DIR]";
 
 /// Where the corpora live when `--dir` is not given, under `$HOME`.
 const CORPUS_DIR: &str = ".local/share/stream2worlds/h-measure";
@@ -46,6 +47,8 @@ pub(crate) fn run(root: &Path, args: &[String]) -> ExitCode {
         Some((verb, rest)) if ["freeze", "profile", "score"].contains(&verb.as_str()) => {
             flags(rest).and_then(|f| subcommand(root, verb, &f))
         }
+        Some((verb, rest)) if verb == "obfuscate" => flags(rest)
+            .and_then(|f| corpus_dir(&f).and_then(|dir| obfuscate::command(root, &f, &dir))),
         _ => {
             eprintln!("usage: {USAGE}");
             return ExitCode::from(2);
@@ -94,6 +97,15 @@ fn one<'a>(flags: &'a Flags, name: &str) -> Result<&'a str, String> {
     }
 }
 
+/// `--dir`, or the default corpus directory under `$HOME`.
+fn corpus_dir(flags: &Flags) -> Result<PathBuf, String> {
+    Ok(match flags.get("dir") {
+        Some(_) => PathBuf::from(one(flags, "dir")?),
+        None => PathBuf::from(std::env::var("HOME").map_err(|e| format!("$HOME: {e}"))?)
+            .join(CORPUS_DIR),
+    })
+}
+
 fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> {
     let known: &[&str] = if verb == "freeze" {
         &["corpus", "window", "out", "dir"]
@@ -105,11 +117,7 @@ fn subcommand(root: &Path, verb: &str, flags: &Flags) -> Result<String, String> 
     if let Some(name) = flags.keys().find(|n| !known.contains(&n.as_str())) {
         return Err(format!("{verb} takes no --{name}; usage: {USAGE}"));
     }
-    let dir = match flags.get("dir") {
-        Some(_) => PathBuf::from(one(flags, "dir")?),
-        None => PathBuf::from(std::env::var("HOME").map_err(|e| format!("$HOME: {e}"))?)
-            .join(CORPUS_DIR),
-    };
+    let dir = corpus_dir(flags)?;
     let corpus = one(flags, "corpus")?;
     if verb == "freeze" || verb == "profile" {
         let raw = one(flags, "window")?;
