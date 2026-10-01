@@ -92,6 +92,7 @@ fn setup(name: &str, replies: &[String]) -> Run {
          [ -z \"$(ls -A .)\" ] || {{ echo cwd not empty >&2; exit 1; }}\n\
          [ \"$(cd \"$HOME\" && find . | sort | tr '\\n' ' ')\" = '. ./.claude ./.claude/.credentials.json ' ] || {{ echo HOME not clean >&2; exit 1; }}\n\
          [ \"$*\" = '{expected}' ] || {{ echo argv \"$*\" >&2; exit 1; }}\n\
+         [ \"$CLAUDE_CODE_MAX_OUTPUT_TOKENS\" = 16384 ] || {{ echo output limit not set >&2; exit 1; }}\n\
          n=$(cat {f}/count 2>/dev/null || echo 0); n=$((n+1)); echo $n > {f}/count\n\
          cat {f}/reply-$n.json\n"
     );
@@ -213,6 +214,12 @@ fn score_refuses_an_edited_committed_file_or_transcript() {
     run.edit(&run.out, "input_hash", "0000000000000000".into());
     refused(run.score(), "input_hash");
     fs::write(&run.out, &original).unwrap();
+    // A recorded spend the replay does not recompute.
+    let mut spend = run.committed()["spend"].clone();
+    spend["usd"] = (spend["usd"].as_f64().unwrap() + 0.01).into();
+    run.edit(&run.out, "spend", spend);
+    refused(run.score(), "not the recorded spend");
+    fs::write(&run.out, &original).unwrap();
     let transcript = super::replay::transcript_path(&run.out).unwrap();
     let mut text = fs::read_to_string(&transcript).unwrap();
     text.push(' ');
@@ -222,8 +229,8 @@ fn score_refuses_an_edited_committed_file_or_transcript() {
 
 #[test]
 fn a_budget_stop_commits_the_failure_and_scores_the_empty_mapping() {
-    // The first reply is no mapping and reports 600k output tokens ($6): the repair call is
-    // refused before it is made.
+    // After the probe, the mapping call replies no mapping and reports 600k output tokens ($6):
+    // the repair call is refused before it is made.
     let run = setup(
         "budget",
         &[envelope("none", 1), envelope("no mapping here", 600_000)],

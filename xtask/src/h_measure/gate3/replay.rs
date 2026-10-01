@@ -187,7 +187,7 @@ impl<'a> System2<'a> {
             |f| format!("failed ({f}; graded as the empty prediction)"),
         );
         format!(
-            "System 2 (arm {}, replicate {}, model {}) started from this mapping and {result}, ${:.4} by the price table; its output is what is graded below.\n\n",
+            "System 2 (arm {}, replicate {}, model {}) started from the heuristic above and {result}, ${:.4} by the price table; its output is what is graded below.\n\n",
             self.arm, self.replicate, self.model, self.usd
         )
     }

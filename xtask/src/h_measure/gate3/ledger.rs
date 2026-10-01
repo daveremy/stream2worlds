@@ -31,7 +31,7 @@ impl<'a> BudgetGate<'a> {
 
     /// What each of `calls` is charged: its reported cost, or its estimate when it reported none.
     pub(crate) fn charged(&self, calls: &[CallRecord]) -> Vec<f64> {
-        debug_assert_eq!(calls.len(), self.estimates.len(), "one estimate per call");
+        assert_eq!(calls.len(), self.estimates.len(), "one estimate per call");
         calls
             .iter()
             .zip(&self.estimates)
@@ -78,6 +78,7 @@ impl Spend {
     /// The spend of `probe` and then `calls`, each paired with its charge in `charged`.
     pub(crate) fn of(probe: &CallRecord, calls: &[CallRecord], charged: Vec<f64>) -> Self {
         let all: Vec<&CallRecord> = std::iter::once(probe).chain(calls).collect();
+        assert_eq!(charged.len(), all.len(), "one charge per call");
         let sum = |field: fn(&CallRecord) -> Option<u64>| all.iter().filter_map(|c| field(c)).sum();
         Self {
             cap_usd: CAP_USD,
