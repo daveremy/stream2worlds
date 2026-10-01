@@ -97,7 +97,10 @@ The enforced list is `xtask/allowlist.toml`. Layer rules: `docs/decisions/0001-w
   `h_measure/tests.rs`, which also runs the selftest, so `cargo test` enforces parity.
   The measurement's data (answer keys, `keys.toml` pins, the corpus manifest) lives in
   `research/h-measure/`; a test in `h_measure/tests.rs` checks that every key `keys.toml` pins
-  parses, validates and yields an oracle mapping.
+  parses, validates and yields an oracle mapping. `h_measure/private_key_tests.rs` (s2w#372)
+  runs the private-stream key on the synthetic fixture: the Rust executor must reproduce the
+  partition shape `research/h-measure/private/key.ts` committed, and the fixture must score a
+  number-only item mapping as a false merge.
   - `h_measure/key.rs`: the answer-key spec, format versions 0, 1 and 2 (`decode`, `types` with
     mention rules `{path, identity}`, `unscored`; format 1 adds an optional `no_identity` list of
     sentinel values on a mention rule whose path is an identity path: a record holding one there

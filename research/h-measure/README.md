@@ -72,6 +72,60 @@ the s2w#371 issue comments.
 The capture run, its `corpora.toml` pins (`private-dev` development, `private-test` reserved) and
 the freeze are s2w#371 PR 2.
 
+## Private answer key (s2w#372)
+
+`private-key-v0.json` is the private stream's answer key, in key format 2, so `score` reads it as
+it reads `dev-key-v2.json`. Identity is the source system's own identifier, never a judgment.
+Plan and rulings: the s2w#372 issue comments of 2026-10-01.
+
+| Type | Identity | Mention paths (alias paths join on equal identity values) |
+|---|---|---|
+| `item` | `(repo, number)`: issues and PRs share one number space per repository | `number`, `issue`, `key` (`"s2w#372"` on a leg), `pr`, `ref_number` (identity `(ref_repo, ref_number)`) |
+| `commit` | the 40-hex sha | `sha`, `head_sha`, `merge_commit_sha`, `commit_sha`, `parents.0`, `parents.1` |
+| `branch` | `(repo, name)` | `branch`, `head_ref` |
+| `sprint` | the sprint number | `sprint`, `slot`, `file_id` |
+| `seat` | `seat_id` | `seat_id` (singleton-only type) |
+| `comment` | `comment_id` | `comment_id` (singleton-only type) |
+
+- **Unscored:** plumbing and values (`kind`, `ts`, `step`, `verdict`, `engine`, `model`, `pts`,
+  `base_ref`, `row_id` and the rest of the key file's list), and `refs`: the capture keeps `#n`
+  and drops a `lifeos#`/`s2w#` prefix, so a ref's repository is unknown by construction.
+- **Two pinned readings:** the base key leaves `repo` and `actor` unscored (two repo values and
+  one observable actor would carry a large share of the micro score for a trivially keyed
+  field). `private-key-v0.context-scored.json` (variant `context-scored`) scores `repo` (alias
+  `ref_repo`) and `actor` (alias `author`, `other` excluded). A score report names the variant
+  each number came from.
+- **Relationships are declared, not scored:** `EDGES` in `private/key.ts` lists the typed
+  directed edges (§B3) between mentions of one frame, with `key.ts --edges` printing them as
+  JSON. The edge grader and a key format that carries them are s2w#388.
+- **Generated, never hand-edited:** `node --experimental-strip-types
+  research/h-measure/private/key.ts --write` writes both key files and
+  `private/fixture/synthetic-20.key-shape.json`. A changed key is a new file and a new
+  `keys.toml` row (`private-key-v1.json`), never an edit. The key must be pinned before the H
+  freeze that `private-test` is scored against: `score` refuses a key the freeze did not record.
+- **Verifier:** `key.ts --check --corpus <name>.raw.sse --provenance <name>.provenance.jsonl`
+  executes the key with the Rust executor's semantics and checks each mention against the
+  capture's sidecar: `sidecar-aligned` (one sidecar line per frame, same id), `sha-shape` (every
+  commit mention is 40 lowercase hex), `sha-resolved` (a leg's `sha` or a seat's `head_sha` is
+  the sidecar's `sha_resolved`), `ref-repo`, `seat-issue` (a seat without an issue is marked
+  `issue_unobservable` exactly when no PR has its branch) and `leg-key`. It prints counts only
+  (mentions per path, entity sizes per type, abstentions, rule failures, observed edges) and
+  exits 1 on any failure; that report is the publishable summary of the key.
+- **Hand-inspection sample:** `key.ts --sample N --seed S --corpus … --provenance … --out FILE`
+  draws N mentions stratified by mention path and writes a worksheet with each mention's frame
+  id, value, sidecar line and the exact source lookup to run. It holds values, so it refuses a
+  path inside a git work tree and carries the private capture header (check 20 refuses it in the
+  repository).
+- **Tests:** `node --experimental-strip-types --test research/h-measure/private/key.test.ts` (CI
+  `bundle` job) and `h_measure/private_key_tests.rs`. The Rust executor must reproduce the
+  partition shape `key.ts` committed for the synthetic fixture, and the fixture reproduces the
+  scoring: an item mapping keyed by number alone merges lifeos#900 with s2w#900 and scores a
+  false merge. The fixture's fake sidecar is `fixture/synthetic-20.fixture-provenance.jsonl`,
+  written by `fixture.ts --write`.
+
+The checked sample and its note (`results/private-key-v0.note.md`) are s2w#372 PR 2, run on
+`private-test` after s2w#371 PR 2 pins it.
+
 ## Freezing a mapping
 
 ```
