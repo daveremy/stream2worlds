@@ -1,5 +1,7 @@
 # Corpora for `cargo xtask h-measure` (s2w#56). The files are not committed (~770 MB); this
-# manifest pins them. Every corpus is plain `mediawiki.recentchange`, all wikis, replayed from
+# manifest pins them. The obfuscated replicates (s2w#370) and the two `private-*` corpora
+# (s2w#371) are at the end, each under its own comment; everything until then describes the
+# plain Wikipedia corpora. Each of those is plain `mediawiki.recentchange`, all wikis, replayed from
 # EventStreams history (`?since=`, retention ~7 days) as verbatim SSE frames that
 # `s2w_sources::replay_frames` reads exactly as the live adapter reads the stream (checked
 # 2026-09-29: every file gives `events` frames, every `data:` is JSON).
@@ -143,3 +145,43 @@ replicate = "r1"
 events = 200000
 bytes = 141701518
 sha256 = "cf60870b00ac6ca36dcc4d47fdd9cbd1b329be46a261d4be46b58f65096a2284"
+
+# private-dev and private-test (s2w#371 PR 2): the gate-3 private stream (contract B2.3), the
+# dev-worker and sprint log of daveremy/lifeos and daveremy/stream2worlds, written by
+# `research/h-measure/private/capture.ts` (README "Private stream") on 2026-10-01 (UTC), after
+# both spans had ended, with `--copy-dir ~/.lifeos/s2w-private` (a second, byte-identical copy
+# outside every repository; `score --dir` on it checks the same pins). Not the Wikipedia format's
+# stream: frames are the capture's own `kind`/`repo`/`ts` events, in the same SSE frame shape.
+# `provenance` is the answer-key sidecar (s2w#372), never committed; its sha256 is recorded
+# here, but no xtask reader checks it. `dropped`
+# restates the capture header's drop counts (rows outside lifeos/s2w, timeline kinds outside the
+# published set, and frames outside the span; the scrub gate refused nothing). private-test was
+# captured before the freeze on private-dev and stays reserved: only its stanza (counts, size,
+# sha256) was read. Answer key: private-key-v0.json, pinned in keys.toml before this freeze
+# (s2w#372 PR 1, #391), so the freeze that private-test is scored against is the one in this PR
+# (s2w#372 ruling 3).
+[corpus.private-dev]
+role = "development"
+file = "private-dev.raw.sse"
+stream = "private"
+since = "2026-09-21T00:00:00Z"
+until = "2026-09-28T12:00:00Z"
+events = 8067
+bytes = 2279410
+sha256 = "1e3fea5a96878a33ac603f3a5e98ffbe51f15e5e92d0fcb8d6c49fa931d4507d"
+provenance = "private-dev.provenance.jsonl"
+provenance_sha256 = "8ace2a639b6925398ec7f755aa77d23f0abf3d4cebcb1dffc2305ba45dc71ac0"
+dropped = "outside-span:6632,timeline-other-kind:2720,worker-other-repo:1109"
+
+[corpus.private-test]
+role = "reserved"
+file = "private-test.raw.sse"
+stream = "private"
+since = "2026-09-29T00:00:00Z"
+until = "2026-10-01T00:00:00Z"
+events = 5501
+bytes = 1537207
+sha256 = "f19f69eddb2e4528f04d35e6307869b48131a5dfcf7cdb339f32e4d931109357"
+provenance = "private-test.provenance.jsonl"
+provenance_sha256 = "f4d997f29de2e9fb0f0bc2dd1eeee2efcd1ee7792234e47053669a41e912db1b"
+dropped = "outside-span:717,timeline-other-kind:1168,worker-other-repo:191"

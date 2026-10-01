@@ -662,3 +662,26 @@ Dave approved this note (option (a) on s2w#373) on 2026-09-30 by Telegram, messa
   transport exposes no seed. One committed file holds one snapshot and has no tier escalation.
 
 This note changes no arm, metric, threshold or stream.
+
+### 2026-10-01: the private stream's sources, repository filter and spans (s2w#371; addition, no change in meaning)
+
+B2.3 names the private stream (the lifeos dev-worker and sprint log, "from the status database
+and git") and requires a bounded, frozen held-out span. This note records what the capture holds.
+It changes no arm, metric, threshold or stream; B2.3 stands as signed.
+
+- **Sources.** The dev-worker status database (`worker_history`), the review-seat logs, GitHub's
+  issue, pull-request and timeline records, the git history of the default branches plus every
+  commit another event names, and the sprint log. The GitHub records and review-seat logs are an
+  addition to "the status database and git", accepted at the s2w#371 plan gate (karpathy,
+  2026-09-30); they carry the same legs, issues, pull requests, review seats and merges.
+- **Repository filter.** `daveremy/lifeos` and `daveremy/stream2worlds` only, both private on
+  GitHub as of 2026-10-01. Rows of other projects are dropped and counted, never aliased.
+- **Fields only.** Titles, bodies, comment text, commit subjects, free-text status details, paths
+  and emails are dropped; a fail-closed scrub gate refuses the whole capture on any path, email,
+  phone or secret shape. The rules: [`research/h-measure/README.md` § Private stream](../research/h-measure/README.md#private-stream-s2w371).
+- **Spans.** Development `private-dev`, 2026-09-21T00:00Z to 2026-09-28T12:00Z (8,067 events);
+  held-out `private-test`, 2026-09-29T00:00Z to 2026-10-01T00:00Z (5,501 events), captured after it
+  ended and pinned `reserved` in `research/h-measure/corpora.toml` until a score opens it. The raw
+  events are never committed or published.
+- **Order.** The scored run on `private-test` precedes any publication of the source repos; if
+  that order ever has to break, Dave rules on §B2.3 first (karpathy ruling, s2w#371, 2026-10-01).
