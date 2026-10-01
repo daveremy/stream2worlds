@@ -1,6 +1,6 @@
 //! Typed deltas: what one folded event did to the world. Exactly one per offset.
 
-use s2w_core::{EntityId, Relationship, World, WorldEvent};
+use s2w_core::{EntityId, NaturalKey, Relationship, World, WorldEvent};
 use serde::Serialize;
 
 /// What one event did. The SSE stream sends exactly one per offset, so `Last-Event-ID`
@@ -102,95 +102,121 @@ fn in_degree(world: &World, id: EntityId) -> u64 {
 /// Folds one event and reports what it did. Reads only what it needs from the world before
 /// the fold, so a replay never clones the world.
 #[must_use]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one sequential pass whose steps share local state; splitting it is a follow-up refactor (s2w#156)"
-)]
 pub fn fold_with_delta(prev: World, event: &WorldEvent) -> (World, Delta) {
     match event {
-        WorldEvent::EntityObserved { key, .. } => {
-            let minted = prev.id_of(key).is_none();
-            let next = s2w_core::fold_one(prev, event);
-            let delta = match next.id_of(key) {
-                Some(id) => Delta::Entity {
-                    entity: id,
-                    resolved: next.resolve(id),
-                    minted,
-                },
-                None => Delta::Noop {
-                    event: "EntityObserved",
-                },
-            };
-            (next, delta)
-        }
+        WorldEvent::EntityObserved { key, .. } => fold_entity(prev, event, key),
         WorldEvent::RelationshipObserved { from, to, kind } => {
-            let before = prev
-                .id_of(to)
-                .map_or(0, |t| in_degree(&prev, prev.resolve(t)));
-            let next = s2w_core::fold_one(prev, event);
-            let (Some(f), Some(t)) = (next.id_of(from), next.id_of(to)) else {
-                return (
-                    next,
-                    Delta::Noop {
-                        event: "RelationshipObserved",
-                    },
-                );
-            };
-            let (source, target) = (next.resolve(f), next.resolve(t));
-            let after = in_degree(&next, target);
-            let delta = if after > next.hub_in_degree_cap() {
-                Delta::HubRef {
-                    source,
-                    hub: target,
-                    kind: kind.clone(),
-                    tripped: before <= next.hub_in_degree_cap(),
-                    in_degree: after,
-                }
-            } else {
-                let edge = Relationship {
-                    from: source,
-                    to: target,
-                    kind: kind.clone(),
-                };
-                let weight = next.relationships().get(&edge).copied().unwrap_or(0);
-                Delta::Link {
-                    source,
-                    target,
-                    kind: kind.clone(),
-                    weight,
-                }
-            };
-            (next, delta)
+            fold_relationship(prev, event, from, to, kind)
         }
         WorldEvent::EntitiesMerged { survivor, absorbed } => {
-            let ids = prev.id_of(survivor).zip(prev.id_of(absorbed));
-            let had = ids.is_some_and(|(s, a)| prev.merges().get(&a) == Some(&s));
-            let next = s2w_core::fold_one(prev, event);
-            let delta = match ids {
-                Some((s, a)) if !had && next.merges().get(&a) == Some(&s) => Delta::Merge {
-                    survivor: s,
-                    absorbed: a,
-                },
-                _ => Delta::Noop {
-                    event: "EntitiesMerged",
-                },
-            };
-            (next, delta)
+            fold_merge(prev, event, survivor, absorbed)
         }
         WorldEvent::MergeRevoked { survivor, absorbed } => {
-            let ids = prev.id_of(survivor).zip(prev.id_of(absorbed));
-            let had = ids.is_some_and(|(s, a)| prev.merges().get(&a) == Some(&s));
-            let next = s2w_core::fold_one(prev, event);
-            let delta = match ids {
-                Some((s, a)) if had && next.merges().get(&a) != Some(&s) => Delta::Split {
-                    survivor: s,
-                    absorbed: a,
-                },
-                _ => Delta::Noop {
-                    event: "MergeRevoked",
-                },
-            };
-            (next, delta)
+            fold_revoke(prev, event, survivor, absorbed)
         }
     }
+}
+
+fn fold_entity(prev: World, event: &WorldEvent, key: &NaturalKey) -> (World, Delta) {
+    let minted = prev.id_of(key).is_none();
+    let next = s2w_core::fold_one(prev, event);
+    let delta = match next.id_of(key) {
+        Some(id) => Delta::Entity {
+            entity: id,
+            resolved: next.resolve(id),
+            minted,
+        },
+        None => Delta::Noop {
+            event: "EntityObserved",
+        },
+    };
+    (next, delta)
+}
+
+fn fold_relationship(
+    prev: World,
+    event: &WorldEvent,
+    from: &NaturalKey,
+    to: &NaturalKey,
+    kind: &str,
+) -> (World, Delta) {
+    let before = prev
+        .id_of(to)
+        .map_or(0, |t| in_degree(&prev, prev.resolve(t)));
+    let next = s2w_core::fold_one(prev, event);
+    let (Some(f), Some(t)) = (next.id_of(from), next.id_of(to)) else {
+        return (
+            next,
+            Delta::Noop {
+                event: "RelationshipObserved",
+            },
+        );
+    };
+    let (source, target) = (next.resolve(f), next.resolve(t));
+    let after = in_degree(&next, target);
+    let delta = if after > next.hub_in_degree_cap() {
+        Delta::HubRef {
+            source,
+            hub: target,
+            kind: kind.to_owned(),
+            tripped: before <= next.hub_in_degree_cap(),
+            in_degree: after,
+        }
+    } else {
+        let edge = Relationship {
+            from: source,
+            to: target,
+            kind: kind.to_owned(),
+        };
+        let weight = next.relationships().get(&edge).copied().unwrap_or(0);
+        Delta::Link {
+            source,
+            target,
+            kind: kind.to_owned(),
+            weight,
+        }
+    };
+    (next, delta)
+}
+
+fn fold_merge(
+    prev: World,
+    event: &WorldEvent,
+    survivor: &NaturalKey,
+    absorbed: &NaturalKey,
+) -> (World, Delta) {
+    let ids = prev.id_of(survivor).zip(prev.id_of(absorbed));
+    let had = ids.is_some_and(|(s, a)| prev.merges().get(&a) == Some(&s));
+    let next = s2w_core::fold_one(prev, event);
+    let delta = match ids {
+        Some((s, a)) if !had && next.merges().get(&a) == Some(&s) => Delta::Merge {
+            survivor: s,
+            absorbed: a,
+        },
+        _ => Delta::Noop {
+            event: "EntitiesMerged",
+        },
+    };
+    (next, delta)
+}
+
+fn fold_revoke(
+    prev: World,
+    event: &WorldEvent,
+    survivor: &NaturalKey,
+    absorbed: &NaturalKey,
+) -> (World, Delta) {
+    let ids = prev.id_of(survivor).zip(prev.id_of(absorbed));
+    let had = ids.is_some_and(|(s, a)| prev.merges().get(&a) == Some(&s));
+    let next = s2w_core::fold_one(prev, event);
+    let delta = match ids {
+        Some((s, a)) if had && next.merges().get(&a) != Some(&s) => Delta::Split {
+            survivor: s,
+            absorbed: a,
+        },
+        _ => Delta::Noop {
+            event: "MergeRevoked",
+        },
+    };
+    (next, delta)
 }
