@@ -7,6 +7,7 @@ fn reply(text: &str) -> Reply {
         input_tokens: Some(3),
         output_tokens: None,
         latency_ms: Some(9),
+        ..Reply::default()
     }
 }
 

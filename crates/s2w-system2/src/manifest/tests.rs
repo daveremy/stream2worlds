@@ -13,6 +13,7 @@ fn reply(text: &str, tokens: u64, latency: u64) -> Reply {
         input_tokens: Some(tokens),
         output_tokens: Some(tokens / 10),
         latency_ms: Some(latency),
+        ..Reply::default()
     }
 }
 

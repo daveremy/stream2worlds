@@ -88,6 +88,7 @@ impl ReplayProvider {
                 input_tokens: row.input_tokens,
                 output_tokens: row.output_tokens,
                 latency_ms: row.latency_ms,
+                ..Reply::default()
             };
             if replies.insert(row.prompt_hash.clone(), reply).is_some() {
                 return Err(ReplayError::Duplicate(row.prompt_hash));

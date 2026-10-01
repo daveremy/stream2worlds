@@ -17,6 +17,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::provider::{Provider, ProviderError, Reply};
 
+mod format;
+
+pub use format::ReplyFormat;
+
 /// How long the readers may take to finish once the command has exited or been killed. A
 /// process the command started can hold its pipes open past that; its reader is abandoned.
 const DRAIN_GRACE: Duration = Duration::from_secs(2);
@@ -66,6 +70,7 @@ pub struct ExecProvider {
     argv: Vec<String>,
     env: Vec<(String, OsString)>,
     limits: ExecLimits,
+    format: ReplyFormat,
 }
 
 impl ExecProvider {
@@ -85,6 +90,7 @@ impl ExecProvider {
             argv,
             env,
             limits: ExecLimits::default(),
+            format: ReplyFormat::Text,
         })
     }
 
@@ -155,7 +161,7 @@ impl Provider for ExecProvider {
             stderr,
             latency_ms,
         };
-        run.classify(self.limits)
+        run.classify(self.limits, self.format)
     }
 }
 
@@ -302,7 +308,7 @@ struct Run {
 }
 
 impl Run {
-    fn classify(self, limits: ExecLimits) -> Result<Reply, ProviderError> {
+    fn classify(self, limits: ExecLimits, format: ReplyFormat) -> Result<Reply, ProviderError> {
         let latency_ms = self.latency_ms;
         let stdout_text = lossy(&self.stdout.bytes);
         let Some(status) = self.status else {
@@ -333,12 +339,7 @@ impl Run {
         }
         let text = String::from_utf8(self.stdout.bytes)
             .map_err(|_| ProviderError::NotUtf8 { latency_ms })?;
-        Ok(Reply {
-            text,
-            input_tokens: None,
-            output_tokens: None,
-            latency_ms: Some(latency_ms),
-        })
+        format::reply(format, text, latency_ms)
     }
 }
 

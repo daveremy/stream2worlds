@@ -1,16 +1,26 @@
 //! The provider seam: one prompt in, one reply out.
 
-/// One model reply and what it cost.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One model reply and what it cost. Every count is `None` unless the provider reports it.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reply {
     /// The reply text, as the model produced it.
     pub text: String,
-    /// Input tokens, when the provider reports them.
+    /// Input tokens, when the provider reports them: tokens read from no cache.
     pub input_tokens: Option<u64>,
     /// Output tokens, when the provider reports them.
     pub output_tokens: Option<u64>,
     /// Wall time of the call, when the provider measured it.
     pub latency_ms: Option<u64>,
+    /// Input tokens read from the provider's prompt cache, when it reports them.
+    pub cache_read_tokens: Option<u64>,
+    /// Input tokens written to the provider's prompt cache, when it reports them.
+    pub cache_write_tokens: Option<u64>,
+    /// The provider's own cost figure in US dollars, when it reports one. A cross-check only:
+    /// spend is computed from tokens and a committed price table, never from this.
+    pub cost_usd: Option<f64>,
+    /// The model the provider says answered, when it says. Recorded beside the configured
+    /// model, never in its place.
+    pub model: Option<String>,
 }
 
 /// Why a provider call produced no reply.
@@ -68,6 +78,25 @@ pub enum ProviderError {
     /// Reading from or writing to the command failed.
     #[error("exec: {0}")]
     Io(String),
+    /// The reply format did not hold: the envelope is not JSON, lacks a field, or reports an
+    /// error.
+    #[error("envelope: {reason}")]
+    Envelope {
+        /// What was wrong.
+        reason: String,
+        /// Wall time of the call.
+        latency_ms: u64,
+        /// The stdout that was parsed.
+        stdout: String,
+    },
+    /// A recorded failure, replayed. It displays as the failure displayed when it was recorded.
+    #[error("{error}")]
+    Replayed {
+        /// The recorded failure's text.
+        error: String,
+        /// The recorded wall time, if any.
+        latency_ms: Option<u64>,
+    },
     /// A replay provider holds no reply for this prompt.
     #[error("replay: no recorded reply for prompt {prompt_hash}")]
     NotRecorded {
@@ -82,8 +111,9 @@ impl ProviderError {
     pub fn raw(&self) -> Option<&str> {
         match self {
             Self::Timeout { stdout, .. } | Self::Exit { stdout, .. } => stdout.as_deref(),
-            Self::StdoutTooLarge { stdout, .. } => Some(stdout),
+            Self::StdoutTooLarge { stdout, .. } | Self::Envelope { stdout, .. } => Some(stdout),
             Self::Spawn(_)
+            | Self::Replayed { .. }
             | Self::NotUtf8 { .. }
             | Self::StdoutHeld { .. }
             | Self::Io(_)
@@ -99,7 +129,9 @@ impl ProviderError {
             | Self::StdoutTooLarge { latency_ms, .. }
             | Self::Exit { latency_ms, .. }
             | Self::NotUtf8 { latency_ms }
-            | Self::StdoutHeld { latency_ms } => Some(*latency_ms),
+            | Self::StdoutHeld { latency_ms }
+            | Self::Envelope { latency_ms, .. } => Some(*latency_ms),
+            Self::Replayed { latency_ms, .. } => *latency_ms,
             Self::Spawn(_) | Self::Io(_) | Self::NotRecorded { .. } => None,
         }
     }

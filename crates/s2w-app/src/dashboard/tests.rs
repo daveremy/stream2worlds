@@ -445,6 +445,7 @@ fn reply(text: &str) -> Reply {
         input_tokens: Some(1_000),
         output_tokens: Some(200),
         latency_ms: Some(1_500),
+        ..Reply::default()
     }
 }
 
