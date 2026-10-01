@@ -25,8 +25,8 @@
   crate's `pub` items with a committed snapshot, and `cargo xtask api --update` rewrites it on
   purpose, so every API change is a visible diff in review.
   [#362](https://github.com/daveremy/stream2worlds/pull/362)
-- **Module cycles in the server fail the build.** Check 15 is enforced, so the server's layers
-  depend in one direction only. [#359](https://github.com/daveremy/stream2worlds/pull/359)
+- **Module cycles fail the build.** Check 15 is enforced in every crate, so each crate's
+  modules depend in one direction only. [#359](https://github.com/daveremy/stream2worlds/pull/359)
 - **Lint exceptions can only go down.** A shrink-only count of `#[expect]` attributes fell from 66
   to 53 across two sprints. [#366](https://github.com/daveremy/stream2worlds/pull/366)
 - **The demo reads as Wikipedia.** The viewer shows each type's name, noun and icon, a **Live
