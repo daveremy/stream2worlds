@@ -13,6 +13,16 @@ A sprint without a merge still gets an entry. What it learned is often the most 
 
 ---
 
+## Concluded: the project stops after gate 3 (2026-10-01)
+
+**Shipped:** the README now opens with the experiment's [result](README.md#result): the question, the rules fixed in advance, the gate-3 numbers, what they mean and what they cannot say, what worked, and what we would do differently. The repository gains `LICENSE-MIT` and `LICENSE-APACHE`, matching the `MIT OR Apache-2.0` the workspace manifest already declared. Sentences that promised future work, a launch or a hosted demo now say what was and was not built.
+
+**Learned:** the result is the one in [research 0010](research/0010-gate3-verdict.md). System 2 on `claude-sonnet-5-5` did not beat the heuristics or the raw-sample baseline on either stream, for $4.22 of API spend.
+
+**Changed course:** the contract's kill criterion said to stop and re-decide after a failed gate 3. The decision (Dave, 2026-10-01) is to stop. Gate 4 and the launch will not run.
+
+**Next:** none. The repository stays public for reference, and its issues are closed.
+
 ## Gate 3 runs, and fails on both streams — [#374](https://github.com/daveremy/stream2worlds/issues/374) (2026-10-01)
 
 **Shipped:** the scored gate-3 run. Five replicates per stream, three arms (H, H+S2, B3), 30 score reports and a generated summary under `research/h-measure/results/gate3/`, the five held-out obfuscation metadata files, and [research 0010](research/0010-gate3-verdict.md) with the contract's verdict. Total API spend $4.22; scoring cost nothing.

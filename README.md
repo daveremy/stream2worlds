@@ -6,20 +6,153 @@
 </p>
 
 <p align="center">
-  <img alt="status: research project" src="https://img.shields.io/badge/status-research%20project%20%C2%B7%20pre--alpha-B8721A">
+  <img alt="status: concluded 2026-10-01" src="https://img.shields.io/badge/status-concluded%202026--10--01-5B6778">
   <img alt="language: Rust" src="https://img.shields.io/badge/built%20in-Rust-2F5BD3">
   <img alt="interface: MCP" src="https://img.shields.io/badge/agents-MCP-0E8487">
-  <img alt="license: permissive at launch" src="https://img.shields.io/badge/license-permissive%20at%20launch-5B6778">
+  <img alt="license: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-5B6778">
 </p>
 
-<p align="center"><b>Point <code>s2w</code> at an event stream you have never seen and watch a model of the world behind it form. Every forecast it makes is graded against what the stream shows next. The LLM never touches an event.</b></p>
+<p align="center"><b>The aim: point <code>s2w</code> at an event stream it has never seen and watch a model of the world behind it form, with the LLM never touching an event. The experiment tested that aim and it failed its own test.</b></p>
 
 > [!NOTE]
-> **A research project, pre-alpha.** Each gate is a pre-registered question that can fail, and every result, negative ones included, is published. `s2w watch` runs today against Wikipedia, Kafka, generic Server-Sent Events streams and stdin, streaming into a durable log that resumes across restarts; `s2w mcp` exposes eight read-only query tools over stdio and can replay an on-disk world. Gate 1 (the evaluation contract) is signed; gate 2 (the harness) has its workspace, its fitness functions, the append-only event log, three sources, the pure fold with golden replay, a world query API and read-only MCP; `s2w serve <source>` ingests, bridges and serves a live query API in one process, and the same port serves a local web view: an evidence table and a 2D entity graph. The [roadmap](#roadmap) says exactly where we are. Opinions are held lightly.
+> **Concluded 2026-10-01.** Stream2Worlds was a research project built as a series of pre-registered gates, each able to fail. Gate 3 asked whether the LLM layer earns its place, and it failed on both test streams, so the project stopped there. Read the [Result](#result) first. The code still builds and runs: `s2w watch` streams Wikipedia, Kafka, generic Server-Sent Events and stdin into a durable log that resumes across restarts; `s2w serve` ingests, serves a live query API and a local web view (an evidence table and a 2D entity graph) in one process; `s2w mcp` exposes eight read-only query tools over stdio. There is no further development.
+
+## Result
+
+### What it set out to do
+
+Stream2Worlds (`s2w`) tried to turn an unfamiliar event stream into a typed model of the
+entities behind it, with no hand-written schema. Fast heuristics (System 1) run on every event.
+An LLM (System 2) reads samples in the background and proposes a mapping: entity types, identity
+keys and relationships. The bet was that System 2 finds structure the heuristics alone miss.
+
+### The question and the rules, fixed in advance
+
+Gate 3 asked: does System 2 on top of the heuristics (H+S2) recover a stream's structure better
+than the heuristics alone (H), and better than the same model shown a raw sample of events (B3)?
+The [evaluation contract](docs/evaluation-contract.md) fixed the rules when it was signed on
+2026-09-27, four days before the scored run.
+
+Two streams, each judged on its own: an obfuscated copy of Wikipedia's `recentchange` stream
+(every field renamed, every identifier hashed), and a private stream that no model had seen: the
+development log of this project's own coding agents (pull requests, reviews, merges, sprints).
+Each stream ran 5 replicates. H+S2 had to pass every item of
+[contract §B4](docs/evaluation-contract.md#b4-gate-3-pass-thresholds-dave-2026-09-27-including-the-v4-fixes):
+
+| B4 item | H+S2 must reach |
+|---|---|
+| 1. Identity F1 gain over H | at least 0.10 on the mean, and higher than H in all 5 replicates |
+| 2. Safety | false-merge rate at most 0.05 in every replicate, mean no more than 0.02 above H's; relationship F1 no more than 0.05 below H's |
+| 3. Entity recovery | at least 0.60 of repeated entities, on the mean |
+| 4. Identity F1 gain over B3 | at least 0.05 on the mean, and higher in at least 4 of 5 replicates |
+| 5. Budget | at most $5 of API spend per stream per replicate |
+
+The contract also set the kill criterion: if gate 3 fails, stop and re-decide.
+
+### The result
+
+Run on 2026-10-01 with one provider, `claude-sonnet-5-5`. Means over the 5 replicates:
+
+| | obfuscated | private | contract floor |
+|---|---|---|---|
+| H identity F1 | 0.6011 | 0.0044 | |
+| H+S2 identity F1 | 0.3534 | 0.6346 | |
+| B3 identity F1 | 0.2518 | 0.6310 | |
+| H+S2 gain over H | −0.2477 (higher in 0 of 5) | 0.6303 (higher in 5 of 5) | ≥ 0.10, higher in all 5 |
+| H+S2 gain over B3 | 0.1017 (higher in 5 of 5) | 0.0036 (higher in 2 of 5) | ≥ 0.05, higher in 4 of 5 |
+| H+S2 entity recovery | 0.0705 | 0.1982 | ≥ 0.60 |
+
+- **Obfuscated stream: fail.** H+S2 scores below H in every replicate and recovers 0.0705 of
+  repeated entities against a floor of 0.60.
+- **Private stream: fail.** H+S2 beats H only because H scores near zero there. It beats B3 by
+  0.0036 where the contract asks for 0.05, and recovers 0.1982 of repeated entities against 0.60.
+
+The false-merge and budget items pass on both streams. The relationship item fails on both
+because H's relationship F1 is undefined, and the contract counts an undefined value as a fail;
+items 3 and 4 fail on measured numbers, so the verdict does not depend on that convention. The
+whole run cost $4.22 of API spend; scoring ran locally and cost nothing. Item by item, with the
+graded predictions and every disclosed weakness: [research 0010](research/0010-gate3-verdict.md).
+
+### What it means
+
+On this evidence, System 2 did not earn its place. On the obfuscated stream the model's mapping
+was worse than the heuristic mapping it started from: it dropped entity types the heuristics
+kept. On the private stream H+S2 tied B3 (0.6346 against 0.6310), so starting the model from the
+heuristics' output gave it nothing that a raw sample did not.
+
+What the experiment cannot say:
+
+- **Anything about other models.** One provider ran. The contract makes claims per provider.
+- **Anything about other streams.** Two streams ran, and one is Wikipedia with its names removed.
+- **Anything about forecasting.** Gate 3 tests structure recovery. Gate 4, the forecast ledger,
+  never ran.
+- **What a re-tuned prompt would score.** Every arm was built and tuned on development spans
+  only, the test spans were opened once, and nothing was re-tuned after scoring.
+
+The five replicates are also less independent than they look: on the obfuscated stream, four of
+five H+S2 files and four of five B3 files score identically.
+
+### What did work
+
+- **The pre-registered harness.** Predictions were posted before any obfuscated test span was
+  opened, and all 20 System 2 and B3 mappings were committed to `main` before scoring. GitHub's
+  timestamps and the git history order every step. Two exceptions are disclosed: the private test
+  span was opened earlier to score H, and the plain Wikipedia span the obfuscated copies derive
+  from was already open ([research 0010](research/0010-gate3-verdict.md#disclosed-flows-and-weaknesses)).
+  A ledger records every model call; the whole gate-3 run cost $4.22. The predictions hit 28 of
+  44 clauses, and the biggest miss was the heuristics' own score under obfuscation.
+- **Legibility.** A dashboard manifest written by System 2 made the demo world readable. In a
+  spot check, 20 of 20 event sentences were readable and 20 of 20 matched their raw events; the
+  deterministic fallback scored 0 of 20 readable ([changelog](CHANGELOG.md)). This was System 2
+  naming things, a different job from the one gate 3 graded.
+- **The heuristic profiler.** `s2w-discover` reads statistics, never field names. On plain
+  Wikipedia it reached identity F1 0.8104 on a held-out span. Under obfuscation it scored 0.6011:
+  renaming made four fields byte-equal, and the profiler then dropped the `wiki` entity type
+  ([research 0010](research/0010-gate3-verdict.md#design-implications)).
+- **The log, the fold and the seams.** Raw events go into an append-only log that is never
+  edited, and the world is a pure fold over it, checked by golden replay. The build enforces the
+  layers: a per-crate dependency allowlist, module size caps and public API snapshots
+  ([Technical architecture](#technical-architecture)).
+- **The demo.** `s2w serve wikipedia` ingests Wikipedia's live edits and serves the world with a
+  web view. On the demo server, all 10 cold restarts drew their first paint within 1 s and the
+  graph within 3 s. The local demos under [Demos](#demos) still run.
+
+### What we would do differently
+
+- **Measure every arm on obfuscated development data before predicting.** The predictions used
+  the heuristics' plain-Wikipedia score as a proxy (0.78 to 0.84). Under obfuscation they scored
+  0.6011: obfuscation changed the result, not only the notation.
+- **Give every model-facing arm a stub-model test from the start.** B3's first version showed
+  the model a different view of each event than the scorer read, and scored zero everywhere. Only
+  a $3.47 live dry run found it.
+- **Check that replicates produce distinct outcomes** before a rule relies on "all 5". Four of
+  five replicates per arm scored identically on the obfuscated stream.
+- **Use a clean-session check that can fail.** All 20 runs reported that they saw nothing beyond
+  their prompt, but that probe cannot prove an absence
+  ([#431](https://github.com/daveremy/stream2worlds/issues/431)).
+
+### Status
+
+Concluded 2026-10-01. There is no further development. The repository stays public for
+reference, and its issues are closed.
+
+To check the verdict from a clone (Node 22; tested with 22.23), regenerate the summary from the
+30 committed score reports and the 20 committed mappings and compare it with the committed copy:
+
+```bash
+node research/h-measure/gate3-summary.ts | diff - research/h-measure/results/gate3/summary.md
+```
+
+No output means the B4 table, the means and the graded predictions match. Each report was
+produced by `cargo xtask h-measure score` from a committed mapping
+([research/h-measure](research/h-measure/README.md#scoring-a-frozen-mapping)). Re-scoring from
+scratch needs the scored corpora, which are pinned by sha256 in
+[`corpora.toml`](research/h-measure/corpora.toml) but not committed: the Wikipedia capture came
+from a live stream that keeps about 7 days of history, and the private stream is not published.
 
 ## Latest
 
-*Updated at the end of every sprint. The full story is in the [changelog](CHANGELOG.md).*
+*The full story is in the [changelog](CHANGELOG.md).*
 
 - **Gate 3 ran, and System 2 did not earn its place on this provider.** On both streams H+S2 fails
   the contract: it scores below H on the obfuscated stream (F1 0.35 against 0.60) and ties the
@@ -28,28 +161,27 @@
   different view of each event than the scorer read, so it scored zero everywhere. Fixed, it scores
   F1 0.33 on `dev` for $0.47, and a stub-model test now guards the view. [#402](https://github.com/daveremy/stream2worlds/pull/402)
 - **The profiler links values that name one entity.** On a held-out span, recall rises from 0.36 to
-  0.68 and recovery from 0.14 to 0.98. Links stay measurement-only until the memory baseline is set.
-  [#397](https://github.com/daveremy/stream2worlds/pull/397)
+  0.68 and recovery from 0.14 to 0.98. [#397](https://github.com/daveremy/stream2worlds/pull/397)
 - **The scorer grades relationships, not just identity.** Answer keys can declare typed edges, such
   as who edited which page, and an edge grader scores predictions by the contract's rules. [#404](https://github.com/daveremy/stream2worlds/pull/404)
-- **In progress:** the contract says to stop and re-decide after a failed gate 3
-  ([#13](https://github.com/daveremy/stream2worlds/issues/13)); the decision is Dave's.
+- **The project concluded.** Gate 3 failed, so, as the contract's kill criterion requires, the
+  project stopped and re-decided: it stopped for good on 2026-10-01. [Result](#result)
 
 ## Demos
 
 One command each after `cargo build --release`, no other configuration. Newest first — see
 [`demos/`](demos/) for what each one shows and a captured real run.
 
-The live demo (`/w/default/` on the demo box) reads the world's dashboard manifest when one is
+The web view (`/w/default/` on a running `s2w serve`) reads the world's dashboard manifest when one is
 in effect: graph nodes and the legend carry each type's name, noun and kind icon, **Live
 changes** lists the newest 200 events as the manifest's sentences, and **Active now** counts
 the entities they name, for example `👤 1isall (22 changes)`. A pinned moment
 (`?at=`) keeps names and icons but shows the evidence list, since sentences are live only.
 With no manifest the page shows today's evidence view.
 
-![The live demo: a type graph, a legend and Active now, with names and icons](docs/assets/demo-live.jpg)
+![A captured run of the web view: a type graph, a legend and Active now, with names and icons](docs/assets/demo-live.jpg)
 
-*The live demo on 2026-09-30, after the #350 deploy. Types with no manifest row still show raw key text (#351).*
+*A captured run on the project's demo server, 2026-09-30. The server is retired; the local demos below run the same code. Types with no manifest row still show raw key text (#351).*
 
 - **[local-routed-world](demos/local-routed-world/)**: `./demos/local-routed-world/run.sh
   [--keep]` — a local `s2w serve` whose world is routed from the first event (a human-accepted
@@ -65,13 +197,13 @@ With no manifest the page shows today's evidence view.
 
 Every organization already describes itself in streams: orders, shipments, edits, sensor readings, database writes. Almost nobody sees them as a whole, because turning a stream into a model of the business has always meant a schema project and a data team.
 
-Stream2Worlds (`s2w`) skips that step. A stream is many entities' lives interleaved: every cart, customer and flight emitting events on its own schedule. `s2w` untangles it into a **world**, typed entities, relationships and state, rebuilt from the log so you can scrub it back to any moment. Then it forecasts what each entity does next, draws those forecasts as **possible worlds**, and grades every one against what actually happens.
+Stream2Worlds (`s2w`) skips that step. A stream is many entities' lives interleaved: every cart, customer and flight emitting events on its own schedule. `s2w` untangles it into a **world**, typed entities, relationships and state, rebuilt from the log so you can scrub it back to any moment. The plan was then to forecast what each entity does next, draw those forecasts as **possible worlds**, and grade every one against what actually happens. The project concluded before forecasting was built ([Result](#result)).
 
 A **possible world** here is one sampled future of the world, rolled forward from the present state. A forecast is a question asked across many such samples, recorded before the outcome and graded after it. (Probabilistic databases use the same phrase for uncertainty about the *present*; `s2w` borrows their Monte Carlo semantics and points them at the future. See [research 0001](research/0001-prior-art.md#q2-possible-worlds-as-a-term).)
 
-## What the demo will show
+## The demo the project aimed at
 
-None of this exists yet. It is the demo the first slice builds toward, and each line names the gate that has to pass first.
+This is the demo the first slice was building toward; each line names the gate it depended on. The gate-2 parts run today. The project stopped after gate 3 failed, so the learning (gate 3), the forecast ledger (gate 4) and the views planned for after the slice were never built.
 
 - **One command, no configuration.** `s2w watch <stream>` and raw events start flowing. (gate 2)
 - **A world assembling itself.** Ids become entities, entities get types and names, the graph tidies itself as it learns. (gate 2 for the evidence view, gate 3 for the learning)
@@ -81,6 +213,8 @@ None of this exists yet. It is the demo the first slice builds toward, and each 
 - **Ask it from your agent.** Claude, Codex or any MCP client can query the world, ask for forecasts with their track records, and propose rules. (read-only MCP in gate 2)
 
 ## How it works
+
+This section describes the design. What was built is in [Running today](#running-today) and the [Technical architecture](#technical-architecture) table.
 
 Two systems over one log. **System 1** runs on every event in microseconds to milliseconds: rules, embeddings, and fast decision models such as Jev. **System 2** runs in the background in seconds: an LLM that reads snapshots of the world, proposes types, repairs and forecasters, and teaches System 1. System 2 never sits in the stream. That is the lesson from this project's predecessor, which put the LLM on the event path and was too slow.
 
@@ -102,7 +236,7 @@ flowchart LR
 | **Reality grades every forecast** | A forecast is an immutable record with a horizon. Its outcome is scored separately, so every forecaster carries a public track record. Questions are registered with a cutoff, a horizon, outcome sources and baselines, the same shape as the [contract](docs/evaluation-contract.md) `s2w` was evaluated under before any code was written. |
 | **If this, then that, across worlds** | One small language for queries, subscriptions and rules that read the world or a forecast and act through plugins. |
 | **Agents are first-class clients** | A read-only MCP server exposes the world, forecasts, evidence and a ranked attention feed. The dashboard is where people see what agents saw and did. |
-| **Visualization is first class** | The view is built with the core, not after it: every gate ships its capability, the view that shows it to a person, and the MCP surface that shows it to an agent ([decision 0017](docs/decisions/0017-view-and-agents-first-class.md)). The view stays domain-free; System 2 will tailor it to each domain with a view spec that is itself an event in the log. |
+| **Visualization is first class** | The view is built with the core, not after it: every gate ships its capability, the view that shows it to a person, and the MCP surface that shows it to an agent ([decision 0017](docs/decisions/0017-view-and-agents-first-class.md)). The view stays domain-free; System 2 was to tailor it to each domain with a view spec that is itself an event in the log. |
 
 ## Running today
 
@@ -282,10 +416,10 @@ takes every token after it up to a standalone `--` or the end, so put it last or
 the operator recipe is in
 [decision 0029](docs/decisions/0029-dashboard-manifest-v0.md#the-system-2-proposer-311-2026-09-30).
 
-## Planned interface
+## Interface that was planned
 
-This is the target shape. `s2w watch wikipedia`, `s2w watch kafka://…` and `s2w mcp` above run
-today. Still to build: reading only some partitions or sampling entities by key on a busier
+This was the target shape. `s2w watch wikipedia`, `s2w watch kafka://…` and `s2w mcp` above run
+today. Never built: reading only some partitions or sampling entities by key on a busier
 Kafka topic.
 
 ```bash
@@ -296,44 +430,44 @@ s2w watch kafka://localhost:9092/orders --partitions 0,1 --sample 1/4
 claude mcp add s2w -- s2w mcp
 ```
 
-`s2w` targets about 1,000 events/s on a laptop. Local by default: nothing leaves your machine unless you approve an export manifest.
+The design targeted about 1,000 events/s on a laptop. Local by default: nothing leaves your machine unless you approve an export manifest.
 
 ## Evaluation
 
-A forecast you cannot check is an opinion. `s2w` grades its own predictions against what the stream later shows, and it grades itself the same way.
+A forecast you cannot check is an opinion. The design graded `s2w`'s own predictions against what the stream later shows, and graded `s2w` itself the same way. Only the last row of this table ran, as gate 3; the forecast ledger (gate 4) was never built, so the rest of this section describes the design.
 
 | What is graded | Against what | When |
 |---|---|---|
-| **Every forecast**, from any predictor: a rule, embeddings, a decision model such as Jev, an LLM | The outcome the stream later reports, and matched baselines: the base rate, a simple-features model, and any reference model you name | Continuously, once the forecast ledger lands (gate 4) |
-| **Every judgment**: System 1 verdicts and System 2's proposed types, merges and repairs | Your accept or reject, and later evidence (a merge that later splits counts as a false merge) | After the first slice |
-| **`s2w` itself** | A [pre-registered contract](docs/evaluation-contract.md), written before any code: the question, the eligible events, the baselines and the pass thresholds | Gates 3 and 4 |
+| **Every forecast**, from any predictor: a rule, embeddings, a decision model such as Jev, an LLM | The outcome the stream later reports, and matched baselines: the base rate, a simple-features model, and any reference model you name | Gate 4, never built |
+| **Every judgment**: System 1 verdicts and System 2's proposed types, merges and repairs | Your accept or reject, and later evidence (a merge that later splits counts as a false merge) | After the first slice, never built |
+| **`s2w` itself** | A [pre-registered contract](docs/evaluation-contract.md), written before any code: the question, the eligible events, the baselines and the pass thresholds | Gate 3 ran and failed ([Result](#result)); gate 4 never ran |
 
-Stream outcomes are awkward to grade, and the ledger is built around that:
+Stream outcomes are awkward to grade, and the ledger was designed around that:
 
 - **Outcomes arrive late.** Each question fixes a deadline for deciding its outcome. Anything learned after that deadline is recorded as an audit and never rewrites the label.
 - **Some outcomes are never observable.** A deleted page or an unrecoverable gap in the stream makes the outcome censored, not wrong. The evaluator, not the predictor, decides what is censored, and every result carries a worst-case check: would it survive if every censored case had gone against it?
 - **Forecasts cannot be rewritten.** A forecast is fixed when it is issued. Replays, repairs and restarts never change it, and pruning a branch from the view never removes it from the score.
 - **Abstaining can't fake skill.** A predictor may decline to answer; its abstentions are scored as base-rate guesses, so declining everything earns exactly zero skill, and how often it really answered is published beside its score.
 
-Each predictor's record (graded count, skill over the base rate, calibration) is what `forecast.ask` returns alongside a probability, and what the System 1 router will use to pick an engine. `s2w` is not a general LLM eval framework. It grades forecasts and judgments against a live stream, the part existing eval tools do not cover.
+Each predictor's record (graded count, skill over the base rate, calibration) was to be what `forecast.ask` returns alongside a probability, and what the System 1 router uses to pick an engine. `s2w` is not a general LLM eval framework. It grades forecasts and judgments against a live stream, the part existing eval tools do not cover.
 
-**The first question, with its numbers.** Gate 4 asks, for each human edit to an English Wikipedia article: will it be reverted within 30 minutes? A 30-minute pilot on 2026-09-27 ([research 0004](research/0004-revert-pilot.md)) measured 1,854 eligible edits, a 3.8% base rate, and ROC AUC 0.888 for Wikimedia's own revert-risk model on that question. One Sunday-morning window, so these are orders of magnitude, not the test. Wikimedia's model is reported beside `s2w`'s score, not required to be beaten: the gate asks for skill over the base rate and over a simple-features model, and calibration ([contract A9](docs/evaluation-contract.md#a9-gate-4-pass-thresholds-dave-2026-09-27-report-b2-dont-require-it)).
+**The first question, with its numbers.** Gate 4 would have asked, for each human edit to an English Wikipedia article: will it be reverted within 30 minutes? A 30-minute pilot on 2026-09-27 ([research 0004](research/0004-revert-pilot.md)) measured 1,854 eligible edits, a 3.8% base rate, and ROC AUC 0.888 for Wikimedia's own revert-risk model on that question. One Sunday-morning window, so these are orders of magnitude, not the test. Wikimedia's model would have been reported beside `s2w`'s score, not required to be beaten: the gate would have asked for skill over the base rate and over a simple-features model, and calibration ([contract A9](docs/evaluation-contract.md#a9-gate-4-pass-thresholds-dave-2026-09-27-report-b2-dont-require-it)).
 
-**The heuristics arm, measured.** Gate 3 compares System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover` without containment), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. A later rule, scored on a third held-out span (`reserved-3`, opened only after the predictions were posted), raises that: `PROFILER_VERSION` 4 keys Wikipedia's `user` and reaches identity F1 0.4431 (0.2920 under version 3), precision 0.99, entity recovery 0.042 ([#261](https://github.com/daveremy/stream2worlds/pull/261)). Containment (stage 5b, `PROFILER_VERSION` 5), the stage that makes H-lite into H-min, keys Wikipedia's `revision` from `revision.old` → `revision.new` and, on another held-out span (`reserved`), reaches identity F1 0.5334 (0.4447 under version 4), precision 0.99, entity recovery 0.125 (#244). Links (`PROFILER_VERSION` 9, a version-2 mapping that joins alias paths holding different values) reach identity F1 0.8063 (0.5303 under version 8), precision 0.99, entity recovery 0.98 on `reserved-5` at the 10^4 window, and 0.8104 on a fresh span (`reserved-6`) after a re-freeze under the format-3 keys (#375). Under those keys, H's first relationship scores are edge precision 0.4643 and recall 0.2350. `serve` does not apply links yet (#245, #392). The v0 mapping format limits every arm here (it cannot join different values that name one entity), so the note reads H-lite against an oracle-v0 reference (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
+**The heuristics arm, measured.** Gate 3 compared System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover` without containment), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. A later rule, scored on a third held-out span (`reserved-3`, opened only after the predictions were posted), raises that: `PROFILER_VERSION` 4 keys Wikipedia's `user` and reaches identity F1 0.4431 (0.2920 under version 3), precision 0.99, entity recovery 0.042 ([#261](https://github.com/daveremy/stream2worlds/pull/261)). Containment (stage 5b, `PROFILER_VERSION` 5), the stage that makes H-lite into H-min, keys Wikipedia's `revision` from `revision.old` → `revision.new` and, on another held-out span (`reserved`), reaches identity F1 0.5334 (0.4447 under version 4), precision 0.99, entity recovery 0.125 (#244). Links (`PROFILER_VERSION` 9, a version-2 mapping that joins alias paths holding different values) reach identity F1 0.8063 (0.5303 under version 8), precision 0.99, entity recovery 0.98 on `reserved-5` at the 10^4 window, and 0.8104 on a fresh span (`reserved-6`) after a re-freeze under the format-3 keys (#375). Under those keys, H's first relationship scores are edge precision 0.4643 and recall 0.2350. `serve` does not apply links yet (#245, #392). The v0 mapping format limits every arm here (it cannot join different values that name one entity), so the note reads H-lite against an oracle-v0 reference (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
 
 **Gate 3, run.** The scored run (`claude-sonnet-5-5`, 5 replicates per stream, $4.22 of API spend, scoring local) fails: on the obfuscated stream H+S2's mean identity F1 is 0.3534 against H's 0.6011 and its entity recovery is 0.0705; on the private stream H+S2 reaches F1 0.6346 against H's 0.0044 but recovers 0.1982 of repeated entities (floor 0.60) and beats the raw-sample baseline (0.6310) by 0.0036 (needs 0.05). Item by item, with the graded predictions and the disclosed flows: [research 0010](research/0010-gate3-verdict.md); reports in `research/h-measure/results/gate3/`.
 
 ## Roadmap
 
-The first slice is four gates and a launch, each able to fail honestly. A runnable demo on live data ends every sprint.
+The first slice was four gates and a launch, each able to fail honestly. It stopped at gate 3.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
 - [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold and parse instructions per event against CI-measured baselines (fork not yet measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
-- [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. **Run 2026-10-01 (`claude-sonnet-5-5`): fails on both streams** ([research 0010](research/0010-gate3-verdict.md)); the contract says stop and re-decide. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
-- [ ] **Gate 4 — one forecast ledger.** One question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
-- [ ] **Launch.** The split-screen demo, one install path, open source. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
+- [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. **Run 2026-10-01 (`claude-sonnet-5-5`): fails on both streams** ([research 0010](research/0010-gate3-verdict.md)); the contract said stop and re-decide, and the project stopped. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
+- [ ] **Gate 4 — one forecast ledger.** Not run: the project stopped after gate 3. The plan was one question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
+- [ ] **Launch.** Not done: the project stopped after gate 3. The source is public for reference. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
 
-After the slice: the revert forecast re-run on non-English Wikipedias (the first measurement is English-only by choice; `s2w` itself is built for streams in any language), the full possible-worlds view, a 3D explorer for moving through a world and its possible futures, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
+Planned for after the slice and not built: the revert forecast on non-English Wikipedias, the full possible-worlds view, a 3D explorer for moving through a world and its possible futures, rules with dry-run actions, the ADS-B air-traffic demo, and sharing through an approved export manifest.
 
 ## Architecture, continuously
 
@@ -342,7 +476,7 @@ Good architecture from the first commit, paid down every sprint instead of in a 
 - a **pure functional core** (events in, world out; time and randomness passed in) inside an imperative shell;
 - **layers enforced by the build**: a per-crate dependency allowlist, replay determinism, and escape hatches (`unwrap`, `#[allow]`, `todo!`) denied by the compiler, checked on every PR;
 - **every seam ships with two real implementations** in the first slice, so no abstraction is designed from a single case;
-- an `AGENTS.md` in every crate, because most of the code will be written by coding agents.
+- an `AGENTS.md` in every crate, because coding agents were expected to write most of the code.
 
 Decisions live in [`docs/decisions/`](docs/decisions/).
 
@@ -375,6 +509,9 @@ underlying model is English-only. Full design, the version-pinning scheme, and n
 follow-ups: [decision 0013](docs/decisions/0013-local-embeddings-engine.md).
 
 ## Technical architecture
+
+> **2026-10-01:** the project concluded after gate 3. In the Status column, **building** now means
+> built as far as the project got; rows marked **later** or **on trigger** were never built.
 
 What `s2w` is built on, and what is deliberately not built yet. **Building** means part of the first slice, in the gate named; **later** means after the first slice; **on trigger** means we switch only when the named measurement says so.
 
@@ -431,7 +568,7 @@ Every part of `s2w` exists somewhere. As of 2026-09-27 we found no system that d
 - **Object-centric process mining** discovers object types and their relationships from flat event logs, offline. The strongest method, [Rebmann, Rehse and van der Aa (BPM 2022)](https://doi.org/10.1007/978-3-031-16103-2_25), leans on attribute names; gate 3's obfuscated stream is the case where names carry nothing. `s2w`'s world maps onto the [OCEL 2.0](https://arxiv.org/abs/2403.01975) standard's objects and relationships.
 - **Key discovery in databases**, such as [LLM-FK](https://arxiv.org/abs/2603.07278) and [Tursio](https://arxiv.org/abs/2603.04176), finds keys with statistics first and an LLM to adjudicate, on static tables.
 - **Complex event forecasting**, such as [Wayeb](https://link.springer.com/article/10.1007/s00778-021-00698-x), issues and scores probabilistic forecasts on live streams, for patterns you write.
-- **Wikimedia's [revert-risk model](https://meta.wikimedia.org/wiki/Machine_learning_models/Production/Language-agnostic_revert_risk)** already publishes a revert probability for every edit, live. Gate 4 uses it as the strong baseline. Its label has no time window; the gate-4 question asks about 30 minutes.
+- **Wikimedia's [revert-risk model](https://meta.wikimedia.org/wiki/Machine_learning_models/Production/Language-agnostic_revert_risk)** already publishes a revert probability for every edit, live. Gate 4 was to use it as the strong baseline. Its label has no time window; the gate-4 question asks about 30 minutes.
 
 ## Design and reviews
 
@@ -449,4 +586,4 @@ It started at EventStore with a wish: switch on predictions for an event store t
 
 ## License
 
-To be chosen at launch; it will be permissive. The workspace manifest already declares `MIT OR Apache-2.0`.
+Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.

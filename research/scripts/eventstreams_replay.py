@@ -24,7 +24,7 @@ Prints one summary line on stdout when done:
 """
 import argparse, datetime as dt, http.client, json, sys, time, urllib.error, urllib.request
 
-UA = 's2w-research/0.1 (davidlremy@gmail.com)'
+UA = 's2w-research/0.1 (email@daveremy.com)'
 
 
 def parse_args(argv):
