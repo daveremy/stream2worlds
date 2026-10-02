@@ -15,7 +15,7 @@
 <p align="center"><b>The aim: point <code>s2w</code> at an event stream it has never seen and watch a model of the world behind it form, with the LLM never touching an event. Gate 3 tested the LLM half of that aim, and it failed its own test.</b></p>
 
 > [!NOTE]
-> **Concluded 2026-10-01.** Stream2Worlds was a research project built as a series of pre-registered gates, each able to fail. Gate 3 asked whether the LLM layer earns its place, and it failed on both test streams, so the project stopped there. Read the [Result](#result) first. The code still builds and runs: `s2w watch` streams Wikipedia, Kafka, generic Server-Sent Events and stdin into a durable log that resumes across restarts; `s2w serve` ingests, serves a live query API and a local web view (an evidence table and a 2D entity graph) in one process; `s2w mcp` exposes eight read-only query tools over stdio. There is no further development.
+> **Concluded 2026-10-01.** Stream2Worlds was a research project built as a series of pre-registered gates, each able to fail. Gate 3 asked whether the LLM layer earns its place, and it failed on both test streams, so the project stopped there. Read the [Result](#result) first. The code still builds and runs: `s2w watch` streams Wikipedia, Kafka, generic Server-Sent Events and stdin into a durable log that resumes across restarts; `s2w serve` ingests, serves a live query API and a local web view (an evidence table and a 2D entity graph) in one process; `s2w mcp` exposes nine read-only query tools over stdio. There is no further development.
 
 ## Result
 

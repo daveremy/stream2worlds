@@ -43,6 +43,7 @@ How to read the rows:
   becomes 3, clause 41 becomes a hit (Gate row 5 of 5, 3 of 10 rows hit overall). The gate verdict is
   the same either way. Items 3 and 4 fail on measured numbers
   regardless, so the verdict does not depend on the convention.
+  *(Corrected 2026-10-01: item 4 passes on the obfuscated stream. On measured numbers, item 3 fails on both streams, item 1 fails on the obfuscated stream and item 4 fails on the private stream. The verdict is unchanged.)*
 - **Not "insufficient headroom".** H's mean F1 is 0.6011 and 0.0044, both below 0.90, so the margin
   exists on both streams.
 - The private stream's item 1 passes only because H scores 0.0044 there: H's private mapping reaches
