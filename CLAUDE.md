@@ -5,7 +5,7 @@ System 2 in the background, forecasts graded by reality). Design: `docs/design/`
 `docs/decisions/`. Status and gates: README "Roadmap".
 
 ## Forge and branches
-GitHub (`gh`), private until launch. Work on a branch (`feat/`, `fix/`, `chore/`, `pair/`), open a
+GitHub (`gh`), public. The project concluded on 2026-10-01 and takes no further development. Work on a branch (`feat/`, `fix/`, `chore/`, `pair/`), open a
 PR; never commit to `main` directly after the bootstrap commit.
 
 ## Build gates (once the workspace exists)
