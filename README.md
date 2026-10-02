@@ -12,7 +12,7 @@
   <img alt="license: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-5B6778">
 </p>
 
-<p align="center"><b>The aim: point <code>s2w</code> at an event stream it has never seen and watch a model of the world behind it form, with the LLM never touching an event. The experiment tested that aim and it failed its own test.</b></p>
+<p align="center"><b>The aim: point <code>s2w</code> at an event stream it has never seen and watch a model of the world behind it form, with the LLM never touching an event. Gate 3 tested the LLM half of that aim, and it failed its own test.</b></p>
 
 > [!NOTE]
 > **Concluded 2026-10-01.** Stream2Worlds was a research project built as a series of pre-registered gates, each able to fail. Gate 3 asked whether the LLM layer earns its place, and it failed on both test streams, so the project stopped there. Read the [Result](#result) first. The code still builds and runs: `s2w watch` streams Wikipedia, Kafka, generic Server-Sent Events and stdin into a durable log that resumes across restarts; `s2w serve` ingests, serves a live query API and a local web view (an evidence table and a 2D entity graph) in one process; `s2w mcp` exposes eight read-only query tools over stdio. There is no further development.
@@ -31,11 +31,13 @@ keys and relationships. The bet was that System 2 finds structure the heuristics
 Gate 3 asked: does System 2 on top of the heuristics (H+S2) recover a stream's structure better
 than the heuristics alone (H), and better than the same model shown a raw sample of events (B3)?
 The [evaluation contract](docs/evaluation-contract.md) fixed the rules when it was signed on
-2026-09-27, four days before the scored run.
+2026-09-27, four days before the scored run. Later dated notes clarified procedure; none changed a
+threshold.
 
 Two streams, each judged on its own: an obfuscated copy of Wikipedia's `recentchange` stream
-(every field renamed, every identifier hashed), and a private stream that no model had seen: the
-development log of this project's own coding agents (pull requests, reviews, merges, sprints).
+(every field renamed, every identifier hashed), and a private stream that was never published: the
+development log of the coding agents that built this project and its sibling `lifeos` repository
+(pull requests, reviews, merges, sprints).
 Each stream ran 5 replicates. H+S2 had to pass every item of
 [contract §B4](docs/evaluation-contract.md#b4-gate-3-pass-thresholds-dave-2026-09-27-including-the-v4-fixes):
 
@@ -59,7 +61,7 @@ Run on 2026-10-01 with one provider, `claude-sonnet-5-5`. Means over the 5 repli
 | H+S2 identity F1 | 0.3534 | 0.6346 | |
 | B3 identity F1 | 0.2518 | 0.6310 | |
 | H+S2 gain over H | −0.2477 (higher in 0 of 5) | 0.6303 (higher in 5 of 5) | ≥ 0.10, higher in all 5 |
-| H+S2 gain over B3 | 0.1017 (higher in 5 of 5) | 0.0036 (higher in 2 of 5) | ≥ 0.05, higher in 4 of 5 |
+| H+S2 gain over B3 | 0.1017 (higher in 5 of 5) | 0.0036 (higher in 2 of 5) | ≥ 0.05, higher in at least 4 of 5 |
 | H+S2 entity recovery | 0.0705 | 0.1982 | ≥ 0.60 |
 
 - **Obfuscated stream: fail.** H+S2 scores below H in every replicate and recovers 0.0705 of
@@ -69,16 +71,17 @@ Run on 2026-10-01 with one provider, `claude-sonnet-5-5`. Means over the 5 repli
 
 The false-merge and budget items pass on both streams. The relationship item fails on both
 because H's relationship F1 is undefined, and the contract counts an undefined value as a fail;
-items 3 and 4 fail on measured numbers, so the verdict does not depend on that convention. The
+item 3 fails on both streams on measured numbers (as do item 1 on the obfuscated stream and item 4
+on the private one), so the verdict does not depend on that convention. The
 whole run cost $4.22 of API spend; scoring ran locally and cost nothing. Item by item, with the
 graded predictions and every disclosed weakness: [research 0010](research/0010-gate3-verdict.md).
 
 ### What it means
 
 On this evidence, System 2 did not earn its place. On the obfuscated stream the model's mapping
-was worse than the heuristic mapping it started from: it dropped entity types the heuristics
-kept. On the private stream H+S2 tied B3 (0.6346 against 0.6310), so starting the model from the
-heuristics' output gave it nothing that a raw sample did not.
+was worse than the heuristic mapping it started from. In replicate 2, for example, it reached
+`revision` recall 0 where the heuristics reached 1.0 (cause untested). On the private stream H+S2 tied B3 (0.6346 against 0.6310), so on identity F1, starting the
+model from the heuristics' output gave it nothing that a raw sample did not.
 
 What the experiment cannot say:
 
@@ -87,7 +90,8 @@ What the experiment cannot say:
 - **Anything about forecasting.** Gate 3 tests structure recovery. Gate 4, the forecast ledger,
   never ran.
 - **What a re-tuned prompt would score.** Every arm was built and tuned on development spans
-  only, the test spans were opened once, and nothing was re-tuned after scoring.
+  only, the obfuscated test spans were opened once, after every mapping was committed, and nothing
+  was re-tuned after scoring.
 
 The five replicates are also less independent than they look: on the obfuscated stream, four of
 five H+S2 files and four of five B3 files score identically.
@@ -100,14 +104,15 @@ five H+S2 files and four of five B3 files score identically.
   span was opened earlier to score H, and the plain Wikipedia span the obfuscated copies derive
   from was already open ([research 0010](research/0010-gate3-verdict.md#disclosed-flows-and-weaknesses)).
   A ledger records every model call; the whole gate-3 run cost $4.22. The predictions hit 28 of
-  44 clauses, and the biggest miss was the heuristics' own score under obfuscation.
+  44 clauses. One miss changed how to read the run: the heuristics scored F1 0.6011 under
+  obfuscation against a predicted 0.78 to 0.84.
 - **Legibility.** A dashboard manifest written by System 2 made the demo world readable. In a
   spot check, 20 of 20 event sentences were readable and 20 of 20 matched their raw events; the
   deterministic fallback scored 0 of 20 readable ([changelog](CHANGELOG.md)). This was System 2
   naming things, a different job from the one gate 3 graded.
 - **The heuristic profiler.** `s2w-discover` reads statistics, never field names. On plain
   Wikipedia it reached identity F1 0.8104 on a held-out span. Under obfuscation it scored 0.6011:
-  renaming made four fields byte-equal, and the profiler then dropped the `wiki` entity type
+  hashing values by identifier domain made four fields byte-equal, and the profiler then dropped the `wiki` entity type
   ([research 0010](research/0010-gate3-verdict.md#design-implications)).
 - **The log, the fold and the seams.** Raw events go into an append-only log that is never
   edited, and the world is a pure fold over it, checked by golden replay. The build enforces the
@@ -115,7 +120,8 @@ five H+S2 files and four of five B3 files score identically.
   ([Technical architecture](#technical-architecture)).
 - **The demo.** `s2w serve wikipedia` ingests Wikipedia's live edits and serves the world with a
   web view. On the demo server, all 10 cold restarts drew their first paint within 1 s and the
-  graph within 3 s. The local demos under [Demos](#demos) still run.
+  graph within 3 s; after a long replay the graph still waited for it to finish
+  ([#341](https://github.com/daveremy/stream2worlds/issues/341)). The local demos under [Demos](#demos) still run.
 
 ### What we would do differently
 
@@ -126,7 +132,7 @@ five H+S2 files and four of five B3 files score identically.
   the model a different view of each event than the scorer read, and scored zero everywhere. Only
   a $3.47 live dry run found it.
 - **Check that replicates produce distinct outcomes** before a rule relies on "all 5". Four of
-  five replicates per arm scored identically on the obfuscated stream.
+  five replicates of each model arm (H+S2 and B3) scored identically on the obfuscated stream.
 - **Use a clean-session check that can fail.** All 20 runs reported that they saw nothing beyond
   their prompt, but that probe cannot prove an absence
   ([#431](https://github.com/daveremy/stream2worlds/issues/431)).
@@ -144,7 +150,7 @@ node research/h-measure/gate3-summary.ts | diff - research/h-measure/results/gat
 ```
 
 No output means the B4 table, the means and the graded predictions match. Each report was
-produced by `cargo xtask h-measure score` from a committed mapping
+produced by `cargo xtask h-measure score` from a committed mapping, or for H its frozen mapping
 ([research/h-measure](research/h-measure/README.md#scoring-a-frozen-mapping)). Re-scoring from
 scratch needs the scored corpora, which are pinned by sha256 in
 [`corpora.toml`](research/h-measure/corpora.toml) but not committed: the Wikipedia capture came
@@ -453,7 +459,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) wa
 
 **The first question, with its numbers.** Gate 4 would have asked, for each human edit to an English Wikipedia article: will it be reverted within 30 minutes? A 30-minute pilot on 2026-09-27 ([research 0004](research/0004-revert-pilot.md)) measured 1,854 eligible edits, a 3.8% base rate, and ROC AUC 0.888 for Wikimedia's own revert-risk model on that question. One Sunday-morning window, so these are orders of magnitude, not the test. Wikimedia's model would have been reported beside `s2w`'s score, not required to be beaten: the gate would have asked for skill over the base rate and over a simple-features model, and calibration ([contract A9](docs/evaluation-contract.md#a9-gate-4-pass-thresholds-dave-2026-09-27-report-b2-dont-require-it)).
 
-**The heuristics arm, measured.** Gate 3 compared System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover` without containment), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. A later rule, scored on a third held-out span (`reserved-3`, opened only after the predictions were posted), raises that: `PROFILER_VERSION` 4 keys Wikipedia's `user` and reaches identity F1 0.4431 (0.2920 under version 3), precision 0.99, entity recovery 0.042 ([#261](https://github.com/daveremy/stream2worlds/pull/261)). Containment (stage 5b, `PROFILER_VERSION` 5), the stage that makes H-lite into H-min, keys Wikipedia's `revision` from `revision.old` → `revision.new` and, on another held-out span (`reserved`), reaches identity F1 0.5334 (0.4447 under version 4), precision 0.99, entity recovery 0.125 (#244). Links (`PROFILER_VERSION` 9, a version-2 mapping that joins alias paths holding different values) reach identity F1 0.8063 (0.5303 under version 8), precision 0.99, entity recovery 0.98 on `reserved-5` at the 10^4 window, and 0.8104 on a fresh span (`reserved-6`) after a re-freeze under the format-3 keys (#375). Under those keys, H's first relationship scores are edge precision 0.4643 and recall 0.2350. `serve` does not apply links yet (#245, #392). The v0 mapping format limits every arm here (it cannot join different values that name one entity), so the note reads H-lite against an oracle-v0 reference (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
+**The heuristics arm, measured.** Gate 3 compared System 2 against a heuristics-only arm (H) on entity identity. H's first slice, H-lite (`s2w-discover` without containment), was frozen on the first 10,000 events of a plain Wikipedia `recentchange` development corpus (the window `serve` uses; freezing on all 200,000 gives the same entity rules) and scored with `cargo xtask h-measure score` on two later 100,000-event spans it never saw ([research 0009](research/0009-h-min-plain-wikipedia.md)): identity F1 0.284 and 0.293, precision 0.97 to 0.98, entity recovery 0. A later rule, scored on a third held-out span (`reserved-3`, opened only after the predictions were posted), raises that: `PROFILER_VERSION` 4 keys Wikipedia's `user` and reaches identity F1 0.4431 (0.2920 under version 3), precision 0.99, entity recovery 0.042 ([#261](https://github.com/daveremy/stream2worlds/pull/261)). Containment (stage 5b, `PROFILER_VERSION` 5), the stage that makes H-lite into H-min, keys Wikipedia's `revision` from `revision.old` → `revision.new` and, on another held-out span (`reserved`), reaches identity F1 0.5334 (0.4447 under version 4), precision 0.99, entity recovery 0.125 (#244). Links (`PROFILER_VERSION` 9, a version-2 mapping that joins alias paths holding different values) reach identity F1 0.8063 (0.5303 under version 8), precision 0.99, entity recovery 0.98 on `reserved-5` at the 10^4 window, and 0.8104 on a fresh span (`reserved-6`) after a re-freeze under the format-3 keys (#375). Under those keys, H's first relationship scores are edge precision 0.4643 and recall 0.2350. `serve` never applied links (#245, #392). The v0 mapping format limits every arm here (it cannot join different values that name one entity), so the note reads H-lite against an oracle-v0 reference (F1 0.57 to 0.59) as well as 1.0. Plain Wikipedia is reported, never counted toward the gate.
 
 **Gate 3, run.** The scored run (`claude-sonnet-5-5`, 5 replicates per stream, $4.22 of API spend, scoring local) fails: on the obfuscated stream H+S2's mean identity F1 is 0.3534 against H's 0.6011 and its entity recovery is 0.0705; on the private stream H+S2 reaches F1 0.6346 against H's 0.0044 but recovers 0.1982 of repeated entities (floor 0.60) and beats the raw-sample baseline (0.6310) by 0.0036 (needs 0.05). Item by item, with the graded predictions and the disclosed flows: [research 0010](research/0010-gate3-verdict.md); reports in `research/h-measure/results/gate3/`.
 
@@ -462,7 +468,7 @@ Each predictor's record (graded count, skill over the base rate, calibration) wa
 The first slice was four gates and a launch, each able to fail honestly. It stopped at gate 3.
 
 - [x] **Gate 1 — the evaluation contract.** [Signed 2026-09-27](docs/evaluation-contract.md) after five review rounds. The question, how outcomes are labelled, the baselines to beat, and pass thresholds, written before any code.
-- [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold and parse instructions per event against CI-measured baselines (fork not yet measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
+- [x] **Gate 2 — the local harness.** Rust workspace, three sources, the log, the pure fold with golden replay, an evidence view, read-only MCP. The workspace skeleton, fitness functions, the append-only event log, the Wikipedia/Kafka/generic-SSE sources, the pure fold with golden replay and the named-world query API are built; read-only MCP over stdio is also built; `s2w serve` wires ingestion and the live bridge into HTTP, and serves the evidence view (an evidence table and a 2D graph) from the same loopback port; a scale fitness function gates heap bytes per entity and measures fold and parse instructions per event against CI-measured baselines (fork never measured; per-partition source lag is reported on the status line). ([milestone](https://github.com/daveremy/stream2worlds/milestone/1) · [epic](https://github.com/daveremy/stream2worlds/issues/12))
 - [ ] **Gate 3 — does System 2 earn its place?** Heuristics against heuristics plus System 2, on Wikipedia, an obfuscated copy, and a private stream. **Run 2026-10-01 (`claude-sonnet-5-5`): fails on both streams** ([research 0010](research/0010-gate3-verdict.md)); the contract said stop and re-decide, and the project stopped. ([milestone](https://github.com/daveremy/stream2worlds/milestone/2) · [epic](https://github.com/daveremy/stream2worlds/issues/13))
 - [ ] **Gate 4 — one forecast ledger.** Not run: the project stopped after gate 3. The plan was one question, independent outcomes, matched baselines, skill and coverage reported. ([milestone](https://github.com/daveremy/stream2worlds/milestone/3) · [epic](https://github.com/daveremy/stream2worlds/issues/14))
 - [ ] **Launch.** Not done: the project stopped after gate 3. The source is public for reference. ([milestone](https://github.com/daveremy/stream2worlds/milestone/4) · [epic](https://github.com/daveremy/stream2worlds/issues/15))
@@ -513,7 +519,7 @@ follow-ups: [decision 0013](docs/decisions/0013-local-embeddings-engine.md).
 > **2026-10-01:** the project concluded after gate 3. In the Status column, **building** now means
 > built as far as the project got; rows marked **later** or **on trigger** were never built.
 
-What `s2w` is built on, and what is deliberately not built yet. **Building** means part of the first slice, in the gate named; **later** means after the first slice; **on trigger** means we switch only when the named measurement says so.
+What `s2w` is built on, and what was deliberately not built. **Building** means part of the first slice, in the gate named; **later** means after the first slice; **on trigger** means we switch only when the named measurement says so.
 
 | Part | Choice | Status | Why, or what would change it |
 |---|---|---|---|
@@ -529,10 +535,10 @@ What `s2w` is built on, and what is deliberately not built yet. **Building** mea
 | Event log | Append-only SQLite log (`rusqlite`, WAL, synchronous FULL) with source cursors and provenance | built (gate 2) | Each append stores its event and advances its source cursor in one transaction; raw events are never edited. |
 | World computation | Pure fold over the log; each forecast world recomputed from a snapshot | built (gate 2) | Simplest thing that replays deterministically. Ids are assigned once and never reused; merges alias, revokes split ([decision 0005](docs/decisions/0005-pure-fold.md)). Forecast worlds wait for branches. |
 | World snapshots | A derived file per snapshot under `<log_dir>/snapshots/`: magic, length, a `postcard` payload holding the folded world, and an FNV-1a checksum ([decision 0024](docs/decisions/0024-snapshots.md)) | building (gate 2) | Restart cost is bounded by the tail after the newest snapshot instead of the whole log. A snapshot is loaded only when its format, fold, engine routing and log position all still match; otherwise it is ignored and the log replays from 0. `serve` writes them periodically and on stop, and restarts from the newest valid one. |
-| World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/worlds/{world}/world` at any offset and level of detail, `/worlds/{world}/events` (optionally bounded by `at=`), `/worlds/{world}/branches`, `/worlds/{world}/diff`, `/worlds/{world}/entity/{id}/history`, `/worlds/{world}/time`, `/worlds/{world}/sources?at=`, `/worlds/{world}/proposals`, `/worlds/{world}/dashboard` ([decision 0029](docs/decisions/0029-dashboard-manifest-v0.md)), `/worlds/{world}/sentences?last=N` (the last N events as the manifest's sentences, each entity with the display label its type row names), plus `/worlds` discovery ([decision 0006](docs/decisions/0006-world-query-api.md), [decision 0015](docs/decisions/0015-named-worlds.md)) | built (gate 2) | One contract for the web view, `--json` and MCP, and later the 3D explorer. Serves the actual branch of one named world per process (`branch=` other than actual and `lod=cluster` answer 501); `s2w mcp` exposes its nine world-scoped read tools over stdio; the loopback HTTP listener ships as `s2w serve <source>` ([decision 0014](docs/decisions/0014-serve-topology.md)) with a cap of 32 concurrent event streams and an `Origin` allowlist ([decision 0016](docs/decisions/0016-web-delivery.md)). |
+| World query API | HTTP over the folded world in `s2w-app` (`axum`, SSE deltas; `tower` in tests): `/worlds/{world}/world` at any offset and level of detail, `/worlds/{world}/events` (optionally bounded by `at=`), `/worlds/{world}/branches`, `/worlds/{world}/diff`, `/worlds/{world}/entity/{id}/history`, `/worlds/{world}/time`, `/worlds/{world}/sources?at=`, `/worlds/{world}/proposals`, `/worlds/{world}/dashboard` ([decision 0029](docs/decisions/0029-dashboard-manifest-v0.md)), `/worlds/{world}/sentences?last=N` (the last N events as the manifest's sentences, each entity with the display label its type row names), plus `/worlds` discovery ([decision 0006](docs/decisions/0006-world-query-api.md), [decision 0015](docs/decisions/0015-named-worlds.md)) | built (gate 2) | One contract for the web view, `--json` and MCP (a 3D explorer was planned, never built). Serves the actual branch of one named world per process (`branch=` other than actual and `lod=cluster` answer 501); `s2w mcp` exposes its nine world-scoped read tools over stdio; the loopback HTTP listener ships as `s2w serve <source>` ([decision 0014](docs/decisions/0014-serve-topology.md)) with a cap of 32 concurrent event streams and an `Origin` allowlist ([decision 0016](docs/decisions/0016-web-delivery.md)). |
 | Incremental engine | [Differential Dataflow](https://github.com/TimelyDataflow/differential-dataflow) first (7 direct dependencies, no runtime), [Feldera's DBSP](https://github.com/feldera/feldera) runner-up; world branch as a column | on trigger | Switch when forks × world size misses a 100 ms frame budget ([research 0003](research/0003-rust-substrate.md)). The predecessors used Differential Dataflow (worldcraft) and Timely (timely_worlds). |
 | System 1 engines | JSON claims, stream mapping | building (gate 2–3) | Two engines ship behind the verdict/confidence/abstain trait: JSON claims, a payload that already is a claim, and a data-driven stream-mapping executor. `serve` routes a source to the mapping its accepted `stream-mapping` proposal names, and the engine is named by the mapping's identity, so a changed mapping never serves the old one's verdicts or snapshots ([decision 0023](docs/decisions/0023-routes-from-stored-mappings.md)). Every verdict is stored before its claims are served, and a restart replays stored verdicts instead of re-running engines ([decision 0012](docs/decisions/0012-verdict-log.md)). A heuristic profiler, `s2w-discover`, proposes the stream mapping a generic executor will run, or abstains; it reads statistics, never names ([decision 0022](docs/decisions/0022-discover-profiler.md)). At start `serve` profiles each unrouted source's first 10,000 events and files and `policy`-accepts what it proposes ([decision 0025](docs/decisions/0025-learned-mapping-auto-apply.md)). |
-| System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it joins through the bake-off, p50/p99 and accuracy per engine. |
+| System 1, decision models | TypeSafe's Jev and similar models, as a third engine behind the same trait | later | Nobody has measured Jev's latency, cost or accuracy on these questions; it would have joined through the bake-off, p50/p99 and accuracy per engine. |
 | System 1 router | Each judgment names a latency budget; rule → embeddings → decision model | later | Needs more than one engine worth routing between. |
 | System 2 | A hosted LLM API on a fixed budget; the client's own agent via MCP sampling, or a local model. `s2w-system2` holds the `Provider` seam, an exec provider (runs an operator-named model CLI with the prompt on stdin: no shell, cleared env, empty working dir, time and byte caps), a replay provider for tests, and the manifest proposer, whose prompts are committed files; `serde`/`serde_json` encode prompt data and decode replies, `thiserror` types the errors | building (gate 3) | Asynchronous, never in the stream. Two providers differ in latency, cost and where data goes. A proposal attempt makes at most two model calls (one repair); a mapping attempt makes a third, one no-match repair, when its first valid mapping matches no sampled record. Every reply is persisted so replay never re-runs a model. |
 | Read-only MCP server | `s2w mcp` over stdio using `rmcp` `=3.4.1`; nine read-only tools share the query API, plus the opt-in `decision_record` write ([decision 0009](docs/decisions/0009-mcp-server.md)) | built (gate 2) | Read-only annotations and identical JSON responses. `--log-dir` replays stored verdicts while the writer remains active, refreshing periodically (about every 500ms) and serving world manifest and membership-history metadata loaded once at open; no flag keeps the empty-world behavior. HTTP MCP transport is deferred. |
