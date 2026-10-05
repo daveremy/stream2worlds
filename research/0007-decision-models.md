@@ -704,3 +704,91 @@ None found. Rune v3: still "no GGUF builds of v3 yet" ([HF](https://huggingface.
 Kev's OpenRouter page and Jev's OpenRouter model page (404 to fetch); JEV-27B latency is vendor-claimed on a B200; Lumma-Fev hardware unnamed; spillai VLM API unresolved.
 
 Ranked shortlist: unchanged
+
+## Refresh 2026-10-05
+
+Baseline: `## Refresh 2026-09-28`. Seven days elapsed. Conventions unchanged: **UNVERIFIED** = snippet, directory or third-party write-up only; judgments labelled **Judgment**. Instrument caveat: every page was read through a fetch tool that returns a model's summary of the page, so "not on the page" is weaker evidence than a quoted figure. All latencies are as published by each project; none is measured by us.
+
+### Latency, shortlist members first
+
+Budget (decision 0004): 1 ms per event on one core, 4 ms across four cores.
+
+| Engine | CPU p50 | CPU p99 | Throughput / core | Fits 1,000 ev/s on 4 cores? | Source · what changed since 09-28 |
+|---|---|---|---|---|---|
+| Blink-tiny (#1) | 54 µs reused state / 406 µs fresh (M5 Pro, one core); W8A8 33 µs / 221 µs; Accelerate 32 µs / 172 µs; x86-64 GitHub runner 90 µs / 760 µs | unknown (not published) | 18,211 dec/s reused state (C99), 29,481 (W8A8), 31,290 (Accelerate) | **yes** | [README](https://github.com/sqliteai/blink), [CHANGELOG](https://github.com/sqliteai/blink/blob/main/CHANGELOG.md): still 0.1.0 (2026-09-22), 4 commits. No change. |
+| Julia-1 (#2) | i5-1235U: 294.81 ms typed decisions, 107.83 ms AG News, 89.83 ms DAIR Emotion, **3,713.54 ms Banking77**; Apple M4: 33.15 ms | unknown; p95 published: 428.49 / 142.89 / 118.95 / 5,125.10 ms (i5), 44.23 ms (M4) | unknown per core; M4 28.01 dec/s single, 51.20 batched (core count not stated) | no (sampled) | [supersoniclabs.ai](https://supersoniclabs.ai/julia-1/). Figures unchanged; the i5 p95s and the Banking77 median were not in the note. The note's `.ia.br` URL now 301-redirects to `.ai`. |
+| Laya (#2) | **4-core AMD EPYC 9R14, fp32 PyTorch, `OMP_NUM_THREADS=4`: 580 ms (english, 1 question), 193 ms (multilingual), 584 ms (typed-decisions); 10 questions: 6,244 / 1,842 / 6,031 ms** | unknown | unknown (4 threads used per decision) | no (sampled) | [PR #393](https://github.com/NandhaKishorM/laya/pull/393), merged 2026-09-24, new to note. INT8/ONNX on the same box: not published. Repo now v0.3.27, 1,401 commits ([repo](https://github.com/NandhaKishorM/laya)). |
+| Jev 1.13.0 (#3) | hosted, no CPU path | unknown | n/a; **rate limit now 100K tok/s and 80 req/s** | no (async) | [docs/models](https://docs.typesafe.ai/models.md). Limit was 250k tok/s and 1,200 req/min on 09-28. Competitor-measured: median 524.1 ms, p95 536.0 ms ([Cloudflare Clef card](https://huggingface.co/Cloudflare/clef)). |
+| Kev-4B (#4) | none published; Mac M5 721 ms new text / 136 ms cached | unknown | GPU: H100 18.1 / 12.9 ms, L40S 41.5 / 27.7 ms; ~101 req/s on one H100 at 64 concurrent clients | no | [repo](https://github.com/jaredpalmer/kev), [HF card](https://huggingface.co/jaredpalmer/kev-4b). Now tagged Kev 1.0 (2026-09-30). The Mac figure is now primary (was UNVERIFIED). |
+| Splink (#5) | per-pair unknown | unknown | unknown | n/a | [releases](https://github.com/moj-analytical-services/splink/releases): **v5.0.0 stable, 18 Sep** (note said "v5 dev"), new to note. |
+| **Quyet-1.0-Tiny** (183M, new) | 26 ms on "CPU, 4 threads", CPU model **not named** | unknown; p95 **990 ms** | unknown | no | Author's [JevBench submission](https://github.com/fstandhartinger/jevbench/issues/188), 2026-10-04; vendor-claimed. |
+| **Quyet-1.0-Small-EN** (153M) / **-Small** (328M), new | 55 ms / 65 ms, same unnamed CPU | unknown; p95 2,177 / 2,692 ms | unknown | no | same |
+| **jevos-v4** (1B, new) | Intel Core Ultra 7 255H, **16 threads**: 28 ms short request, 130 ms long (median of 10); ~20 ms one yes/no, ~100 ms 3-option choice, ~170 ms 10-option | unknown | unknown (16 threads per decision) | no | [repo](https://github.com/feder-cr/jev); vendor-claimed. |
+| **raz-systemone-nli-xsmall** (70.8M, new) | unknown ("CPU-only capability" stated, no figure) | unknown | unknown | unknown | [HF](https://huggingface.co/RazvanManolache/raz-systemone-nli-xsmall) |
+| **Strands Decider 2B** (AWS, new) | none; M3 Pro warm median 153 ms under 300 tokens, 234 ms all tasks | unknown | RTX 3090: median 115 ms, p95 299 ms | no | [repo](https://github.com/strands-labs/strands-decider), [blog 2026-10-01](https://strandsagents.com/blog/introducing-strands-decider/) |
+| **Clef-flash** 9B / **Clef** 27B (Cloudflare, new) | none (CPU support not documented) | unknown | one H200: 38.8 ms median, 122.4 ms p95 (flash); 209.3 ms / 238.6 ms (Clef) | no | [HF clef-flash](https://huggingface.co/Cloudflare/clef-flash), [HF clef](https://huggingface.co/Cloudflare/clef); vendor-claimed |
+| **Kev-0.8B / -9B / -27B** (new sizes) | none | unknown | L4 22.7 / 16.1 ms (0.8B); H100 24.0 / 16.6 ms (9B), 75.0 / 52.0 ms (27B) | no | [repo](https://github.com/jaredpalmer/kev) |
+| **StandardOne-8B** (new to note) | none | unknown | H200 25.8 ms p50 at ~280 input tokens | no | [HF](https://huggingface.co/StandardThinking/StandardOne-8B) |
+| **kenning-large-v0.4** (0.4B, new) | none | unknown | RTX 3090 p50 34 ms general, 47–88 ms on its email and phishing suites | no | [HF](https://huggingface.co/systemonedev/kenning-large-v0.4), created 2026-10-03 |
+| **pplx-decider-v1-27b** (Perplexity, new) | hosted; weights need ~49 GiB on a CUDA GPU | unknown | "few hundred tokens: under 2 seconds"; 10 req/s per organisation | no | [docs](https://docs.perplexity.ai/docs/decisions/quickstart), [HF](https://huggingface.co/perplexity-ai/pplx-decider-v1-27b) |
+| **d1** (Liquid AI, new) | hosted only; no latency published | unknown | unknown | unknown | [docs](https://docs.liquid.ai/lfm/models/decision-models). OpenRouter "p50 0.50 s" is **UNVERIFIED** (snippet; page 404 to fetch). |
+| **Mercury Decide** (Inception, new) | hosted | unknown | "up to 14 decisions per second", p50 0.36 s — both **UNVERIFIED** | no (UNVERIFIED) | search snippets of [OpenRouter](https://openrouter.ai/inception/mercury-decide:free) (404 to fetch) and [AlphaSignal](https://alphasignal.ai/news/inception-releases-mercury-decide-to-make-ai-routing-14x-faster); [inceptionlabs.ai](https://www.inceptionlabs.ai/) home page does not mention it |
+| **OpenAI Decisions API** (new) | hosted, limited preview | unknown | unknown | unknown | **UNVERIFIED** throughout: [directory](https://systemonemodels.org/) and search summaries; OpenAI's [DevDay recap](https://openai.com/index/devday-2026-recap) returned 403 |
+
+**Judgment.** Nothing new reaches the per-event bar; Blink-tiny is still the only engine under 1 ms on a CPU core, and it has not changed. Three things moved inside the sampled tier:
+
+- The sampled-CPU tier now has a 26–28 ms p50 class (Quyet-1.0-Tiny, jevos-v4), against Julia-1's 90–295 ms on an i5. The hardware is not comparable (unnamed CPU; 16 threads), and Quyet-Tiny's p95 is 990 ms, 38 times its median. For a synchronous sampled rung the tail is the number that binds, and no project publishes p99.
+- Laya's only published figure on a 4-core server (decision 0004's shape) is 580 ms p50 for one question on the English checkpoint in fp32, and 10 questions cost 10× one, so there is no batching gain on CPU. Arithmetic, not a measurement: that is under 2 decisions/s for the whole box, more than an order of magnitude short of spike #2's pass shape (≥ 20 pairs/s per core). Whether ONNX INT8 closes that gap is exactly what the spike measures; the published evidence says not to expect it from fp32.
+- Julia-1's Banking77 median of 3.7 s on the i5 shows that latency scales with option count. The note's §7c already names long option lists as its weakness on accuracy; the same holds for speed.
+
+### New entrants since 2026-09-28
+
+Listed regardless of the latency bar. "New" = dated on or after 09-28; "new to note" = earlier but absent from the note.
+
+Vendor and lab launches:
+
+1. **Liquid AI d1** — released 2026-09-29 (**UNVERIFIED** date, via [directory](https://systemonemodels.org/) and press snippets). Primary [docs](https://docs.liquid.ai/lfm/models/decision-models), [guide](https://docs.liquid.ai/guides/decision-model-guide): model id `d1:free`, base URL `api.liquid.ai`, called through the TypeSafe SDK, Noul/Choice/Score, output tokens "always 0", no abstain documented. Size, weights, latency, calibration, rate limits: not published. [Vercel AI Gateway](https://vercel.com/ai-gateway/models/d1) lists $0.04/MTok input, 65,536 context.
+2. **OpenAI Decisions API** — announced at DevDay 2026-09-29, limited preview, built on GPT-6 Luna, Choice with 2–8 options and Score with 2–10 levels; endpoint, schema and price not published. All **UNVERIFIED** (directory and search summaries; the OpenAI page returned 403).
+3. **Inception Mercury Decide** — 2026-09-30, diffusion-LM based, free route on OpenRouter. All **UNVERIFIED** (see table).
+4. **Cloudflare Clef / Clef-flash** — 2026-10-01 (**UNVERIFIED** date, via directory). Primary HF cards: 27B on Qwen3.8-27B and 9B on Qwen3.5-9B, Apache-2.0, text/JSON/images/video, "one logit per allowed option for each question". Vendor benchmarks against Jev: BANKING77 macro-F1 94.2 vs 79.7, CLINC150+OOS 97.4 vs 89.3, BBH 73.7 vs 92.9 (Clef); GSM8K 67.3 vs 79.9 (flash). No ECE published; ForecastBench Brier "10.6" on the flash card. Served on Workers AI as `@cf/cloudflare/clef-flash`, 65,536 context ([docs](https://developers.cloudflare.com/workers-ai/models/clef-flash/)); the docs page does not state `/v1/systemone` compatibility.
+5. **Perplexity pplx-decider-v1-27b** — 2026-10-01 (**UNVERIFIED** date, via search summary). Primary docs and HF card: `POST api.perplexity.ai/v1/decisions` (its own endpoint), noul / choice 1–255 / score 1–10, under 262,144 input tokens, images; Qwen3.8-27B base, Apache-2.0. Vendor panel of 11 benchmarks: 85.71% vs Jev 84.51%; loses on JevBench public hard (70.30 vs 73.27). No calibration figures.
+6. **AWS Strands Decider 2B** — 2026-10-01. 1.9B on Qwen3.5-2B-Base, pointer head of about a million parameters plus rank-16 LoRA, Apache-2.0, `/v1/systemone`. JevBench public set: accuracy 0.723, Brier 0.342, ECE 0.052. Grew out of Marc Brooker's "Hobson", trained on a home RTX 3090 ([blog](https://brooker.co.za/blog/2026/09/28/engineering-system-one.html): p50 "just over 100ms", p95 "less than 300ms").
+
+Open weights and community:
+
+7. **Kev 1.0** — tag `kev-1.0`, 2026-09-30: four sizes released together (0.8B, 4B, 9B, 27B) with shipped temperatures 2.35 / 2.41 / 2.19 / 1.32 and Brier on new data 0.481 / 0.269 / 0.289 / 0.225 ([repo](https://github.com/jaredpalmer/kev)). ⚠️ Kev-4B's temperature reads **2.41** on both the repo and the HF card today; the 09-28 refresh recorded 2.14. I cannot tell from these pages whether the card changed back or the earlier reading was wrong. §7a rule 4 (persist the HF revision and the applied temperature) covers either case.
+8. **Quyet 1.0** — ncchinh, v1.0.0, submitted to JevBench 2026-10-04. Five models: Large 31.3B (Gemma-4-31B), Medium 4.66B (Qwen3.5-4B), Small 328M (SEA-LION-ModernBERT-300M), Small-EN 153M (ModernBERT-base), Tiny 183M (mmBERT-small). Apache-2.0 code and weights, `/v1/systemone` response shape, runs in process via `pip install quyet`, English plus Vietnamese ([repo](https://github.com/ncchinh/quyet)). Accuracy on 231 public JevBench items: 0.909 / 0.814 / 0.593 / 0.628 / 0.571. No ECE published.
+9. **jevos-v4** — feder-cr, MIT, about 1B (MiniCPM base), GGUF q4_k_m / q8_0 and an OpenVINO INT8 build, 8,192 context, `/v1/systemone`. Own held-out sets: 87.0% yes/no, 79.2% choice, 58.5% exact score. A search snippet describes an earlier build as Noul-only at ~54 ms (**UNVERIFIED**); the README fetched today covers all three types.
+10. **kenning-large-v0.4** — systemonedev, created 2026-10-03, Apache-2.0, 0.4B on a DeBERTa-v3-large zero-shot base, 512 tokens per state-answer pair, per-type temperatures shipped (1.16–1.22), ECE 0.025 and Brier 0.038 on its own held-out split; 0.290–0.535 accuracy on structured data (records, logs, tables), by its own card.
+11. **raz-systemone-nli** (xsmall 70.8M, base 0.2B, `-xsmall-openjev`) — RazvanManolache, updated about 2026-10-02, MIT, DeBERTa-v3-xsmall NLI base; holdout sets of 28–60 judgments only. No latency or ECE.
+12. **StandardOne-8B / -3B** — Standard Thinking, Apache-2.0, Ministral-3 base, `/v1/systemone`, 32,768 context, nine languages; JevBench public hard 56.76% vs Jev 72.07% by its own card. Release date not on the card.
+13. **Listed by an aggregator, pages not fetched (UNVERIFIED)**, from [aharshms/awesome-decision-models](https://github.com/aharshms/awesome-decision-models): Winnow 12B / E4B (Gemma 4), OneJev 0.8B–27B and PlayJev 0.8B (OmniJev), RSI-Jev 2B, jev-style 0.8B, WebJev 35B-A3B, Vev 4B / 9B (non-commercial), imajev-4b, NeoHorse-Jev-4B, WaterSheep, Tev1 0.8B, a 9B sibling of JEV-27B. Also `stephenlb/system-one-model` 12B on the [HF search](https://huggingface.co/models?search=systemone&sort=created), which now returns 43 repos (37 on 09-28).
+
+Hosted, launched before 09-28 but new to note (all **UNVERIFIED**, [directory](https://systemonemodels.org/) only): **meraGPT Decider 1** (2026-09-22, $0.03/MTok, 4,096-token request, no weights), **Upstage Solar Decide** (beta 2026-09-22, $0.1/MTok, 512K context), **Respan Span-01** (Noul-only classifier for agent traces, $0.02/MTok).
+
+Infrastructure:
+
+- **llama.cpp `/v1/systemone`** — PR #29818, announced 2026-10-02, reported merged, with five GGUFs (Julia-1, Laya, Kev-4B, lev, OpenJev) and RTX PRO 6000 medians of ~3 ms (Julia-1), ~5 ms (Laya), ~12 ms (Kev-4B). **UNVERIFIED**: third-party write-up only ([explainx](https://explainx.ai/blog/llama-cpp-decision-model-support-2026)); I did not reach the ggml-org post or the PR. **Judgment:** if confirmed, this is the cheapest sidecar for spike #2 and #4 (one server, the wire format the adapter already targets), and a GPU-only number.
+- **JevBench v1.4.2.2** ([repo](https://github.com/fstandhartinger/jevbench)) — 534 frozen decisions in four tiers, 91 systems ranked. Top five: Imajev-4B 67.37, Plumb-4B 65.84, decider-4b v2 64.13, Jev 1.13.0 63.29, JevK5 v0.2.0 62.04. Its latency column is measured from a Hetzner server in Germany, and self-hosted entries get "×2 plus 0.15 seconds", which the README calls an assumption. **Judgment:** do not read engine latency from that column. New to note; a second independent board beside the Decision Index.
+- **Decision Index** — still 0.2.1 (2026-09-27), 67 entrants ([README](https://github.com/apolinario/decision-index)). No change.
+
+`[no-record: new in-process or sub-millisecond CPU decision engine, 2026-09-28..10-05 searched=systemonemodels.org, sfmqrb/awesome-decision-models, mturac/awesome-jev-alternatives, aharshms/awesome-decision-models, HF models search "systemone" sorted by created, JevBench README and issue 188, web search (4 queries) instrument=WebSearch+WebFetch]` The same sources returned Blink and the CPU entrants above, so the instrument can produce a positive. Not covered: X, HN newest, and HF repos named without "systemone".
+
+### Pricing and licensing
+
+- **Jev:** price unchanged at $0.042/MTok input, output free, on both [TypeSafe](https://docs.typesafe.ai/models.md) and [Cloudflare](https://developers.cloudflare.com/ai/models/typesafe/jev/) (32,000 context, zero retention). Rate limit changed to 100K tok/s and 80 req/s, still "adjusting dynamically … can change without notice". Arithmetic on the note's §2a: unbatched, one event per request is now 80 events/s (was 20); at ~300 tokens per event the token limit caps at about 333 events/s. Still async, still under 1,000. `jev-latest` and `jev-preview` both point to `jev-1.13.0`; no 1.14. The models page as fetched today shows no latency sentence (the note cites 70–500 ms from it); the [directory](https://systemonemodels.org/) still lists 70–500 ms. I am not treating that as a withdrawal.
+- **Hosted price range is now $0–0.24/MTok:** Mercury Decide free (**UNVERIFIED**); meraGPT $0.03 (**UNVERIFIED**); d1 $0.04 (Vercel) with a `d1:free` id on Liquid's own API; pplx-decider $0.04, output free (primary); Jev $0.042; Clef-flash $0.09 (primary); Solar Decide $0.10 (**UNVERIFIED**); Clef $0.24 (**UNVERIFIED**, directory and press). The note's §5a floor of about $0.013 per 1,000 calls at 300 tokens is unchanged within rounding for the paid tier.
+- **Licences:** Clef, Clef-flash, pplx-decider, Strands Decider 2B, Quyet, kenning, StandardOne are Apache-2.0; jevos and raz-systemone are MIT. Non-commercial: Vev and the OpenJev weights (CC BY-NC 4.0), both **UNVERIFIED** via the aggregator.
+- **Julia-1 API:** still planned at $0.025/MTok, not launched; "Julia 2" named as in development ([page](https://supersoniclabs.ai/julia-1/)).
+
+### Deprecations and withdrawals
+
+None found. Not evidence of withdrawal: OpenRouter model pages (`typesafe/jev-1.13`, `liquid/d1`, `inception/mercury-decide`) return 404 to this fetch tool, as Kev's and Jev's did on 09-28; the pages appear in search results. Julia-1's site moved domains by redirect. Not re-checked this week: Rune v3 GGUF, GoldenMatch, `wm-conformal`, Tev1's experimental id.
+
+### Open items carried
+
+Kev-4B's temperature (2.41 vs 2.14); the llama.cpp PR and OpenAI's own Decisions API page (unreached); d1 and Mercury Decide latency (no primary figure); Quyet's CPU model and jevos per-core throughput; Laya INT8 on 4 cores; p99 for every engine in the table.
+
+**Judgment on the shortlist.** Same five, same order. Candidates for the #2 CPU basket once a figure on named hardware exists: Quyet-1.0-Tiny (same mmBERT-small base as Julia-1, Apache-2.0) and jevos-v4 (GGUF, MIT). I am not adding them on an unnamed CPU and a 16-thread run. Spike parameters that should move with this refresh, without changing the list: #3's "429 rate at 20 ev/s" should be tested at the new 80 req/s limit; #5 should pin Splink 5.0.0 or 4.0.17 explicitly; #4's pinned Kev revision should be the `kev-1.0` tag.
+
+Ranked shortlist: unchanged
